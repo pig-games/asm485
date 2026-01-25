@@ -3,7 +3,7 @@
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Parser};
 
@@ -177,7 +177,7 @@ pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
                     Vec::new(),
                 ));
             }
-            if !is_valid_hex_4(&go) {
+            if !is_valid_hex_4(go) {
                 return Err(AsmRunError::new(
                     AsmError::new(
                         AsmErrorKind::Cli,
@@ -225,7 +225,7 @@ pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
                     Vec::new(),
                 ));
             }
-            if !is_valid_hex_2(&fill) {
+            if !is_valid_hex_2(fill) {
                 return Err(AsmRunError::new(
                     AsmError::new(
                         AsmErrorKind::Cli,
@@ -236,7 +236,7 @@ pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
                     Vec::new(),
                 ));
             }
-            u8::from_str_radix(&fill, 16).unwrap_or(0xff)
+            u8::from_str_radix(fill, 16).unwrap_or(0xff)
         }
         None => 0xff,
     };
@@ -395,7 +395,7 @@ fn run_one(
                 src_lines.clone(),
             )
         })?;
-        if let Err(err) = assembler.image().write_hex_file(&mut hex_file, go_addr.as_deref()) {
+        if let Err(err) = assembler.image().write_hex_file(&mut hex_file, go_addr) {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
                 assembler.take_diagnostics(),
@@ -445,7 +445,7 @@ fn run_one(
     ))
 }
 
-fn input_base_from_path(path: &PathBuf) -> Result<(String, String), AsmRunError> {
+fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError> {
     let asm_name = path.to_string_lossy().to_string();
     let file_name = match path.file_name().and_then(|s| s.to_str()) {
         Some(name) => name,
