@@ -24,7 +24,15 @@ Release build:
 
 Compare Rust outputs with references:
 
-    scripts/compare_examples.sh
+    make reference-test
+
+Run the full test suite:
+
+    make test
+
+Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
+
+    make reference
 
 ## Usage
 Syntax is:
