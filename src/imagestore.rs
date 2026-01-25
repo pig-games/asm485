@@ -98,8 +98,9 @@ impl ImageStore {
         mut out: W,
         start_addr: u16,
         end_addr: u16,
+        fill: u8,
     ) -> io::Result<()> {
-        let mut mem = vec![0xffu8; 65536];
+        let mut mem = vec![fill; 65536];
         for entry in &self.entries {
             mem[entry.addr as usize] = entry.value;
         }
@@ -193,7 +194,7 @@ mod tests {
         image.store(0x0010, 0xaa);
         image.store(0x0012, 0xbb);
         let mut out = Vec::new();
-        image.write_bin_file(&mut out, 0x000f, 0x0013).unwrap();
+        image.write_bin_file(&mut out, 0x000f, 0x0013, 0xff).unwrap();
         assert_eq!(out.len(), 5);
         assert_eq!(out, vec![0xff, 0xaa, 0xff, 0xbb, 0xff]);
     }

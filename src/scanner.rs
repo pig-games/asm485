@@ -64,6 +64,7 @@ pub struct Token {
     pub len: usize,
     pub bytes: Vec<u8>,
     pub text: String,
+    pub start: usize,
 }
 
 impl Token {
@@ -74,6 +75,7 @@ impl Token {
             len: 0,
             bytes: Vec::new(),
             text: String::new(),
+            start: 0,
         }
     }
 }
@@ -103,6 +105,7 @@ impl Scanner {
         self.token.kind = TokenType::Identifier;
         self.token.value = TokenValue::None as i32;
         self.token.len = 0;
+        self.token.start = 0;
 
         self.line = [0u8; BUFFER_SIZE];
         let bytes = line.as_bytes();
@@ -157,6 +160,7 @@ impl Scanner {
         }
 
         self.skip_white();
+        let start_cursor = self.cursor;
         let c = self.current_byte();
         if is_alpha(c) || c == b'_' {
             self.scan_identifier();
@@ -167,6 +171,7 @@ impl Scanner {
         } else {
             let mut twochar = false;
             self.token.value = 0;
+            self.token.start = start_cursor;
             match c {
                 b';' | b'\0' => self.token.kind = TokenType::Eof,
                 b',' => self.token.kind = TokenType::Comma,
@@ -303,12 +308,17 @@ impl Scanner {
         &self.token
     }
 
+    pub fn token_start(&self) -> usize {
+        self.token.start
+    }
+
     pub fn get_error_msg(&self) -> &str {
         &self.error_msg
     }
 
     fn scan_identifier(&mut self) -> TokenType {
         self.token.bytes.clear();
+        self.token.start = self.cursor;
         while is_ident_char(self.current_byte()) && self.token.bytes.len() < BUFFER_SIZE - 1 {
             self.token.bytes.push(self.current_byte());
             self.cursor = self.cursor.saturating_add(1);
@@ -438,6 +448,7 @@ impl Scanner {
 
     fn scan_constant(&mut self) -> TokenType {
         self.token.bytes.clear();
+        self.token.start = self.cursor;
         while is_alnum(self.current_byte()) && self.token.bytes.len() < BUFFER_SIZE - 1 {
             self.token.bytes.push(self.current_byte());
             self.cursor = self.cursor.saturating_add(1);
@@ -513,6 +524,7 @@ impl Scanner {
 
         let quote = self.current_byte();
         let start_cursor = self.cursor;
+        self.token.start = start_cursor;
         self.cursor = self.cursor.saturating_add(1);
         let mut escape = false;
 

@@ -9,17 +9,57 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct PreprocessError {
     message: String,
+    line: Option<u32>,
+    column: Option<usize>,
+    source: Option<String>,
+    file: Option<String>,
 }
 
 impl PreprocessError {
     fn new(msg: impl Into<String>) -> Self {
         Self {
             message: msg.into(),
+            line: None,
+            column: None,
+            source: None,
+            file: None,
         }
     }
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    pub fn line(&self) -> Option<u32> {
+        self.line
+    }
+
+    pub fn column(&self) -> Option<usize> {
+        self.column
+    }
+
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
+    pub fn file(&self) -> Option<&str> {
+        self.file.as_deref()
+    }
+
+    fn with_context(
+        mut self,
+        line: u32,
+        column: Option<usize>,
+        source: &str,
+        file: Option<&str>,
+    ) -> Self {
+        if self.line.is_none() {
+            self.line = Some(line);
+            self.column = column;
+            self.source = Some(source.to_string());
+            self.file = file.map(|f| f.to_string());
+        }
+        self
     }
 }
 
@@ -413,6 +453,7 @@ impl Preprocessor {
         let base_dir = dirname(path);
         let mut reader = io::BufReader::new(file);
         let mut line = String::new();
+        let mut line_num: u32 = 0;
         loop {
             line.clear();
             let read = match reader.read_line(&mut line) {
@@ -426,6 +467,7 @@ impl Preprocessor {
             if read == 0 {
                 break;
             }
+            line_num = line_num.saturating_add(1);
             if line.ends_with('\n') {
                 line.pop();
                 if line.ends_with('\r') {
@@ -434,12 +476,18 @@ impl Preprocessor {
             } else if line.ends_with('\r') {
                 line.pop();
             }
-            self.process_line(&line, &base_dir)?;
+            self.process_line(&line, &base_dir, line_num, path)?;
         }
         Ok(())
     }
 
-    fn process_line(&mut self, line: &str, base_dir: &str) -> Result<(), PreprocessError> {
+    fn process_line(
+        &mut self,
+        line: &str,
+        base_dir: &str,
+        line_num: u32,
+        file_path: &str,
+    ) -> Result<(), PreprocessError> {
         let (code, _comment) = split_comment(line);
         let trimmed = ltrim(&code);
         let expander = MacroExpander::new(&self.macros);
@@ -451,6 +499,7 @@ impl Preprocessor {
         }
 
         let is_hash_directive = trimmed.starts_with('#');
+        let leading = code.len().saturating_sub(trimmed.len());
 
         let mut pos = 0usize;
         let bytes = trimmed.as_bytes();
@@ -466,6 +515,7 @@ impl Preprocessor {
         }
         let token = to_upper(&trimmed[start..pos]);
         let rest = trim(&trimmed[pos..]);
+        let column = leading.saturating_add(start).saturating_add(1);
 
         let is_else_directive = token == "ELSE" || token == "ELSEIF" || token == "ENDIF";
         if is_hash_directive
@@ -475,7 +525,9 @@ impl Preprocessor {
                 || token == "INCLUDE"
                 || is_else_directive)
         {
-            return self.handle_directive(&token, &rest, base_dir);
+            return self
+                .handle_directive(&token, &rest, base_dir)
+                .map_err(|err| err.with_context(line_num, Some(column), line, Some(file_path)));
         }
 
         if !self.is_active() {

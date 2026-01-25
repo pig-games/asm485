@@ -50,6 +50,7 @@ Options:
                                  Produces <base>-ssss.bin and fills missing bytes with FF.
     -g, --go <aaaa>              Set execution start address (4 hex digits). Adds a Start
                                  Segment Address record to the hex output.
+    -f, --fill <hh>              Fill byte for -b output (2 hex digits). Defaults to FF.
     -D, --define <NAME[=VAL]>    Predefine a macro (repeatable). If VAL is omitted, it
                                  defaults to 1.
     -c, --cond-debug             Append conditional state to listing lines.

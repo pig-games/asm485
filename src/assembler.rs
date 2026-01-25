@@ -1,7 +1,7 @@
 // Assembler core pipeline and listing/output generation.
 
 use std::fmt;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -21,6 +21,8 @@ const VERSION: &str = "1.0";
 struct Cli {
     #[arg(short = 'b', long = "bin", value_name = "ssss:eeee", action = ArgAction::Append)]
     bin_ranges: Vec<String>,
+    #[arg(short = 'f', long = "fill", value_name = "hh")]
+    fill_byte: Option<String>,
     #[arg(short = 'g', long = "go", value_name = "aaaa")]
     go_addr: Option<String>,
     #[arg(short = 'c', long = "cond-debug", action = ArgAction::SetTrue)]
@@ -41,12 +43,14 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Cli, "Invalid input file name", None),
                 Vec::new(),
+                Vec::new(),
             ))
         }
     };
     if !file_name.ends_with(".asm") {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Cli, "Input file must end with .asm", None),
+            Vec::new(),
             Vec::new(),
         ));
     }
@@ -61,6 +65,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
                         "Invalid -g/--go address; must be 4 hex digits",
                         None,
                     ),
+                    Vec::new(),
                     Vec::new(),
                 ));
             }
@@ -79,6 +84,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
                     None,
                 ),
                 Vec::new(),
+                Vec::new(),
             ));
         }
         let start_str = range[..4].to_string();
@@ -87,6 +93,24 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
         let end = u16::from_str_radix(&end_str, 16).unwrap_or(0);
         bin_ranges.push((start_str, start, end));
     }
+
+    let fill_byte = match cli.fill_byte {
+        Some(fill) => {
+            if !is_valid_hex_2(&fill) {
+                return Err(AsmRunError::new(
+                    AsmError::new(
+                        AsmErrorKind::Cli,
+                        "Invalid -f/--fill byte; must be 2 hex digits",
+                        None,
+                    ),
+                    Vec::new(),
+                    Vec::new(),
+                ));
+            }
+            u8::from_str_radix(&fill, 16).unwrap_or(0xff)
+        }
+        None => 0xff,
+    };
 
     let list_name = format!("{base}.lst");
     let hex_name = format!("{base}.hex");
@@ -101,6 +125,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
                     Some(&list_name),
                 ),
                 Vec::new(),
+                Vec::new(),
             ))
         }
     };
@@ -113,6 +138,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
                     "Error opening file for write",
                     Some(&hex_name),
                 ),
+                Vec::new(),
                 Vec::new(),
             ))
         }
@@ -127,10 +153,26 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
         }
     }
     if let Err(err) = pp.process_file(&asm_name) {
-        return Err(AsmRunError::new(
-            AsmError::new(AsmErrorKind::Preprocess, err.message(), None),
-            Vec::new(),
-        ));
+        let err_msg = AsmError::new(AsmErrorKind::Preprocess, err.message(), None);
+        let mut diagnostics = Vec::new();
+        let mut source_lines = Vec::new();
+        if let (Some(line), Some(file)) = (err.line(), err.file()) {
+            if let Ok(contents) = fs::read_to_string(file) {
+                source_lines = contents.lines().map(|s| s.to_string()).collect();
+            }
+            let source_override = if source_lines.is_empty() {
+                err.source().map(|s| s.to_string())
+            } else {
+                None
+            };
+            diagnostics.push(
+                Diagnostic::new(line, Severity::Error, err_msg.clone())
+                    .with_column(err.column())
+                    .with_file(Some(file.to_string()))
+                    .with_source(source_override),
+            );
+        }
+        return Err(AsmRunError::new(err_msg, diagnostics, source_lines));
     }
     let src_lines: Vec<String> = pp.lines().to_vec();
 
@@ -145,6 +187,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
                 None,
             ),
             assembler.take_diagnostics(),
+            src_lines.clone(),
         ));
     }
 
@@ -153,6 +196,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
             assembler.take_diagnostics(),
+            src_lines.clone(),
         ));
     }
     let pass2 = match assembler.pass2(&src_lines, &mut listing) {
@@ -161,6 +205,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
                 assembler.take_diagnostics(),
+                src_lines.clone(),
             ))
         }
     };
@@ -168,6 +213,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
             assembler.take_diagnostics(),
+            src_lines.clone(),
         ));
     }
 
@@ -175,6 +221,7 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
             assembler.take_diagnostics(),
+            src_lines.clone(),
         ));
     }
 
@@ -190,22 +237,32 @@ pub fn run() -> Result<AsmRunReport, AsmRunError> {
                         Some(&bin_name),
                     ),
                     assembler.take_diagnostics(),
+                    src_lines.clone(),
                 ))
             }
         };
-        if let Err(err) = assembler.image().write_bin_file(&mut bin_file, start, end) {
+        if let Err(err) = assembler.image().write_bin_file(&mut bin_file, start, end, fill_byte)
+        {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
                 assembler.take_diagnostics(),
+                src_lines.clone(),
             ));
         }
     }
 
-    Ok(AsmRunReport::new(assembler.take_diagnostics()))
+    Ok(AsmRunReport::new(
+        assembler.take_diagnostics(),
+        src_lines,
+    ))
 }
 
 fn is_valid_hex_4(s: &str) -> bool {
     s.len() == 4 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn is_valid_hex_2(s: &str) -> bool {
+    s.len() == 2 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn is_valid_bin_range(s: &str) -> bool {
@@ -288,17 +345,38 @@ enum Severity {
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     line: u32,
+    column: Option<usize>,
     severity: Severity,
     error: AsmError,
+    file: Option<String>,
+    source: Option<String>,
 }
 
 impl Diagnostic {
     fn new(line: u32, severity: Severity, error: AsmError) -> Self {
         Self {
             line,
+            column: None,
             severity,
             error,
+            file: None,
+            source: None,
         }
+    }
+
+    fn with_column(mut self, column: Option<usize>) -> Self {
+        self.column = column;
+        self
+    }
+
+    fn with_file(mut self, file: Option<String>) -> Self {
+        self.file = file;
+        self
+    }
+
+    fn with_source(mut self, source: Option<String>) -> Self {
+        self.source = source;
+        self
     }
 
     pub fn format(&self) -> String {
@@ -308,19 +386,50 @@ impl Diagnostic {
         };
         format!("{}: {} - {}", self.line, sev, self.error.message())
     }
+
+    pub fn format_with_context(&self, lines: Option<&[String]>, use_color: bool) -> String {
+        let sev = match self.severity {
+            Severity::Warning => "WARNING",
+            Severity::Error => "ERROR",
+        };
+        let header = match &self.file {
+            Some(file) => format!("{file}:{}: {sev}", self.line),
+            None => format!("{}: {sev}", self.line),
+        };
+
+        let mut out = String::new();
+        out.push_str(&header);
+        out.push('\n');
+
+        let context = build_context_lines(self.line, self.column, lines, self.source.as_deref(), use_color);
+        for line in context {
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out.push_str(&format!("{sev}: {}", self.error.message()));
+        out
+    }
 }
 
 pub struct AsmRunReport {
     diagnostics: Vec<Diagnostic>,
+    source_lines: Vec<String>,
 }
 
 impl AsmRunReport {
-    fn new(diagnostics: Vec<Diagnostic>) -> Self {
-        Self { diagnostics }
+    fn new(diagnostics: Vec<Diagnostic>, source_lines: Vec<String>) -> Self {
+        Self {
+            diagnostics,
+            source_lines,
+        }
     }
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    pub fn source_lines(&self) -> &[String] {
+        &self.source_lines
     }
 
     pub fn error_count(&self) -> usize {
@@ -342,15 +451,24 @@ impl AsmRunReport {
 pub struct AsmRunError {
     error: AsmError,
     diagnostics: Vec<Diagnostic>,
+    source_lines: Vec<String>,
 }
 
 impl AsmRunError {
-    fn new(error: AsmError, diagnostics: Vec<Diagnostic>) -> Self {
-        Self { error, diagnostics }
+    fn new(error: AsmError, diagnostics: Vec<Diagnostic>, source_lines: Vec<String>) -> Self {
+        Self {
+            error,
+            diagnostics,
+            source_lines,
+        }
     }
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    pub fn source_lines(&self) -> &[String] {
+        &self.source_lines
     }
 }
 
@@ -405,7 +523,10 @@ impl Assembler {
             let status = asm_line.process(src, line_num, addr, 1);
             if status == LineStatus::Pass1Error {
                 if let Some(err) = asm_line.error() {
-                    diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
+                    diagnostics.push(
+                        Diagnostic::new(line_num, Severity::Error, err.clone())
+                            .with_column(asm_line.error_column()),
+                    );
                 }
                 counts.errors += 1;
             } else if status == LineStatus::DirDs {
@@ -469,15 +590,33 @@ impl Assembler {
             match status {
                 LineStatus::Error => {
                     if let Some(err) = asm_line.error() {
-                        diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-                        listing.write_message("ERROR", err.message())?;
+                        diagnostics.push(
+                            Diagnostic::new(line_num, Severity::Error, err.clone())
+                                .with_column(asm_line.error_column()),
+                        );
+                        listing.write_diagnostic(
+                            "ERROR",
+                            err.message(),
+                            line_num,
+                            asm_line.error_column(),
+                            lines,
+                        )?;
                     }
                     counts.errors += 1;
                 }
                 LineStatus::Warning => {
                     if let Some(err) = asm_line.error() {
-                        diagnostics.push(Diagnostic::new(line_num, Severity::Warning, err.clone()));
-                        listing.write_message("WARNING", err.message())?;
+                        diagnostics.push(
+                            Diagnostic::new(line_num, Severity::Warning, err.clone())
+                                .with_column(asm_line.error_column()),
+                        );
+                        listing.write_diagnostic(
+                            "WARNING",
+                            err.message(),
+                            line_num,
+                            asm_line.error_column(),
+                            lines,
+                        )?;
                     }
                     counts.warnings += 1;
                 }
@@ -495,7 +634,7 @@ impl Assembler {
         if !asm_line.cond_is_empty() {
             let err = AsmError::new(AsmErrorKind::Conditional, "Found IF without ENDIF", None);
             diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-            listing.write_message("ERROR", err.message())?;
+            listing.write_diagnostic("ERROR", err.message(), line_num, None, lines)?;
             asm_line.clear_conditionals();
             counts.errors += 1;
         }
@@ -559,8 +698,19 @@ impl<W: Write> ListingWriter<W> {
         )
     }
 
-    fn write_message(&mut self, kind: &str, msg: &str) -> std::io::Result<()> {
-        writeln!(self.out, "  {kind}: {msg}")
+    fn write_diagnostic(
+        &mut self,
+        kind: &str,
+        msg: &str,
+        line_num: u32,
+        column: Option<usize>,
+        source_lines: &[String],
+    ) -> std::io::Result<()> {
+        let context = build_context_lines(line_num, column, Some(source_lines), None, true);
+        for line in context {
+            writeln!(self.out, "{line}")?;
+        }
+        writeln!(self.out, "{kind}: {msg}")
     }
 
     fn footer(
@@ -587,6 +737,64 @@ fn format_bytes(bytes: &[u8]) -> String {
         .map(|b| format!("{:02X}", b))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn build_context_lines(
+    line_num: u32,
+    column: Option<usize>,
+    lines: Option<&[String]>,
+    source_override: Option<&str>,
+    use_color: bool,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let line_idx = line_num.saturating_sub(1) as usize;
+
+    if let Some(source) = source_override {
+        let highlighted = highlight_line(source, column, use_color);
+        out.push(format!("{:>5} | {}", line_num, highlighted));
+        return out;
+    }
+
+    let lines = match lines {
+        Some(lines) if !lines.is_empty() => lines,
+        _ => {
+            out.push(format!("{:>5} | <source unavailable>", line_num));
+            return out;
+        }
+    };
+
+    if line_idx >= lines.len() {
+        out.push(format!("{:>5} | <source unavailable>", line_num));
+        return out;
+    }
+
+    let line = &lines[line_idx];
+    let display = highlight_line(line, column, use_color);
+    out.push(format!("{:>5} | {}", line_num, display));
+
+    out
+}
+
+fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> String {
+    let col = match column {
+        Some(c) if c > 0 => c,
+        _ => return line.to_string(),
+    };
+    let idx = col - 1;
+    if idx >= line.len() {
+        if use_color {
+            return format!("{line}\x1b[31m^\x1b[0m");
+        }
+        return format!("{line}^");
+    }
+    let (head, tail) = line.split_at(idx);
+    let ch = tail.chars().next().unwrap_or(' ');
+    let rest = &tail[ch.len_utf8()..];
+    if use_color {
+        format!("{head}\x1b[31m{ch}\x1b[0m{rest}")
+    } else {
+        format!("{head}{ch}{rest}")
+    }
 }
 
 fn format_cond(ctx: &ConditionalContext) -> String {
@@ -675,6 +883,7 @@ struct AsmLine<'a> {
     symbols: &'a mut SymbolTable,
     cond_stack: ConditionalStack,
     last_error: Option<AsmError>,
+    last_error_column: Option<usize>,
     bytes: Vec<u8>,
     start_addr: u16,
     aux_value: u16,
@@ -691,6 +900,7 @@ impl<'a> AsmLine<'a> {
             symbols,
             cond_stack: ConditionalStack::new(),
             last_error: None,
+            last_error_column: None,
             bytes: Vec::with_capacity(256),
             start_addr: 0,
             aux_value: 0,
@@ -704,6 +914,10 @@ impl<'a> AsmLine<'a> {
 
     fn error(&self) -> Option<&AsmError> {
         self.last_error.as_ref()
+    }
+
+    fn error_column(&self) -> Option<usize> {
+        self.last_error_column
     }
 
     #[cfg(test)]
@@ -764,6 +978,7 @@ impl<'a> AsmLine<'a> {
         pass: u8,
     ) -> LineStatus {
         self.last_error = None;
+        self.last_error_column = None;
         self.start_addr = addr;
         self.pass = pass;
         self.bytes.clear();
@@ -801,11 +1016,12 @@ impl<'a> AsmLine<'a> {
                     self.symbols.update(&label, self.start_addr as u32)
                 };
                 if res == crate::symbol_table::SymbolTableResult::Duplicate {
-                    return self.failure(
+                    return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Symbol,
                         "Symbol defined more than once",
                         Some(&label),
+                        Some(1),
                     );
                 }
             }
@@ -832,11 +1048,12 @@ impl<'a> AsmLine<'a> {
         if status == LineStatus::NothingDone {
             if self.label_kind == TokenValue::Name as i32 {
                 let label = self.label.clone().unwrap_or_default();
-                return self.failure(
+                return self.failure_at(
                     LineStatus::Error,
                     AsmErrorKind::Assembler,
                     "Expecting label, comment, or space n column 1, found",
                     Some(&label),
+                    Some(1),
                 );
             }
             if self.mnemonic.is_some() {
@@ -864,7 +1081,20 @@ impl<'a> AsmLine<'a> {
         msg: &str,
         param: Option<&str>,
     ) -> LineStatus {
+        let column = self.scanner.token_start().saturating_add(1);
+        self.failure_at(status, kind, msg, param, Some(column))
+    }
+
+    fn failure_at(
+        &mut self,
+        status: LineStatus,
+        kind: AsmErrorKind,
+        msg: &str,
+        param: Option<&str>,
+        column: Option<usize>,
+    ) -> LineStatus {
         self.last_error = Some(AsmError::new(kind, msg, param));
+        self.last_error_column = column;
         status
     }
 
@@ -992,19 +1222,21 @@ impl<'a> AsmLine<'a> {
             }
             "EQU" | "SET" => {
                 if self.label.is_none() {
-                    return self.failure(
+                    return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
                         "Must specify name before EQU or SET",
                         None,
+                        Some(1),
                     );
                 }
                 if self.label_kind != TokenValue::Name as i32 {
-                    return self.failure(
+                    return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
                         "EQU or SET name should not end in ':'",
                         None,
+                        Some(1),
                     );
                 }
                 let is_rw = upper == "SET";
@@ -1021,18 +1253,20 @@ impl<'a> AsmLine<'a> {
                     self.symbols.update(&label, val)
                 };
                 if res == crate::symbol_table::SymbolTableResult::Duplicate {
-                    return self.failure(
+                    return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Symbol,
                         "symbol has already been defined",
                         Some(&label),
+                        Some(1),
                     );
                 } else if res == crate::symbol_table::SymbolTableResult::TableFull {
-                    return self.failure(
+                    return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Symbol,
                         "could not add symbol, table full",
                         Some(&label),
+                        Some(1),
                     );
                 }
                 self.aux_value = val as u16;
