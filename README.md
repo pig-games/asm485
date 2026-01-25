@@ -3,7 +3,7 @@ Intel 8085 Assembler with expressions, directives, and preprocessor macros.
 
 This is an assembler for Intel 8080 and 8085 processors. It is based on a fork of [**asm85** by Tom Nisbet](https://github.com/eriktier/asm85).
 
-It produces an Intel Hex format object file as output.  A separate list file is also created that contains all of the assembled data and opcodes as well as a symbol table.  One or more binary image files can also be created.
+It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
 
 Important features of this assembler include expression evaluation for constants and string initialization for data. It supports assembler directives ORG, EQU, DB, DW, DS, END, and CPU, plus preprocessor directives #DEFINE, #IFDEF, #IFNDEF, #ELSE, #ELSEIF, #ENDIF, and #INCLUDE. Preprocessor directives require a leading `#`; assembler conditionals use `IF/ELSE/ELSEIF/ENDIF` without `#`.
 
@@ -37,19 +37,27 @@ Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 ## Usage
 Syntax is:
 
-    asm485 [OPTIONS] <FILE>
+    asm485 [OPTIONS]
 
 Arguments:
-    FILE                         Input assembly file. Must end with .asm. Output files
-                                 are written to the current working directory using the
-                                 input filename base (e.g., prog.asm -> prog.lst/prog.hex).
+    -i, --infile <FILE>          Input assembly file (repeatable). Must end with .asm.
 
 Options:
-    -b, --bin <ssss:eeee>        Emit a binary image file for an address range (repeatable).
-                                 Each range is 4 hex digits for start/end (e.g., 7eff:7fff).
-                                 Produces <base>-ssss.bin and fills missing bytes with FF.
+    -l, --list [FILE]            Emit a listing file. FILE is optional; when omitted, the
+                                 output base is used and a .lst extension is added.
+    -x, --hex [FILE]             Emit an Intel Hex file. FILE is optional; when omitted,
+                                 the output base is used and a .hex extension is added.
+    -o, --outfile <BASE>         Output filename base when -l/-x are used without a filename.
+                                 Also used for -b outputs that omit a filename. Defaults to the
+                                 input filename base.
+    -b, --bin [FILE:ssss:eeee|ssss:eeee]
+                                 Emit a binary image file (repeatable). A range is required.
+                                 Use ssss:eeee to use the output base, or FILE:ssss:eeee to
+                                 override the filename. If FILE has no extension, .bin is added.
+                                 If multiple -b ranges are provided without filenames, each file
+                                 is named <base>-ssss.bin to avoid collisions.
     -g, --go <aaaa>              Set execution start address (4 hex digits). Adds a Start
-                                 Segment Address record to the hex output.
+                                 Segment Address record to the hex output. Requires -x/--hex.
     -f, --fill <hh>              Fill byte for -b output (2 hex digits). Defaults to FF.
     -D, --define <NAME[=VAL]>    Predefine a macro (repeatable). If VAL is omitted, it
                                  defaults to 1.
@@ -57,22 +65,30 @@ Options:
     -h, --help                   Print help.
     -V, --version                Print version.
 
-The `-b` option creates one or more binary image files. The `ssss` and `eeee` arguments are hexadecimal start and end addresses, respectively, and must be 4 hex digits, using leading zeroes if the address is less than `0x1000`.
+At least one output option (`-l`, `-x`, or `-b`) is required.
 
 The `-g` option adds a Start Segment Address record to the output hex file. Some loaders may use this to start execution when the download is complete.
 
-If `test.asm` is specified as the input, new files `test.lst` and `test.hex` will be created for the listing and hex records.
+If `test.asm` is specified as the input with `-i` and `-l`/`-x` are used without filenames (and `-o` is not used), the outputs will be named `test.lst` and `test.hex`. Bytes not present in the assembly source are initialized to `FF` in binary image files.
 
-If one or more `-b` options are specified, the output files will be named `test-ssss.bin` for each address range. Bytes not present in the assembly source will be initialized to `FF` in the binary image files.
+When multiple inputs are provided, `-o` must be a directory and explicit output filenames are not allowed; each input uses its own base name under the output directory.
 
 ### Examples
-    asm485 test02.asm
+    asm485 -l -x -i test02.asm
 creates test02.lst and test02.hex.
 
-
-    asm485 -b 7eff:7fff -b f000:ffff prog.asm
+    asm485 -l -x -b 7eff:7fff -b f000:ffff -i prog.asm
 creates:
 * The assembler listing in prog.lst
 * The hex records in prog.hex
 * A 512 byte binary image file prog-7eff.bin
 * A 4096 byte binary image file prog-f000.bin
+
+    asm485 -o build/out -l -x -i prog.asm
+creates:
+* The assembler listing in build/out.lst
+* The hex records in build/out.hex
+
+    asm485 -b out.bin:8000:8fff -i prog.asm
+creates:
+* A 4096 byte binary image file out.bin

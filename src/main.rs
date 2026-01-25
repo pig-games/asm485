@@ -2,12 +2,14 @@
 fn main() {
     let use_color = std::env::var("NO_COLOR").is_err();
     match asm485::assembler::run() {
-        Ok(report) => {
-            for diag in report.diagnostics() {
-                eprintln!(
-                    "{}",
-                    diag.format_with_context(Some(report.source_lines()), use_color)
-                );
+        Ok(reports) => {
+            for report in reports {
+                for diag in report.diagnostics() {
+                    eprintln!(
+                        "{}",
+                        diag.format_with_context(Some(report.source_lines()), use_color)
+                    );
+                }
             }
         }
         Err(err) => {
