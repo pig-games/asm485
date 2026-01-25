@@ -1,0 +1,33 @@
+# Build artifacts
+/bin/
+/build/
+/target/
+/src/asm85
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.out
+*.d
+
+# Assembler outputs
+*.lst
+*.hex
+*.bin
+
+# Docs (generated)
+/docs/
+
+# macOS filesystem noise
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
