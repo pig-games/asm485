@@ -1,26 +1,11 @@
 # asm485
 Intel 8085 Assembler with expressions, directives, and preprocessor macros.
 
-This is an assembler for Intel 8080 and 8085 processors. It is based on a fork of [**asm85** by Tom Nisbet](https://github.com/eriktier/asm85).
-
+This is an assembler for Intel 8080 and 8085 processors. It was originally based on a fork of [**asm85** by Tom Nisbet](https://github.com/eriktier/asm85).
+It is now more inspired by 64tass in terms of features and notational style.
 It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
 
-Important features of this assembler include expression evaluation for constants and string initialization for data. It supports assembler directives .org, .const, .var (with .set as an alias), .byte, .word, .ds, .end, .cpu, macro directives .macro/.endmacro, and scope directives .block/.endblock. You can also set the program counter with `* = expr`. Preprocessor directives are .IFDEF, .IFNDEF, .ELSE, .ELSEIF, .ENDIF, and .INCLUDE. Assembler conditionals use `.if/.elseif/.else/.endif` and `.switch/.case/.default/.endswitch` (expression-based). Preprocessor directives use a leading `.`; `#` is reserved for macro invocation. Preprocessor symbols are provided via the `-D/--define` option.
-
-Expression syntax follows a 64tass-style operator set: `+ - * / % ** << >> == != <> < <= > >= & ^ | && ^^ || ! ~` plus unary `<`/`>` for low/high byte and ternary `?:`. Non-zero values are TRUE; logical operators return `1` or `0`.
-Scopes are introduced with `.block`/`.endblock`. A label before `.block` names the scope, and scoped symbols can be referenced with `scope.symbol`. Unqualified symbols resolve from the innermost scope out to global.
-
-Macros are defined with `name .macro [params]` and closed with `.endmacro` (or `.endm`). Invoke macros with `#name` or `.name`. Parameter references use `\\1`..`\\9`, named params via `\\name` (or `\\{name}`), full list via `\\@`, and text refs via `@1`..`@9`. `.segment`/`.endsegment` defines a macro that expands inline without an implicit `.block`/`.endblock`.
-
-This is a two-pass assembler.  The first pass creates the symbol table and the second produces the output files.
-
-Symbol assignment (colon optional):
-    WIDTH = 40          ; read-only constant (like .const)
-    var1 := 1           ; read/write variable (like .var)
-    var2 :?= 5          ; assign only if undefined
-    var1 += 1           ; compound assignment (add)
-
-Compound assignment operators: `+= -= *= /= %= **= |= ^= &= ||= &&= <<= >>= ..= <?= >?= x= .=`
+For all documentation on features and syntax read: [asm485 Reference Manual](docs/asm485-reference-manual.md).
 
 Build:
 
@@ -57,13 +42,17 @@ Syntax is:
     asm485 [OPTIONS]
 
 Arguments:
+
     -i, --infile <FILE>          Input assembly file (repeatable). Must end with .asm.
 
 Options:
+
     -l, --list [FILE]            Emit a listing file. FILE is optional; when omitted, the
                                  output base is used and a .lst extension is added.
+                                 
     -x, --hex [FILE]             Emit an Intel Hex file. FILE is optional; when omitted,
                                  the output base is used and a .hex extension is added.
+                                 
     -o, --outfile <BASE>         Output filename base when -l/-x are used without a filename.
                                  Also used for -b outputs that omit a filename. Defaults to the
                                  input filename base.
