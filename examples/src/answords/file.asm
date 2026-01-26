@@ -32,10 +32,10 @@
 ; ----------------------------------------------------------------------
 ; I/O Result Codes
 ;
-IOROK .const    0           ; No error.
-IORFNF .const    1           ; File not found or invalid filename (>6 chars)
-IORRDONLY .const    2           ; Files cannot be opened R/W.
-IORBADFILEID .const   3           ; Bad fileid.
+iorok =    0           ; No error.
+iorfnf =    1           ; File not found or invalid filename (>6 chars)
+iorrdonly =    2           ; Files cannot be opened R/W.
+iorbadfileid =   3           ; Bad fileid.
 
 
 
@@ -53,8 +53,8 @@ IORBADFILEID .const   3           ; Bad fileid.
 ; ---
 ; No-op in MFORTH as files are not opened in any specific mode.
 
-            LINKTO(LINK_FILE,0,3,'N',"IB")
-BIN:        NEXT
+            .linkTo link_file,0,3,'N',"IB"
+bin .next
 
 
 ; ----------------------------------------------------------------------
@@ -68,10 +68,10 @@ BIN:        NEXT
 ;   FILEID>FCB? ?DUP IF EXIT THEN
 ;   FCBADDR +  0 SWAP !  IOROK ;
 
-            LINKTO(BIN,0,10,'E',"LIF-ESOLC")
-CLOSEFILE:  JMP     ENTER
-            .word   FILEIDTOFCBQ,QDUP,zbranch,_closefile1,EXIT
-_closefile1: .word   LIT,FCBADDR,PLUS,ZERO,SWAP,STORE,LIT,IOROK,EXIT
+            .linkTo bin,0,10,'E',"LIF-ESOLC"
+closefile JMP     enter
+            .word   fileidtofcbq,qdup,zbranch,_closefile1,exit
+_closefile1 .word   lit,fcbaddr,plus,zero,swap,store,lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -91,9 +91,9 @@ _closefile1: .word   LIT,FCBADDR,PLUS,ZERO,SWAP,STORE,LIT,IOROK,EXIT
 ; ---
 ; Always fails in MFORTH as the file system is read-only.
 
-            LINKTO(CLOSEFILE,0,11,'E',"LIF-ETAERC")
-CREATEFILE: JMP     ENTER
-            .word   DROP,TWODROP,ZERO,LIT,IORRDONLY,EXIT
+            .linkTo closefile,0,11,'E',"LIF-ETAERC"
+createfile JMP     enter
+            .word   drop,twodrop,zero,lit,iorrdonly,exit
 
 
 ; ----------------------------------------------------------------------
@@ -105,9 +105,9 @@ CREATEFILE: JMP     ENTER
 ; ---
 ; Always fails in MFORTH as the file system is read-only.
 
-            LINKTO(CREATEFILE,0,11,'E',"LIF-ETELED")
-DELETEFILE: JMP     ENTER
-            .word   TWODROP,LIT,IORRDONLY,EXIT
+            .linkTo createfile,0,11,'E',"LIF-ETELED"
+deletefile JMP     enter
+            .word   twodrop,lit,iorrdonly,exit
 
 
 ; ----------------------------------------------------------------------
@@ -122,11 +122,11 @@ DELETEFILE: JMP     ENTER
 ;   FILEID>FCB? ?DUP IF 0 SWAP EXIT THEN
 ;   DUP FCBPOS + @  SWAP FCBADDR + @  -  IOROK ;
 
-            LINKTO(DELETEFILE,0,13,'N',"OITISOP-ELIF")
-FILEPOSITION:JMP    ENTER
-            .word   FILEIDTOFCBQ,QDUP,zbranch,_filepos1,ZERO,SWAP,EXIT
-_filepos1:  .word   DUP,LIT,FCBPOS,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
-            .word   MINUS,LIT,IOROK,EXIT
+            .linkTo deletefile,0,13,'N',"OITISOP-ELIF"
+fileposition JMP    enter
+            .word   fileidtofcbq,qdup,zbranch,_filepos1,zero,swap,exit
+_filepos1 .word   dup,lit,fcbpos,plus,fetch,swap,lit,fcbaddr,plus,fetch
+            .word   minus,lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -142,11 +142,11 @@ _filepos1:  .word   DUP,LIT,FCBPOS,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
 ;   FILEID>FCB? ?DUP IF 0 SWAP EXIT THEN
 ;   DUP FCBEND + @  SWAP FCBADDR + @  -  IOROK ;
 
-            LINKTO(FILEPOSITION,0,9,'E',"ZIS-ELIF")
-FILESIZE:    JMP    ENTER
-            .word   FILEIDTOFCBQ,QDUP,zbranch,_filesize1,ZERO,SWAP,EXIT
-_filesize1: .word   DUP,LIT,FCBEND,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
-            .word   MINUS,LIT,IOROK,EXIT
+            .linkTo fileposition,0,9,'E',"ZIS-ELIF"
+filesize JMP    enter
+            .word   fileidtofcbq,qdup,zbranch,_filesize1,zero,swap,exit
+_filesize1 .word   dup,lit,fcbend,plus,fetch,swap,lit,fcbaddr,plus,fetch
+            .word   minus,lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -182,15 +182,15 @@ _filesize1: .word   DUP,LIT,FCBEND,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
 ;   REPEAT
 ;   DROP  SOURCE-ID CLOSE-FILE DROP  POPICB ;
 
-            LINKTO(FILESIZE,0,12,'E',"LIF-EDULCNI")
-INCLUDEFILE:JMP     ENTER
-            .word   PUSHICB,ICB,LIT,ICBSOURCEID,PLUS,STORE
-_includefile1: .word SOURCEID,FILEIDTOFCB,DUP
-            .word       TWOFETCH,NOTEQUALS,zbranch,_includefile2
-            .word   DUP,FETCH,OVER,NEXTLINE
-            .word   DASHROT,ICB,TWOSTORE,SWAP,STORE
-            .word   INTERPRET,branch,_includefile1
-_includefile2: .word DROP,SOURCEID,CLOSEFILE,DROP,POPICB,EXIT
+            .linkTo filesize,0,12,'E',"LIF-EDULCNI"
+includefile JMP     enter
+            .word   pushicb,icb,lit,icbsourceid,plus,store
+_includefile1 .word sourceid,fileidtofcb,dup
+            .word       twofetch,notequals,zbranch,_includefile2
+            .word   dup,fetch,over,nextline
+            .word   dashrot,icb,twostore,swap,store
+            .word   interpret,branch,_includefile1
+_includefile2 .word drop,sourceid,closefile,drop,popicb,exit
 
 
 
@@ -221,13 +221,13 @@ _includefile2: .word DROP,SOURCEID,CLOSEFILE,DROP,POPICB,EXIT
 ; : INCLUDED ( i*x c-addr u -- j*x)
 ;   R/O OPEN-FILE ABORT" Unknown file" INCLUDE-FILE ;
 
-            LINKTO(INCLUDEFILE,0,8,'D',"EDULCNI")
-INCLUDED:   JMP     ENTER
-            .word   RO,OPENFILE,zbranch,_included1
-            .word   PSQUOTE,12
+            .linkTo includefile,0,8,'D',"EDULCNI"
+included JMP     enter
+            .word   ro,openfile,zbranch,_included1
+            .word   psquote,12
             .byte   "Unknown file"
-            .word   TYPE,ABORT
-_included1: .word   INCLUDEFILE,EXIT
+            .word   type,abort
+_included1 .word   includefile,exit
 
 
 ; ----------------------------------------------------------------------
@@ -252,18 +252,18 @@ _included1: .word   INCLUDEFILE,EXIT
 ;   R@ FCBGENNUM + DUP C@ 1+ SWAP C!
 ;   R> FCB>FILEID IOROK ;
 
-            LINKTO(INCLUDED,0,9,'E',"LIF-NEPO")
-OPENFILE:   JMP     ENTER
-            .word   RO,NOTEQUALS,zbranch,_openfile1
-            .word   TWODROP,ZERO,LIT,IORRDONLY,EXIT
-_openfile1: .word   FINDFILE,QDUP,zbranch,_openfile2
-            .word   ZERO,SWAP,EXIT
-_openfile2: .word   NEWFCB,TOR
-            .word   OVER,PLUS,RFETCH,LIT,FCBEND,PLUS,STORE
-            .word   DUP,RFETCH,LIT,FCBADDR,PLUS,STORE
-            .word       RFETCH,LIT,FCBPOS,PLUS,STORE
-            .word   RFETCH,LIT,FCBGENNUM,PLUS,DUP,CFETCH,ONEPLUS,SWAP,CSTORE
-            .word   RFROM,FCBTOFILEID,LIT,IOROK,EXIT
+            .linkTo included,0,9,'E',"LIF-NEPO"
+openfile JMP     enter
+            .word   ro,notequals,zbranch,_openfile1
+            .word   twodrop,zero,lit,iorrdonly,exit
+_openfile1 .word   findfile,qdup,zbranch,_openfile2
+            .word   zero,swap,exit
+_openfile2 .word   newfcb,tor
+            .word   over,plus,rfetch,lit,fcbend,plus,store
+            .word   dup,rfetch,lit,fcbaddr,plus,store
+            .word       rfetch,lit,fcbpos,plus,store
+            .word   rfetch,lit,fcbgennum,plus,dup,cfetch,oneplus,swap,cstore
+            .word   rfrom,fcbtofileid,lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -272,9 +272,9 @@ _openfile2: .word   NEWFCB,TOR
 ; fam is the implementation-defined value for selecting the "read only"
 ; file access method.
 
-            LINKTO(OPENFILE,0,3,'O',"/R")
-RO:         JMP     ENTER
-            .word   LIT,00000001b,EXIT
+            .linkTo openfile,0,3,'O',"/R"
+ro JMP     enter
+            .word   lit,00000001b,exit
 
 
 ; ----------------------------------------------------------------------
@@ -283,9 +283,9 @@ RO:         JMP     ENTER
 ; fam is the implementation-defined value for selecting the "read/write"
 ; file access method.
 
-            LINKTO(RO,0,3,'W',"/R")
-RW:         JMP     ENTER
-            .word   LIT,00000011b,EXIT
+            .linkTo ro,0,3,'W',"/R"
+rw JMP     enter
+            .word   lit,00000011b,exit
 
 
 ; ----------------------------------------------------------------------
@@ -324,12 +324,12 @@ RW:         JMP     ENTER
 ;   DUP >R @ ( ca u1 pos R:fcb) -ROT DUP >R MOVE R> ( u1 R:fcb)
 ;   R@ 2@ - ( u1 rem R:fcb) MIN  DUP R> ( cnt cnt fcb) +!  IOROK ;
 
-            LINKTO(RW,0,9,'E',"LIF-DAER")
-READFILE:    JMP    ENTER
-            .word   FILEIDTOFCBQ,QDUP,zbranch,_readfile1,NIP,NIP,ZERO,SWAP,EXIT
-_readfile1: .word   DUP,TOR,FETCH,DASHROT,DUP,TOR,MOVE,RFROM
-            .word   RFETCH,TWOFETCH,MINUS,MIN
-            .word   DUP,RFROM,PLUSSTORE,LIT,IOROK,EXIT
+            .linkTo rw,0,9,'E',"LIF-DAER"
+readfile JMP    enter
+            .word   fileidtofcbq,qdup,zbranch,_readfile1,nip,nip,zero,swap,exit
+_readfile1 .word   dup,tor,fetch,dashrot,dup,tor,move,rfrom
+            .word   rfetch,twofetch,minus,min
+            .word   dup,rfrom,plusstore,lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -367,13 +367,13 @@ _readfile1: .word   DUP,TOR,FETCH,DASHROT,DUP,TOR,MOVE,RFROM
 ;   DUP >R @ ( ca u1 pos R:fcb) -ROT COPY-LINE ( u2 cnt R:fcb)
 ;   R> +! -1 IOROK ;
 
-            LINKTO(READFILE,0,9,'E',"NIL-DAER")
-READLINE:    JMP    ENTER
-            .word   FILEIDTOFCBQ,QDUP,zbranch,_readline1,NIP,NIP,ZERO,SWAP,EXIT
-_readline1: .word   DUP,TWOFETCH,MINUS,ZEROEQUALS,zbranch,_readline2
-            .word       DROP,TWODROP,ZERO,ZERO,LIT,IOROK,EXIT
-_readline2: .word   DUP,TOR,FETCH,DASHROT,COPYLINE
-            .word   RFROM,PLUSSTORE,LIT,-1,LIT,IOROK,EXIT
+            .linkTo readfile,0,9,'E',"NIL-DAER"
+readline JMP    enter
+            .word   fileidtofcbq,qdup,zbranch,_readline1,nip,nip,zero,swap,exit
+_readline1 .word   dup,twofetch,minus,zeroequals,zbranch,_readline2
+            .word       drop,twodrop,zero,zero,lit,iorok,exit
+_readline2 .word   dup,tor,fetch,dashrot,copyline
+            .word   rfrom,plusstore,lit,-1,lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -389,11 +389,11 @@ _readline2: .word   DUP,TOR,FETCH,DASHROT,COPYLINE
 ; : REPOSITION-FILE ( ud fileid -- ior)
 ;   FILEID>FCB? ?DUP IF DROP EXIT THEN  DUP  FCBADDR + @ ROT +  SWAP !  IOROK ;
 
-            LINKTO(READLINE,0,15,'E',"LIF-NOITISOPER")
-REPOSFILE:   JMP    ENTER
-            .word   FILEIDTOFCBQ,QDUP,zbranch,_reposfile,DROP,EXIT
-_reposfile: .word   DUP,LIT,FCBADDR,PLUS,FETCH,ROT,PLUS,SWAP,STORE
-            .word   LIT,IOROK,EXIT
+            .linkTo readline,0,15,'E',"LIF-NOITISOPER"
+reposfile JMP    enter
+            .word   fileidtofcbq,qdup,zbranch,_reposfile,drop,exit
+_reposfile .word   dup,lit,fcbaddr,plus,fetch,rot,plus,swap,store
+            .word   lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -412,9 +412,9 @@ _reposfile: .word   DUP,LIT,FCBADDR,PLUS,FETCH,ROT,PLUS,SWAP,STORE
 ; ---
 ; Always fails in MFORTH as the file system is read-only.
 
-            LINKTO(REPOSFILE,0,11,'E',"LIF-EZISER")
-RESIZEFILE: JMP     ENTER
-            .word   TWODROP,LIT,IORRDONLY,EXIT
+            .linkTo reposfile,0,11,'E',"LIF-EZISER"
+resizefile JMP     enter
+            .word   twodrop,lit,iorrdonly,exit
 
 
 ; ----------------------------------------------------------------------
@@ -423,9 +423,9 @@ RESIZEFILE: JMP     ENTER
 ; fam is the implementation-defined value for selecting the "write only"
 ; file access method.
 
-            LINKTO(RESIZEFILE,0,3,'O',"/W")
-WO:         JMP     ENTER
-            .word   LIT,00000010b,EXIT
+            .linkTo resizefile,0,3,'O',"/W"
+wo JMP     enter
+            .word   lit,00000010b,exit
 
 
 ; ----------------------------------------------------------------------
@@ -441,9 +441,9 @@ WO:         JMP     ENTER
 ; ---
 ; Always fails in MFORTH as the file system is read-only.
 
-            LINKTO(WO,0,10,'E',"LIF-ETIRW")
-WRITEFILE:  JMP     ENTER
-            .word   DROP,TWODROP,LIT,IORRDONLY,EXIT
+            .linkTo wo,0,10,'E',"LIF-ETIRW"
+writefile JMP     enter
+            .word   drop,twodrop,lit,iorrdonly,exit
 
 
 ; ----------------------------------------------------------------------
@@ -460,9 +460,9 @@ WRITEFILE:  JMP     ENTER
 ; ---
 ; Always fails in MFORTH as the file system is read-only.
 
-            LINKTO(WRITEFILE,0,10,'E',"NIL-ETIRW")
-WRITELINE:  JMP     ENTER
-            .word   DROP,TWODROP,LIT,IORRDONLY,EXIT
+            .linkTo writefile,0,10,'E',"NIL-ETIRW"
+writeline JMP     enter
+            .word   drop,twodrop,lit,iorrdonly,exit
 
 
 
@@ -486,10 +486,10 @@ WRITELINE:  JMP     ENTER
 ; other words, an FCB address is also the address of the POS cell for that
 ; FCB.
 
-FCBPOS .const    0           ; Offset from FCB to position in file.
-FCBEND .const    2           ; Offset to end address of file.
-FCBADDR .const    4           ; Offset to address of file.
-FCBGENNUM .const    6           ; Offset to generation number.
+fcbpos =    0           ; Offset from FCB to position in file.
+fcbend =    2           ; Offset to end address of file.
+fcbaddr =    4           ; Offset to address of file.
+fcbgennum =    6           ; Offset to generation number.
 
 
 ; ======================================================================
@@ -510,10 +510,10 @@ FCBGENNUM .const    6           ; Offset to generation number.
 ; : FCB>FILEID ( fcb-addr -- fileid)
 ;   DUP FCBGENNUM + C@ 8 LSHIFT  SWAP FCBSTART - 1+  OR ;
 
-            LINKTO(WRITELINE,0,10,'D',"IELIF>BCF")
-FCBTOFILEID:JMP     ENTER
-            .word   DUP,LIT,FCBGENNUM,PLUS,CFETCH,LIT,8,LSHIFT
-            .word   SWAP,LIT,FCBSTART,MINUS,ONEPLUS,OR,EXIT
+            .linkTo writeline,0,10,'D',"IELIF>BCF"
+fcbtofileid JMP     enter
+            .word   dup,lit,fcbgennum,plus,cfetch,lit,8,lshift
+            .word   swap,lit,fcbstart,minus,oneplus,or,exit
 
 
 ; ----------------------------------------------------------------------
@@ -525,9 +525,9 @@ FCBTOFILEID:JMP     ENTER
 ; ---
 ; : FILEID>FCB ( fileid -- fcb-addr)   255 AND 1- FCBSTART + ;
 
-            LINKTO(FCBTOFILEID,0,10,'B',"CF>DIELIF")
-FILEIDTOFCB: JMP    ENTER
-            .word   LIT,255,AND,ONEMINUS,LIT,FCBSTART,PLUS,EXIT
+            .linkTo fcbtofileid,0,10,'B',"CF>DIELIF"
+fileidtofcb JMP    enter
+            .word   lit,255,and,oneminus,lit,fcbstart,plus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -544,18 +544,18 @@ FILEIDTOFCB: JMP    ENTER
 ;   DUP FCBADDR + @ 0= IF DROP IORBADFILEID EXIT THEN
 ;   IOROK ;
 
-            LINKTO(FILEIDTOFCB,0,11,'?',"BCF>DIELIF")
-FILEIDTOFCBQ:JMP    ENTER
-            .word   DUP,LIT,8,RSHIFT,SWAP,LIT,255,AND
-            .word   DUP,ZEROEQUALS,OVER,LIT,MAXFCBS*8,GREATERTHAN
-            .word       OR,zbranch,_fileidtofcbq1
-            .word   TWODROP,LIT,IORBADFILEID,EXIT
-_fileidtofcbq1: .word ONEMINUS,LIT,FCBSTART,PLUS,DUP,LIT,FCBGENNUM,PLUS
-            .word       CFETCH,ROT,NOTEQUALS,zbranch,_fileidtofcbq2
-            .word   DROP,LIT,IORBADFILEID,EXIT
-_fileidtofcbq2: .word DUP,LIT,FCBADDR,PLUS,FETCH,ZEROEQUALS,zbranch,_fileidtofcbq3
-            .word       DROP,LIT,IORBADFILEID,EXIT
-_fileidtofcbq3: .word LIT,IOROK,EXIT
+            .linkTo fileidtofcb,0,11,'?',"BCF>DIELIF"
+fileidtofcbq JMP    enter
+            .word   dup,lit,8,rshift,swap,lit,255,and
+            .word   dup,zeroequals,over,lit,maxfcbs*8,greaterthan
+            .word       or,zbranch,_fileidtofcbq1
+            .word   twodrop,lit,iorbadfileid,exit
+_fileidtofcbq1 .word oneminus,lit,fcbstart,plus,dup,lit,fcbgennum,plus
+            .word       cfetch,rot,notequals,zbranch,_fileidtofcbq2
+            .word   drop,lit,iorbadfileid,exit
+_fileidtofcbq2 .word dup,lit,fcbaddr,plus,fetch,zeroequals,zbranch,_fileidtofcbq3
+            .word       drop,lit,iorbadfileid,exit
+_fileidtofcbq3 .word lit,iorok,exit
 
 
 ; ----------------------------------------------------------------------
@@ -574,16 +574,16 @@ _fileidtofcbq3: .word LIT,IOROK,EXIT
 ;   FILNAME 6 +  [CHAR] D OVER C!  [CHAR] O SWAP 1+ C!
 ;   SRCNAM ;
 
-            LINKTO(FILEIDTOFCBQ,0,9,'E',"LIF-DNIF")
-FINDFILE:   JMP     ENTER
-            .word   DUP,LIT,6,GREATERTHAN,zbranch,_findfile1
-            .word   TWODROP,LIT,IORFNF,EXIT
-_findfile1: .word   TUCK,LIT,0FC93H,SWAP,MOVE
-            .word   LIT,6,SWAP,pqdo,_findfile3
-_findfile2: .word   BL,LIT,0FC93H,I,PLUS,CSTORE,ploop,_findfile2
-_findfile3: .word   LIT,0FC93H,LIT,6,PLUS
-            .word   LIT,'D',OVER,CSTORE,LIT,'O',SWAP,ONEPLUS,CSTORE
-            .word   SRCNAM,EXIT
+            .linkTo fileidtofcbq,0,9,'E',"LIF-DNIF"
+findfile JMP     enter
+            .word   dup,lit,6,greaterthan,zbranch,_findfile1
+            .word   twodrop,lit,iorfnf,exit
+_findfile1 .word   tuck,lit,0FC93H,swap,move
+            .word   lit,6,swap,pqdo,_findfile3
+_findfile2 .word   bl,lit,0FC93H,i,plus,cstore,ploop,_findfile2
+_findfile3 .word   lit,0FC93H,lit,6,plus
+            .word   lit,'D',over,cstore,lit,'O',swap,oneplus,cstore
+            .word   srcnam,exit
 
 
 ; ----------------------------------------------------------------------
@@ -595,9 +595,9 @@ _findfile3: .word   LIT,0FC93H,LIT,6,PLUS
 ; ---
 ; : INIT-FCBS ( -- )   FCBSTART [ MAXFCBS 2* 2* 2* ] 0 FILL ;
 
-            LINKTO(FINDFILE,0,9,'S',"BCF-TINI")
-INITFCBS:   JMP     ENTER
-            .word   LIT,FCBSTART,LIT,MAXFCBS*8,ZERO,FILL,EXIT
+            .linkTo findfile,0,9,'S',"BCF-TINI"
+initfcbs JMP     enter
+            .word   lit,fcbstart,lit,maxfcbs*8,zero,fill,exit
 
 
 ; ----------------------------------------------------------------------
@@ -613,13 +613,13 @@ INITFCBS:   JMP     ENTER
 ;   FCBSTART I +  DUP FCBADDR + @ 0= IF UNLOOP EXIT THEN  DROP  8 +LOOP
 ;   0 ;
 
-            LINKTO(INITFCBS,0,7,'B',"CF-WEN")
-NEWFCB:     JMP     ENTER
-            .word   LIT,MAXFCBS*8,ZERO,pdo
-_newfcb1:   .word   LIT,FCBSTART,I,PLUS,DUP,LIT,FCBADDR,PLUS,FETCH
-            .word   ZEROEQUALS,zbranch,_newfcb2,UNLOOP,EXIT
-_newfcb2:   .word   DROP,LIT,8,pplusloop,_newfcb1
-            .word   ZERO,EXIT
+            .linkTo initfcbs,0,7,'B',"CF-WEN"
+newfcb JMP     enter
+            .word   lit,maxfcbs*8,zero,pdo
+_newfcb1 .word   lit,fcbstart,i,plus,dup,lit,fcbaddr,plus,fetch
+            .word   zeroequals,zbranch,_newfcb2,unloop,exit
+_newfcb2 .word   drop,lit,8,pplusloop,_newfcb1
+            .word   zero,exit
 
 
 ; ----------------------------------------------------------------------
@@ -641,15 +641,15 @@ _newfcb2:   .word   DROP,LIT,8,pplusloop,_newfcb1
 ; : NEXT-LINE ( fcb -- addr1 addr2)
 ;   2@ TUCK - 2>B FORB B @ 0x0A0D = IF B DUP 1+ 1+ EXIT THEN NEXTB B DUP ;
 
-            LINKTO(NEWFCB,0,9,'E',"NIL-TXEN")
-NEXTLINE:   POP     H           ; Get FCB into HL.
+            .linkTo newfcb,0,9,'E',"NIL-TXEN"
+nextline POP     H           ; Get FCB into HL.
             MOV     A,M         ; Get the FCBPOS[l] into A,
             INX     H           ; ..increment to FCBPOS[h],
             MOV     H,M         ; ..put FCBPOS[h] into H,
             MOV     L,A         ; ..then put FCBPOS[l] into L.
-_nextline1: MOV     A,M         ; Get the next byte into A,
+_nextline1 MOV     A,M         ; Get the next byte into A,
             CPI     01AH        ; ..see if it is EOF,
-            JZ      _nextlineEOF; ..and then exit if so.
+            JZ      _nextlineeof; ..and then exit if so.
             CPI     00DH        ; See if it is CR,
             INX     H           ; ..move to the next byte,
             JNZ     _nextline1  ; ..and continue looping if not CR.
@@ -661,10 +661,10 @@ _nextline1: MOV     A,M         ; Get the next byte into A,
             INX     H           ; ..increment past the CR
             INX     H           ; ..and LF,
             PUSH    H           ; ..then push addr2.
-            JMP     _nextlineDONE;We're done.
-_nextlineEOF:PUSH   H           ; Push addr1.
+            JMP     _nextlinedone;We're done.
+_nextlineeof PUSH   H           ; Push addr1.
             PUSH    H           ; Push addr2.
-_nextlineDONE:NEXT
+_nextlinedone .next
 
 
 ; ----------------------------------------------------------------------
@@ -673,27 +673,27 @@ _nextlineDONE:NEXT
 ; Call the Main ROM's SRCNAM routine.  FILNAM has already been populated
 ; by the caller.
 
-            LINKTO(NEXTLINE,0,6,'M',"ANCRS")
-LAST_FILE:
-SRCNAM:     SAVEDE              ; Save DE
+            .linkTo nextline,0,6,'M',"ANCRS"
+last_file
+srcnam .saveDe              ; Save DE
             PUSH    B           ; ..and BC, both of which are corrupted.
-            CALL    STDCALL     ; Call the
+            CALL    stdcall     ; Call the
             .word   20AFH       ; .."SRCNAM" routine.
             POP     B           ; Restore BC.
-            JZ      _srcnamFAIL ; Zero indicates not found.
+            JZ      _srcnamfail ; Zero indicates not found.
             PUSH    D           ; Push file-addr to the stack.
             XCHG                ; Get file-addr in HL.
             LXI     D,0         ; Initialize file-len to zero.
-_srcnam1:   MOV     A,M         ; Get the next byte of the file into A,
+_srcnam1 MOV     A,M         ; Get the next byte of the file into A,
             CPI     01AH        ; ..see if it is EOF,
             JZ      _srcnam2    ; ..and exit the loop if so.
             INX     D           ; Increment the file-len,
             INX     H           ; ..increment the file pointer,
             JMP     _srcnam1    ; ..and continue looping.
-_srcnam2:   PUSH    D           ; Push file-len onto the stack.
-            LXI     H,IOROK     ; Put IOROK in HL.
-            JMP     _srcnamDONE ; We're done.
-_srcnamFAIL:LXI     H,IORFNF    ; Put the IOR in HL.
-_srcnamDONE:PUSH    H           ; Push the flag to the stack.
-            RESTOREDE
-            NEXT
+_srcnam2 PUSH    D           ; Push file-len onto the stack.
+            LXI     H,iorok     ; Put IOROK in HL.
+            JMP     _srcnamdone ; We're done.
+_srcnamfail LXI     H,iorfnf    ; Put the IOR in HL.
+_srcnamdone PUSH    H           ; Push the flag to the stack.
+            .restoreDe
+            .next

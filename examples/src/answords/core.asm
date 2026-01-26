@@ -34,13 +34,13 @@
 ;
 ; Store x at a-addr.
 
-            LINKTO0(LINK_CORE,0,1,'!')
-STORE:      SAVEDE
+            .linkTo0 link_core,0,1,'!'
+store .saveDe
             POP     D           ; Pop a-addr
             POP     H           ; Pop x.
             .byte 0D9H                ; Store x into a-addr.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -55,10 +55,10 @@ STORE:      SAVEDE
 ; ---
 ; : # ( ud1 -- ud2 )   BASE @ UD/MOD ROT >digit HOLD ;
 
-            LINKTO0(STORE,0,1,'#')
-NUMSIGN:    JMP     ENTER
-            .word   BASE,FETCH,UDSLASHMOD,ROT,TODIGIT,HOLD
-            .word   EXIT
+            .linkTo0 store,0,1,'#'
+numsign JMP     enter
+            .word   base,fetch,udslashmod,rot,todigit,hold
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -71,10 +71,10 @@ NUMSIGN:    JMP     ENTER
 ; ---
 ; : #> ( xd -- c-addr u ) DROP DROP  HLD @  HERE HLDEND +  OVER - ;
 
-            LINKTO(NUMSIGN,0,2,'>',"#")
-NUMSIGNGRTR:JMP     ENTER
-            .word   DROP,DROP,HLD,FETCH,HERE,LIT,HLDEND,PLUS,OVER,MINUS
-            .word   EXIT
+            .linkTo numsign,0,2,'>',"#"
+numsigngrtr JMP     enter
+            .word   drop,drop,hld,fetch,here,lit,hldend,plus,over,minus
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -87,10 +87,10 @@ NUMSIGNGRTR:JMP     ENTER
 ; ---
 ; : #S ( ud1 -- 0 )   BEGIN # 2DUP OR WHILE REPEAT ;
 
-            LINKTO(NUMSIGNGRTR,0,2,'S',"#")
-NUMSIGNS:   JMP     ENTER
-_numsigns1: .word   NUMSIGN,TWODUP,OR,zbranch,_numsigns2,branch,_numsigns1
-_numsigns2: .word   EXIT
+            .linkTo numsigngrtr,0,2,'S',"#"
+numsigns JMP     enter
+_numsigns1 .word   numsign,twodup,or,zbranch,_numsigns2,branch,_numsigns1
+_numsigns2 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -106,11 +106,11 @@ _numsigns2: .word   EXIT
 ; : ' ( "<spaces>name" -- xt)
 ;   PARSE-WORD (FIND)  0= IF TYPE SPACE [CHAR] ? EMIT CR ABORT THEN ;
 
-            LINKTO0(NUMSIGNS,0,1,027H)
-TICK:       JMP     ENTER
-            .word   PARSEWORD,PFIND,ZEROEQUALS,zbranch,_tick1
-            .word   TYPE,SPACE,LIT,'?',EMIT,CR,ABORT
-_tick1:     .word   EXIT
+            .linkTo0 numsigns,0,1,027H
+tick JMP     enter
+            .word   parseword,pfind,zeroequals,zbranch,_tick1
+            .word   type,space,lit,'?',emit,cr,abort
+_tick1 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -140,9 +140,9 @@ _tick1:     .word   EXIT
 ;
 ; : ( ( "ccc<quote>" --)   CHAR] ) PARSE 2DROP ;
 
-            LINKTO0(TICK,1,1,028H)
-PAREN:      JMP     ENTER
-            .word   LIT,029H,PARSE,TWODROP,EXIT
+            .linkTo0 tick,1,1,028H
+paren JMP     enter
+            .word   lit,029H,parse,twodrop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -153,9 +153,9 @@ PAREN:      JMP     ENTER
 ; ---
 ; : * ( n1|u1 n2|u2 -- n3|u3 )   UM* DROP ;
 
-            LINKTO0(PAREN,0,1,'*')
-STAR:       JMP     ENTER
-            .word   UMSTAR,DROP,EXIT
+            .linkTo0 paren,0,1,'*'
+star JMP     enter
+            .word   umstar,drop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -172,9 +172,9 @@ STAR:       JMP     ENTER
 ; ---
 ; : */ ( n1 n2 n3 -- n4)   */MOD NIP ;
 
-            LINKTO(STAR,0,2,'/',"*")
-STARSLASH:  JMP     ENTER
-            .word   STARSLASHMOD,NIP,EXIT
+            .linkTo star,0,2,'/',"*"
+starslash JMP     enter
+            .word   starslashmod,nip,exit
 
 
 ; ----------------------------------------------------------------------
@@ -191,9 +191,9 @@ STARSLASH:  JMP     ENTER
 ; ---
 ; : */MOD ( n1 n2 n3 -- n4 n5)   >R M* R> SM/REM ;
 
-            LINKTO(STARSLASH,0,5,'D',"OM/*")
-STARSLASHMOD:JMP    ENTER
-            .word   TOR,MSTAR,RFROM,SMSLASHREM,EXIT
+            .linkTo starslash,0,5,'D',"OM/*"
+starslashmod JMP    enter
+            .word   tor,mstar,rfrom,smslashrem,exit
 
 
 ; ----------------------------------------------------------------------
@@ -201,14 +201,14 @@ STARSLASHMOD:JMP    ENTER
 ;
 ; Add n2|u2 to n1|u1, giving the sum n3|u3.
 
-            LINKTO0(STARSLASHMOD,0,1,'+')
-PLUS:       SAVEDE
+            .linkTo0 starslashmod,0,1,'+'
+plus .saveDe
             POP     D           ; Pop n2|u2.
             POP     H           ; Pop n1|u1.
             DAD     D           ; HL=HL+DE
             PUSH    H           ; Push the result onto the stack.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -216,8 +216,8 @@ PLUS:       SAVEDE
 ;
 ; Add n|u to the single-cell number at a-addr.
 
-            LINKTO(PLUS,0,2,'!',"+")
-PLUSSTORE:  SAVEDE
+            .linkTo plus,0,2,'!',"+"
+plusstore .saveDe
             POP     D           ; Pop a-addr.
             POP     H           ; Pop n|u.
             PUSH    B           ; Save BC.
@@ -227,8 +227,8 @@ PLUSSTORE:  SAVEDE
             DAD     B           ; Add n|u to the number.
             .byte 0D9H                ; Store the updated number.
             POP     B           ; Restore BC.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -254,9 +254,9 @@ PLUSSTORE:  SAVEDE
 ; ---
 ; +LOOP   ['] (pplusloop) END-LOOP ; IMMEDIATE
 
-            LINKTO(PLUSSTORE,1,5,'P',"OOL+")
-PLUSLOOP: JMP     ENTER
-            .word   LIT,pplusloop,ENDLOOP,EXIT
+            .linkTo plusstore,1,5,'P',"OOL+"
+plusloop JMP     enter
+            .word   lit,pplusloop,endloop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -270,9 +270,9 @@ PLUSLOOP: JMP     ENTER
 ; ---
 ; : , ( x -- )   HERE !  1 CELLS ALLOT ;
 
-            LINKTO0(PLUSLOOP,0,1,02CH)
-COMMA:      JMP     ENTER
-            .word   HERE,STORE,ONE,CELLS,ALLOT,EXIT
+            .linkTo0 plusloop,0,1,02CH
+comma JMP     enter
+            .word   here,store,one,cells,allot,exit
 
 
 ; ----------------------------------------------------------------------
@@ -280,8 +280,8 @@ COMMA:      JMP     ENTER
 ;
 ; Subtract n2|u2 from n1|u1, giving the difference n3|u3.
 
-            LINKTO0(COMMA,0,1,'-')
-MINUS:      SAVEDE
+            .linkTo0 comma,0,1,'-'
+minus .saveDe
             POP     D           ; Pop n2|u2.
             POP     H           ; Pop n1|u1.
             PUSH    B           ; Save BC.
@@ -290,8 +290,8 @@ MINUS:      SAVEDE
             .byte 08H                ; HL=HL-BC
             POP     B           ; Restore BC.
             PUSH    H           ; Push the result onto the stack.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -304,12 +304,12 @@ MINUS:      SAVEDE
 ;   BASE @ 10 <>  IF U. EXIT THEN
 ;   DUP ABS 0 <# #S ROT SIGN #> TYPE SPACE ;
 
-            LINKTO0(MINUS,0,1,'.')
-DOT:        JMP     ENTER
-            .word   BASE,FETCH,LIT,10,NOTEQUALS,zbranch,_dot1,UDOT,EXIT
-_dot1:      .word   DUP,ABS,ZERO,LESSNUMSIGN,NUMSIGNS,ROT,SIGN,NUMSIGNGRTR
-            .word   TYPE,SPACE
-            .word   EXIT
+            .linkTo0 minus,0,1,'.'
+dot JMP     enter
+            .word   base,fetch,lit,10,notequals,zbranch,_dot1,udot,exit
+_dot1 .word   dup,abs,zero,lessnumsign,numsigns,rot,sign,numsigngrtr
+            .word   type,space
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -328,9 +328,9 @@ _dot1:      .word   DUP,ABS,ZERO,LESSNUMSIGN,NUMSIGNS,ROT,SIGN,NUMSIGNGRTR
 ; ---
 ; : ." ( "ccc<quote>" --)   POSTPONE S" POSTPONE TYPE ; IMMEDIATE
 
-            LINKTO(DOT,1,2,022H,".")
-DOTQUOTE:   JMP     ENTER
-            .word   SQUOTE,LIT,TYPE,COMPILECOMMA,EXIT
+            .linkTo dot,1,2,022H,"."
+dotquote JMP     enter
+            .word   squote,lit,type,compilecomma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -345,9 +345,9 @@ DOTQUOTE:   JMP     ENTER
 ; ---
 ; : / ( n1 n2 -- n3)   /MOD NIP ;
 
-            LINKTO0(DOTQUOTE,0,1,'/')
-SLASH:      JMP     ENTER
-            .word   SLASHMOD,NIP,EXIT
+            .linkTo0 dotquote,0,1,'/'
+slash JMP     enter
+            .word   slashmod,nip,exit
 
 
 ; ----------------------------------------------------------------------
@@ -362,9 +362,9 @@ SLASH:      JMP     ENTER
 ; ---
 ; : /MOD ( n1 n2 -- n3 n4)   >R S>D R> SM/REM ;
 
-            LINKTO(SLASH,0,4,'D',"OM/")
-SLASHMOD:   JMP     ENTER
-            .word   TOR,STOD,RFROM,SMSLASHREM,EXIT
+            .linkTo slash,0,4,'D',"OM/"
+slashmod JMP     enter
+            .word   tor,stod,rfrom,smslashrem,exit
 
 
 ; ----------------------------------------------------------------------
@@ -372,16 +372,16 @@ SLASHMOD:   JMP     ENTER
 ;
 ; flag is true if and only if n is less than zero.
 
-            LINKTO(SLASHMOD,0,2,'<',"0")
-ZEROLESS:   POP     H           ; Pop the value.
+            .linkTo slashmod,0,2,'<',"0"
+zeroless POP     H           ; Pop the value.
             MOV     A,H         ; See if the number is < 0 by moving H to A
             ORA     A           ; ..and then ORing A with itself.
-            JP      _zlessFALSE ; Jump if positive to where we push false.
+            JP      _zlessfalse ; Jump if positive to where we push false.
             LXI     H,0FFFFH    ; Put true in HL.
-            JMP     _zlessDONE  ; We're done.
-_zlessFALSE:LXI     H,0         ; Put false in HL.
-_zlessDONE: PUSH    H           ; Push the flag to the stack.
-            NEXT
+            JMP     _zlessdone  ; We're done.
+_zlessfalse LXI     H,0         ; Put false in HL.
+_zlessdone PUSH    H           ; Push the flag to the stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -389,16 +389,16 @@ _zlessDONE: PUSH    H           ; Push the flag to the stack.
 ;
 ; flag is true if and only if x is equal to zero.
 
-            LINKTO(ZEROLESS,0,2,'=',"0")
-ZEROEQUALS: POP     H           ; Pop the value.
+            .linkTo zeroless,0,2,'=',"0"
+zeroequals POP     H           ; Pop the value.
             MOV     A,H         ; See if the flag is zero by moving H to A
             ORA     L           ; ..and then ORing A with L.
-            JNZ     _zeqFALSE   ; Jump if not zero to where we push false.
+            JNZ     _zeqfalse   ; Jump if not zero to where we push false.
             LXI     H,0FFFFH    ; Put true in HL.
-            JMP     _zeqDONE    ; We're done.
-_zeqFALSE:  LXI     H,0         ; Put false in HL.
-_zeqDONE:   PUSH    H           ; Push the flag to the stack.
-            NEXT
+            JMP     _zeqdone    ; We're done.
+_zeqfalse LXI     H,0         ; Put false in HL.
+_zeqdone PUSH    H           ; Push the flag to the stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -406,11 +406,11 @@ _zeqDONE:   PUSH    H           ; Push the flag to the stack.
 ;
 ; Add one (1) to n1|u1 giving the sum n2|u2.
 
-            LINKTO(ZEROEQUALS,0,2,'+',"1")
-ONEPLUS:    POP     H           ; Pop the value.
+            .linkTo zeroequals,0,2,'+',"1"
+oneplus POP     H           ; Pop the value.
             INX     H           ; Increment the value.
             PUSH    H           ; Push the result onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -418,11 +418,11 @@ ONEPLUS:    POP     H           ; Pop the value.
 ;
 ; Subtract one (1) from n1|u1 giving the difference n2|u2.
 
-            LINKTO(ONEPLUS,0,2,'-',"1")
-ONEMINUS:   POP     H           ; Pop the value.
+            .linkTo oneplus,0,2,'-',"1"
+oneminus POP     H           ; Pop the value.
             DCX     H           ; Decrement the value.
             PUSH    H           ; Push the result onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -432,8 +432,8 @@ ONEMINUS:   POP     H           ; Pop the value.
 ; next consecutive cell.  It is equivalent to the sequence
 ; SWAP OVER ! CELL+ !.
 
-            LINKTO(ONEMINUS,0,2,'!',"2")
-TWOSTORE:   SAVEDE
+            .linkTo oneminus,0,2,'!',"2"
+twostore .saveDe
             POP     D           ; Pop a-addr.
             POP     H           ; Pop x2
             .byte 0D9H                ; Save x2.
@@ -441,8 +441,8 @@ TWOSTORE:   SAVEDE
             INX     D           ; ..next cell.
             POP     H           ; Pop x1.
             .byte 0D9H                ; Save x1.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -451,11 +451,11 @@ TWOSTORE:   SAVEDE
 ; x2 is the result of shifting x1 one bit toward the most-significant bit,
 ; filling the vacated least-significant bit with zero.
 
-            LINKTO(TWOSTORE,0,2,'*',"2")
-TWOSTAR:    POP     H           ; Pop x1.
+            .linkTo twostore,0,2,'*',"2"
+twostar POP     H           ; Pop x1.
             DAD     H           ; Double x1.
             PUSH    H           ; Push the result onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -464,8 +464,8 @@ TWOSTAR:    POP     H           ; Pop x1.
 ; x2 is the result of shifting x1 one bit toward the least-significant bit,
 ; leaving the most-significant bit unchanged.
 
-            LINKTO(TWOSTAR,0,2,'/',"2")
-TWOSLASH:   POP     H           ; Pop x1.
+            .linkTo twostar,0,2,'/',"2"
+twoslash POP     H           ; Pop x1.
             ANA     A           ; Clear the carry flag.
             MOV     A,H         ; Move the high byte into A,
             RLC                 ; ..rotate it left
@@ -476,7 +476,7 @@ TWOSLASH:   POP     H           ; Pop x1.
             RAR                 ; ..divide the low byte,
             MOV     L,A         ; ..and put the low byte back into H.
             PUSH    H           ; Push the result onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -486,18 +486,18 @@ TWOSLASH:   POP     H           ; Pop x1.
 ; and x1 at the next consecutive cell.  It is equivalent to the sequence
 ; DUP CELL+ @ SWAP @.
 
-            LINKTO(TWOSLASH,0,2,'@',"2")
-TWOFETCH:   SAVEDE
+            .linkTo twoslash,0,2,'@',"2"
+twofetch .saveDe
             POP     D           ; Pop a-addr.
-_twofetchDE: .byte 0EDH                ; Fetch x2.
+_twofetchde .byte 0EDH                ; Fetch x2.
             PUSH    H           ; Push x2 (which is wrong, but we'll fix it).
             INX     D           ; Increment
             INX     D           ; ..to x1,
             .byte 0EDH                ; ..and fetch x1.
             XTHL                ; Swap TOS (x2) with x1.
             PUSH    H           ; Push x2.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -505,10 +505,10 @@ _twofetchDE: .byte 0EDH                ; Fetch x2.
 ;
 ; Drop cell pair x1 x2 from the stack.
 
-            LINKTO(TWOFETCH,0,5,'P',"ORD2")
-TWODROP:    POP     H
+            .linkTo twofetch,0,5,'P',"ORD2"
+twodrop POP     H
             POP     H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -516,16 +516,16 @@ TWODROP:    POP     H
 ;
 ; Duplicate cell pair x1 x2.
 
-            LINKTO(TWODROP,0,4,'P',"UD2")
-TWODUP:     SAVEDE
+            .linkTo twodrop,0,4,'P',"UD2"
+twodup .saveDe
             POP     H           ; Pop x2.
             POP     D           ; Pop x1.
             PUSH    D           ; Push x1 back onto the stack.
             PUSH    H           ; Push x2 back onto the stack.
             PUSH    D           ; Push another copy of x1 onto the stack.
             PUSH    H           ; Push another copy of x2 onto the stack.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -533,16 +533,16 @@ TWODUP:     SAVEDE
 ;
 ; Copy cell pair x1 x2 to the top of the stack.
 
-            LINKTO(TWODUP,0,5,'R',"EVO2")
-TWOOVER:    SAVEDE
+            .linkTo twodup,0,5,'R',"EVO2"
+twoover .saveDe
             .byte 038H,    6           ; Get the address of the fourth stack item.
             .byte 0EDH                ; Load the fourth stack item into HL.
             PUSH    H           ; Push the fourth stack item onto the stack.
             .byte 038H,    6           ; Get the address of the third (now fourth) stack item.
             .byte 0EDH                ; Load the third stack item into HL.
             PUSH    H           ; Push the third stack item onto the stack.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -550,8 +550,8 @@ TWOOVER:    SAVEDE
 ;
 ; Exchange the top two cell pairs.
 
-            LINKTO(TWOOVER,0,5,'P',"AWS2")
-TWOSWAP:    SAVEDE
+            .linkTo twoover,0,5,'P',"AWS2"
+twoswap .saveDe
             POP     H           ; Pop x4.
             POP     D           ; Pop x3.
             XTHL                ; Swap x4 with x2.
@@ -566,8 +566,8 @@ TWOSWAP:    SAVEDE
             XCHG                ; Put x1 in DE, x2 in HL.
             PUSH    D           ; Push x1.
             PUSH    H           ; Push x2.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -595,11 +595,11 @@ TWOSWAP:    SAVEDE
 ; : : ( "<spaces>name" -- )
 ;   CREATE HIDE ]  CFASZ NEGATE ALLOT  195 C, DOCOLON , ; -- JMP DOCOLON
 
-            LINKTO0(TWOSWAP,0,1,03AH)
-COLON:      JMP     ENTER
-            .word   CREATE,HIDE,RTBRACKET
-            .word   LIT,-CFASZ,ALLOT,LIT,195,CCOMMA,LIT,DOCOLON,COMMA
-            .word   EXIT
+            .linkTo0 twoswap,0,1,03AH
+colon JMP     enter
+            .word   create,hide,rtbracket
+            .word   lit,-cfasz,allot,lit,195,ccomma,lit,docolon,comma
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -620,9 +620,9 @@ COLON:      JMP     ENTER
 ; ---
 ; : ; ( -- )   REVEAL  ['] EXIT COMPILE,  POSTPONE [ ; IMMEDIATE
 
-            LINKTO0(COLON,1,1,';')
-SEMICOLON:  JMP     ENTER
-            .word   REVEAL,LIT,EXIT,COMPILECOMMA,LTBRACKET,EXIT
+            .linkTo0 colon,1,1,';'
+semicolon JMP     enter
+            .word   reveal,lit,exit,compilecomma,ltbracket,exit
 
 
 ; ----------------------------------------------------------------------
@@ -630,8 +630,8 @@ SEMICOLON:  JMP     ENTER
 ;
 ; flag is true if and only if n1 is less than n2.
 
-            LINKTO0(SEMICOLON,0,1,'<')
-LESSTHAN:   SAVEDE
+            .linkTo0 semicolon,0,1,'<'
+lessthan .saveDe
             POP     D           ; Pop n2.
             POP     H           ; Pop n1.
             MOV     A,D         ; Put n2's high byte into A,
@@ -642,15 +642,15 @@ LESSTHAN:   SAVEDE
             MOV     C,E         ; ..to BC.
             .byte 08H                ; HL=n1-n2
             POP     B           ; Restore BC.
-_lt1:       INR     H           ; Increment HL,
+_lt1 INR     H           ; Increment HL,
             DCR     H           ; ..then decrement HL to check the sign;
-            JM      _ltTRUE     ; ..n1 < n2 if HL is negative.
+            JM      _lttrue     ; ..n1 < n2 if HL is negative.
             LXI     H,0         ; Put false in HL.
-            JMP     _ltDONE     ; We're done.
-_ltTRUE:    LXI     H,0FFFFH    ; Put true in HL.
-_ltDONE:    PUSH    H           ; Push the flag to the stack.
-            RESTOREDE
-            NEXT
+            JMP     _ltdone     ; We're done.
+_lttrue LXI     H,0FFFFH    ; Put true in HL.
+_ltdone PUSH    H           ; Push the flag to the stack.
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -661,10 +661,10 @@ _ltDONE:    PUSH    H           ; Push the flag to the stack.
 ; ---
 ; : <# ( -- )   HERE HLDEND + HLD ! ;
 
-            LINKTO(LESSTHAN,0,2,'#',"<")
-LESSNUMSIGN:JMP     ENTER
-            .word   HERE,LIT,HLDEND,PLUS,HLD,STORE
-            .word   EXIT
+            .linkTo lessthan,0,2,'#',"<"
+lessnumsign JMP     enter
+            .word   here,lit,hldend,plus,hld,store
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -672,8 +672,8 @@ LESSNUMSIGN:JMP     ENTER
 ;
 ; flag is true if and only if x1 is bit-for-bit the same as x2.
 
-            LINKTO0(LESSNUMSIGN,0,1,'=')
-EQUALS:     SAVEDE
+            .linkTo0 lessnumsign,0,1,'='
+equals .saveDe
             POP     H           ; Pop x2.
             POP     D           ; Pop x1.
             PUSH    B           ; Save BC.
@@ -681,13 +681,13 @@ EQUALS:     SAVEDE
             MOV     C,E         ; ..to BC.
             .byte 08H                ; HL=HL-BC
             POP     B           ; Restore BC.
-            JNZ     _eqFALSE    ; Jump if not equals to where we push false.
+            JNZ     _eqfalse    ; Jump if not equals to where we push false.
             LXI     H,0FFFFH    ; Put true in HL.
-            JMP     _eqDONE     ; We're done.
-_eqFALSE:   LXI     H,0         ; Put false in HL.
-_eqDONE:    PUSH    H           ; Push the flag to the stack.
-            RESTOREDE
-            NEXT
+            JMP     _eqdone     ; We're done.
+_eqfalse LXI     H,0         ; Put false in HL.
+_eqdone PUSH    H           ; Push the flag to the stack.
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -698,9 +698,9 @@ _eqDONE:    PUSH    H           ; Push the flag to the stack.
 ; ---
 ; : > ( n1 n2 -- flag)   SWAP < ;
 
-            LINKTO0(EQUALS,0,1,'>')
-GREATERTHAN:JMP     ENTER
-            .word   SWAP,LESSTHAN,EXIT
+            .linkTo0 equals,0,1,'>'
+greaterthan JMP     enter
+            .word   swap,lessthan,exit
 
 
 ; ----------------------------------------------------------------------
@@ -712,9 +712,9 @@ GREATERTHAN:JMP     ENTER
 ; ---
 ; : >BODY ( xt -- a-addr)   CFASZ + ;
 
-            LINKTO(GREATERTHAN,0,5,'Y',"DOB>")
-TOBODY:     JMP     ENTER
-            .word   LIT,CFASZ,PLUS,EXIT
+            .linkTo greaterthan,0,5,'Y',"DOB>"
+tobody JMP     enter
+            .word   lit,cfasz,plus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -726,9 +726,9 @@ TOBODY:     JMP     ENTER
 ; ---
 ; : >IN ( -- a-addr)  ICB ICBTOIN + ;
 
-            LINKTO(TOBODY,0,3,'N',"I>")
-TOIN:       JMP     ENTER
-            .word   ICB,LIT,ICBTOIN,PLUS,EXIT
+            .linkTo tobody,0,3,'N',"I>"
+toin JMP     enter
+            .word   icb,lit,icbtoin,plus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -751,15 +751,15 @@ TOIN:       JMP     ENTER
 ;       ( ud1 u) >R BASE @ UD* R> M+
 ;   B+ AGAIN  B B# ;
 
-            LINKTO(TOIN,0,7,'R',"EBMUN>")
-TONUMBER:   JMP     ENTER
-            .word   TWOTOB
-_tonumber1: .word   BQUES,zbranch,_tonumber3
-            .word   BFETCH,DIGITQ,ZEROEQUALS,zbranch,_tonumber2
-            .word   B,BNUMBER,EXIT
-_tonumber2: .word   TOR,BASE,FETCH,UDSTAR,RFROM,MPLUS,BPLUS,branch,_tonumber1
-_tonumber3: .word   B,BNUMBER
-            .word   EXIT
+            .linkTo toin,0,7,'R',"EBMUN>"
+tonumber JMP     enter
+            .word   twotob
+_tonumber1 .word   bques,zbranch,_tonumber3
+            .word   bfetch,digitq,zeroequals,zbranch,_tonumber2
+            .word   B,bnumber,exit
+_tonumber2 .word   tor,base,fetch,udstar,rfrom,mplus,bplus,branch,_tonumber1
+_tonumber3 .word   B,bnumber
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -771,10 +771,10 @@ _tonumber3: .word   B,BNUMBER
 ; Execution: ( x -- ) ( R: -- x )
 ;   Move x to the return stack.
 
-            LINKTO(TONUMBER,0,2,'R',">")
-TOR:        POP     H
-            RSPUSH(H,L)
-            NEXT
+            .linkTo tonumber,0,2,'R',">"
+tor POP     H
+            .rsPush H,L
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -782,14 +782,14 @@ TOR:        POP     H
 ;
 ; Duplicate x if it is non-zero.
 
-            LINKTO(TOR,0,4,'P',"UD?")
-QDUP:       POP     H           ; Pop x into HL.
+            .linkTo tor,0,4,'P',"UD?"
+qdup POP     H           ; Pop x into HL.
             MOV     A,H         ; See if the value is zero by moving H to A
             ORA     L           ; ..and then ORing A with L.
-            JZ      _qdupONCE   ; Jump if zero to where we push once.
+            JZ      _qduponce   ; Jump if zero to where we push once.
             PUSH    H           ; Push the value (this is the second copy).
-_qdupONCE:  PUSH    H           ; Push the value.
-            NEXT
+_qduponce PUSH    H           ; Push the value.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -797,14 +797,14 @@ _qdupONCE:  PUSH    H           ; Push the value.
 ;
 ; x is the value stored at a-addr.
 
-            LINKTO0(QDUP,0,1,'@')
-FETCH:      POP     H           ; Pop address to fetch into HL
+            .linkTo0 qdup,0,1,'@'
+fetch POP     H           ; Pop address to fetch into HL
             MOV     A,M         ; Load LSB of cell value into A
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
             MOV     L,A         ; Move LSB of cell value from A to L
             PUSH    H           ; Push cell value onto stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -830,13 +830,13 @@ FETCH:      POP     H           ; Pop address to fetch into HL
 ; The idle word should never return, but we HALT anyway just in case
 ; someone messes with the return stack.
 
-            LINKTO(FETCH,0,5,'T',"ROBA")
-ABORT:      JMP     ENTER
-            .word   TASKPAGE,LIT,0FFH,OR,SPSTORE
-            .word   LIT,10,BASE,STORE
-            .word   TASKPAGE,LIT,TICKFIRSTTASK,FETCH,EQUALS,zbranch,_abort1
-            .word   ONLY,QUIT,HALT
-_abort1:    .word   LIT,BL,STOPPED,HALT
+            .linkTo fetch,0,5,'T',"ROBA"
+abort JMP     enter
+            .word   taskpage,lit,0FFH,or,spstore
+            .word   lit,10,base,store
+            .word   taskpage,lit,tickfirsttask,fetch,equals,zbranch,_abort1
+            .word   only,quit,halt
+_abort1 .word   lit,bl,stopped,halt
 
 
 ; ----------------------------------------------------------------------
@@ -857,9 +857,9 @@ _abort1:    .word   LIT,BL,STOPPED,HALT
 ; ---
 ; : ABORT"   POSTPONE IF POSTPONE ." POSTPONE ABORT THEN ; IMMEDIATE
 
-            LINKTO(ABORT,1,6,022H,"TROBA")
-ABORTQUOTE: JMP     ENTER
-            .word   IF,DOTQUOTE,LIT,ABORT,COMPILECOMMA,THEN,EXIT
+            .linkTo abort,1,6,022H,"TROBA"
+abortquote JMP     enter
+            .word   if,dotquote,lit,abort,compilecomma,then,exit
 
 
 ; ----------------------------------------------------------------------
@@ -870,9 +870,9 @@ ABORTQUOTE: JMP     ENTER
 ; ---
 ; : ABS ( n -- u )   DUP ?NEGATE ;
 
-            LINKTO(ABORTQUOTE,0,3,'S',"BA")
-ABS:        JMP     ENTER
-            .word   DUP,QNEGATE,EXIT
+            .linkTo abortquote,0,3,'S',"BA"
+abs JMP     enter
+            .word   dup,qnegate,exit
 
 
 ; ----------------------------------------------------------------------
@@ -904,19 +904,19 @@ ABS:        JMP     ENTER
 ;   REPEAT
 ;   ( ca-start cr) DROP  B SWAP - ;
 
-            LINKTO(ABS,0,6,'T',"PECCA")
-ACCEPT:     JMP     ENTER
-            .word   TWODUP,TWOTOB,DROP
-_accept1:   .word   KEY,DUP,LIT,13,NOTEQUALS,zbranch,_accept5
-            .word   DUP,LIT,8,EQUALS,zbranch,_accept2
-            .word   DROP,B,OVER,MINUS,zbranch,_accept4
-            .word   LIT,8,EMIT,BL,EMIT,LIT,8,EMIT
-            .word       LIT,-1,TICKB,PLUSSTORE,branch,_accept4
-_accept2:   .word   BQUES,zbranch,_accept3,DUP,EMIT,BSTOREPLUS,branch,_accept4
-_accept3:   .word   DROP
-_accept4:   .word   branch,_accept1
-_accept5:   .word   DROP,B,SWAP,MINUS
-            .word   EXIT
+            .linkTo abs,0,6,'T',"PECCA"
+accept JMP     enter
+            .word   twodup,twotob,drop
+_accept1 .word   key,dup,lit,13,notequals,zbranch,_accept5
+            .word   dup,lit,8,equals,zbranch,_accept2
+            .word   drop,B,over,minus,zbranch,_accept4
+            .word   lit,8,emit,bl,emit,lit,8,emit
+            .word       lit,-1,tickb,plusstore,branch,_accept4
+_accept2 .word   bques,zbranch,_accept3,dup,emit,bstoreplus,branch,_accept4
+_accept3 .word   drop
+_accept4 .word   branch,_accept1
+_accept5 .word   drop,B,swap,minus
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -924,8 +924,8 @@ _accept5:   .word   DROP,B,SWAP,MINUS
 ;
 ; If the data-space pointer is not aligned, reserve enough space to align it.
 
-            LINKTO(ACCEPT,0,5,'N',"GILA")
-ALIGN:      NEXT                ; No-op in MFORTH; no alignment needed.
+            .linkTo accept,0,5,'N',"GILA"
+align .next                ; No-op in MFORTH; no alignment needed.
 
 
 ; ----------------------------------------------------------------------
@@ -933,8 +933,8 @@ ALIGN:      NEXT                ; No-op in MFORTH; no alignment needed.
 ;
 ; a-addr is the first aligned address greater than or equal to addr.
 
-            LINKTO(ALIGN,0,7,'D',"ENGILA")
-ALIGNED:    NEXT                ; No-op in MFORTH; no alignment needed.
+            .linkTo align,0,7,'D',"ENGILA"
+aligned .next                ; No-op in MFORTH; no alignment needed.
 
 
 ; ----------------------------------------------------------------------
@@ -955,9 +955,9 @@ ALIGNED:    NEXT                ; No-op in MFORTH; no alignment needed.
 ; ---
 ; : ALLOT ( n -- )   DP +! ;
 
-            LINKTO(ALIGNED,0,5,'T',"OLLA")
-ALLOT:      JMP     ENTER
-            .word   LIT,DP,PLUSSTORE,EXIT
+            .linkTo aligned,0,5,'T',"OLLA"
+allot JMP     enter
+            .word   lit,dp,plusstore,exit
 
 
 ; ----------------------------------------------------------------------
@@ -965,8 +965,8 @@ ALLOT:      JMP     ENTER
 ;
 ; x3 is the bit-by-bit logical "and" of x1 with x2.
 
-            LINKTO(ALLOT,0,3,'D',"NA")
-AND:        SAVEDE
+            .linkTo allot,0,3,'D',"NA"
+and .saveDe
             POP     H           ; Pop x2.
             POP     D           ; Pop x1.
             MOV     A,H         ; Put x2's high byte into A,
@@ -976,8 +976,8 @@ AND:        SAVEDE
             ANA     E           ; ..then AND x1's low byte with A,
             MOV     L,A         ; ..and put the result into L.
             PUSH    H           ; Push the result (HL).
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -986,9 +986,9 @@ AND:        SAVEDE
 ; a-addr is the address of a cell containing the current number-conversion
 ; radix {{2...36}}.
 
-            LINKTO(AND,0,4,'E',"SAB")
-BASE:       JMP     DOUSER
-            .byte   USERBASE
+            .linkTo and,0,4,'E',"SAB"
+base JMP     douser
+            .byte   userbase
 
 
 ; ----------------------------------------------------------------------
@@ -1008,9 +1008,9 @@ BASE:       JMP     DOUSER
 ; ---
 ; : BEGIN   HERE ; IMMEDIATE
 
-            LINKTO(BASE,1,5,'N',"IGEB")
-BEGIN:      JMP     ENTER
-            .word   HERE,EXIT
+            .linkTo base,1,5,'N',"IGEB"
+begin JMP     enter
+            .word   here,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1018,10 +1018,10 @@ BEGIN:      JMP     ENTER
 ;
 ; char is the character value for a space.
 
-            LINKTO(BEGIN,0,2,'L',"B")
-BL:         LXI     H,020H
+            .linkTo begin,0,2,'L',"B"
+bl LXI     H,020H
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1031,13 +1031,13 @@ BL:         LXI     H,020H
 ; only the number of low-order bits corresponding to character size are
 ; transferred.
 
-            LINKTO(BL,0,2,'!',"C")
-CSTORE:     SAVEDE
+            .linkTo bl,0,2,'!',"C"
+cstore .saveDe
             POP     H           ; Pop c-addr.
             POP     D           ; Pop char
             MOV     M,E         ; Store LSB of char value.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1052,9 +1052,9 @@ CSTORE:     SAVEDE
 ; ---
 ; : C, ( char -- )   HERE C!  1 CHARS ALLOT ;
 
-            LINKTO(CSTORE,0,2,02CH,"C")
-CCOMMA:     JMP     ENTER
-            .word   HERE,CSTORE,ONE,CHARS,ALLOT,EXIT
+            .linkTo cstore,0,2,02CH,"C"
+ccomma JMP     enter
+            .word   here,cstore,one,chars,allot,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1063,12 +1063,12 @@ CCOMMA:     JMP     ENTER
 ; Fetch the character stored at c-addr.  When the cell size is greater
 ; than character size, the unused high-order bits are all zeroes.
 
-            LINKTO(CCOMMA,0,2,'@',"C")
-CFETCH:     POP     H           ; Pop address to fetch into HL.
+            .linkTo ccomma,0,2,'@',"C"
+cfetch POP     H           ; Pop address to fetch into HL.
             MOV     L,M         ; Load character into low byte of HL.
             MVI     H,0         ; Clear high byte of HL.
             PUSH    H           ; Push character value onto stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1076,12 +1076,12 @@ CFETCH:     POP     H           ; Pop address to fetch into HL.
 ;
 ; Add the size in address units of a cell to a-addr1, giving a-addr2.
 
-            LINKTO(CFETCH,0,5,'+',"LLEC")
-CELLPLUS:   POP     H           ; Pop a-addr1.
+            .linkTo cfetch,0,5,'+',"LLEC"
+cellplus POP     H           ; Pop a-addr1.
             INX     H           ; Add two (the size of a cell)
             INX     H           ; ..to a-addr1.
             PUSH    H           ; Push the result to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1089,11 +1089,11 @@ CELLPLUS:   POP     H           ; Pop a-addr1.
 ;
 ; n2 is the size in address units of n1 cells.
 
-            LINKTO(CELLPLUS,0,5,'S',"LLEC")
-CELLS:      POP     H           ; Pop x1.
+            .linkTo cellplus,0,5,'S',"LLEC"
+cells POP     H           ; Pop x1.
             DAD     H           ; Double x1 (cells are two bytes wide).
             PUSH    H           ; Push the result onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1105,9 +1105,9 @@ CELLS:      POP     H           ; Pop x1.
 ; ---
 ; : CHAR ( "<spaces>name" -- char)   PARSE-WORD DROP C@ ;
 
-            LINKTO(CELLS,0,4,'R',"AHC")
-CHAR:       JMP     ENTER
-            .word   PARSEWORD,DROP,CFETCH,EXIT
+            .linkTo cells,0,4,'R',"AHC"
+char JMP     enter
+            .word   parseword,drop,cfetch,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1115,11 +1115,11 @@ CHAR:       JMP     ENTER
 ;
 ; Add the size in address units of a character to c-addr1, giving c-addr2.
 
-            LINKTO(CHAR,0,5,'+',"RAHC")
-CHARPLUS:   POP     H           ; Pop c-addr1.
+            .linkTo char,0,5,'+',"RAHC"
+charplus POP     H           ; Pop c-addr1.
             INX     H           ; Add one (the size of a char) to c-addr1.
             PUSH    H           ; Push the result to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1127,8 +1127,8 @@ CHARPLUS:   POP     H           ; Pop c-addr1.
 ;
 ; n2 is the size in address units of n1 characters.
 
-            LINKTO(CHARPLUS,0,5,'S',"RAHC")
-CHARS:      NEXT                ; No-op in MFORTH, because chars are 1 byte.
+            .linkTo charplus,0,5,'S',"RAHC"
+chars .next                ; No-op in MFORTH, because chars are 1 byte.
 
 
 ; ----------------------------------------------------------------------
@@ -1146,10 +1146,10 @@ CHARS:      NEXT                ; No-op in MFORTH, because chars are 1 byte.
 ; : CONSTANT ( x "<spaces>name" -- )
 ;   CREATE  CFASZ NEGATE ALLOT  195 C, DOCONSTANT ,  , ; -- JMP DOCONSTANT
 
-            LINKTO(CHARS,0,8,'T',"NATSNOC")
-CONSTANT:   JMP     ENTER
-            .word   CREATE,LIT,-CFASZ,ALLOT,LIT,195,CCOMMA,LIT,DOCONSTANT,COMMA
-            .word   COMMA,EXIT
+            .linkTo chars,0,8,'T',"NATSNOC"
+constant JMP     enter
+            .word   create,lit,-cfasz,allot,lit,195,ccomma,lit,doconstant,comma
+            .word   comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1160,15 +1160,15 @@ CONSTANT:   JMP     ENTER
 ; u is the contents of the character at c-addr1, which is the length in
 ; characters of the string at c-addr2.
 
-            LINKTO(CONSTANT,0,5,'T',"NUOC")
-COUNT:      POP     H           ; Pop the address into HL.
+            .linkTo constant,0,5,'T',"NUOC"
+count POP     H           ; Pop the address into HL.
             MOV     A,M         ; Fetch the string count into A.
             INX     H           ; Increment HL to the address of the string.
             PUSH    H           ; Push the address of the string to the stack.
             MVI     H,0         ; Clear the high byte of HL,
             MOV     L,A         ; ..set the low byte to the count,
             PUSH    H           ; ..and push the count to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1176,10 +1176,10 @@ COUNT:      POP     H           ; Pop the address into HL.
 ;
 ; Cause subsequent output to appear at the beginning of the next line.
 
-            LINKTO(COUNT,0,2,'R',"C")
-CR:         CALL    STDCALL     ; Call the
+            .linkTo count,0,2,'R',"C"
+cr CALL    stdcall     ; Call the
             .word   04222H      ; .."Send CRLF" routine.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1204,22 +1204,22 @@ CR:         CALL    STDCALL     ; Call the
 ;   HERE NFATOCFASZ - LATEST !  195 C, DOCREATE , -- JMP DOCREATE
 ;
 
-            LINKTO(CR,0,6,'E',"TAERC")
-CREATE:     JMP     ENTER
-            .word   PARSEWORD,DUP,ZEROEQUALS,zbranch,_create1,ABORT
-_create1:   .word   DUP,LIT,63,GREATERTHAN,zbranch,_create2,ABORT
-_create2:   .word   TWOTOB,BNUMBER,ONEPLUS,ALLOT,HERE,ONEMINUS
-            .word       BNUMBER,OVER,CSTORE
-_create3:   .word   BQUES,zbranch,_create4,ONEMINUS,BFETCH,OVER,CSTORE
-            .word       BPLUS,branch,_create3
-_create4:   .word   DUP,CFETCH,LIT,128,OR,SWAP,CSTORE
-            .word   LATEST,FETCH,COMMA
-.IFDEF PROFILER
-            .word   ZERO,COMMA
-.ENDIF
-            .word   HERE,LIT,NFATOCFASZ,MINUS,LATEST,STORE
-            .word       LIT,195,CCOMMA,LIT,DOCREATE,COMMA
-            .word   EXIT
+            .linkTo cr,0,6,'E',"TAERC"
+create JMP     enter
+            .word   parseword,dup,zeroequals,zbranch,_create1,abort
+_create1 .word   dup,lit,63,greaterthan,zbranch,_create2,abort
+_create2 .word   twotob,bnumber,oneplus,allot,here,oneminus
+            .word       bnumber,over,cstore
+_create3 .word   bques,zbranch,_create4,oneminus,bfetch,over,cstore
+            .word       bplus,branch,_create3
+_create4 .word   dup,cfetch,lit,128,or,swap,cstore
+            .word   latest,fetch,comma
+.ifdef profiler
+            .word   zero,comma
+.endif
+            .word   here,lit,nfatocfasz,minus,latest,store
+            .word       lit,195,ccomma,lit,docreate,comma
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -1227,9 +1227,9 @@ _create4:   .word   DUP,CFETCH,LIT,128,OR,SWAP,CSTORE
 ;
 ; Set the numeric conversion radix to ten (decimal).
 
-            LINKTO(CREATE,0,7,'L',"AMICED")
-DECIMAL:    JMP     ENTER
-            .word   LIT,10,BASE,STORE,EXIT
+            .linkTo create,0,7,'L',"AMICED"
+decimal JMP     enter
+            .word   lit,10,base,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1241,9 +1241,9 @@ DECIMAL:    JMP     ENTER
 ; ---
 ; : DEPTH ( -- +n)   SP  TASK-PAGE [HEX] FF OR  SWAP - 2/ ;
 
-            LINKTO(DECIMAL,0,5,'H',"TPED")
-DEPTH:      JMP     ENTER
-            .word   SP,TASKPAGE,LIT,0FFH,OR,SWAP,MINUS,TWOSLASH,EXIT
+            .linkTo decimal,0,5,'H',"TPED"
+depth JMP     enter
+            .word   SP,taskpage,lit,0FFH,or,swap,minus,twoslash,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1271,9 +1271,9 @@ DEPTH:      JMP     ENTER
 ;
 ; : DO   0 'PREVLEAVE !  ['] (do) COMPILE,  HERE ; IMMEDIATE
 
-            LINKTO(DEPTH,1,2,'O',"D")
-DO:         JMP     ENTER
-            .word   ZERO,LIT,TICKPREVLEAVE,STORE,LIT,pdo,COMPILECOMMA,HERE,EXIT
+            .linkTo depth,1,2,'O',"D"
+do JMP     enter
+            .word   zero,lit,tickprevleave,store,lit,pdo,compilecomma,here,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1321,12 +1321,12 @@ DO:         JMP     ENTER
 ;   ['] (does>) COMPILE,  205 C, DODOES , -- CALL DODOES
 ; ; IMMEDIATE
 
-            LINKTO(DO,1,5,'>',"SEOD")
-DOES:       JMP     ENTER
-            .word   LIT,pdoes,COMPILECOMMA,LIT,205,CCOMMA,LIT,DODOES,COMMA,EXIT
-pdoes:      JMP     ENTER
-            .word   RFROM,LATEST,FETCH,NFATOCFA
-            .word   LIT,195,OVER,CSTORE,ONEPLUS,STORE,EXIT
+            .linkTo do,1,5,'>',"SEOD"
+does JMP     enter
+            .word   lit,pdoes,compilecomma,lit,205,ccomma,lit,dodoes,comma,exit
+pdoes JMP     enter
+            .word   rfrom,latest,fetch,nfatocfa
+            .word   lit,195,over,cstore,oneplus,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1334,9 +1334,9 @@ pdoes:      JMP     ENTER
 ;
 ; Remove x from the stack.
 
-            LINKTO(DOES,0,4,'P',"ORD")
-DROP:       POP     H
-            NEXT
+            .linkTo does,0,4,'P',"ORD"
+drop POP     H
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1344,11 +1344,11 @@ DROP:       POP     H
 ;
 ; Duplicate x.
 
-            LINKTO(DROP,0,3,'P',"UD")
-DUP:        POP     H
+            .linkTo drop,0,3,'P',"UD"
+dup POP     H
             PUSH    H
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1370,9 +1370,9 @@ DUP:        POP     H
 ; ---
 ; : ELSE   ['] branch COMPILE,  HERE DUP ,  SWAP POSTPONE THEN ; IMMEDIATE
 
-            LINKTO(DUP,1,4,'E',"SLE")
-ELSE:       JMP     ENTER
-            .word   LIT,branch,COMPILECOMMA,HERE,DUP,COMMA,SWAP,THEN,EXIT
+            .linkTo dup,1,4,'E',"SLE"
+else JMP     enter
+            .word   lit,branch,compilecomma,here,dup,comma,swap,then,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1389,12 +1389,12 @@ ELSE:       JMP     ENTER
 ; characters to perform specific functions have an environmental dependency.
 ; Each EMIT deals with only one character.
 
-            LINKTO(ELSE,0,4,'T',"IME")
-EMIT:       POP     H           ; Pop the character into HL
+            .linkTo else,0,4,'T',"IME"
+emit POP     H           ; Pop the character into HL
             MOV     A,L         ; ..and then move it into A.
-            CALL    STDCALL     ; Call the
+            CALL    stdcall     ; Call the
             .word   04B44H      ; .."character output" routine.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1425,11 +1425,11 @@ EMIT:       POP     H           ; Pop the character into HL
 ; : EVALUATE ( i*x c-addr u -- j*x)
 ;   PUSHICB  OVER + ICB 2!  -1 ICB ICBSOURCEID + !  INTERPRET  POPICB ;
 
-            LINKTO(EMIT,0,8,'E',"TAULAVE")
-EVALUATE:   JMP     ENTER
-            .word   PUSHICB,OVER,PLUS,ICB,TWOSTORE
-            .word   LIT,-1,ICB,LIT,ICBSOURCEID,PLUS,STORE
-            .word   INTERPRET,POPICB,EXIT
+            .linkTo emit,0,8,'E',"TAULAVE"
+evaluate JMP     enter
+            .word   pushicb,over,plus,icb,twostore
+            .word   lit,-1,icb,lit,icbsourceid,plus,store
+            .word   interpret,popicb,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1438,8 +1438,8 @@ EVALUATE:   JMP     ENTER
 ; Remove xt from the stack and perform the semantics identified by it.
 ; Other stack effects are due to the word EXECUTEd.
 
-            LINKTO(EVALUATE,0,7,'E',"TUCEXE")
-EXECUTE:    POP     H           ; Pop xt.
+            .linkTo evaluate,0,7,'E',"TUCEXE"
+execute POP     H           ; Pop xt.
             PCHL                ; Execute xt.
 
 
@@ -1454,9 +1454,9 @@ EXECUTE:    POP     H           ; Pop xt.
 ;   executing EXIT within a do-loop, a program shall discard the loop-control
 ;   parameters by executing UNLOOP.
 
-            LINKTO(EXECUTE,0,4,'T',"IXE")
-EXIT:       RSPOP(D,E)
-            NEXT
+            .linkTo execute,0,4,'T',"IXE"
+exit .rsPop D,E
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1468,12 +1468,12 @@ EXIT:       RSPOP(D,E)
 ; ---
 ; : FILL ( c-addr u char --)   ROT ROT 2>B FORB DUP B! NEXTB DROP ;
 
-            LINKTO(EXIT,0,4,'L',"LIF")
-FILL:       JMP     ENTER
-            .word   ROT,ROT,TWOTOB
-_fill1:     .word   BQUES,zbranch,_fill2
-            .word   DUP,BSTORE,BPLUS,branch,_fill1
-_fill2:     .word   DROP,EXIT
+            .linkTo exit,0,4,'L',"LIF"
+fill JMP     enter
+            .word   rot,rot,twotob
+_fill1 .word   bques,zbranch,_fill2
+            .word   dup,bstore,bplus,branch,_fill1
+_fill2 .word   drop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1491,11 +1491,11 @@ _fill2:     .word   DROP,EXIT
 ; : FIND ( c-addr -- c-addr 0 | xt 1 | xt -1 )
 ;   COUNT (FIND) ?DUP 0= IF DROP 1- 0 THEN ;
 
-            LINKTO(FILL,0,4,'D',"NIF")
-FIND:       JMP     ENTER
-            .word   COUNT,PFIND,QDUP,ZEROEQUALS,zbranch,_find1
-            .word   DROP,ONEMINUS,ZERO
-_find1:     .word   EXIT
+            .linkTo fill,0,4,'D',"NIF"
+find JMP     enter
+            .word   count,pfind,qdup,zeroequals,zbranch,_find1
+            .word   drop,oneminus,zero
+_find1 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -1520,17 +1520,17 @@ _find1:     .word   EXIT
 ;       ELSE R> DROP THEN
 ;   R> 0< IF SWAP NEGATE SWAP THEN ;
 
-            LINKTO(FIND,0,6,'D',"OM/MF")
-FMSLASHMOD: JMP     ENTER
-            .word   DUP,TOR,TWODUP,XOR,SWAP,ABS,DUP,TOR
-            .word   SWAP,TOR,TOR,DABS,RFROM,UMSLASHMOD
-            .word   RFROM,ZEROLESS,zbranch,_fmslashmod1
-            .word   NEGATE,OVER,ZERONOTEQUALS,zbranch,_fmslashmod1
-            .word   ONEMINUS,SWAP,RFROM,SWAP,MINUS,SWAP,branch,_fmslashmod2
-_fmslashmod1: .word  RFROM,DROP
-_fmslashmod2: .word  RFROM,ZEROLESS,zbranch,_fmslashmod3
-            .word   SWAP,NEGATE,SWAP
-_fmslashmod3: .word  EXIT
+            .linkTo find,0,6,'D',"OM/MF"
+fmslashmod JMP     enter
+            .word   dup,tor,twodup,xor,swap,abs,dup,tor
+            .word   swap,tor,tor,dabs,rfrom,umslashmod
+            .word   rfrom,zeroless,zbranch,_fmslashmod1
+            .word   negate,over,zeronotequals,zbranch,_fmslashmod1
+            .word   oneminus,swap,rfrom,swap,minus,swap,branch,_fmslashmod2
+_fmslashmod1 .word  rfrom,drop
+_fmslashmod2 .word  rfrom,zeroless,zbranch,_fmslashmod3
+            .word   swap,negate,swap
+_fmslashmod3 .word  exit
 
 
 ; ----------------------------------------------------------------------
@@ -1538,10 +1538,10 @@ _fmslashmod3: .word  EXIT
 ;
 ; addr is the data-space pointer.
 
-            LINKTO(FMSLASHMOD,0,4,'E',"REH")
-HERE:       LHLD    DP
+            .linkTo fmslashmod,0,4,'E',"REH"
+here LHLD    dp
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1554,10 +1554,10 @@ HERE:       LHLD    DP
 ; ---
 ; : HOLD ( c -- )   HLD @ 1- DUP HLD ! C! ;
 
-            LINKTO(HERE,0,4,'D',"LOH")
-HOLD:       JMP     ENTER
-            .word   HLD,FETCH,ONEMINUS,DUP,HLD,STORE,CSTORE
-            .word   EXIT
+            .linkTo here,0,4,'D',"LOH"
+hold JMP     enter
+            .word   hld,fetch,oneminus,dup,hld,store,cstore
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -1570,10 +1570,10 @@ HOLD:       JMP     ENTER
 ;   n|u is a copy of the current (innermost) loop index.  An ambiguous
 ;   condition exists if the loop control parameters are unavailable.
 
-            LINKTO0(HOLD,0,1,'I')
-I:          RSFETCH(H,L)        ; Get the loop index into HL
+            .linkTo0 hold,0,1,'I'
+i .rsFetch H,L        ; Get the loop index into HL
             PUSH    H           ; ..and push it onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1595,9 +1595,9 @@ I:          RSFETCH(H,L)        ; Get the loop index into HL
 ; ---
 ; : IF   ['] 0branch COMPILE,  HERE DUP , ; IMMEDIATE
 
-            LINKTO(I,1,2,'F',"I")
-IF:         JMP     ENTER
-            .word   LIT,zbranch,COMPILECOMMA,HERE,DUP,COMMA,EXIT
+            .linkTo i,1,2,'F',"I"
+if JMP     enter
+            .word   lit,zbranch,compilecomma,here,dup,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1609,9 +1609,9 @@ IF:         JMP     ENTER
 ; ---
 ; : IMMEDIATE ( -- )   LATEST @  DUP C@ [HEX] 80 OR  SWAP C! ;
 
-            LINKTO(IF,0,9,'E',"TAIDEMMI")
-IMMEDIATE:  JMP     ENTER
-            .word   LATEST,FETCH,DUP,CFETCH,LIT,080H,OR,SWAP,CSTORE,EXIT
+            .linkTo if,0,9,'E',"TAIDEMMI"
+immediate JMP     enter
+            .word   latest,fetch,dup,cfetch,lit,080H,or,swap,cstore,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1619,8 +1619,8 @@ IMMEDIATE:  JMP     ENTER
 ;
 ; Invert all bits of x1, giving its logical inverse x2.
 
-            LINKTO(IMMEDIATE,0,6,'T',"REVNI")
-INVERT:     POP     H           ; Pop x1.
+            .linkTo immediate,0,6,'T',"REVNI"
+invert POP     H           ; Pop x1.
             MOV     A,H         ; Put x1's high byte into A,
             CMA                 ; ..then complement x1's high byte,
             MOV     H,A         ; ..and put the result back into H.
@@ -1628,7 +1628,7 @@ INVERT:     POP     H           ; Pop x1.
             CMA                 ; ..then complement x1's low byte,
             MOV     L,A         ; ..and put the result back into L.
             PUSH    H           ; Push the result (HL).
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1642,10 +1642,10 @@ INVERT:     POP     H           ; Pop x1.
 ;   exists if the loop control parameters of the next-outer loop, loop-sys1,
 ;   are unavailable.
 
-            LINKTO0(INVERT,0,1,'J')
-J:          RSPICK2(H,L)        ; Get the second loop index (the 3rd RS item)
+            .linkTo0 invert,0,1,'J'
+j .rsPick2 H,L        ; Get the second loop index (the 3rd RS item)
             PUSH    H           ; ..into HL and push it onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1669,11 +1669,11 @@ J:          RSPICK2(H,L)        ; Get the second loop index (the 3rd RS item)
 ;
 ; : KEY ( -- char)   BEGIN  BEGIN PAUSE KEY? UNTIL  (KEY) ?DUP 0<> UNTIL ;
 
-            LINKTO(J,0,3,'Y',"EK")
-KEY:        JMP     ENTER
-_key1:      .word   PAUSE,KEYQ,zbranch,_key1
-            .word   PKEY,QDUP,ZERONOTEQUALS,zbranch,_key1
-            .word   EXIT
+            .linkTo j,0,3,'Y',"EK"
+key JMP     enter
+_key1 .word   pause,keyq,zbranch,_key1
+            .word   pkey,qdup,zeronotequals,zbranch,_key1
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -1694,11 +1694,11 @@ _key1:      .word   PAUSE,KEYQ,zbranch,_key1
 ;   HERE  'PREVLEAVE @ ,  'PREVLEAVE !
 ; ; IMMEDIATE
 
-            LINKTO(KEY,1,5,'E',"VAEL")
-LEAVE:      JMP     ENTER
-            .word   LIT,UNLOOP,COMPILECOMMA,LIT,branch,COMPILECOMMA
-            .word   HERE,LIT,TICKPREVLEAVE,FETCH,COMMA
-            .word   LIT,TICKPREVLEAVE,STORE,EXIT
+            .linkTo key,1,5,'E',"VAEL"
+leave JMP     enter
+            .word   lit,unloop,compilecomma,lit,branch,compilecomma
+            .word   here,lit,tickprevleave,fetch,comma
+            .word   lit,tickprevleave,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1716,9 +1716,9 @@ LEAVE:      JMP     ENTER
 ; ---
 ; : LITERAL ( x -- )   ['] LIT COMPILE,  ,  ; IMMEDIATE
 
-            LINKTO(LEAVE,1,7,'L',"ARETIL")
-LITERAL:    JMP     ENTER
-            .word   LIT,LIT,COMPILECOMMA,COMMA,EXIT
+            .linkTo leave,1,7,'L',"ARETIL"
+literal JMP     enter
+            .word   lit,lit,compilecomma,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1743,9 +1743,9 @@ LITERAL:    JMP     ENTER
 ; ---
 ; : LOOP   ['] (loop) END-LOOP ; IMMEDIATE
 
-            LINKTO(LITERAL,1,4,'P',"OOL")
-LOOP:       JMP     ENTER
-            .word   LIT,ploop,ENDLOOP,EXIT
+            .linkTo literal,1,4,'P',"OOL"
+loop JMP     enter
+            .word   lit,ploop,endloop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1756,17 +1756,17 @@ LOOP:       JMP     ENTER
 ; ambiguous condition exists if u is greater than or equal to the number
 ; of bits in a cell.
 
-            LINKTO(LOOP,0,6,'T',"FIHSL")
-LSHIFT:     POP     H           ; Pop u into HL,
+            .linkTo loop,0,6,'T',"FIHSL"
+lshift POP     H           ; Pop u into HL,
             MOV     A,L         ; ..then move the low byte into H.
             POP     H           ; Pop x1 into HL.
-_lshift1:   ANA     A           ; See if the count is zero;
-            JZ      _lshiftDONE ; ..we're done if so.
+_lshift1 ANA     A           ; See if the count is zero;
+            JZ      _lshiftdone ; ..we're done if so.
             DAD     H           ; Left-shift HL by adding HL to itself.
             DCR     A           ; Decrement the counter
             JMP     _lshift1    ; ..and continue looping.
-_lshiftDONE:PUSH    H           ; Push the result (HL).
-            NEXT
+_lshiftdone PUSH    H           ; Push the result (HL).
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1777,10 +1777,10 @@ _lshiftDONE:PUSH    H           ; Push the result (HL).
 ; ---
 ; : M* ( n1 n2 -- d )   2DUP XOR 0< >R  ABS SWAP ABS UM*  R> ?DNEGATE ;
 
-            LINKTO(LSHIFT,0,2,'*',"M")
-MSTAR:      JMP     ENTER
-            .word   TWODUP,XOR,ZEROLESS,TOR,ABS,SWAP,ABS,UMSTAR
-            .word   RFROM,QDNEGATE,EXIT
+            .linkTo lshift,0,2,'*',"M"
+mstar JMP     enter
+            .word   twodup,xor,zeroless,tor,abs,swap,abs,umstar
+            .word   rfrom,qdnegate,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1791,10 +1791,10 @@ MSTAR:      JMP     ENTER
 ; ---
 ; : MAX ( n1 n2 -- n3 )   2DUP < IF SWAP THEN DROP ;
 
-            LINKTO(MSTAR,0,3,'X',"AM")
-MAX:        JMP     ENTER
-            .word   TWODUP,LESSTHAN,zbranch,_maxDONE,SWAP
-_maxDONE:   .word   DROP,EXIT
+            .linkTo mstar,0,3,'X',"AM"
+max JMP     enter
+            .word   twodup,lessthan,zbranch,_maxdone,swap
+_maxdone .word   drop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1805,10 +1805,10 @@ _maxDONE:   .word   DROP,EXIT
 ; ---
 ; : MIN ( n1 n2 -- n3 )   2DUP > IF SWAP THEN DROP ;
 
-            LINKTO(MAX,0,3,'N',"IM")
-MIN:        JMP     ENTER
-            .word   TWODUP,GREATERTHAN,zbranch,_minDONE,SWAP
-_minDONE:   .word   DROP,EXIT
+            .linkTo max,0,3,'N',"IM"
+min JMP     enter
+            .word   twodup,greaterthan,zbranch,_mindone,swap
+_mindone .word   drop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1823,9 +1823,9 @@ _minDONE:   .word   DROP,EXIT
 ; ---
 ; : MOD ( n1 n2 -- n3)   /MOD DROP ;
 
-            LINKTO(MIN,0,3,'D',"OM")
-MOD:        JMP     ENTER
-            .word   SLASHMOD,DROP,EXIT
+            .linkTo min,0,3,'D',"OM"
+mod JMP     enter
+            .word   slashmod,drop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1840,12 +1840,12 @@ MOD:        JMP     ENTER
 ; : MOVE ( addr1 addr2 u --)
 ;   >R 2DUP SWAP DUP R@ + WITHIN R> SWAP IF CMOVE> ELSE CMOVE THEN ;
 
-            LINKTO(MOD,0,4,'E',"VOM")
-MOVE:       JMP     ENTER
-            .word   TOR,TWODUP,SWAP,DUP,RFETCH,PLUS,WITHIN
-            .word   RFROM,SWAP,zbranch,_move1
-            .word   CMOVEUP,EXIT
-_move1:     .word   CMOVE,EXIT
+            .linkTo mod,0,4,'E',"VOM"
+move JMP     enter
+            .word   tor,twodup,swap,dup,rfetch,plus,within
+            .word   rfrom,swap,zbranch,_move1
+            .word   cmoveup,exit
+_move1 .word   cmove,exit
 
 
 ; ----------------------------------------------------------------------
@@ -1853,8 +1853,8 @@ _move1:     .word   CMOVE,EXIT
 ;
 ; Negate n1, giving its arithmetic inverse n2.  
 
-            LINKTO(MOVE,0,6,'E',"TAGEN")
-NEGATE:     POP     H
+            .linkTo move,0,6,'E',"TAGEN"
+negate POP     H
             MOV     A,L
             CMA
             MOV     L,A
@@ -1863,7 +1863,7 @@ NEGATE:     POP     H
             MOV     H,A
             INX     H
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1871,8 +1871,8 @@ NEGATE:     POP     H
 ;
 ; x3 is the bit-by-bit inclusive-or of x1 with x2.
 
-            LINKTO(NEGATE,0,2,'R',"O")
-OR:         SAVEDE
+            .linkTo negate,0,2,'R',"O"
+or .saveDe
             POP     H           ; Pop x2.
             POP     D           ; Pop x1.
             MOV     A,H         ; Put x2's high byte into A,
@@ -1882,8 +1882,8 @@ OR:         SAVEDE
             ORA     E           ; ..then OR x1's low byte with A,
             MOV     L,A         ; ..and put the result into L.
             PUSH    H           ; Push the result (HL).
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1891,13 +1891,13 @@ OR:         SAVEDE
 ;
 ; Place a copy of x1 on top of the stack.
 
-            LINKTO(OR,0,4,'R',"EVO")
-OVER:       PUSH    D           ; Save DE on the stack.
+            .linkTo or,0,4,'R',"EVO"
+over PUSH    D           ; Save DE on the stack.
             .byte 038H,    4           ; Get the address of the third stack item.
             .byte 0EDH                ; Load the third stack item into HL.
             POP     D           ; Restore DE.
             PUSH    H           ; Push the third stack item onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1923,15 +1923,15 @@ OVER:       PUSH    D           ; Save DE on the stack.
 ;   0< IF  ['] LIT COMPILE,  ,  ['] COMPILE, COMPILE, ELSE COMPILE, THEN
 ; ; IMMEDIATE
 
-            LINKTO(OVER,1,8,'E',"NOPTSOP")
-POSTPONE:   JMP     ENTER
-            .word   PARSEWORD,PFIND,DUP,ZEROEQUALS,zbranch,_postpone1
-            .word   DROP,TYPE,SPACE,LIT,'?',EMIT,CR,ABORT
-_postpone1: .word   ZEROLESS,zbranch,_postpone2
-            .word   LIT,LIT,COMPILECOMMA,COMMA,LIT,COMPILECOMMA,COMPILECOMMA
+            .linkTo over,1,8,'E',"NOPTSOP"
+postpone JMP     enter
+            .word   parseword,pfind,dup,zeroequals,zbranch,_postpone1
+            .word   drop,type,space,lit,'?',emit,cr,abort
+_postpone1 .word   zeroless,zbranch,_postpone2
+            .word   lit,lit,compilecomma,comma,lit,compilecomma,compilecomma
             .word       branch,_postpone3
-_postpone2: .word   COMPILECOMMA
-_postpone3: .word   EXIT
+_postpone2 .word   compilecomma
+_postpone3 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -1955,19 +1955,19 @@ _postpone3: .word   EXIT
 ;       CR  STATE @ 0= IF ." ok " THEN
 ;   AGAIN ;
 
-            LINKTO(POSTPONE,0,4,'T',"IUQ")
-QUIT:       JMP     ENTER
-            .word   INITRP
-            .word   ZERO,STATE,STORE
-            .word   INITICBS,TIB,ICB,LIT,ICBLINESTART,PLUS,STORE
-_quit1:     .word   TIB,LIT,TIBSIZE,ACCEPT
-            .word   TIB,PLUS,ICB,LIT,ICBLINEEND,PLUS,STORE
-            .word   SPACE,INTERPRET
-            .word   CR,STATE,FETCH,ZEROEQUALS,zbranch,_quit2
-            .word   PSQUOTE,3
+            .linkTo postpone,0,4,'T',"IUQ"
+quit JMP     enter
+            .word   initrp
+            .word   zero,state,store
+            .word   initicbs,tib,icb,lit,icblinestart,plus,store
+_quit1 .word   tib,lit,tibsize,accept
+            .word   tib,plus,icb,lit,icblineend,plus,store
+            .word   space,interpret
+            .word   cr,state,fetch,zeroequals,zbranch,_quit2
+            .word   psquote,3
             .byte   "ok "
-            .word   TYPE
-_quit2:     .word   branch,_quit1
+            .word   type
+_quit2 .word   branch,_quit1
 
 
 ; ----------------------------------------------------------------------
@@ -1979,10 +1979,10 @@ _quit2:     .word   branch,_quit1
 ; Execution: ( -- x ) ( R: x -- )
 ;   Move x from the return stack to the data stack.
 
-            LINKTO(QUIT,0,2,'>',"R")
-RFROM:      RSPOP(H,L)
+            .linkTo quit,0,2,'>',"R"
+rfrom .rsPop H,L
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -1994,10 +1994,10 @@ RFROM:      RSPOP(H,L)
 ; Execution: ( -- x ) ( R: x -- x )
 ;   Copy x from the return stack to the data stack.
 
-            LINKTO(RFROM,0,2,'@',"R")
-RFETCH:     RSFETCH(H,L)
+            .linkTo rfrom,0,2,'@',"R"
+rfetch .rsFetch H,L
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2014,9 +2014,9 @@ RFETCH:     RSFETCH(H,L)
 ; ---
 ; RECURSE   LATEST @ NFA>CFA , ; IMMEDIATE
 
-            LINKTO(RFETCH,1,7,'E',"SRUCER")
-RECURSE:    JMP     ENTER
-            .word   LATEST,FETCH,NFATOCFA,COMMA,EXIT
+            .linkTo rfetch,1,7,'E',"SRUCER"
+recurse JMP     enter
+            .word   latest,fetch,nfatocfa,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2036,9 +2036,9 @@ RECURSE:    JMP     ENTER
 ; ---
 ; REPEAT   POSTPONE AGAIN  POSTPONE THEN ; IMMEDIATE
 
-            LINKTO(RECURSE,1,6,'T',"AEPER")
-REPEAT:     JMP     ENTER
-            .word   AGAIN,THEN,EXIT
+            .linkTo recurse,1,6,'T',"AEPER"
+repeat JMP     enter
+            .word   again,then,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2046,15 +2046,15 @@ REPEAT:     JMP     ENTER
 ;
 ; Rotate the top three stack entries.
 
-            LINKTO(REPEAT,0,3,'T',"OR")
-ROT:        SAVEDE
+            .linkTo repeat,0,3,'T',"OR"
+rot .saveDe
             POP     D           ; Pop x3 into DE.
             POP     H           ; Pop x2 into HL.
             XTHL                ; Swap TOS (x1) with HL (x2).
             PUSH    D           ; Push x3 back onto the stack.
             PUSH    H           ; Push x1 back onto the stack.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2065,13 +2065,13 @@ ROT:        SAVEDE
 ; ambiguous condition exists if u is greater than or equal to the number
 ; of bits in a cell.
 
-            LINKTO(ROT,0,6,'T',"FIHSR")
-RSHIFT:     SAVEDE
+            .linkTo rot,0,6,'T',"FIHSR"
+rshift .saveDe
             POP     D           ; Pop u into DE, although we only care about E.
             POP     H           ; Pop x1 into HL.
             INR     E           ; Increment E so that the loop can pre-test.
-_rshift1:   DCR     E           ; Decrement E and see if the count is zero;
-            JZ      _rshiftDONE ; ..we're done if so.
+_rshift1 DCR     E           ; Decrement E and see if the count is zero;
+            JZ      _rshiftdone ; ..we're done if so.
             ANA     A           ; Clear carry.
             MOV     A,H         ; Move the high byte into A,
             RAR                 ; ..rotate right with carry,
@@ -2080,9 +2080,9 @@ _rshift1:   DCR     E           ; Decrement E and see if the count is zero;
             RAR                 ; ..rotate right with carry,
             MOV     L,A         ; ..then put the low byte back into L.
             JMP     _rshift1    ; Continue looping.
-_rshiftDONE:PUSH    H           ; Push the result (HL).
-            RESTOREDE
-            NEXT
+_rshiftdone PUSH    H           ; Push the result (HL).
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2114,16 +2114,16 @@ _rshiftDONE:PUSH    H           ; Push the result (HL).
 ;   ELSE ['] (S") COMPILE,  DUP ,  HERE OVER ALLOT THEN
 ;   ( caS uS caD) SWAP CMOVE ;
 
-            LINKTO(RSHIFT,1,2,022H,"S")
-SQUOTE:     JMP     ENTER
-            .word   LIT,022H,PARSE,STATE,FETCH,ZEROEQUALS,zbranch,_squote2
-            .word   DUP,LIT,SQSIZE,GREATERTHAN,zbranch,_squote1
-            .word   PSQUOTE,12
+            .linkTo rshift,1,2,022H,"S"
+squote JMP     enter
+            .word   lit,022H,parse,state,fetch,zeroequals,zbranch,_squote2
+            .word   dup,lit,sqsize,greaterthan,zbranch,_squote1
+            .word   psquote,12
             .byte   "String too long"
-            .word   TYPE,ABORT
-_squote1:   .word   TICKSQUOTE,OVER,TWOSWAP,TICKSQUOTE,branch,_squote3
-_squote2:   .word   LIT,PSQUOTE,COMPILECOMMA,DUP,COMMA,HERE,OVER,ALLOT
-_squote3:   .word   SWAP,CMOVE,EXIT
+            .word   type,abort
+_squote1 .word   ticksquote,over,twoswap,ticksquote,branch,_squote3
+_squote2 .word   lit,psquote,compilecomma,dup,comma,here,over,allot
+_squote3 .word   swap,cmove,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2134,9 +2134,9 @@ _squote3:   .word   SWAP,CMOVE,EXIT
 ; ---
 ; : S>D ( n -- d)   DUP 0< ;
 
-            LINKTO(SQUOTE,0,3,'D',">S")
-STOD:       JMP     ENTER
-            .word   DUP,ZEROLESS,EXIT
+            .linkTo squote,0,3,'D',">S"
+stod JMP     enter
+            .word   dup,zeroless,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2149,10 +2149,10 @@ STOD:       JMP     ENTER
 ; ---
 ; : SIGN ( n -- )   0< IF 45 HOLD THEN ;
 
-            LINKTO(STOD,0,4,'N',"GIS")
-SIGN:       JMP     ENTER
-            .word   ZEROLESS,zbranch,_signDONE,LIT,45,HOLD
-_signDONE:  .word   EXIT
+            .linkTo stod,0,4,'N',"GIS"
+sign JMP     enter
+            .word   zeroless,zbranch,_signdone,lit,45,hold
+_signdone .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -2170,10 +2170,10 @@ _signDONE:  .word   EXIT
 ;   UM/MOD ( +rem +quo)
 ;   R> ?NEGATE ( +rem +-quo)  SWAP R> ?NEGATE SWAP ( +-rem +-quo) ;
 
-            LINKTO(SIGN,0,6,'M',"ER/MS")
-SMSLASHREM: JMP     ENTER
-            .word   OVER,TOR,TWODUP,XOR,TOR,ABS,TOR,DABS,RFROM,UMSLASHMOD
-            .word   RFROM,QNEGATE,SWAP,RFROM,QNEGATE,SWAP,EXIT
+            .linkTo sign,0,6,'M',"ER/MS"
+smslashrem JMP     enter
+            .word   over,tor,twodup,xor,tor,abs,tor,dabs,rfrom,umslashmod
+            .word   rfrom,qnegate,swap,rfrom,qnegate,swap,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2185,9 +2185,9 @@ SMSLASHREM: JMP     ENTER
 ; ---
 ; : SOURCE ( -- c-addr u)   ICB 2@ OVER - ;
 
-            LINKTO(SMSLASHREM,0,6,'E',"CRUOS")
-SOURCE:     JMP     ENTER
-            .word   ICB,TWOFETCH,OVER,MINUS,EXIT
+            .linkTo smslashrem,0,6,'E',"CRUOS"
+source JMP     enter
+            .word   icb,twofetch,over,minus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2195,11 +2195,11 @@ SOURCE:     JMP     ENTER
 ;
 ; Display one space.
 
-            LINKTO(SOURCE,0,5,'E',"CAPS")
-SPACE:      MVI     A,020H      ; Put the space character in A.
-            CALL    STDCALL     ; Call the
+            .linkTo source,0,5,'E',"CAPS"
+space MVI     A,020H      ; Put the space character in A.
+            CALL    stdcall     ; Call the
             .word   04B44H      ; .."character output" routine.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2210,11 +2210,11 @@ SPACE:      MVI     A,020H      ; Put the space character in A.
 ; ---
 ; : SPACES ( n -- )   DUP IF SPACE 1- THEN DROP ;
 
-            LINKTO(SPACE,0,6,'S',"ECAPS")
-SPACES:     JMP     ENTER
-_spaces1:   .word   DUP,zbranch,_spacesDONE,SPACE,ONEMINUS,branch,_spaces1
-_spacesDONE: .word   DROP
-            .word   EXIT
+            .linkTo space,0,6,'S',"ECAPS"
+spaces JMP     enter
+_spaces1 .word   dup,zbranch,_spacesdone,space,oneminus,branch,_spaces1
+_spacesdone .word   drop
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -2228,10 +2228,10 @@ _spacesDONE: .word   DROP
 ;
 ; Note: A program shall not directly alter the contents of STATE.
 
-            LINKTO(SPACES,0,5,'E',"TATS")
-STATE:      LXI     H,TICKSTATE
+            .linkTo spaces,0,5,'E',"TATS"
+state LXI     H,tickstate
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2239,11 +2239,11 @@ STATE:      LXI     H,TICKSTATE
 ;
 ; Exchange the top two stack items.
 
-            LINKTO(STATE,0,4,'P',"AWS")
-SWAP:       POP     H           ; Pop x2 into HL.
+            .linkTo state,0,4,'P',"AWS"
+swap POP     H           ; Pop x2 into HL.
             XTHL                ; Swap TOS (x1) with HL (x2).
             PUSH    H           ; Push x1 back onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2263,9 +2263,9 @@ SWAP:       POP     H           ; Pop x2 into HL.
 ; ---
 ; : THEN   HERE SWAP ! ; IMMEDIATE
 
-            LINKTO(SWAP,1,4,'N',"EHT")
-THEN:       JMP     ENTER
-            .word   HERE,SWAP,STORE,EXIT
+            .linkTo swap,1,4,'N',"EHT"
+then JMP     enter
+            .word   here,swap,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2281,21 +2281,21 @@ THEN:       JMP     ENTER
 ; characters, programs that use control characters to perform specific
 ; functions have an environmental dependency.
 
-            LINKTO(THEN,0,4,'E',"PYT")
-TYPE:       SAVEDE
+            .linkTo then,0,4,'E',"PYT"
+type .saveDe
             POP     D           ; Pop the count into DE.
             POP     H           ; Pop the address into HL.
-_type1:     MOV     A,D         ; See if the count is zero by moving D to A
+_type1 MOV     A,D         ; See if the count is zero by moving D to A
             ORA     E           ; ..and then ORing A with E.
-            JZ      _typeDONE   ; We're done if the count is zero.
+            JZ      _typedone   ; We're done if the count is zero.
             MOV     A,M         ; Get the current character.
-            CALL    STDCALL     ; Call the
+            CALL    stdcall     ; Call the
             .word   04B44H      ; .."character output" routine.
             INX     H           ; Move to the next character.
             DCX     D           ; Decrement the remaining count.
             JMP     _type1      ; Keep going.
-_typeDONE:  RESTOREDE
-            NEXT
+_typedone .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2306,9 +2306,9 @@ _typeDONE:  RESTOREDE
 ; ---
 ; : U. ( u -- )   0 UD.
 
-            LINKTO(TYPE,0,2,'.',"U")
-UDOT:       JMP     ENTER
-            .word   ZERO,UDDOT,EXIT
+            .linkTo type,0,2,'.',"U"
+udot JMP     enter
+            .word   zero,uddot,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2316,8 +2316,8 @@ UDOT:       JMP     ENTER
 ;
 ; flag is true if and only if u1 is less than u2.
 
-            LINKTO(UDOT,0,2,'<',"U")
-ULESSTHAN:  SAVEDE
+            .linkTo udot,0,2,'<',"U"
+ulessthan .saveDe
             POP     D           ; Pop u2.
             POP     H           ; Pop u1.
             PUSH    B           ; Save BC.
@@ -2329,8 +2329,8 @@ ULESSTHAN:  SAVEDE
             MOV     H,A         ; ..and fill HL
             MOV     L,A         ; ..with the contents of A (0000 or FFFF).
             PUSH    H           ; Push the flag to the stack.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2345,8 +2345,8 @@ ULESSTHAN:  SAVEDE
 ; getting saved since that is the fig-FORTH Instruction Pointer.  The
 ; fig-FORTH comments are unchanged, so replace "IP" with "RSP".
 
-            LINKTO(ULESSTHAN,0,3,'*',"MU")
-UMSTAR:     SAVEDE
+            .linkTo ulessthan,0,3,'*',"MU"
+umstar .saveDe
 
             ; fig-FORTH code:
             POP     D           ; (DE) <- MPLIER
@@ -2354,13 +2354,13 @@ UMSTAR:     SAVEDE
             PUSH    B           ; SAVE IP
             MOV     B,H
             MOV     A,L         ; (BA) <- MPCAND
-            CALL    MPYX        ; (AHL)1 <- MPCAND.LB * MPLIER
+            CALL    mpyx        ; (AHL)1 <- MPCAND.LB * MPLIER
             ; 1ST PARTIAL PRODUCT
             PUSH    H           ; SAVE (HL)1
             MOV     H,A
             MOV     A,B
             MOV     B,H         ; SAVE (A)1
-            CALL    MPYX        ; (AHL)2 <- MPCAND.HB * MPLIER
+            CALL    mpyx        ; (AHL)2 <- MPCAND.HB * MPLIER
             ; 2ND PARTIAL PRODUCT
             POP     D           ; (DE) <- (HL)1
             MOV     C,D         ; (BC) <- (AH)1
@@ -2379,26 +2379,26 @@ UMSTAR:     SAVEDE
 
             ; MFORTH code:
             PUSH    H           ; (S1) <- PRODUCT.HW
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
             ;
             ;   MULTIPLY PRIMITIVE
             ;           (AHL) <- (A) * (DE)
             ;   #BITS =   24      8     16
-MPYX:       LXI     H,0         ; (HL) <- 0 = PARTIAL PRODUCT.LW
+mpyx LXI     H,0         ; (HL) <- 0 = PARTIAL PRODUCT.LW
             MVI     C,4         ; LOOP COUNTER
-MPYX1:      DAD     H           ; LEFT SHIFT (AHL) 24 BITS
+mpyx1 DAD     H           ; LEFT SHIFT (AHL) 24 BITS
             RAL
-            JNC     MPYX2       ; IF NEXT MPLIER BIT = 1
+            JNC     mpyx2       ; IF NEXT MPLIER BIT = 1
             DAD     D           ; THEN ADD MPCAND
             ACI     0
-MPYX2:      DAD     H
+mpyx2 DAD     H
             RAL
-            JNC     MPYX3
+            JNC     mpyx3
             DAD     D
             ACI     0
-MPYX3:      DCR     C           ; IF NOT LAST MPLIER BIT
-            JNZ     MPYX1       ; THEN LOOP AGAIN
+mpyx3 DCR     C           ; IF NOT LAST MPLIER BIT
+            JNZ     mpyx1       ; THEN LOOP AGAIN
             RET                 ; ELSE DONE
 
 
@@ -2415,8 +2415,8 @@ MPYX3:      DCR     C           ; IF NOT LAST MPLIER BIT
 ; getting saved since that is the fig-FORTH Instruction Pointer.  The
 ; fig-FORTH comments are unchanged, so replace "IP" with "RSP".
 
-            LINKTO(UMSTAR,0,6,'D',"OM/MU")
-UMSLASHMOD: SAVEDE
+            .linkTo umstar,0,6,'D',"OM/MU"
+umslashmod .saveDe
 
             ; fig-FORTH code:
             MOV     H,B
@@ -2429,17 +2429,17 @@ UMSLASHMOD: SAVEDE
             SUB     C
             MOV     A,H         ; IF OVERFLOW
             SBB     B
-            JNC     USBAD       ; THEN RETURN BAD VALUE
+            JNC     usbad       ; THEN RETURN BAD VALUE
             MOV     A,H
             MOV     H,L
             MOV     L,D         ; (AHL) <- 24 BITS OF NUMERATOR
             MVI     D,8         ; (D) <- INIT COUNTER
             PUSH    D           ; SAVE D & E
-            CALL    USLA        ; PARTIAL DIVISION
+            CALL    usla        ; PARTIAL DIVISION
             POP     D           ; RESTORE COUNTER & NUM.MSBYTE
             PUSH    H           ; (S1) <- (L) = BYTE OF QUOTIENT
             MOV     L,E
-            CALL    USLA
+            CALL    usla
             MOV     D,A
             MOV     E,H         ; (DE) <- REMAINDER
             POP     B           ; RESTORE QUOTIENT.HIGH
@@ -2449,16 +2449,16 @@ UMSLASHMOD: SAVEDE
             ; MFORTH code:
             PUSH    D
             PUSH    H
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
-USL0:       MOV     E,A
+usl0 MOV     E,A
             MOV     A,H
             SUB     C
             MOV     H,A
             MOV     A,E
             SBB     B
-            JNC     USL1        ; IF CARRY
+            JNC     usl1        ; IF CARRY
             MOV     A,H         ; THEN ADD (BC) INTO (AH)
             ADD     C
             MOV     H,A
@@ -2466,27 +2466,27 @@ USL0:       MOV     E,A
             DCR     D
             RZ                  ; RETURN FROM USLA
 
-USLA:       DAD     H           ; 24BIT LEFT-SHIFT ( *2 )
+usla DAD     H           ; 24BIT LEFT-SHIFT ( *2 )
             RAL
-            JNC     USL0        ; SUBTRACT & TEST
+            JNC     usl0        ; SUBTRACT & TEST
             MOV     E,A
             MOV     A,H
             SUB     C           ; (AH) <- (AH) - (BC)
             MOV     H,A
             MOV     A,E
             SBB     B
-USL1:       INR     L           ; 1 BIT OF QUOT INTO RIGHT SIDE
+usl1 INR     L           ; 1 BIT OF QUOT INTO RIGHT SIDE
             DCR     D           ;   OF (AHL)
-            JNZ     USLA        ; CONTINUE DIVISION
+            JNZ     usla        ; CONTINUE DIVISION
             RET                 ; ALL 8 TRIAL COMPLETE
 
-USBAD:      LXI     H,0FFFFH    ; OVERFLOW, RETURN 32BIT -1
+usbad LXI     H,0FFFFH    ; OVERFLOW, RETURN 32BIT -1
             POP     B           ; RESTORE (IP)
 
             ; MFORTH code:
             PUSH    H
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2504,10 +2504,10 @@ USBAD:      LXI     H,0FFFFH    ; OVERFLOW, RETURN 32BIT -1
 ; ---
 ; UNLOOP  R> DROP R> DROP ;
 
-            LINKTO(UMSLASHMOD,0,6,'P',"OOLNU")
-UNLOOP:     RSPOP(H,L)
-            RSPOP(H,L)
-            NEXT
+            .linkTo umslashmod,0,6,'P',"OOLNU"
+unloop .rsPop H,L
+            .rsPop H,L
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2524,9 +2524,9 @@ UNLOOP:     RSPOP(H,L)
 ; ---
 ; : UNTIL   ['] 0branch COMPILE,  , ; IMMEDIATE
 
-            LINKTO(UNLOOP,1,5,'L',"ITNU")
-UNTIL:      JMP     ENTER
-            .word   LIT,zbranch,COMPILECOMMA,COMMA,EXIT
+            .linkTo unloop,1,5,'L',"ITNU"
+until JMP     enter
+            .word   lit,zbranch,compilecomma,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2546,10 +2546,10 @@ UNTIL:      JMP     ENTER
 ; : VARIABLE ( "<spaces>name" -- )
 ;   CREATE  CFASZ NEGATE ALLOT  195 C, DOVARIABLE ,  0 , ; -- JMP DOVARIABLE
 
-            LINKTO(UNTIL,0,8,'E',"LBAIRAV")
-VARIABLE:   JMP     ENTER
-            .word   CREATE,LIT,-CFASZ,ALLOT,LIT,195,CCOMMA,LIT,DOVARIABLE,COMMA
-            .word   ZERO,COMMA,EXIT
+            .linkTo until,0,8,'E',"LBAIRAV"
+variable JMP     enter
+            .word   create,lit,-cfasz,allot,lit,195,ccomma,lit,dovariable,comma
+            .word   zero,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2568,9 +2568,9 @@ VARIABLE:   JMP     ENTER
 ; ---
 ; : WHILE   POSTPONE IF  SWAP ; IMMEDIATE
 
-            LINKTO(VARIABLE,1,5,'E',"LIHW")
-WHILE:      JMP     ENTER
-            .word   IF,SWAP,EXIT
+            .linkTo variable,1,5,'E',"LIHW"
+while JMP     enter
+            .word   if,swap,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2596,11 +2596,11 @@ WHILE:      JMP     ENTER
 ;   R@ 'WORD C!  BL 'WORD 1+ R> + C!
 ;   'WORD ;
 
-            LINKTO(WHILE,0,4,'D',"ROW")
-WORD:       JMP     ENTER
-            .word   TRUE,SWAP,PPARSE,TOR,TICKWORD,ONEPLUS,RFETCH,CMOVE
-            .word   RFETCH,TICKWORD,CSTORE,BL,TICKWORD,ONEPLUS,RFROM,PLUS,CSTORE
-            .word   TICKWORD,EXIT
+            .linkTo while,0,4,'D',"ROW"
+word JMP     enter
+            .word   true,swap,pparse,tor,tickword,oneplus,rfetch,cmove
+            .word   rfetch,tickword,cstore,bl,tickword,oneplus,rfrom,plus,cstore
+            .word   tickword,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2608,8 +2608,8 @@ WORD:       JMP     ENTER
 ;
 ; x3 is the bit-by-bit exclusive-or of x1 with x2.
 
-            LINKTO(WORD,0,3,'R',"OX")
-XOR:        SAVEDE
+            .linkTo word,0,3,'R',"OX"
+xor .saveDe
             POP     H           ; Pop x2.
             POP     D           ; Pop x1.
             MOV     A,H         ; Put x2's high byte into A,
@@ -2619,8 +2619,8 @@ XOR:        SAVEDE
             XRA     E           ; ..then XOR x1's low byte with A,
             MOV     L,A         ; ..and put the result into L.
             PUSH    H           ; Push the result (HL).
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2635,10 +2635,10 @@ XOR:        SAVEDE
 ; Execution: ( -- )
 ;   Enter interpretation state.  [ is an immediate word.
 
-            LINKTO0(XOR,1,1,'[')
-LTBRACKET:  LXI     H,0
-            SHLD    TICKSTATE
-            NEXT
+            .linkTo0 xor,1,1,'['
+ltbracket LXI     H,0
+            SHLD    tickstate
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2662,9 +2662,9 @@ LTBRACKET:  LXI     H,0
 ; ---
 ; : ['] ( "<spaces>name" -- )   '  ['] LIT COMPILE,  , ; IMMEDIATE
 
-            LINKTO(LTBRACKET,1,3,']',"\'[")
-BRACKETTICK:JMP     ENTER
-            .word   TICK,LIT,LIT,COMPILECOMMA,COMMA,EXIT
+            .linkTo ltbracket,1,3,']',"\'["
+brackettick JMP     enter
+            .word   tick,lit,lit,compilecomma,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2683,9 +2683,9 @@ BRACKETTICK:JMP     ENTER
 ; ---
 ; : [CHAR] ( "<spaces>name" -- char)   CHAR  ['] LIT COMPILE,  , ; IMMEDIATE
 
-            LINKTO(BRACKETTICK,1,6,']',"RAHC[")
-BRACKETCHAR:JMP     ENTER
-            .word   CHAR,LIT,LIT,COMPILECOMMA,COMMA,EXIT
+            .linkTo brackettick,1,6,']',"RAHC["
+bracketchar JMP     enter
+            .word   char,lit,lit,compilecomma,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -2693,10 +2693,10 @@ BRACKETCHAR:JMP     ENTER
 ;
 ; Enter compilation state.
 
-            LINKTO0(BRACKETCHAR,0,1,']')
-RTBRACKET:  LXI     H,0FFFFH
-            SHLD    TICKSTATE
-            NEXT
+            .linkTo0 bracketchar,0,1,']'
+rtbracket LXI     H,0FFFFH
+            SHLD    tickstate
+            .next
 
 
 
@@ -2709,10 +2709,10 @@ RTBRACKET:  LXI     H,0FFFFH
 ;
 ; Stores information about an input source.
 
-ICBLINEEND .const    0           ; Offset to end of line.
-ICBLINESTART .const   2           ; Offset from ICB to start of line cell.
-ICBSOURCEID .const    4           ; Offset to SOURCE-ID for this source.
-ICBTOIN .const    6           ; Offset to >IN value.
+icblineend =    0           ; Offset to end of line.
+icblinestart =   2           ; Offset from ICB to start of line cell.
+icbsourceid =    4           ; Offset to SOURCE-ID for this source.
+icbtoin =    6           ; Offset to >IN value.
 
 
 ; ======================================================================
@@ -2724,14 +2724,14 @@ ICBTOIN .const    6           ; Offset to >IN value.
 ;
 ; addr is the address of the start of the S" buffer.
 
-            LINKTO(RTBRACKET,0,3,022H,"S\'")
-TICKSQUOTE: LHLD    DP
+            .linkTo rtbracket,0,3,022H,"S\'"
+ticksquote LHLD    dp
             PUSH    D
-            LXI     D,SQOFFSET
+            LXI     D,sqoffset
             DAD     D
             XTHL
             XCHG
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2739,14 +2739,14 @@ TICKSQUOTE: LHLD    DP
 ;
 ; addr is the address of the start of the WORD buffer.
 
-            LINKTO(TICKSQUOTE,0,5,'D',"ROW\'")
-TICKWORD:   LHLD    DP
+            .linkTo ticksquote,0,5,'D',"ROW\'"
+tickword LHLD    dp
             PUSH    D
-            LXI     D,WORDOFFSET
+            LXI     D,wordoffset
             DAD     D
             XTHL
             XCHG
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2759,27 +2759,27 @@ TICKWORD:   LHLD    DP
 ; loop control parameters are discarded.  An ambiguous condition exists if
 ; n1|u1 and n2|u2 are not both of the same type.
 
-            LINKTO(TICKWORD,0,5,029H,"od?(")
-pqdo:       SAVEDE
+            .linkTo tickword,0,5,029H,"od?("
+pqdo .saveDe
             POP     H           ; Pop index into HL.
             POP     D           ; Pop limit into DE.
-            RSPUSH(D,E)         ; Push limit onto return stack.
-            RSPUSH(H,L)         ; Push index onto return stack.
+            .rsPush D,E         ; Push limit onto return stack.
+            .rsPush H,L         ; Push index onto return stack.
             PUSH    B           ; Save BC.
             MOV     B,D         ; Move the limit
             MOV     C,E         ; ..to BC.
             .byte 08H                ; HL=HL-BC
             POP     B           ; Restore BC.
-            RESTOREDE
-            JNZ     _pqdoBEGIN  ; Begin the loop if the values are not equal.
-            RSPOP(H,L)          ; Remove the loop
-            RSPOP(H,L)          ; ..items from the return stack.
+            .restoreDe
+            JNZ     _pqdobegin  ; Begin the loop if the values are not equal.
+            .rsPop H,L          ; Remove the loop
+            .rsPop H,L          ; ..items from the return stack.
             .byte 0EDH                ; Get the branch address into HL.
             XCHG                ; Swap the branch address into DE.
-            JMP     _pqdoDONE   ; We're done.
-_pqdoBEGIN: INX     D           ; Skip the
+            JMP     _pqdodone   ; We're done.
+_pqdobegin INX     D           ; Skip the
             INX     D           ; ..branch address.
-_pqdoDONE:  NEXT
+_pqdodone .next
 
 
 ; ----------------------------------------------------------------------
@@ -2790,13 +2790,13 @@ _pqdoDONE:  NEXT
 ; Anything already on the return stack becomes unavailable until the
 ; loop-control parameters are discarded.
 
-            LINKTO(pqdo,0,4,029H,"od(")
-pdo:        POP     H           ; Pop index into HL,
+            .linkTo pqdo,0,4,029H,"od("
+pdo POP     H           ; Pop index into HL,
             XTHL                ; ..swap the index and the limit,
-            RSPUSH(H,L)         ; ..and push the limit onto the return stack.
+            .rsPush H,L         ; ..and push the limit onto the return stack.
             POP     H           ; Pop index into HL
-            RSPUSH(H,L)         ; ..and push the index onto the return stack.
-            NEXT
+            .rsPush H,L         ; ..and push the index onto the return stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2808,41 +2808,41 @@ pdo:        POP     H           ; Pop index into HL,
 ; execution at the beginning of the loop.  Otherwise, discard the current
 ; loop control parameters and continue execution immediately following the loop.  
 
-            LINKTO(pdo,0,7,029H,"pool+(")
-pplusloop:  SAVEDE
-            RSPOP(H,L)          ; Get the current loop index from the RS.
+            .linkTo pdo,0,7,029H,"pool+("
+pplusloop .saveDe
+            .rsPop H,L          ; Get the current loop index from the RS.
             POP     D           ; Get the increment from the stack.
             MOV     A,D         ; Move the high byte of the increment to A,
             ORA     A           ; ..see if the increment is positive or zero,
             PUSH    PSW         ; ..and then store the result on the stack.
             DAD     D           ; Increment the loop index.
-            RSFETCH(D,E)        ; Get the loop limit from the RS
-            RSPUSH(H,L)         ; ..and put the new loop index back onto the RS.
+            .rsFetch D,E        ; Get the loop limit from the RS
+            .rsPush H,L         ; ..and put the new loop index back onto the RS.
             POP     PSW         ; See if the increment is positive or zero
-            JP      _pplPOSINCR ; ..and then calculate the flag appropriately.
-_pplsNEGINCR:PUSH   B           ; Save BC.
+            JP      _pplposincr ; ..and then calculate the flag appropriately.
+_pplsnegincr PUSH   B           ; Save BC.
             MOV     B,D         ; Move the loop limit
             MOV     C,E         ; ..into BC.
             .byte 08H                ; Subtract the limit from the index.
             POP     B           ; Restore BC.
-            JP      _pplCONTINUE; Continue if index was >= limit,
-            JMP     _pplUNLOOP  ; ..otherwise unloop.
-_pplPOSINCR:PUSH    B           ; Save BC.
+            JP      _pplcontinue; Continue if index was >= limit,
+            JMP     _pplunloop  ; ..otherwise unloop.
+_pplposincr PUSH    B           ; Save BC.
             MOV     B,D         ; Move the loop limit
             MOV     C,E         ; ..into BC.
             .byte 08H                ; Subtract the limit from the index.
             POP     B           ; Restore BC.
-            JP      _pplUNLOOP  ; Unloop if index was >= limit.
-_pplCONTINUE:RESTOREDE
+            JP      _pplunloop  ; Unloop if index was >= limit.
+_pplcontinue .restoreDe
             .byte 0EDH                ; Get the branch address into HL.
             XCHG                ; Swap the branch address into DE.
-            JMP     _pplDONE    ; We're done.
-_pplUNLOOP: RESTOREDE
-            RSPOP(H,L)          ; Pop the loop index.
-            RSPOP(H,L)          ; Pop the loop limit.
+            JMP     _ppldone    ; We're done.
+_pplunloop .restoreDe
+            .rsPop H,L          ; Pop the loop index.
+            .rsPop H,L          ; Pop the loop limit.
             INX     D           ; Skip the
             INX     D           ; ..branch address.
-_pplDONE:   NEXT
+_ppldone .next
 
 
 ; ----------------------------------------------------------------------
@@ -2854,27 +2854,27 @@ _pplDONE:   NEXT
 ; immediately following the loop.  Otherwise continue execution at the
 ; beginning of the loop.
 
-            LINKTO(pplusloop,0,6,029H,"pool(")
-ploop:      SAVEDE
-            RSPOP(H,L)          ; Get the current loop index from the RS
+            .linkTo pplusloop,0,6,029H,"pool("
+ploop .saveDe
+            .rsPop H,L          ; Get the current loop index from the RS
             INX     H           ; ..and increment the loop index.
-            RSFETCH(D,E)        ; Get the loop limit from the RS
-            RSPUSH(H,L)         ; ..and put the new loop index back onto the RS.
+            .rsFetch D,E        ; Get the loop limit from the RS
+            .rsPush H,L         ; ..and put the new loop index back onto the RS.
             PUSH    B           ; Save BC.
             MOV     B,D         ; Move the loop limit
             MOV     C,E         ; ..into BC.
             .byte 08H                ; Subtract the limit from the index.
             POP     B           ; Restore BC.
-            RESTOREDE
-            JZ      _ploopUNLOOP; Loop is done if the values are equal (zero).
+            .restoreDe
+            JZ      _ploopunloop; Loop is done if the values are equal (zero).
             .byte 0EDH                ; Get the branch address into HL.
             XCHG                ; Swap the branch address into DE.
-            JMP     _ploopDONE  ; We're done.
-_ploopUNLOOP:RSPOP(H,L)         ; Pop the loop index.
-            RSPOP(H,L)          ; Pop the loop limit.
+            JMP     _ploopdone  ; We're done.
+_ploopunloop .rsPop H,L         ; Pop the loop index.
+            .rsPop H,L          ; Pop the loop limit.
             INX     D           ; Skip the
             INX     D           ; ..branch address.
-_ploopDONE: NEXT
+_ploopdone .next
 
 
 ; ----------------------------------------------------------------------
@@ -2882,8 +2882,8 @@ _ploopDONE: NEXT
 ;
 ; Runtime behavior of S": return c-addr and u.
 
-            LINKTO(ploop,0,4,029H,"\"s(")
-PSQUOTE:    .byte 0EDH                ; Read string count from instruction stream.
+            .linkTo ploop,0,4,029H,"\"s("
+psquote .byte 0EDH                ; Read string count from instruction stream.
             INX     D           ; Skip over count
             INX     D           ; ..in instruction stream.
             PUSH    D           ; Push string address onto the stack.
@@ -2891,7 +2891,7 @@ PSQUOTE:    .byte 0EDH                ; Read string count from instruction strea
             XCHG                ; IP to HL, count to DE.
             DAD     D           ; Add count to address to skip over string.
             XCHG                ; Put IP back in DE (pointing after string).
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2899,10 +2899,10 @@ PSQUOTE:    .byte 0EDH                ; Read string count from instruction strea
 ;
 ; Push zero onto the stack.
 
-            LINKTO0(PSQUOTE,0,1,'0')
-ZERO:       LXI     H,0
+            .linkTo0 psquote,0,1,'0'
+zero LXI     H,0
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2912,17 +2912,17 @@ ZERO:       LXI     H,0
 ; in the next cell of the instruction stream, otherwise skip over the branch
 ; address and continue processing instructions.
 
-            LINKTO(ZERO,0,7,'h',"cnarb0")
-zbranch:    POP     H           ; Get the flag.
+            .linkTo zero,0,7,'h',"cnarb0"
+zbranch POP     H           ; Get the flag.
             MOV     A,H         ; See if the flag is zero by moving H to A
             ORA     L           ; ..and then ORing A with L.
-            JNZ     _zbraTRUE   ; True?  Skip the branch.
+            JNZ     _zbratrue   ; True?  Skip the branch.
             .byte 0EDH                ; Get the branch address into HL.
             XCHG                ; Swap the branch address into DE.
-            JMP     _zbraDONE   ; We're done.
-_zbraTRUE:  INX     D           ; Skip the
+            JMP     _zbradone   ; We're done.
+_zbratrue INX     D           ; Skip the
             INX     D           ; ..branch address.
-_zbraDONE:  NEXT
+_zbradone .next
 
 
 ; ----------------------------------------------------------------------
@@ -2930,10 +2930,10 @@ _zbraDONE:  NEXT
 ;
 ; Push one onto the stack.
 
-            LINKTO0(zbranch,0,1,'1')
-ONE:        LXI     H,1
+            .linkTo0 zbranch,0,1,'1'
+one LXI     H,1
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2944,16 +2944,16 @@ ONE:        LXI     H,1
 ; ---
 ; >DIGIT ( u -- c ) DUP 9 > 7 AND + 48 + ;
 
-            LINKTO(ONE,0,6,'T',"IGID>")
-TODIGIT:    POP     H
+            .linkTo one,0,6,'T',"IGID>"
+todigit POP     H
             MOV     A,L
             CPI     00AH
             JC       _todigit2  ; u is < 10, so just add 030h for 0-9.
             ADI     7           ; u is >= 10, add an extra 7 to get to A-Z.
-_todigit2:  ADI     030H
+_todigit2 ADI     030H
             MOV     L,A
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -2964,10 +2964,10 @@ _todigit2:  ADI     030H
 ; ---
 ; : ?DNEGATE ( d1 n -- d2)   0< IF DNEGATE THEN ;
 
-            LINKTO(TODIGIT,0,8,'E',"TAGEND?")
-QDNEGATE:   JMP     ENTER
-            .word   ZEROLESS,zbranch,_dnegate1,DNEGATE
-_dnegate1:  .word   EXIT
+            .linkTo todigit,0,8,'E',"TAGEND?"
+qdnegate JMP     enter
+            .word   zeroless,zbranch,_dnegate1,dnegate
+_dnegate1 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -2978,10 +2978,10 @@ _dnegate1:  .word   EXIT
 ; ---
 ; : ?NEGATE ( n1 n2 -- n3)   0< IF NEGATE THEN ;
 
-            LINKTO(QDNEGATE,0,7,'E',"TAGEN?")
-QNEGATE:    JMP     ENTER
-            .word   ZEROLESS,zbranch,_negate1,NEGATE
-_negate1:   .word   EXIT
+            .linkTo qdnegate,0,7,'E',"TAGEN?"
+qnegate JMP     enter
+            .word   zeroless,zbranch,_negate1,negate
+_negate1 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -2990,10 +2990,10 @@ _negate1:   .word   EXIT
 ; Set the instruction pointer to the address that is in the next cell of
 ; the instruction stream.
 
-            LINKTO(QNEGATE,0,6,'h',"cnarb")
-branch:     .byte 0EDH                ; Get the branch address into HL.
+            .linkTo qnegate,0,6,'h',"cnarb"
+branch .byte 0EDH                ; Get the branch address into HL.
             XCHG                ; Swap the branch address into DE.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3003,9 +3003,9 @@ branch:     .byte 0EDH                ; Get the branch address into HL.
 ; Pushes the numeric value and -1 to the stack if the value was converted,
 ; otherwise pushes 0 to the stack.
 
-            LINKTO(branch,0,6,'?',"TIGID")
-DIGITQ:     MOV     H,B         ; Get the contents
-            MVI     L,USERBASE  ; ..of the BASE
+            .linkTo branch,0,6,'?',"TIGID"
+digitq MOV     H,B         ; Get the contents
+            MVI     L,userbase  ; ..of the BASE
             MOV     L,M         ; ..user variable in L.
             XTHL                ; Swap the character with the BASE,
             MOV     A,L         ; ..move the character into A,
@@ -3015,17 +3015,17 @@ DIGITQ:     MOV     H,B         ; Get the contents
             JC      _digitq1    ; ..No: check the base and continue.
             SUI     7           ; Yes: subtract 7,
             CPI     00AH        ; ..make sure that the char is > "9"
-            JC      _digitqFLSE ; ..and fail if not (char between "9" and "A").
-_digitq1:   CMP     L           ; Make sure that digit is less than BASE
-            JNC     _digitqFLSE ; ..and fail if not.
+            JC      _digitqflse ; ..and fail if not (char between "9" and "A").
+_digitq1 CMP     L           ; Make sure that digit is less than BASE
+            JNC     _digitqflse ; ..and fail if not.
             MOV     L,A         ; Move the digit to L,
             MVI     H,0         ; ..clear H,
             PUSH    H           ; ..and push the digit.
             LXI     H,0FFFFH    ; Put true in HL.
-            JMP     _digitqDONE ; We're done.
-_digitqFLSE:LXI     H,0         ; Put false in HL.
-_digitqDONE:PUSH    H           ; Push the flag to the stack.
-            NEXT
+            JMP     _digitqdone ; We're done.
+_digitqflse LXI     H,0         ; Put false in HL.
+_digitqdone PUSH    H           ; Push the flag to the stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3039,9 +3039,9 @@ _digitqDONE:PUSH    H           ; Push the flag to the stack.
 ; : END-LOOP ( do-orig pdo-xt)
 ;   COMPILE, ,  'PREVLEAVE @ HERE>CHAIN ; IMMEDIATE
 
-ENDLOOP:    JMP     ENTER
-            .word   COMPILECOMMA,COMMA
-            .word   LIT,TICKPREVLEAVE,FETCH,HERETOCHAIN,EXIT
+endloop JMP     enter
+            .word   compilecomma,comma
+            .word   lit,tickprevleave,fetch,heretochain,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3063,15 +3063,15 @@ ENDLOOP:    JMP     ENTER
 ;       R> CELL+  DUP @ 0= IF DROP 0 EXIT THEN  >R
 ;   AGAIN ;
 
-            LINKTO(DIGITQ,0,6,029H,"DNIF(")
-PFIND:      JMP     ENTER
-            .word   CONTEXT,TOR
-_pfind1:    .word   TWODUP,RFETCH,FETCH,SEARCHWORDLIST
-            .word   QDUP,ZERONOTEQUALS,zbranch,_pfind2
-            .word   TWONIP,RFROM,DROP,EXIT
-_pfind2:    .word   RFROM,CELLPLUS,DUP,FETCH,ZEROEQUALS,zbranch,_pfind3
-            .word   DROP,ZERO,EXIT
-_pfind3:    .word   TOR,branch,_pfind1
+            .linkTo digitq,0,6,029H,"DNIF("
+pfind JMP     enter
+            .word   context,tor
+_pfind1 .word   twodup,rfetch,fetch,searchwordlist
+            .word   qdup,zeronotequals,zbranch,_pfind2
+            .word   twonip,rfrom,drop,exit
+_pfind2 .word   rfrom,cellplus,dup,fetch,zeroequals,zbranch,_pfind3
+            .word   drop,zero,exit
+_pfind3 .word   tor,branch,_pfind1
 
 
 ; ----------------------------------------------------------------------
@@ -3095,13 +3095,13 @@ _pfind3:    .word   TOR,branch,_pfind1
 ; and sets Carry when the key is "special".  We probably want to avoid "special"
 ; keys and just accept non-special keys.  For now we just take the easy route.
 
-            LINKTO(PFIND,0,5,029H,"YEK(")
-PKEY:       CALL    STDCALL     ; Call the
+            .linkTo pfind,0,5,029H,"YEK("
+pkey CALL    stdcall     ; Call the
             .word   012CBH      ; ..CHGET routine.
             MVI     H,0         ; Clear H,
             MOV     L,A         ; ..put the character in L,
             PUSH    H           ; ..and push the character onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3116,11 +3116,11 @@ PKEY:       CALL    STDCALL     ; Call the
 ; HERE>CHAIN ( addr -- )
 ;   BEGIN ?DUP WHILE DUP @ HERE ( a a' h) ROT ! REPEAT ;
 
-            LINKTO(PKEY,0,10,'N',"IAHC>EREH")
-HERETOCHAIN:JMP     ENTER
-_htc1:      .word   QDUP,zbranch,_htc2
-            .word   DUP,FETCH,HERE,ROT,STORE,branch,_htc1
-_htc2:      .word   EXIT
+            .linkTo pkey,0,10,'N',"IAHC>EREH"
+heretochain JMP     enter
+_htc1 .word   qdup,zbranch,_htc2
+            .word   dup,fetch,here,rot,store,branch,_htc1
+_htc2 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -3131,9 +3131,9 @@ _htc2:      .word   EXIT
 ; ---
 ; : HIDDEN ( dict-addr -- f )   C@ 64 AND 0<> ;
 
-            LINKTO(HERETOCHAIN,0,7,'?',"NEDDIH")
-HIDDENQ:    JMP     ENTER
-            .word   CFETCH,LIT,64,AND,ZERONOTEQUALS,EXIT
+            .linkTo heretochain,0,7,'?',"NEDDIH"
+hiddenq JMP     enter
+            .word   cfetch,lit,64,and,zeronotequals,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3143,9 +3143,9 @@ HIDDENQ:    JMP     ENTER
 ; ---
 ; : HIDE ( -- )   LATEST @  DUP C@ [HEX] 40 OR  SWAP C! ;
 
-            LINKTO(HIDDENQ,0,4,'E',"DIH")
-HIDE:       JMP     ENTER
-            .word   LATEST,FETCH,DUP,CFETCH,LIT,040H,OR,SWAP,CSTORE,EXIT
+            .linkTo hiddenq,0,4,'E',"DIH"
+hide JMP     enter
+            .word   latest,fetch,dup,cfetch,lit,040H,or,swap,cstore,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3154,10 +3154,10 @@ HIDE:       JMP     ENTER
 ; c-addr is the address of the cell containing the current location in
 ; the Pictured Numeric Output hold buffer.
 
-            LINKTO(HIDE,0,3,'D',"LH")
-HLD:        LXI     H,TICKHLD
+            .linkTo hide,0,3,'D',"LH"
+hld LXI     H,tickhld
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3165,10 +3165,10 @@ HLD:        LXI     H,TICKHLD
 ;
 ; c-addr is the address of the current Input Control Block.
 
-            LINKTO(HLD,0,3,'B',"CI")
-ICB:        LHLD    TICKICB
+            .linkTo hld,0,3,'B',"CI"
+icb LHLD    tickicb
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3181,10 +3181,10 @@ ICB:        LHLD    TICKICB
 ; : INIT-ICBS ( -- )
 ;   ICBSTART [ MAXICBS 2* 2* 2* ] 0 FILL  ICBSTART TO ICB ;
 
-            LINKTO(ICB,0,9,'S',"BCI-TINI")
-INITICBS:   JMP     ENTER
-            .word   LIT,ICBSTART,LIT,MAXICBS*8,ZERO,FILL
-            .word   LIT,ICBSTART,LIT,TICKICB,STORE,EXIT
+            .linkTo icb,0,9,'S',"BCI-TINI"
+initicbs JMP     enter
+            .word   lit,icbstart,lit,maxicbs*8,zero,fill
+            .word   lit,icbstart,lit,tickicb,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3209,21 +3209,21 @@ INITICBS:   JMP     ENTER
 ;       THEN
 ;   REPEAT ( j*x ca u) 2DROP ;
 
-            LINKTO(INITICBS,0,9,'T',"ERPRETNI")
-INTERPRET:  JMP     ENTER
-            .word   ZERO,TOIN,STORE
-_interpret1: .word   PARSEWORD,DUP,zbranch,_interpret6
-            .word   PFIND,QDUP,zbranch,_interpret3
-            .word   ONEPLUS,STATE,FETCH,ZEROEQUALS,OR,zbranch,_interpret2
-            .word   EXECUTE,branch,_interpret5
-_interpret2: .word   COMPILECOMMA,branch,_interpret5
-_interpret3: .word   NUMBERQ,zbranch,_interpret4
-            .word   STATE,FETCH,zbranch,_interpret5
-            .word   LITERAL,branch,_interpret5
-_interpret4: .word   TYPE,SPACE,LIT,'?',EMIT,CR,ABORT
-_interpret5: .word   branch,_interpret1
-_interpret6: .word   TWODROP
-            .word   EXIT
+            .linkTo initicbs,0,9,'T',"ERPRETNI"
+interpret JMP     enter
+            .word   zero,toin,store
+_interpret1 .word   parseword,dup,zbranch,_interpret6
+            .word   pfind,qdup,zbranch,_interpret3
+            .word   oneplus,state,fetch,zeroequals,or,zbranch,_interpret2
+            .word   execute,branch,_interpret5
+_interpret2 .word   compilecomma,branch,_interpret5
+_interpret3 .word   numberq,zbranch,_interpret4
+            .word   state,fetch,zbranch,_interpret5
+            .word   literal,branch,_interpret5
+_interpret4 .word   type,space,lit,'?',emit,cr,abort
+_interpret5 .word   branch,_interpret1
+_interpret6 .word   twodrop
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -3232,9 +3232,9 @@ _interpret6: .word   TWODROP
 ; a-addr is the address of a cell containing the address of the link
 ; field of the latest word added to the dictionary.
 
-            LINKTO(INTERPRET,0,6,'T',"SETAL")
-LATEST:     JMP     ENTER
-            .word   GETCURRENT,EXIT
+            .linkTo interpret,0,6,'T',"SETAL"
+latest JMP     enter
+            .word   getcurrent,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3242,12 +3242,12 @@ LATEST:     JMP     ENTER
 ;
 ; Push the next value in the PFA to the stack.
 
-            LINKTO(LATEST,0,3,'T',"IL")
-LIT:        .byte 0EDH            ; Read constant from instruction stream.
+            .linkTo latest,0,3,'T',"IL"
+lit .byte 0EDH            ; Read constant from instruction stream.
             PUSH    H       ; ..and push constant to stack.
             INX     D       ; Skip over constant
             INX     D       ; ..in instruction stream.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3259,11 +3259,11 @@ LIT:        .byte 0EDH            ; Read constant from instruction stream.
 ; ---
 ; : NFA>CFA ( nfa-addr -- cfa-addr)   NFATOCFASZ + ;
 
-            LINKTO(LIT,0,7,'A',"FC>AFN")
-NFATOCFA:   POP     H
-            INXNFATOCFA(H)
+            .linkTo lit,0,7,'A',"FC>AFN"
+nfatocfa POP     H
+            .inxNfaToCfa H
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3275,11 +3275,11 @@ NFATOCFA:   POP     H
 ; ---
 ; : NFA>LFA ( nfa-addr -- lfa-addr)   1+ ;
 
-            LINKTO(NFATOCFA,0,7,'A',"FL>AFN")
-NFATOLFA:   POP     H
+            .linkTo nfatocfa,0,7,'A',"FL>AFN"
+nfatolfa POP     H
             INX     H
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -3295,13 +3295,13 @@ NFATOLFA:   POP     H
 ;   IF DROP 2DROP  R> DROP  0 ELSE
 ;      DROP 2NIP DROP  >R ?NEGATE  -1 THEN ;
 
-            LINKTO(NFATOLFA,0,7,'?',"REBMUN")
-NUMBERQ:    JMP     ENTER
-            .word   SIGNQ,TOR,TWODUP,ZERO,ZERO,TWOSWAP
-            .word       TONUMBER,zbranch,_numberq1
-            .word   DROP,TWODROP,RFROM,DROP,ZERO,branch,_numberq2
-_numberq1:  .word   DROP,TWONIP,DROP,RFROM,QNEGATE,LIT,0FFFFH
-_numberq2:  .word   EXIT
+            .linkTo nfatolfa,0,7,'?',"REBMUN"
+numberq JMP     enter
+            .word   signq,tor,twodup,zero,zero,twoswap
+            .word       tonumber,zbranch,_numberq1
+            .word   drop,twodrop,rfrom,drop,zero,branch,_numberq2
+_numberq1 .word   drop,twonip,drop,rfrom,qnegate,lit,0FFFFH
+_numberq2 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -3312,9 +3312,9 @@ _numberq2:  .word   EXIT
 ; ---
 ; : POPICB ( --)  ICB 8 - TO ICB ;
 
-            LINKTO(NUMBERQ,0,6,'B',"CIPOP")
-POPICB:     JMP     ENTER
-            .word   ICB,LIT,8,MINUS,LIT,TICKICB,STORE,EXIT
+            .linkTo numberq,0,6,'B',"CIPOP"
+popicb JMP     enter
+            .word   icb,lit,8,minus,lit,tickicb,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3325,9 +3325,9 @@ POPICB:     JMP     ENTER
 ; ---
 ; : PUSHICB ( --)  ICB 8 + TO ICB ;
 
-            LINKTO(POPICB,0,7,'B',"CIHSUP")
-PUSHICB:    JMP     ENTER
-            .word   ICB,LIT,8,PLUS,LIT,TICKICB,STORE,EXIT
+            .linkTo popicb,0,7,'B',"CIHSUP"
+pushicb JMP     enter
+            .word   icb,lit,8,plus,lit,tickicb,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3338,9 +3338,9 @@ PUSHICB:    JMP     ENTER
 ; ---
 ; : REVEAL ( -- )   LATEST @  DUP C@ [HEX] BF AND  SWAP C! ;
 
-            LINKTO(PUSHICB,0,6,'L',"AEVER")
-REVEAL:     JMP     ENTER
-            .word   LATEST,FETCH,DUP,CFETCH,LIT,0BFH,AND,SWAP,CSTORE,EXIT
+            .linkTo pushicb,0,6,'L',"AEVER"
+reveal JMP     enter
+            .word   latest,fetch,dup,cfetch,lit,0BFH,and,swap,cstore,exit
 
 
 ; ----------------------------------------------------------------------
@@ -3357,15 +3357,15 @@ REVEAL:     JMP     ENTER
 ;       [CHAR] - = IF -1 ELSE 0 THEN  >R 1 /STRING R>
 ;   ELSE DROP 0 THEN ;
 
-            LINKTO(REVEAL,0,5,'?',"NGIS")
-SIGNQ:      JMP     ENTER
-            .word   OVER,CFETCH,DUP,LIT,'-',EQUALS,OVER,LIT,'+',EQUALS,OR
+            .linkTo reveal,0,5,'?',"NGIS"
+signq JMP     enter
+            .word   over,cfetch,dup,lit,'-',equals,over,lit,'+',equals,or
             .word       zbranch,_signq3
-            .word   LIT,'-',EQUALS,zbranch,_signq1,LIT,0FFFFH,branch,_signq2
-_signq1:    .word   ZERO
-_signq2:    .word   TOR,ONE,SLASHSTRING,RFROM,branch,_signq4
-_signq3:    .word   DROP,ZERO
-_signq4:    .word   EXIT
+            .word   lit,'-',equals,zbranch,_signq1,lit,0FFFFH,branch,_signq2
+_signq1 .word   zero
+_signq2 .word   tor,one,slashstring,rfrom,branch,_signq4
+_signq3 .word   drop,zero
+_signq4 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -3376,11 +3376,11 @@ _signq4:    .word   EXIT
 ; ---
 ; UD* ( ud1 u1 -- ud2)   DUP >R UM* DROP  SWAP R> UM* ROT + ;
 
-            LINKTO(SIGNQ,0,3,'*',"DU")
-UDSTAR:     JMP     ENTER
-            .word   DUP,TOR,UMSTAR,DROP
-            .word   SWAP,RFROM,UMSTAR,ROT,PLUS
-            .word   EXIT
+            .linkTo signq,0,3,'*',"DU"
+udstar JMP     enter
+            .word   dup,tor,umstar,drop
+            .word   swap,rfrom,umstar,rot,plus
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -3391,10 +3391,10 @@ UDSTAR:     JMP     ENTER
 ; ---
 ; : UD. ( ud -- )   <# #S #> TYPE SPACE ;
 
-            LINKTO(UDSTAR,0,3,'.',"DU")
-UDDOT:      JMP     ENTER
-            .word   LESSNUMSIGN,NUMSIGNS,NUMSIGNGRTR,TYPE,SPACE
-            .word   EXIT
+            .linkTo udstar,0,3,'.',"DU"
+uddot JMP     enter
+            .word   lessnumsign,numsigns,numsigngrtr,type,space
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -3405,9 +3405,9 @@ UDDOT:      JMP     ENTER
 ; ---
 ; UD/MOD ( ud1 u1 -- n ud2 )   >R 0 R@ UM/MOD  R> SWAP >R UM/MOD R> ;
 
-            LINKTO(UDDOT,0,6,'D',"OM/DU")
-LAST_CORE:
-UDSLASHMOD: JMP     ENTER
-            .word   TOR,ZERO,RFETCH,UMSLASHMOD
-            .word   RFROM,SWAP,TOR,UMSLASHMOD,RFROM
-            .word   EXIT
+            .linkTo uddot,0,6,'D',"OM/DU"
+last_core
+udslashmod JMP     enter
+            .word   tor,zero,rfetch,umslashmod
+            .word   rfrom,swap,tor,umslashmod,rfrom
+            .word   exit

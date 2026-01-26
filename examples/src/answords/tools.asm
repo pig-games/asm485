@@ -41,11 +41,11 @@
 ; ---
 ; .S ( --)   DEPTH BEGIN ?DUP WHILE DUP PICK . 1- REPEAT ;
 
-            LINKTO(LINK_TOOLS,0,2,'S',".")
-DOTS:       JMP     ENTER
-            .word   DEPTH
-_dots1:     .word   QDUP,zbranch,_dots2,DUP,PICK,DOT,ONEMINUS,branch,_dots1
-_dots2:     .word   EXIT
+            .linkTo link_tools,0,2,'S',"."
+dots JMP     enter
+            .word   depth
+_dots1 .word   qdup,zbranch,_dots2,dup,pick,dot,oneminus,branch,_dots1
+_dots2 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -76,31 +76,31 @@ _dots2:     .word   EXIT
 ; : DUMP ( addr u --)
 ;   DUP 0 ?DO  CR  OVER I +  OVER I - 8 MIN  DUMPLINE  8 +LOOP  2DROP ;
 
-            LINKTO(DOTS,0,4,'P',"MUD")
-DUMP:       JMP     ENTER
-            .word   DUP,ZERO,pqdo,_dump2
-_dump1:     .word   CR,OVER,I,PLUS,OVER,I,MINUS,LIT,8,MIN,DUMPLINE
-            .word       LIT,8,pplusloop,_dump1
-_dump2:     .word   TWODROP,EXIT
-HEXCELL:    JMP     ENTER
-            .word   BASE,FETCH,SWAP,HEX,ZERO
-            .word   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR,TYPE
-            .word   BASE,STORE,EXIT
-HEXCHAR:    JMP     ENTER
-            .word   BASE,FETCH,SWAP,HEX,ZERO
-            .word   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR,TYPE
-            .word   BASE,STORE,EXIT
-EMITVALID:  JMP     ENTER
-            .word   DUP,LIT,32,LESSTHAN,OVER,LIT,127,EQUALS,OR
-            .word   LIT,'.',AND,OR,EMIT,EXIT
-DUMPLINE:   JMP     ENTER
-            .word   OVER,HEXCELL,LIT,2,SPACES
-            .word   DUP,ZERO,pdo
-_dumpline1: .word   OVER,I,PLUS,CFETCH,HEXCHAR,SPACE,ploop,_dumpline1
-            .word   LIT,8,OVER,MINUS,LIT,3,STAR,SPACES,SPACE
-            .word   ZERO,pdo
-_dumpline2: .word   DUP,I,PLUS,CFETCH,EMITVALID,ploop,_dumpline2
-            .word   DROP,EXIT
+            .linkTo dots,0,4,'P',"MUD"
+dump JMP     enter
+            .word   dup,zero,pqdo,_dump2
+_dump1 .word   cr,over,i,plus,over,i,minus,lit,8,min,dumpline
+            .word       lit,8,pplusloop,_dump1
+_dump2 .word   twodrop,exit
+hexcell JMP     enter
+            .word   base,fetch,swap,hex,zero
+            .word   lessnumsign,numsign,numsign,numsign,numsign,numsigngrtr,type
+            .word   base,store,exit
+hexchar JMP     enter
+            .word   base,fetch,swap,hex,zero
+            .word   lessnumsign,numsign,numsign,numsigngrtr,type
+            .word   base,store,exit
+emitvalid JMP     enter
+            .word   dup,lit,32,lessthan,over,lit,127,equals,or
+            .word   lit,'.',and,or,emit,exit
+dumpline JMP     enter
+            .word   over,hexcell,lit,2,spaces
+            .word   dup,zero,pdo
+_dumpline1 .word   over,i,plus,cfetch,hexchar,space,ploop,_dumpline1
+            .word   lit,8,over,minus,lit,3,star,spaces,space
+            .word   zero,pdo
+_dumpline2 .word   dup,i,plus,cfetch,emitvalid,ploop,_dumpline2
+            .word   drop,exit
 
 
 ; ----------------------------------------------------------------------
@@ -117,13 +117,13 @@ _dumpline2: .word   DUP,I,PLUS,CFETCH,EMITVALID,ploop,_dumpline2
 ;   LATEST @  BEGIN  DUP HIDDEN? 0=  IF SPACE DUP .NAME THEN
 ;   NFA>LFA @  DUP 0= UNTIL DROP ;
 
-            LINKTO(DUMP,0,5,'S',"DROW")
-WORDS:      JMP     ENTER
-            .word   LATEST,FETCH
-_words1:    .word   DUP,HIDDENQ,ZEROEQUALS,zbranch,_words2
-            .word   SPACE,DUP,DOTNAME
-_words2:    .word   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_words1
-            .word   DROP,EXIT
+            .linkTo dump,0,5,'S',"DROW"
+words JMP     enter
+            .word   latest,fetch
+_words1 .word   dup,hiddenq,zeroequals,zbranch,_words2
+            .word   space,dup,dotname
+_words2 .word   nfatolfa,fetch,dup,zeroequals,zbranch,_words1
+            .word   drop,exit
 
 
 
@@ -141,11 +141,11 @@ _words2:    .word   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_words1
 ; : .NAME ( nfa-addr -- )
 ;   BEGIN  1- DUP C@  DUP 127 AND EMIT  128 AND UNTIL DROP ;
 
-            LINKTO(WORDS,0,5,'E',"MAN.")
-LAST_TOOLS:
-DOTNAME:    JMP     ENTER
-_dotname1:  .word   ONEMINUS,DUP,CFETCH,DUP,LIT,127,AND,EMIT
-            .word       LIT,128,AND,zbranch,_dotname1
-            .word   DROP,EXIT
+            .linkTo words,0,5,'E',"MAN."
+last_tools
+dotname JMP     enter
+_dotname1 .word   oneminus,dup,cfetch,dup,lit,127,and,emit
+            .word       lit,128,and,zbranch,_dotname1
+            .word   drop,exit
 
 

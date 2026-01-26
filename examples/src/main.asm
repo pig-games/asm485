@@ -29,12 +29,9 @@
 ; MFORTH Version Information
 ; ======================================================================
 
-MFORTH_MAJOR    .const    1
-MFORTH_MINOR    .const    1
-;MFORTH_CHANGE  .const  Supplied on the TASM command line.
-.IFNDEF MFORTH_CHANGE
-.DEFINE MFORTH_CHANGE 0
-.ENDIF
+mforth_major =    1
+mforth_minor =    1
+;MFORTH_CHANGE  .EQU    Supplied on the TASM command line.
 
 
 
@@ -202,15 +199,15 @@ MFORTH_MINOR    .const    1
 ; Model 100/102 Constants
 ; ======================================================================
 
-FRETOP .const    0FBB6H      ; Beginning of free space on the machine
+fretop =    0FBB6H      ; Beginning of free space on the machine
                                 ; (after all files, BASIC vars, etc.)
-STKTOP .const    0F678H      ; Top of the system stack; system stack
+stktop =    0F678H      ; Top of the system stack; system stack
                                 ; grows downward, although we don't
                                 ; use this stack for anything.
-ALTBGN .const    0FCC0H      ; Beginning of the Alternate LCD buffer
-ALTEND .const    0FDFFH      ; End of the Alternate LCD buffer
+altbgn =    0FCC0H      ; Beginning of the Alternate LCD buffer
+altend =    0FDFFH      ; End of the Alternate LCD buffer
 
-STACKGUARD .const    076H        ; The guard value used to see if a Task
+stackguard =    076H        ; The guard value used to see if a Task
                                 ; has over-/under-flown a stack.  $76
                                 ; is "HLT" just in case someone tries
                                 ; to execute the stack pointer.
@@ -221,23 +218,39 @@ STACKGUARD .const    076H        ; The guard value used to see if a Task
 ; MFORTH Dictionary Constants
 ; ======================================================================
 
-NFASZ .const    1           ; Size of the Name Field.
-.DEFINE     INXNFATOLFA(r) INX r
+nfasz =    1           ; Size of the Name Field.
+inxNfaToLfa .macro r
+            INX \r
+.endmacro
 
-LFASZ .const    2           ; Size of the Link Field.
+lfasz =    2           ; Size of the Link Field.
 
-.IFNDEF PROFILER
-NFATOCFASZ .const    NFASZ+LFASZ
-.DEFINE     INXNFATOCFA(r) INX r\ INX r\ INX r
-.ELSE
-NFATOPECSZ .const    NFASZ+LFASZ
-PECSZ .const    2           ; Size of the Profiler Execution Count.
-NFATOCFASZ .const    NFASZ+LFASZ+PECSZ
-.DEFINE     INXNFATOCFA(r) INX r\ INX r\ INX r\ INX r\ INX r
-.ENDIF
+.ifndef profiler
+nfatocfasz =    nfasz+lfasz
+inxNfaToCfa .macro r
+            INX \r
+            INX \r
+            INX \r
+.endmacro
+.else
+nfatopecsz =    nfasz+lfasz
+pecsz =    2           ; Size of the Profiler Execution Count.
+nfatocfasz =    nfasz+lfasz+pecsz
+inxNfaToCfa .macro r
+            INX \r
+            INX \r
+            INX \r
+            INX \r
+            INX \r
+.endmacro
+.endif
 
-CFASZ .const    3           ; Size of the Code Field.
-.DEFINE     INXCFATOPFA(r) INX r\ INX r\ INX r
+cfasz =    3           ; Size of the Code Field.
+inxCfaToPfa .macro r
+            INX \r
+            INX \r
+            INX \r
+.endmacro
 
 
 
@@ -245,19 +258,19 @@ CFASZ .const    3           ; Size of the Code Field.
 ; MFORTH Constants
 ; ======================================================================
 
-TIBSIZE .const    80          ; Length of the Terminal Input Buffer.
+tibsize =    80          ; Length of the Terminal Input Buffer.
 
-WORDOFFSET .const    64          ; Offset from HERE to WORD buffer.
-WORDSIZE .const    258         ; Size of WORD buffer.
-HLDEND .const    WORDOFFSET+WORDSIZE ; End (and thus, start) of HLD.
-SQOFFSET .const    HLDEND      ; Offset from HERE to S" buffer.
-SQSIZE .const    80          ; Size of S" buffer.
-PADOFFSET .const    SQOFFSET+SQSIZE ; Offset from HERE to first PAD buffer.
-PADSIZE .const    256         ; Size of each task's PAD buffer.
+wordoffset =    64          ; Offset from HERE to WORD buffer.
+wordsize =    258         ; Size of WORD buffer.
+hldend =    wordoffset+wordsize ; End (and thus, start) of HLD.
+sqoffset =    hldend      ; Offset from HERE to S" buffer.
+sqsize =    80          ; Size of S" buffer.
+padoffset =    sqoffset+sqsize ; Offset from HERE to first PAD buffer.
+padsize =    256         ; Size of each task's PAD buffer.
 
-MAXICBS .const    8           ; Maximum number of active input sources.
-MAXFCBS .const    8           ; Maximum number of files open at one time.
-MAXSOES .const    8           ; Max. number of word lists in the search order.
+maxicbs =    8           ; Maximum number of active input sources.
+maxfcbs =    8           ; Maximum number of files open at one time.
+maxsoes =    8           ; Max. number of word lists in the search order.
 
 
 
@@ -277,39 +290,39 @@ MAXSOES .const    8           ; Max. number of word lists in the search order.
 ; is supported.
 ; ======================================================================
 
-OPON        .const    ALTBGN +  0
+opon =    altbgn +  0
 
-        .if (OPONLEN > 16)
+.if (oponlen > 16)
 ; ECHO "\t*** ERROR: OPON is too large; Global Variables expect OPONLEN<=16 ***\n"
-        .endif
+.endif
 
-HOLDH .const    ALTBGN + 16
-HOLDD .const    ALTBGN + 18
-INTH .const    ALTBGN + 20
-INTD .const    ALTBGN + 22
+holdh =    altbgn + 16
+holdd =    altbgn + 18
+inth =    altbgn + 20
+intd =    altbgn + 22
 
-DP .const    ALTBGN + 24 ; Data Pointer.
-BOPSTK .const    ALTBGN + 26 ; Initial value of SP on entry to MFORTH.
-TICKCURRENT .const   ALTBGN + 28 ; Pointer to the compilation word list.
-TICKSTATE .const    ALTBGN + 30 ; Compilation-state flag.
-TICKTIB .const    ALTBGN + 32 ; Terminal Input Buffer pointer.
-TICKHLD .const    ALTBGN + 34 ; Pictured Numeric Output hold pointer.
-TICKNUMTASKS .const   ALTBGN + 36 ; Number of tasks
-TICKFIRSTTASK .const  ALTBGN + 38 ; Address of the first task (always XX00)
-TICKNUMUSERVARS .const ALTBGN+ 40 ; Number of USER variables
-SAVED .const    ALTBGN + 42 ; DE is saved here when used as a temporary.
-TICKPREVLEAVE .const  ALTBGN + 44 ; Pointer to the previous LEAVE in a DO..LOOP.
-TICKPREVENDB .const   ALTBGN + 46 ; Pointer to the previous ?ENDB in a FORB..NEXTB
-TICKICB .const    ALTBGN + 48 ; Address of the current Input Control Block.
-PROFILING .const    ALTBGN + 50 ; Non-zero if the profiler is on.
-TICKTICKS .const    ALTBGN + 52 ; (double) Number of ticks (4ms) since start.
-SAVEB .const    ALTBGN + 56 ; DE is saved here when used as a temporary.
-FORTHWL .const    ALTBGN + 58 ; FORTH word list.
-ASSEMBLERWL .const    ALTBGN + 60 ; ASSEMBLER word list.
+dp =    altbgn + 24 ; Data Pointer.
+bopstk =    altbgn + 26 ; Initial value of SP on entry to MFORTH.
+tickcurrent =   altbgn + 28 ; Pointer to the compilation word list.
+tickstate =    altbgn + 30 ; Compilation-state flag.
+ticktib =    altbgn + 32 ; Terminal Input Buffer pointer.
+tickhld =    altbgn + 34 ; Pictured Numeric Output hold pointer.
+ticknumtasks =   altbgn + 36 ; Number of tasks
+tickfirsttask =  altbgn + 38 ; Address of the first task (always XX00)
+ticknumuservars = altbgn+ 40 ; Number of USER variables
+saved =    altbgn + 42 ; DE is saved here when used as a temporary.
+tickprevleave =  altbgn + 44 ; Pointer to the previous LEAVE in a DO..LOOP.
+tickprevendb =   altbgn + 46 ; Pointer to the previous ?ENDB in a FORB..NEXTB
+tickicb =    altbgn + 48 ; Address of the current Input Control Block.
+profiling =    altbgn + 50 ; Non-zero if the profiler is on.
+tickticks =    altbgn + 52 ; (double) Number of ticks (4ms) since start.
+saveb =    altbgn + 56 ; DE is saved here when used as a temporary.
+forthwl =    altbgn + 58 ; FORTH word list.
+assemblerwl =    altbgn + 60 ; ASSEMBLER word list.
 ; 2 bytes free.
-ICBSTART .const    ALTBGN + 64 ; Start of the 8, 8-byte Input Control Blocks.
-FCBSTART .const    ALTBGN + 128; Start of the 8, 8-byte File Control Blocks.
-SOESTART .const    ALTBGN + 192; Start of the 8, 2-byte Search Order Entries.
+icbstart =    altbgn + 64 ; Start of the 8, 8-byte Input Control Blocks.
+fcbstart =    altbgn + 128; Start of the 8, 8-byte File Control Blocks.
+soestart =    altbgn + 192; Start of the 8, 2-byte Search Order Entries.
 ; 112 bytes free.
 
 
@@ -322,11 +335,11 @@ SOESTART .const    ALTBGN + 192; Start of the 8, 2-byte Search Order Entries.
 ; third User Variable is 4 (0, 2, 4) and not 2 (0, 1, 2).
 ; ======================================================================
 
-USERSAVEDSP .const    0           ; Saved stack pointer
-USERBASE .const    2           ; Number-conversion radix pointer.
-USERB .const    4           ; "B" register
-USERBEND .const    6           ; "B" register end
-NUMUSERVARS .const    4           ; Total number of user variables.
+usersavedsp =    0           ; Saved stack pointer
+userbase =    2           ; Number-conversion radix pointer.
+userb =    4           ; "B" register
+userbend =    6           ; "B" register end
+numuservars =    4           ; Total number of user variables.
 
 
 
@@ -337,15 +350,29 @@ NUMUSERVARS .const    4           ; Total number of user variables.
 ; ----------------------------------------------------------------------
 ; Save and restore DE (corrupts HL).
 
-.DEFINE     SAVEDE      XCHG\ SHLD SAVED
-.DEFINE     RESTOREDE   LHLD SAVED\ XCHG
+saveDe .macro
+            XCHG
+            SHLD saved
+.endmacro
+restoreDe .macro
+            LHLD saved
+            XCHG
+.endmacro
 
 
 ; ----------------------------------------------------------------------
 ; Save and restore BC (corrupts HL).
 
-.DEFINE     SAVEBC      MOV H,B\ MOV L,C\ SHLD SAVEB
-.DEFINE     RESTOREBC   LHLD SAVEB\ MOV B,H\ MOV C,L
+saveBc .macro
+            MOV H,B
+            MOV L,C
+            SHLD saveb
+.endmacro
+restoreBc .macro
+            LHLD saveb
+            MOV B,H
+            MOV C,L
+.endmacro
 
 
 
@@ -354,59 +381,59 @@ NUMUSERVARS .const    4           ; Total number of user variables.
 ; ======================================================================
 
  .org    00000H
-RST0:
+rst0
             INX     SP
             INX     SP
-            JMP     INIT
+            JMP     init
 
  .org    00008H
-RST1:
+rst1
             RET
 
  .org    00010H
-RST2:
+rst2
             RET
 
  .org    00018H
-RST3:
+rst3
             RET
 
  .org    00020H
-RST4:
+rst4
             RET
 
 ; Power down interrupt.
  .org    00024H
-TRAP:
+trap
             DI
-            JMP     INTRAP
+            JMP     intrap
 
  .org    00028H
-RST5:
+rst5
             RET
 
  .org    0002CH
-RST55:
+rst55
             DI
-            JMP     INT55
+            JMP     int55
 
  .org    00030H
-RST6:
-            JMP     STDCALL
+rst6
+            JMP     stdcall
 
  .org    00034H
-RST65:
+rst65
             DI
-            JMP     INT65
+            JMP     int65
 
  .org    00038H
-RST7:
+rst7
             RET
 
  .org    0003CH
-RST75:
+rst75
             DI
-            JMP     INT75
+            JMP     int75
 
 
 
@@ -427,14 +454,8 @@ RST75:
 ; ======================================================================
 
             .org    00040H
-            HLT
-            HLT
-            HLT
-            HLT
-            HLT
-            HLT
-            HLT
-            HLT
+            HLT\ HLT\ HLT\ HLT
+            HLT\ HLT\ HLT\ HLT
 
 
 
@@ -443,27 +464,27 @@ RST75:
 ; ======================================================================
 
 ; Power down interrupt
-INTRAP:     CALL    INTCALL     ; Let the Main ROM turn off the computer
+intrap CALL    intcall     ; Let the Main ROM turn off the computer
             .word   00024H      ; ..and handle the wake-up sequence.
             RET
 
-INT55:      CALL    INTCALL
+int55 CALL    intcall
             .word   0002CH
             RET
 
-INT65:      CALL    INTCALL
+int65 CALL    intcall
             .word   00034H
             RET
 
-INT75:      CALL    INTCALL
+int75 CALL    intcall
             .word   0003CH
             PUSH    H
             PUSH    PSW
-            CALL    INCTICKS
+            CALL    incticks
             POP     PSW
             POP     H
             RET
-INCTICKS:   LXI     H,TICKTICKS
+incticks LXI     H,tickticks
             INR     M
             RNZ
             INX     H
@@ -521,7 +542,7 @@ INCTICKS:   LXI     H,TICKTICKS
 ; falls at $008E.
 
  .org    0007EH
-STDON:
+stdon
             PUSH    PSW         ; Preserve A+PSW (which $26C8 POPs).
             PUSH    H           ; Get $26C8 onto the stack
             LXI     H,026C8H    ; ..by swapping the value through HL
@@ -530,11 +551,11 @@ STDON:
             ANI     0FEH        ; ..clear the low bit to switch to the Main ROM,
             STA     0FF45H      ; ..updated the saved contents of the port,
             OUT     0E8H        ; ..and then actually modify the port.
-STDONRET:   RET                 ; Now in Main ROM; return to $26C8.
+stdonret RET                 ; Now in Main ROM; return to $26C8.
 
-        .if (STDONRET != 008EH)
+.if (stdonret != 008EH)
 ; ECHO "\t*** ERROR: STDON is not ORGed properly; RET statement not at $008E ***\n"
-        .endif
+.endif
 
 
 ; ----------------------------------------------------------------------
@@ -553,7 +574,7 @@ STDONRET:   RET                 ; Now in Main ROM; return to $26C8.
 ; have properly restore the registers (we only use A+PSW here) and enable
 ; the Option ROM.
 
-OPONIMG:    DI
+oponimg DI
             PUSH    PSW
             LDA     0FF45H      ; Get the saved contents of port $E8,
             ORI     001H        ; ..set the low bit to switch to the Option ROM,
@@ -562,7 +583,7 @@ OPONIMG:    DI
             POP     PSW         ; Now in Option ROM; restore A+PSW.
             EI
             RET                 ; Return to whatever called STDCALL/INTCALL.
-OPONLEN .const    $-OPONIMG   ; Calculate length of OPON for use by INIT.
+oponlen =    $-oponimg   ; Calculate length of OPON for use by INIT.
 
 
 
@@ -595,11 +616,11 @@ OPONLEN .const    $-OPONIMG   ; Calculate length of OPON for use by INIT.
 ;
 ; That stack is obviously clear of all of those items on return from STDCALL.
 
-STDCALL:    DI
+stdcall DI
 
-            SHLD    HOLDH       ; Preserve HL
+            SHLD    holdh       ; Preserve HL
             XCHG                ; ..and DE
-            SHLD    HOLDD       ; ..since we will need them as temporaries.
+            SHLD    holdd       ; ..since we will need them as temporaries.
 
             POP     H           ; Get the STDCALL return address,
             MOV     E,M         ; ..which is actually the address of the
@@ -608,20 +629,20 @@ STDCALL:    DI
             INX     H           ; ..HL at the actual Option ROM return address
             PUSH    H           ; ..and push that address (T-3) to the stack.
 
-            LXI     H,OPON      ; Return from Main ROM through OPON, which we
+            LXI     H,opon      ; Return from Main ROM through OPON, which we
             PUSH    H           ; ..push onto the stack (T-2).
 
             PUSH    D           ; Push the Main ROM routine to call (T-1).
 
-            LHLD    HOLDD       ; Restore DE
+            LHLD    holdd       ; Restore DE
             XCHG                ; ..and HL
-            LHLD    HOLDH       ; ..so that they can be used as Main ROM args.
+            LHLD    holdh       ; ..so that they can be used as Main ROM args.
 
             PUSH    H           ; Get $0363 onto the stack
             LXI     H,00363H    ; ..by swapping the value through HL
             XTHL                ; ..and the top-of-stack.
 
-            JMP     STDON       ; Jump to STDON to get into Main ROM.
+            JMP     stdon       ; Jump to STDON to get into Main ROM.
 
 
 ; ----------------------------------------------------------------------
@@ -641,9 +662,9 @@ STDCALL:    DI
 ; That stack is obviously clear of all of those items on return from INTCALL.
 
 
-INTCALL:    SHLD    INTH        ; Preserve HL
+intcall SHLD    inth        ; Preserve HL
             XCHG                ; ..and DE
-            SHLD    INTD        ; ..since we will need them as temporaries.
+            SHLD    intd        ; ..since we will need them as temporaries.
 
             POP     H           ; Get the INTCALL return address,
             MOV     E,M         ; ..which is actually the address of the
@@ -652,16 +673,16 @@ INTCALL:    SHLD    INTH        ; Preserve HL
             INX     H           ; ..HL at the actual Option ROM return address
             PUSH    H           ; ..and push that address (T-2) to the stack.
 
-            LXI     H,OPON      ; Return from Main ROM through OPON, which we
+            LXI     H,opon      ; Return from Main ROM through OPON, which we
             PUSH    H           ; ..push onto the stack (T-1).
 
             PUSH    D           ; Push the Main ROM routine to call (TOS).
 
-            LHLD    INTD        ; Restore DE
+            LHLD    intd        ; Restore DE
             XCHG                ; ..and HL
-            LHLD    INTH        ; ..so that they can be used as Main ROM args.
+            LHLD    inth        ; ..so that they can be used as Main ROM args.
 
-            JMP     STDON       ; Jump to STDON to get into Main ROM.
+            JMP     stdon       ; Jump to STDON to get into Main ROM.
 
 
 
@@ -681,13 +702,13 @@ INTCALL:    SHLD    INTH        ; Preserve HL
 ; map (by figuring out where free space starts and ends), initialize the
 ; return stack, and JMP to the MFORTH COLD word.
 
-INIT:       DI
+init DI
 
             ; Copy OPON into high memory.
-            LXI     D,OPONIMG   ; First source byte in DE
-            LXI     H,OPON      ; First target byte in HL
-            MVI     B,OPONLEN   ; Number of bytes to copy in B
-_init1:     LDAX    D           ; Load value from [DE]
+            LXI     D,oponimg   ; First source byte in DE
+            LXI     H,opon      ; First target byte in HL
+            MVI     B,oponlen   ; Number of bytes to copy in B
+_init1 LDAX    D           ; Load value from [DE]
             MOV     M,A         ; Save value to [HL]
             INX     D           ; Next source byte
             INX     H           ; Next target byte
@@ -695,33 +716,33 @@ _init1:     LDAX    D           ; Load value from [DE]
             JNZ     _init1      ; Keep looping until all bytes are copied
 
             ; Call LNKFIL to ensure that the file addresses are accurate.
-            CALL    STDCALL     ; Call the
+            CALL    stdcall     ; Call the
             .word   02146H      ; .."LNKFIL" routine.
             
             ; Set up our memory map.
-            LHLD    FRETOP      ; Store the beginning of free memory to HL
-            SHLD    TICKTIB     ; ..and then to the Terminal Input Buffer.
-            LXI     B,TIBSIZE   ; Add TIBSIZE
+            LHLD    fretop      ; Store the beginning of free memory to HL
+            SHLD    ticktib     ; ..and then to the Terminal Input Buffer.
+            LXI     B,tibsize   ; Add TIBSIZE
             DAD     B           ; ..to HL
-            SHLD    DP          ; ..and then store that in the Data Pointer.
+            SHLD    dp          ; ..and then store that in the Data Pointer.
             LXI     H,0         ; Get the location of the
             DAD     SP          ; ..OS stack pointer on entry into MFORTH
-            SHLD    BOPSTK      ; ..and store it in in BOPSTK.
+            SHLD    bopstk      ; ..and store it in in BOPSTK.
             
             ; Initialize the system word lists.
-            LXI     H,_latestFORTH-NFATOCFASZ
-            SHLD    FORTHWL
-            LXI     H,_latestASSEMBLER-NFATOCFASZ
-            SHLD    ASSEMBLERWL
+            LXI     H,_latestforth-nfatocfasz
+            SHLD    forthwl
+            LXI     H,_latestassembler-nfatocfasz
+            SHLD    assemblerwl
 
             ; Make the FORTH word list the current compilation word
             ; list; ABORT will initialize the default search order.
-            LXI     H,FORTHWL
-            SHLD    TICKCURRENT
+            LXI     H,forthwl
+            SHLD    tickcurrent
             
             ; Four USER variables are currently in use (SavedSP, Base, B, Bend).
-            LXI     H,NUMUSERVARS
-            SHLD    TICKNUMUSERVARS
+            LXI     H,numuservars
+            SHLD    ticknumuservars
             
             ; Create the first task, which needs to be in place for us
             ; to enter in to the Inner Interpreter (which needs a return
@@ -731,44 +752,44 @@ _init1:     LDAX    D           ; Load value from [DE]
             ; for example), but that's okay because we don't actually use
             ; the system stack for anything (each task has its own stack).
             LXI     H,1
-            SHLD    TICKNUMTASKS
+            SHLD    ticknumtasks
 
             LXI     H,0         ; Get SP
             DAD     SP          ; ..into HL,
             LXI     B,0100H     ; ..then subtract 256
             .byte 08H                ; ..from HL to get into the middle of the page,
             MVI     L,0         ; ..then clear L to get to the start of the page
-            SHLD    TICKFIRSTTASK ;.and then store address of the first task.
+            SHLD    tickfirsttask ;.and then store address of the first task.
 
             MOV     B,H         ; Put the current task's page into its home in B
             MVI     C,07FH      ; ..and initialize the return stack to xx7F.
 
-            MVI     M,STACKGUARD; Set the Saved Stack Pointer to the guard
+            MVI     M,stackguard; Set the Saved Stack Pointer to the guard
             INX     H           ; ..value since this task will be running (not
-            MVI     M,STACKGUARD; ..resumed by PAUSE) after the JMP to COLD.
+            MVI     M,stackguard; ..resumed by PAUSE) after the JMP to COLD.
 
             MVI     L,080H      ; Set HL to the parameter stack guard cell
-            MVI     M,STACKGUARD; ..then move the guard value
+            MVI     M,stackguard; ..then move the guard value
             INX     H           ; ..into both bytes
-            MVI     M,STACKGUARD; ..of that cell.
+            MVI     M,stackguard; ..of that cell.
 
             MVI     L,0FFH      ; Initialize the SP, which begins at xxFF.
             SPHL
             
             ; Disable the profiler.
             LXI     H,0
-            SHLD    PROFILING
+            SHLD    profiling
             
             ; Reset the tick counter.
             LXI     H,0
-            SHLD    TICKTICKS
-            SHLD    TICKTICKS+2
+            SHLD    tickticks
+            SHLD    tickticks+2
             
             ; Enable interrupts and jump to COLD (which never returns).
             EI
-            LXI     H,COLD      ; Point W at COLD (needed by ENTER).
-            LXI     D,COLD      ; Point IP at COLD (needed by NEXT).
-            JMP     COLD
+            LXI     H,cold      ; Point W at COLD (needed by ENTER).
+            LXI     D,cold      ; Point IP at COLD (needed by NEXT).
+            JMP     cold
 
 
 
@@ -777,60 +798,60 @@ _init1:     LDAX    D           ; Load value from [DE]
 ; ======================================================================
 
 ; Kernel routines and macros.
-.INCLUDE "kernel.asm"
+.include "kernel.asm"
 
 ; ANS word sets.
-LINK_CORE       .const    NFATOCFASZ
-.INCLUDE "answords/core.asm"
+link_core =    nfatocfasz
+.include "answords/core.asm"
 
-LINK_COREEXT    .const    LAST_CORE
-.INCLUDE "answords/core-ext.asm"
+link_coreext =    last_core
+.include "answords/core-ext.asm"
 
-LINK_DOUBLE     .const    LAST_COREEXT
-.INCLUDE "answords/double.asm"
+link_double =    last_coreext
+.include "answords/double.asm"
 
-LINK_FACILITY   .const    LAST_DOUBLE
-.INCLUDE "answords/facility.asm"
+link_facility =    last_double
+.include "answords/facility.asm"
 
-LINK_FACILITYEXT .const   LAST_FACILITY
-.INCLUDE "answords/facility-ext.asm"
+link_facilityext =   last_facility
+.include "answords/facility-ext.asm"
 
-LINK_FILE       .const    LAST_FACILITYEXT
-.INCLUDE "answords/file.asm"
+link_file =    last_facilityext
+.include "answords/file.asm"
 
-LINK_SEARCH     .const    LAST_FILE
-.INCLUDE "answords/search.asm"
+link_search =    last_file
+.include "answords/search.asm"
 
-LINK_SEARCHEXT  .const    LAST_SEARCH
-.INCLUDE "answords/search-ext.asm"
+link_searchext =    last_search
+.include "answords/search-ext.asm"
 
-LINK_STRING     .const    LAST_SEARCHEXT
-.INCLUDE "answords/string.asm"
+link_string =    last_searchext
+.include "answords/string.asm"
 
-LINK_TOOLS      .const    LAST_STRING
-.INCLUDE "answords/tools.asm"
+link_tools =    last_string
+.include "answords/tools.asm"
 
-LINK_TOOLSEXT   .const    LAST_TOOLS
-.INCLUDE "answords/tools-ext.asm"
+link_toolsext =    last_tools
+.include "answords/tools-ext.asm"
 
 ; MFORTH word sets.
-LINK_BREG       .const    LAST_TOOLSEXT
-.INCLUDE "mforthwords/breg.asm"
+link_breg =    last_toolsext
+.include "mforthwords/breg.asm"
 
-LINK_MFORTH     .const    LAST_BREG
-.INCLUDE "mforthwords/mforth.asm"
+link_mforth =    last_breg
+.include "mforthwords/mforth.asm"
 
-LINK_TASK       .const    LAST_MFORTH
-.INCLUDE "mforthwords/task.asm"
+link_task =    last_mforth
+.include "mforthwords/task.asm"
 
-.IFNDEF PROFILER
-_latestFORTH    .const    LAST_TASK
-.ELSE
-LINK_PROFILER   .const    LAST_TASK
-.INCLUDE "mforthwords/profiler.asm"
+.ifndef profiler
+_latestforth =    last_task
+.else
+link_profiler =    last_task
+.include "mforthwords/profiler.asm"
 
-_latestFORTH    .const    LAST_PROFILER
-.ENDIF
+_latestforth =    last_profiler
+.endif
 
 
 
@@ -839,10 +860,10 @@ _latestFORTH    .const    LAST_PROFILER
 ; ======================================================================
 
 ; ASSEMBLER Word List
-LINK_ASSEMBLER  .const    NFATOCFASZ
-.INCLUDE "mforthwords/assembler.asm"
+link_assembler =    nfatocfasz
+.include "mforthwords/assembler.asm"
 
-_latestASSEMBLER .const   LAST_ASSEMBLER
+_latestassembler =   last_assembler
 
 
 
@@ -869,14 +890,14 @@ _latestASSEMBLER .const   LAST_ASSEMBLER
 ; Perfect Hash of ROM Dictionary
 ; ======================================================================
 
-.IFNDEF PHASH
+.ifndef phash
 ; Temporarily store _latestFORTH at 07FFE for use by phashgen.exe.
             .org    07FFEH
-            .word   _latestFORTH-NFATOCFASZ
-.ELSE
+            .word   _latestforth-nfatocfasz
+.else
 ; phash.asm already generated.
-.INCLUDE "phash.asm"
-.ENDIF
+.include "phash.asm"
+.endif
 
 
 

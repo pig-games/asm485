@@ -35,9 +35,9 @@
 ; Replace the first word list in the search order with the ASSEMBLER
 ; word list.
 
-            LINKTO(LINK_TOOLSEXT,0,9,'R',"ELBMESSA")
-ASSEMBLER:  JMP     ENTER
-            .word   LIT,ASSEMBLERWL,LIT,SOESTART,STORE,EXIT
+            .linkTo link_toolsext,0,9,'R',"ELBMESSA"
+assembler JMP     enter
+            .word   lit,assemblerwl,lit,soestart,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -45,10 +45,10 @@ ASSEMBLER:  JMP     ENTER
 ;
 ; Return control to the host operating system, if any.
 
-            LINKTO(ASSEMBLER,0,3,'E',"YB")
-BYE:        LHLD    BOPSTK      ; Load the SP on entry into MFORTH
+            .linkTo assembler,0,3,'E',"YB"
+bye LHLD    bopstk      ; Load the SP on entry into MFORTH
             SPHL                ; ..and restore that SP.
-            CALL    STDCALL     ; Call the
+            CALL    stdcall     ; Call the
             .word   5797H       ; ..main menu routine (never returns).
 
 
@@ -74,8 +74,8 @@ BYE:        LHLD    BOPSTK      ; Load the SP on entry into MFORTH
 ; : CODE ( "<spaces>name" -- )
 ;   CREATE  CFASZ NEGATE ALLOT  ALSO ASSEMBLER ;
 
-            LINKTO(BYE,0,4,'E',"DOC")
-LAST_TOOLSEXT:
-CODE:       JMP     ENTER
-            .word   CREATE,LIT,-CFASZ,ALLOT,ALSO,ASSEMBLER
-            .word   EXIT
+            .linkTo bye,0,4,'E',"DOC"
+last_toolsext
+code JMP     enter
+            .word   create,lit,-cfasz,allot,also,assembler
+            .word   exit

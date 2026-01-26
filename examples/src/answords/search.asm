@@ -40,9 +40,9 @@
 ; ---
 ; : DEFINITIONS ( -- )   CONTEXT @ SET-CURRENT ;
 
-            LINKTO(LINK_SEARCH,0,11,'S',"NOITINIFED")
-DEFINITIONS:JMP     ENTER
-            .word   CONTEXT,FETCH,SETCURRENT,EXIT
+            .linkTo link_search,0,11,'S',"NOITINIFED"
+definitions JMP     enter
+            .word   context,fetch,setcurrent,exit
 
 
 ; ----------------------------------------------------------------------
@@ -52,9 +52,9 @@ DEFINITIONS:JMP     ENTER
 ; words provided by the implementation.  This word list is initially the
 ; compilation word list and is part of the initial search order.
 
-            LINKTO(DEFINITIONS,0,14,'T',"SILDROW-HTROF")
-FORTHWORDLIST:JMP   ENTER
-            .word   LIT,FORTHWL,EXIT
+            .linkTo definitions,0,14,'T',"SILDROW-HTROF"
+forthwordlist JMP   enter
+            .word   lit,forthwl,exit
 
 
 ; ----------------------------------------------------------------------
@@ -62,9 +62,9 @@ FORTHWORDLIST:JMP   ENTER
 ;
 ; Return wid, the identifier of the compilation word list.
 
-            LINKTO(FORTHWORDLIST,0,11,'T',"NERRUC-TEG")
-GETCURRENT: JMP     ENTER
-            .word   CURRENT,FETCH,EXIT
+            .linkTo forthwordlist,0,11,'T',"NERRUC-TEG"
+getcurrent JMP     enter
+            .word   current,fetch,exit
 
 
 ; ----------------------------------------------------------------------
@@ -79,12 +79,12 @@ GETCURRENT: JMP     ENTER
 ; : GET-ORDER ( -- widn ... wid1 n)
 ;   0 #SOES 1- DO  SOESTART I CELLS + @  -1 +LOOP  #SOES ;
 
-            LINKTO(GETCURRENT,0,9,'R',"EDRO-TEG")
-GETORDER:   JMP     ENTER
-            .word   ZERO,NUMSOES,ONEMINUS,pdo
-_getorder1: .word   LIT,SOESTART,I,CELLS,PLUS,FETCH,LIT,-1,pplusloop,_getorder1
-            .word   NUMSOES
-            .word   EXIT
+            .linkTo getcurrent,0,9,'R',"EDRO-TEG"
+getorder JMP     enter
+            .word   zero,numsoes,oneminus,pdo
+_getorder1 .word   lit,soestart,i,cells,plus,fetch,lit,-1,pplusloop,_getorder1
+            .word   numsoes
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -107,49 +107,49 @@ _getorder1: .word   LIT,SOESTART,I,CELLS,PLUS,FETCH,LIT,-1,pplusloop,_getorder1
 ; location.  -1 indicates that the search should use HL, 0 indicates
 ; that the search should use LH, and 1 indicates that the search failed.
 
-            LINKTO(GETORDER,0,15,'T',"SILDROW-HCRAES")
-SEARCHWORDLIST:SAVEDE
-            SAVEBC
+            .linkTo getorder,0,15,'T',"SILDROW-HCRAES"
+searchwordlist .saveDe
+            .saveBc
             POP     D           ; Get wid from the stack,
             MOV     B,D         ; ..copy wid into B
             MOV     C,E         ; ..and C,
-            LXI     H,FORTHWL   ; ..get the FORTH wid in HL,
+            LXI     H,forthwl   ; ..get the FORTH wid in HL,
             .byte 08H                ; ..then compare wid to the FORTH wid;
-            JZ      _swlFORTH   ; ..jump to where we clear B if FORTH,
+            JZ      _swlforth   ; ..jump to where we clear B if FORTH,
             MVI     B,-1        ; ..otherwise set B to -1
-            JMP     _swlLATEST  ; ..and load LATEST.
-_swlFORTH:  MVI     B,0         ; FORTH wid, so clear B.
-_swlLATEST: .byte 0EDH                ; Get the latest word in wid
+            JMP     _swllatest  ; ..and load LATEST.
+_swlforth MVI     B,0         ; FORTH wid, so clear B.
+_swllatest .byte 0EDH                ; Get the latest word in wid
             XCHG                ; ..and put that value in DE.
             MVI     C,-1        ; Initialize our phash flag to -1.
             POP     H           ; Pop the length of the string
-            SHLD    HOLDD       ; ..and cache the value.
+            SHLD    holdd       ; ..and cache the value.
             POP     H           ; Pop the string pointer
-            SHLD    HOLDH       ; ..and cache the value.
-_swlAGAIN:
-.IFDEF PHASH
+            SHLD    holdh       ; ..and cache the value.
+_swlagain
+.ifdef phash
             MOV     A,D         ; See if we are still in RAM (the
             ANI     80H         ; ..high bit of the addr is not zero) -- or
             ORA     B           ; ..we are not in the FORTH word list -- and
-            JNZ     _swlAGAIN1  ; ..keep traversing the linked list if so.
-_swlPHASH:  PUSH    H           ; Save the string pointer on the stack,
-            LDA     HOLDD       ; ..get the string length into A,
+            JNZ     _swlagain1  ; ..keep traversing the linked list if so.
+_swlphash PUSH    H           ; Save the string pointer on the stack,
+            LDA     holdd       ; ..get the string length into A,
             CALL    _phash      ; ..then hash the string.
             MOV     A,C         ; Move our phash flag to A,
             ORA     A           ; ..then check the state of the flag:
-            JM      _swlPHASHH1 ; ..use H1 if the value is negative;
-            JZ      _swlPHASHH2 ; ..use H2 if the value is zero;
+            JM      _swlphashh1 ; ..use H1 if the value is negative;
+            JZ      _swlphashh2 ; ..use H2 if the value is zero;
             POP     H           ; ..otherwise no match, pop the counted string
-            JMP     _swlFAIL    ; ..and fail.
-_swlPHASHH2:MOV     A,L         ; Move H2 to A,
+            JMP     _swlfail    ; ..and fail.
+_swlphashh2 MOV     A,L         ; Move H2 to A,
             MOV     L,H         ; ..move H1 to L,
-            JMP     _swlPHASH1  ; ..then continue.
-_swlPHASHH1:MOV     A,H         ; Move H1 to A
-_swlPHASH1: ANI     PHASHMASK   ; ..and mask off the high bits of H1.
+            JMP     _swlphash1  ; ..then continue.
+_swlphashh1 MOV     A,H         ; Move H1 to A
+_swlphash1 ANI     phashmask   ; ..and mask off the high bits of H1.
             MOV     H,A         ; Get the masked off bits of H1 back into H.
             DAD     H           ; HL=HL<<1 to convert from hash to cell offset.
             MOV     A,H         ; Move the high byte of the offset to A,
-            ADI     PHASHTAB >> 8 ; ..add the high byte of PHASHTAB to A,
+            ADI     phashtab >> 8 ; ..add the high byte of PHASHTAB to A,
             MOV     H,A         ; ..and then put the PHASHTAB address into H.
             MOV     E,M         ; Get the low byte of the hash cell in E,
             INX     H           ; ..increment to the high byte,
@@ -158,105 +158,105 @@ _swlPHASH1: ANI     PHASHMASK   ; ..and mask off the high bits of H1.
             INR     C           ; Increment our phash flag.
             MOV     A,D         ; Move D to A,
             ORA     E           ; ..then OR A and E to see if the cell is zero;
-            JZ      _swlPHASH   ; ..try to phash again if so.
-.ENDIF
-_swlAGAIN1: LDAX    D           ; Get the name length into A.
+            JZ      _swlphash   ; ..try to phash again if so.
+.endif
+_swlagain1 LDAX    D           ; Get the name length into A.
             ANI     01111111b   ; Strip the immediate bit.
-            LXI     H,HOLDD     ; Point HL at the string length,
+            LXI     H,holdd     ; Point HL at the string length,
             CMP     M           ; ..then compare the two lengths+smudge bits.
-            JNZ     _swlNEXTWORD;Jump if not zero (not equal) to the next word.
+            JNZ     _swlnextword;Jump if not zero (not equal) to the next word.
             PUSH    D           ; Save DE since we are about to scan through it.
             DCX     D           ; Go to the first dictionary char (prev byte).
-            LHLD    HOLDH       ; Point HL at the first string character.
-_swlNEXTCHAR:LDAX   D           ; Get the next dictionary value into A.
+            LHLD    holdh       ; Point HL at the first string character.
+_swlnextchar LDAX   D           ; Get the next dictionary value into A.
             ANI     01111111b   ; Strip the end-of-name bit.
             CMP     M           ; Compare the two characters.
-            JZ      _swlMATCHCHAR;Jump if zero (equal) to match.
+            JZ      _swlmatchchar;Jump if zero (equal) to match.
             XRI     00100000b   ; Try switching the case
             CMP     M           ; ..and then repeating the match.
-            JNZ     _swlNEXTWORDDE;.Not a match if not zero (not equal).
+            JNZ     _swlnextwordde;.Not a match if not zero (not equal).
             ORI     00100000b   ; Only a match if A-Z/a-z.  Force to lower,
             CPI     'a'         ; ..then see if less than 'a'.
-            JM      _swlNEXTWORDDE;.If so, this is not a match.
+            JM      _swlnextwordde;.If so, this is not a match.
             CPI     'z'+1       ; If greater than 'z'+1,
-            JP      _swlNEXTWORDDE;.then this is also not a match.
-_swlMATCHCHAR:LDAX  D           ; The strings are a match if this is the last
+            JP      _swlnextwordde;.then this is also not a match.
+_swlmatchchar LDAX  D           ; The strings are a match if this is the last
             ANI     10000000b   ; ..character in the name (high bit set).
-            JNZ     _swlMATCH   ; We're done if this is a match.
+            JNZ     _swlmatch   ; We're done if this is a match.
             DCX     D           ; Go to the next dictionary char (prev byte).
             INX     H           ; Go to the next string character.
-            JMP     _swlNEXTCHAR;Evaluate the next character.
-_swlMATCH:  POP     D           ; Restore DE (which is now pointing at a char)
+            JMP     _swlnextchar;Evaluate the next character.
+_swlmatch POP     D           ; Restore DE (which is now pointing at a char)
             LDAX    D           ; Get the flags into A
             ANI     10000000b   ; ..and focus on just the immediate flag.
-            INXNFATOCFA(D)      ; Skip ahead to the CFA (xt)
+            .inxNfaToCfa D      ; Skip ahead to the CFA (xt)
             PUSH    D           ; ..and push xt to the stack.
-            JNZ     _swlIMM     ; Immediate gets a 1 pushed to the stack,
+            JNZ     _swlimm     ; Immediate gets a 1 pushed to the stack,
             LXI     H,0FFFFH    ; ..non-immediate gets a -1
             PUSH    H           ; ..pushed to the stack.
-            JMP     _swlDONE    ; We're done.
-_swlIMM:    LXI     H,1         ; Immediate word, so push 1
+            JMP     _swldone    ; We're done.
+_swlimm LXI     H,1         ; Immediate word, so push 1
             PUSH    H           ; ..to the stack.
-            JMP     _swlDONE    ; We're done.
-_swlNEXTWORDDE:POP  D           ; Restore DE (which is now pointing at a char).
-_swlNEXTWORD:INXNFATOLFA(D)     ; Move to the word's LFA,
+            JMP     _swldone    ; We're done.
+_swlnextwordde POP  D           ; Restore DE (which is now pointing at a char).
+_swlnextword .inxNfaToLfa D     ; Move to the word's LFA,
             .byte 0EDH                ; ..get the LFA in HL,
             XCHG                ; ..put the LFA into DE,
-            LHLD    HOLDH       ; ..and restore HL.
-.IFDEF PHASH
+            LHLD    holdh       ; ..and restore HL.
+.ifdef phash
             MOV     A,D         ; The phash routine ignores the LFA, so
             ANI     80H         ; ..see if we are in RAM -- or
             ORA     B           ; ..we are not in the FORTH word list -- and
-            JNZ     _swlNEXTWORD1;..keep traversing the linked list if so;
-            JMP     _swlPHASH   ; ..continue the phash process otherwise.
-.ENDIF
-_swlNEXTWORD1:MOV   A,D         ; Keep searching for a match
+            JNZ     _swlnextword1;..keep traversing the linked list if so;
+            JMP     _swlphash   ; ..continue the phash process otherwise.
+.endif
+_swlnextword1 MOV   A,D         ; Keep searching for a match
             ORA     E           ; ..if the LFA
-            JNZ     _swlAGAIN   ; ..is not zero.
-_swlFAIL:   LXI     H,0         ; Push false
+            JNZ     _swlagain   ; ..is not zero.
+_swlfail LXI     H,0         ; Push false
             PUSH    H           ; ..to the stack.
-_swlDONE:   RESTOREDE
-            RESTOREBC
-            NEXT
+_swldone .restoreDe
+            .restoreBc
+            .next
 
-.IFDEF PHASH
+.ifdef phash
 ; Entry: HL=c-addr A=u (all registers are used)
 ; Exit : HL=hash values (H1 in H, H2 in L)
-_phash:     PUSH    B           ; Save BC
+_phash PUSH    B           ; Save BC
             PUSH    D           ; ..and DE.
             LXI     D,0         ; Clear the hash values,
             PUSH    D           ; ..which are stored on the stack.
             ORA     A           ; See if the string is zero-length;
-            JZ      _phashDONE  ; ..and exit if so.
+            JZ      _phashdone  ; ..and exit if so.
             MOV     C,A         ; Otherwise move the length to A.
-_phashNEXT: MOV     A,M         ; Get the next character into A,
+_phashnext MOV     A,M         ; Get the next character into A,
             CPI     'a'         ; ..then see if less than 'a';
-            JM      _phashNEXT1 ; ..if so, don't uppercase.
+            JM      _phashnext1 ; ..if so, don't uppercase.
             CPI     'z'+1       ; If greater than 'z'+1,
-            JP      _phashNEXT1 ; ..don't uppercase.
+            JP      _phashnext1 ; ..don't uppercase.
             ANI     11011111b   ; Convert uppercase to lowercase.
-_phashNEXT1:XTHL                ; Swap the string pos with the hashes.
+_phashnext1 XTHL                ; Swap the string pos with the hashes.
             MOV     B,A         ; Save a copy of the character.
             XRA     H           ; XOR the character with the H1,
             MOV     E,A         ; ..move the PHASHAUX offset into E,
-            MVI     D,PHASHAUX1 >> 8;.put the PHASHAUX1 base offset into D,
+            MVI     D,phashaux1 >> 8;.put the PHASHAUX1 base offset into D,
             LDAX    D           ; ..then lookup the new hash value,
             MOV     H,A         ; ..and move the hash value to H.
             MOV     A,B         ; Get the cached copy of the character.
             XRA     L           ; XOR the character with the H2,
             MOV     E,A         ; ..move the PHASHAUX offset into E,
-            MVI     D,PHASHAUX2 >> 8;.put the PHASHAUX2 base offset into D,
+            MVI     D,phashaux2 >> 8;.put the PHASHAUX2 base offset into D,
             LDAX    D           ; ..then lookup the new hash value,
             MOV     L,A         ; ..and move the hash value to L.
             XTHL                ; Swap the hashes with the string pos.
             INX     H           ; Increment to the next character,
             DCR     C           ; ..decrement the count,
-            JNZ     _phashNEXT  ; ..and keep looping if we count is not zero.
-_phashDONE: POP     H           ; Pop the hash values into HL.
+            JNZ     _phashnext  ; ..and keep looping if we count is not zero.
+_phashdone POP     H           ; Pop the hash values into HL.
             POP     D           ; Restore DE
             POP     B           ; ..and BC.
             RET                 ; We're done.
-.ENDIF
+.endif
 
 
 ; ----------------------------------------------------------------------
@@ -264,9 +264,9 @@ _phashDONE: POP     H           ; Pop the hash values into HL.
 ;
 ; Set the compilation word list to the word list identified by wid.
 
-            LINKTO(SEARCHWORDLIST,0,11,'T',"NERRUC-TES")
-SETCURRENT: JMP     ENTER
-            .word   CURRENT,STORE,EXIT
+            .linkTo searchwordlist,0,11,'T',"NERRUC-TES"
+setcurrent JMP     enter
+            .word   current,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -283,11 +283,11 @@ SETCURRENT: JMP     ENTER
 ; ---
 ; : SET-ORDER ( widn ... wid1 n --)   0 DO SOESTART I CELLS + ! LOOP ;
 
-            LINKTO(SETCURRENT,0,9,'R',"EDRO-TES")
-SETORDER:   JMP     ENTER
-            .word   ZERO,pdo
-_setorder1: .word   LIT,SOESTART,I,CELLS,PLUS,STORE,ploop,_setorder1
-_setorder2: .word   EXIT
+            .linkTo setcurrent,0,9,'R',"EDRO-TES"
+setorder JMP     enter
+            .word   zero,pdo
+_setorder1 .word   lit,soestart,i,cells,plus,store,ploop,_setorder1
+_setorder2 .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -299,9 +299,9 @@ _setorder2: .word   EXIT
 ; allow the creation of at least 8 new word lists in addition to any
 ; provided as part of the system.
 
-            LINKTO(SETORDER,0,8,'T',"SILDROW")
-WORDLIST:   JMP     ENTER
-            .word   HERE,ZERO,COMMA,EXIT
+            .linkTo setorder,0,8,'T',"SILDROW"
+wordlist JMP     enter
+            .word   here,zero,comma,exit
 
 
 
@@ -318,12 +318,12 @@ WORDLIST:   JMP     ENTER
 ; : #SOES ( --n)
 ;   CONTEXT DUP  BEGIN DUP @ 0<> WHILE CELL+ REPEAT  SWAP - 2/ ;
 
-            LINKTO(WORDLIST,0,5,'S',"EOS#")
-NUMSOES:    JMP     ENTER
-            .word   CONTEXT,DUP
-_numsoes1:  .word   DUP,FETCH,ZERONOTEQUALS,zbranch,_numsoes2
-            .word   CELLPLUS,branch,_numsoes1
-_numsoes2:  .word   SWAP,MINUS,TWOSLASH,EXIT
+            .linkTo wordlist,0,5,'S',"EOS#"
+numsoes JMP     enter
+            .word   context,dup
+_numsoes1 .word   dup,fetch,zeronotequals,zbranch,_numsoes2
+            .word   cellplus,branch,_numsoes1
+_numsoes2 .word   swap,minus,twoslash,exit
 
 
 ; ----------------------------------------------------------------------
@@ -332,10 +332,10 @@ _numsoes2:  .word   SWAP,MINUS,TWOSLASH,EXIT
 ; a-addr is the address of a cell that contains a pointer to the first
 ; word list in the search order.
 
-            LINKTO(NUMSOES,0,7,'T',"XETNOC")
-CONTEXT:    LXI     H,SOESTART
+            .linkTo numsoes,0,7,'T',"XETNOC"
+context LXI     H,soestart
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -344,8 +344,8 @@ CONTEXT:    LXI     H,SOESTART
 ; a-addr is the address of a cell that contains a pointer to the current
 ; compilation word list.
 
-            LINKTO(CONTEXT,0,7,'T',"NERRUC")
-LAST_SEARCH:
-CURRENT:    LXI     H,TICKCURRENT
+            .linkTo context,0,7,'T',"NERRUC"
+last_search
+current LXI     H,tickcurrent
             PUSH    H
-            NEXT
+            .next

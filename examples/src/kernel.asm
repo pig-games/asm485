@@ -44,7 +44,14 @@
 ;           STAX    B           ;[1. 7]
 ;           DCX     B           ;[1. 5]
 ;                               ;[6.34]
-.DEFINE     RSPUSH(hi,lo) MOV A,hi\ STAX B\ DCX B\ MOV A,lo\ STAX B\ DCX B
+rsPush .macro hi, lo
+            MOV A,\hi
+            STAX B
+            DCX B
+            MOV A,\lo
+            STAX B
+            DCX B
+.endmacro
 
 ;RSPOP:     INX     B           ;[1. 5]
 ;           LDAX    B           ;[1. 7]
@@ -53,7 +60,14 @@
 ;           LDAX    B           ;[1. 7]
 ;           MOV     E,A         ;[1. 5]
 ;                               ;[6.34]
-.DEFINE     RSPOP(hi,lo) INX B\ LDAX B\ MOV lo,A\ INX B\ LDAX B\ MOV hi,A
+rsPop .macro hi, lo
+            INX B
+            LDAX B
+            MOV \lo,A
+            INX B
+            LDAX B
+            MOV \hi,A
+.endmacro
 
 ;RSFETCH:   INX     B           ;[1. 5]
 ;           LDAX    B           ;[1. 7]
@@ -64,7 +78,11 @@
 ;           DCX     B           ;[1. 5]
 ;           DCX     B           ;[1. 5]
 ;                               ;[8.44]
-.DEFINE     RSFETCH(hi,lo) RSPOP(hi,lo)\ DCX B\ DCX B
+rsFetch .macro hi, lo
+            .rsPop \hi,\lo
+            DCX B
+            DCX B
+.endmacro
 
 ;RSPICK2:   INX     B           ;[1. 5]
 ;           INX     B           ;[1. 5]
@@ -83,7 +101,19 @@
 ;           DCX     B           ;[1. 5]
 ;           DCX     B           ;[1. 5]
 ;                               ;[8.44]
-.DEFINE     RSPICK2(hi,lo) INX B\ INX B\ INX B\ INX B\ RSPOP(hi,lo)\ DCX B\ DCX B\ DCX B\ DCX B\ DCX B\ DCX B
+rsPick2 .macro hi, lo
+            INX B
+            INX B
+            INX B
+            INX B
+            .rsPop \hi,\lo
+            DCX B
+            DCX B
+            DCX B
+            DCX B
+            DCX B
+            DCX B
+.endmacro
 
 
 ; ----------------------------------------------------------------------
@@ -92,15 +122,20 @@
 ; DE is the Instruction Pointer and an undocumented 8085 opcode is used
 ; to transfer the location pointed to by DE into HL, the Word pointer.
 
-.IFNDEF PROFILER
+.ifndef profiler
 ;NEXT:      LHLX                ;[1.10] (IP) -> W
 ;           INX     D           ;[1. 5] IP+1 -> IP
 ;           INX     D           ;[1. 5] IP+1 -> IP
 ;           PCHL                ;[1. 5] JMP W
 ;                               ;[4.25]
-.DEFINE     NEXT    .byte 0EDH\ INX D\ INX D\ PCHL
-.ELSE
-PROFILENEXT:LHLD    PROFILING   ; Don't increment the Execution Count
+next .macro
+            .byte 0EDH
+            INX D
+            INX D
+            PCHL
+.endmacro
+.else
+profilenext LHLD    profiling   ; Don't increment the Execution Count
             MOV     A,L         ; ..if the profiling
             ORA     H           ; ..flag
             JZ      _profnext1  ; ..is zero.
@@ -111,65 +146,67 @@ PROFILENEXT:LHLD    PROFILING   ; Don't increment the Execution Count
             JNZ     _profnext1  ; ..and skip the high byte if we didn't wrap.
             INX     H           ; Increment to the high byte of the count.
             INR     M           ; Increment the high byte of the count.
-_profnext1: .byte 0EDH                ; (IP) -> W
+_profnext1 .byte 0EDH                ; (IP) -> W
             INX     D           ; IP+1 -> IP
             INX     D           ; IP+1 -> IP
             PCHL                ; JMP W
-.DEFINE     NEXT    JMP PROFILENEXT
-.ENDIF
+next .macro
+            JMP profilenext
+.endmacro
+.endif
 
 
 ; ----------------------------------------------------------------------
 ; ENTER (a.k.a. DOCOLON) for use by high-level definitions
 
-DOCOLON:
-ENTER:      RSPUSH(D,E)         ;[6.34]
-            .byte 028H, CFASZ          ;[2.10] W+CFASZ -> IP
-            NEXT                ;[4.25]
+docolon
+enter .rsPush D,E         ;[6.34]
+            .byte 028H, cfasz          ;[2.10] W+CFASZ -> IP
+            .next                ;[4.25]
                                 ;[12.69]
 
 
 ; ----------------------------------------------------------------------
 ; DODOES for use by high-level CREATE..DOES> definitions
 
-DODOES:     INXCFATOPFA(H)      ; Skip over the CFA so that HL points to PFA.
+dodoes .inxCfaToPfa H      ; Skip over the CFA so that HL points to PFA.
             XTHL                ; Swap PFA with the address of the high-level
                                 ; ..word that appears after DOES>.  That addr
                                 ; ..is on the stack because we CALL DODOES.
-            RSPUSH(D,E)         ; We're about to call a new word, so push IP.
+            .rsPush D,E         ; We're about to call a new word, so push IP.
             XCHG                ; Move address of high-level thread to IP.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
 ; DOCREATE and DOVARIABLE for use by high-level CREATE and VARIABLE definitions.
 
-DOCREATE:
-DOVARIABLE: INXCFATOPFA(H)      ; Skip over the CFA so that HL points to PFA.
+docreate
+dovariable .inxCfaToPfa H      ; Skip over the CFA so that HL points to PFA.
             PUSH    H           ; Push PFA to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
 ; DOCONSTANT for use by high-level CONSTANT definitions.
 
-DOCONSTANT: INXCFATOPFA(H)      ; Skip over the CFA so that HL points to PFA.
+doconstant .inxCfaToPfa H      ; Skip over the CFA so that HL points to PFA.
             MOV     A,M         ; Get the low byte of the constant in A,
             INX     H           ; ..then increment to the high byte,
             MOV     H,M         ; ..get the high byte into H,
             MOV     L,A         ; ..move the low byte into L,
             PUSH    H           ; ..and push the constant to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
 ; DOUSER for use by high-level USER variables.
 
-DOUSER:     INXCFATOPFA(H)      ; Skip over the CFA so that HL points to PFA.
+douser .inxCfaToPfa H      ; Skip over the CFA so that HL points to PFA.
             MOV     L,M         ; Put USER variable offset into L.
             MOV     H,B         ; Put Task Page into H.
             PUSH    H           ; Push USER variable address onto stack.
-            NEXT
+            .next
 
 
 
@@ -187,10 +224,28 @@ DOUSER:     INXCFATOPFA(H)      ; Skip over the CFA so that HL points to PFA.
 ; Notice that the name is in reverse order and that the last character is
 ; specified as a separate byte.
 
-.IFNDEF PROFILER
-.DEFINE     LINKTO(prev,isimm,len,lastchar,revchars) .byte 10000000b|lastchar,revchars\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ
-.DEFINE     LINKTO0(prev,isimm,len,lastchar) .byte 10000000b|lastchar\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ
-.ELSE
-.DEFINE     LINKTO(prev,isimm,len,lastchar,revchars) .byte 10000000b|lastchar,revchars\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ\ .word 0
-.DEFINE     LINKTO0(prev,isimm,len,lastchar) .byte 10000000b|lastchar\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ\ .word 0
-.ENDIF
+.ifndef profiler
+linkTo .macro prev, isimm, len, lastchar, revchars
+            .byte 10000000b|\lastchar,\revchars
+            .byte (\isimm << 7)|\len
+            .word \prev-nfatocfasz
+.endmacro
+linkTo0 .macro prev, isimm, len, lastchar
+            .byte 10000000b|\lastchar
+            .byte (\isimm << 7)|\len
+            .word \prev-nfatocfasz
+.endmacro
+.else
+linkTo .macro prev, isimm, len, lastchar, revchars
+            .byte 10000000b|\lastchar,\revchars
+            .byte (\isimm << 7)|\len
+            .word \prev-nfatocfasz
+            .word 0
+.endmacro
+linkTo0 .macro prev, isimm, len, lastchar
+            .byte 10000000b|\lastchar
+            .byte (\isimm << 7)|\len
+            .word \prev-nfatocfasz
+            .word 0
+.endmacro
+.endif

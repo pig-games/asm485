@@ -36,11 +36,11 @@
 ; the minute {0...59}, +n3 is the hour {0...23}, +n4 is the day {1...31}
 ; +n5 is the month {1...12}, and +n6 is the year (e.g., 1991).
 
-            LINKTO(LINK_FACILITYEXT,0,9,'E',"TAD&EMIT")
-LAST_FACILITYEXT:
-TIMEANDDATE:PUSH    B           ; Update
+            .linkTo link_facilityext,0,9,'E',"TAD&EMIT"
+last_facilityext
+timeanddate PUSH    B           ; Update
             PUSH    D           ; ..the
-            CALL    STDCALL     ; ..clock
+            CALL    stdcall     ; ..clock
             .word   019A0H      ; ..chip
             POP     D           ; ..values
             POP     B           ; ..(which corrupts every register).
@@ -52,7 +52,7 @@ TIMEANDDATE:PUSH    B           ; Update
             MOV     H,A
             LDA     0F923H
             MOV     L,A
-            CALL    _tadCalc
+            CALL    _tadcalc
             PUSH    H
 
             ; Get the minutes.
@@ -60,7 +60,7 @@ TIMEANDDATE:PUSH    B           ; Update
             MOV     H,A
             LDA     0F925H
             MOV     L,A
-            CALL    _tadCalc
+            CALL    _tadcalc
             PUSH    H
 
             ; Get the hours.
@@ -68,7 +68,7 @@ TIMEANDDATE:PUSH    B           ; Update
             MOV     H,A
             LDA     0F927H
             MOV     L,A
-            CALL    _tadCalc
+            CALL    _tadcalc
             PUSH    H
 
             ; Get the date.
@@ -76,7 +76,7 @@ TIMEANDDATE:PUSH    B           ; Update
             MOV     H,A
             LDA     0F929H
             MOV     L,A
-            CALL    _tadCalc
+            CALL    _tadcalc
             PUSH    H
 
             ; Get the month.
@@ -90,7 +90,7 @@ TIMEANDDATE:PUSH    B           ; Update
             MOV     H,A
             LDA     0F92DH
             MOV     L,A
-            CALL    _tadCalc
+            CALL    _tadcalc
             XCHG                ; Swap yy with DE
             PUSH    H           ; ..and push HL (DE) to the stack.
             LXI     H,2000      ; Add 2000
@@ -99,10 +99,10 @@ TIMEANDDATE:PUSH    B           ; Update
             XCHG                ; ..then swap DE back in to place.
 
             EI                  ; Enable interrupts now that we're done.
-            NEXT
+            .next
 
             ; Calculates the following: L = H*10 + L
-_tadCalc:   MOV     A,H         ; Move the tens value into A.
+_tadcalc MOV     A,H         ; Move the tens value into A.
             ADD     H           ; M
             ADD     H           ; u
             ADD     H           ; l

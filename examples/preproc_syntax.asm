@@ -1,18 +1,14 @@
-; Preprocessor directive and macro coverage
-; This file is preprocessed first, so we can safely use .define/.ifdef/.include.
-
-.define VAL 7
-.define ADD(a,b) (a + b)
-.define TWICE(x) (x + x)
+; Preprocessor directive coverage (no .define).
+; Preprocessor symbols are provided via -D/--define.
 
 .ifdef VAL
-        .byte ADD(1,2)
-.else
         .byte 0
+.else
+        .byte 1
 .endif
 
 .ifndef UNKNOWN
-        .byte TWICE(3)
+        .byte 2
 .else
         .byte 0
 .endif

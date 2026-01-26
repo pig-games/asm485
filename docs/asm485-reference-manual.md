@@ -176,7 +176,6 @@ Planned: `.cpu z80` and other related CPUs.
 Preprocessor directives are dot-prefixed:
 
 ```
-.define NAME[=VAL]
 .ifdef NAME
 .ifndef NAME
 .elseif NAME
@@ -188,6 +187,7 @@ Preprocessor directives are dot-prefixed:
 Notes:
 - `#` is reserved for macro invocation.
 - Preprocessor directives run before macro expansion.
+- Preprocessor symbols are provided via the `-D/--define` command-line option.
 
 ## 5. Pseudo instructions
 
@@ -231,7 +231,7 @@ Planned (not implemented yet): repeat/loop-style directives.
 
 ## 6. Compatibility
 
-- Dot-prefixed directives are required (for `.org`, `.set`, `.if`, `.define`, etc.).
+- Dot-prefixed directives are required (for `.org`, `.set`, `.if`, etc.).
 - `#` is reserved for macro invocation.
 - Labels may omit the trailing `:`.
 
@@ -301,7 +301,7 @@ additional opcode sets in the future (e.g. Z80).
 .block  .endblock
 .macro  .endmacro  .segment  .endsegment
 .if  .elseif  .else  .endif
-.define  .ifdef  .ifndef  .include
+.ifdef  .ifndef  .include
 ```
 
 ### 13.2 Assignment operators

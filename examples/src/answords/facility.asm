@@ -38,17 +38,17 @@
 ; condition exists if the operation cannot be performed on the user
 ; output device with the specified parameters.
 
-            LINKTO(LINK_FACILITY,0,5,'Y',"X-TA")
-ATXY:       POP     H           ; Pop the row into L,
+            .linkTo link_facility,0,5,'Y',"X-TA"
+atxy POP     H           ; Pop the row into L,
             MOV     A,L         ; ..move it to A,
             INR     A           ; ..and add one.
             POP     H           ; Pop the column into L,
             MOV     H,L         ; ..move it to H,
             INR     H           ; ..and add one.
             MOV     L,A         ; Move the row into L.
-            CALL    STDCALL     ; Call the
+            CALL    stdcall     ; Call the
             .word   0427CH      ; ..SETCUR routine.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -63,17 +63,17 @@ ATXY:       POP     H           ; Pop the row into L,
 ; prior to the execution of KEY or EKEY also return true, without
 ; discarding keyboard events.
 
-            LINKTO(ATXY,0,4,'?',"YEK")
-KEYQ:       CALL    STDCALL     ; Call the
+            .linkTo atxy,0,4,'?',"YEK"
+keyq CALL    stdcall     ; Call the
             .word   013DBH      ; ..CHSNS routine.
-            JNZ     _keyqTRUE   ; Jump if not zero to where we push true.
-            CALL    STDCALL     ; No character, so let the Main ROM
+            JNZ     _keyqtrue   ; Jump if not zero to where we push true.
+            CALL    stdcall     ; No character, so let the Main ROM
             .word   013C2H      ; ..flash the cursor if necessary.
             LXI     H,0         ; Put false in HL.
-            JMP     _keyqDONE   ; ..and jump to where we push the flag.
-_keyqTRUE:  LXI     H,0FFFFH    ; Put true in HL.
-_keyqDONE:  PUSH    H           ; Push the flag to the stack.
-            NEXT
+            JMP     _keyqdone   ; ..and jump to where we push the flag.
+_keyqtrue LXI     H,0FFFFH    ; Put true in HL.
+_keyqdone PUSH    H           ; Push the flag to the stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -83,8 +83,8 @@ _keyqDONE:  PUSH    H           ; Push the flag to the stack.
 ; device.  On a terminal, PAGE clears the screen and resets the cursor
 ; position to the upper left corner.  On a printer, PAGE performs a form feed.
 
-            LINKTO(KEYQ,0,4,'E',"GAP")
-LAST_FACILITY:
-PAGE:       CALL    STDCALL     ; Call the
+            .linkTo keyq,0,4,'E',"GAP"
+last_facility
+page CALL    stdcall     ; Call the
             .word   04231H      ; ..CLS routine.
-            NEXT
+            .next

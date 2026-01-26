@@ -42,9 +42,9 @@
 ; ---
 ; : .( "ccc<paren>" --)   [CHAR] ) PARSE TYPE ; IMMEDIATE
 
-            LINKTO(LINK_COREEXT,1,2,028H,".")
-DOTPAREN:   JMP     ENTER
-            .word   LIT,')',PARSE,TYPE,EXIT
+            .linkTo link_coreext,1,2,028H,"."
+dotparen JMP     enter
+            .word   lit,')',parse,type,exit
 
 
 ; ----------------------------------------------------------------------
@@ -52,16 +52,16 @@ DOTPAREN:   JMP     ENTER
 ;
 ; flag is true if and only if x is not equal to zero.
 
-            LINKTO(DOTPAREN,0,3,'>',"<0")
-ZERONOTEQUALS:POP   H           ; Pop the value.
+            .linkTo dotparen,0,3,'>',"<0"
+zeronotequals POP   H           ; Pop the value.
             MOV     A,H         ; See if the flag is zero by moving H to A
             ORA     L           ; ..and then ORing A with L.
-            JZ      _zneqFALSE  ; Jump if zero to where we push false.
+            JZ      _zneqfalse  ; Jump if zero to where we push false.
             LXI     H,0FFFFH    ; Put true in HL.
-            JMP     _zneqDONE   ; We're done.
-_zneqFALSE: LXI     H,0         ; Put false in HL.
-_zneqDONE:  PUSH    H           ; Push the flag to the stack.
-            NEXT
+            JMP     _zneqdone   ; We're done.
+_zneqfalse LXI     H,0         ; Put false in HL.
+_zneqdone PUSH    H           ; Push the flag to the stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -74,13 +74,13 @@ _zneqDONE:  PUSH    H           ; Push the flag to the stack.
 ;   Transfer cell pair x1 x2 to the return stack.  Semantically equivalent
 ;   to SWAP >R >R.
 
-            LINKTO(ZERONOTEQUALS,0,3,'R',">2")
-TWOTOR:     POP     H           ; Pop x2 from the stack,
+            .linkTo zeronotequals,0,3,'R',">2"
+twotor POP     H           ; Pop x2 from the stack,
             XTHL                ; ..and then swap x1 with x2.;
-            RSPUSH(H,L)         ; Push x1 to the return stack.
+            .rsPush H,L         ; Push x1 to the return stack.
             POP     H           ; Pop x2 from the stack again,
-            RSPUSH(H,L)         ; ..then push x2 to the return stack.
-            NEXT
+            .rsPush H,L         ; ..then push x2 to the return stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -93,13 +93,13 @@ TWOTOR:     POP     H           ; Pop x2 from the stack,
 ;   Transfer cell pair x1 x2 from the return stack.  Semantically equivalent
 ;   to R> R> SWAP.
 
-            LINKTO(TWOTOR,0,3,'>',"R2")
-TWORFROM:   RSPOP(H,L)          ; Pop x2 from the return stack
+            .linkTo twotor,0,3,'>',"R2"
+tworfrom .rsPop H,L          ; Pop x2 from the return stack
             PUSH    H           ; ..and push it to the stack (which is wrong).
-            RSPOP(H,L)          ; Pop x1 from the return stack,
+            .rsPop H,L          ; Pop x1 from the return stack,
             XTHL                ; ..then swap x2 and x1 to fix things up,
             PUSH    H           ; ..and finally push x2 back onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -107,8 +107,8 @@ TWORFROM:   RSPOP(H,L)          ; Pop x2 from the return stack
 ;
 ; flag is true if and only if x1 is not bit-for-bit the same as x2.
 
-            LINKTO(TWORFROM,0,2,'>',"<")
-NOTEQUALS:  SAVEDE
+            .linkTo tworfrom,0,2,'>',"<"
+notequals .saveDe
             POP     H           ; Pop x2.
             POP     D           ; Pop x1.
             PUSH    B           ; Save BC.
@@ -116,13 +116,13 @@ NOTEQUALS:  SAVEDE
             MOV     C,E         ; ..to BC.
             .byte 08H                ; HL=HL-BC
             POP     B           ; Restore BC.
-            JZ      _neqFALSE   ; Jump if zero (equals) to where we push false.
+            JZ      _neqfalse   ; Jump if zero (equals) to where we push false.
             LXI     H,0FFFFH    ; Put true in HL.
-            JMP     _neqDONE    ; We're done.
-_neqFALSE:  LXI     H,0         ; Put false in HL.
-_neqDONE:   PUSH    H           ; Push the flag to the stack.
-            RESTOREDE
-            NEXT
+            JMP     _neqdone    ; We're done.
+_neqfalse LXI     H,0         ; Put false in HL.
+_neqdone PUSH    H           ; Push the flag to the stack.
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -140,9 +140,9 @@ _neqDONE:   PUSH    H           ; Push the flag to the stack.
 ; ---
 ; : AGAIN   ['] branch COMPILE,  , ; IMMEDIATE
 
-            LINKTO(NOTEQUALS,1,5,'N',"IAGA")
-AGAIN:      JMP     ENTER
-            .word   LIT,branch,COMPILECOMMA,COMMA,EXIT
+            .linkTo notequals,1,5,'N',"IAGA"
+again JMP     enter
+            .word   lit,branch,compilecomma,comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -163,10 +163,10 @@ AGAIN:      JMP     ENTER
 ; : C" ( "ccc<quote>" --)   ['] (C") COMPILE,
 ;   [CHAR] " PARSE  DUP C,  HERE OVER ALLOT SWAP CMOVE ;
 
-            LINKTO(AGAIN,1,2,022H,"C")
-CQUOTE:     JMP     ENTER
-            .word   LIT,PCQUOTE,COMPILECOMMA,LIT,022H,PARSE,DUP,CCOMMA
-            .word   HERE,OVER,ALLOT,SWAP,CMOVE,EXIT
+            .linkTo again,1,2,022H,"C"
+cquote JMP     enter
+            .word   lit,pcquote,compilecomma,lit,022H,parse,dup,ccomma
+            .word   here,over,allot,swap,cmove,exit
 
 
 ; ----------------------------------------------------------------------
@@ -179,9 +179,9 @@ CQUOTE:     JMP     ENTER
 ;   Append the execution semantics of the definition represented by xt to
 ;   the execution semantics of the current definition.  
 
-            LINKTO(CQUOTE,0,8,02CH,"ELIPMOC")
-COMPILECOMMA:JMP    ENTER
-            .word   COMMA,EXIT
+            .linkTo cquote,0,8,02CH,"ELIPMOC"
+compilecomma JMP    enter
+            .word   comma,exit
 
 
 ; ----------------------------------------------------------------------
@@ -189,10 +189,10 @@ COMPILECOMMA:JMP    ENTER
 ;
 ; Return a false flag.
 
-            LINKTO(COMPILECOMMA,0,5,'E',"SLAF")
-FALSE:      LXI     H,0
+            .linkTo compilecomma,0,5,'E',"SLAF"
+false LXI     H,0
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -200,9 +200,9 @@ FALSE:      LXI     H,0
 ;
 ; Set contents of BASE to sixteen.
 
-            LINKTO(FALSE,0,3,'X',"EH")
-HEX:        JMP     ENTER
-            .word   LIT,16,BASE,STORE,EXIT
+            .linkTo false,0,3,'X',"EH"
+hex JMP     enter
+            .word   lit,16,base,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -210,11 +210,11 @@ HEX:        JMP     ENTER
 ;
 ; Drop the first item below the top of stack.
 
-            LINKTO(HEX,0,3,'P',"IN")
-NIP:        POP     H           ; Pop x2 into HL.
+            .linkTo hex,0,3,'P',"IN"
+nip POP     H           ; Pop x2 into HL.
             POP     PSW         ; Pop x1 into A+PSW.
             PUSH    H           ; Push x2 back onto the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -226,13 +226,13 @@ NIP:        POP     H           ; Pop x2 into HL.
 ; ---
 ; : PAD ( -- c-addr)   HERE  PADOFFSET +  TASK-PAGE 'FIRSTTASK @ -  8 LSHIFT  + ;
 
-            LINKTO(NIP,0,3,'D',"AP")
-PAD:        PUSH    D           ; Save DE.
-            LHLD    DP          ; Get HERE into HL.
-            LXI     D,PADOFFSET ; Get the base PAD offset into DE
+            .linkTo nip,0,3,'D',"AP"
+pad PUSH    D           ; Save DE.
+            LHLD    dp          ; Get HERE into HL.
+            LXI     D,padoffset ; Get the base PAD offset into DE
             DAD     D           ; ..and add the offset to HL.
             XCHG                ; Save HL in DE.
-            LHLD    TICKFIRSTTASK;Get the address of the first task,
+            LHLD    tickfirsttask;Get the address of the first task,
             MOV     A,H         ; ..move the page address into A,
             SUB     B           ; ..then calculate the task number (first-B).
             XCHG                ; Get HERE+PADOFFSET back into HL.
@@ -241,7 +241,7 @@ PAD:        PUSH    D           ; Save DE.
             DAD     D           ; ..and add that value to HL.
             XTHL                ; Swap PAD with IP,
             XCHG                ; ..and put IP back into DE.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -256,9 +256,9 @@ PAD:        PUSH    D           ; Save DE.
 ; ---
 ; : PARSE ( char "ccc<char>" -- c-addr u) FALSE SWAP (parse) ;
 
-            LINKTO(PAD,0,5,'E',"SRAP")
-PARSE:      JMP     ENTER
-            .word   FALSE,SWAP,PPARSE,EXIT
+            .linkTo pad,0,5,'E',"SRAP"
+parse JMP     enter
+            .word   false,swap,pparse,exit
 
 
 ; ----------------------------------------------------------------------
@@ -268,8 +268,8 @@ PARSE:      JMP     ENTER
 ; exists if there are less than u+2 items on the stack before PICK is
 ; executed.
 
-            LINKTO(PARSE,0,4,'K',"CIP")
-PICK:       POP     H           ; Get u into HL,
+            .linkTo parse,0,4,'K',"CIP"
+pick POP     H           ; Get u into HL,
             DAD     H           ; ..double the value to get a cell offset,
             DAD     SP          ; ..then add SP to get the stack offset.
             MOV     A,M         ; Get the low byte of the stack value in A,
@@ -277,7 +277,7 @@ PICK:       POP     H           ; Get u into HL,
             MOV     H,M         ; ..get the high byte into H,
             MOV     L,A         ; ..move the low byte into L,
             PUSH    H           ; ..and push xu to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -296,9 +296,9 @@ PICK:       POP     H           ; Get u into HL,
 ; ---
 ; : SOURCE-ID ( -- 0 | -1)   ICB ICBSOURCEID + @ ;
 
-            LINKTO(PICK,0,9,'D',"I-ECRUOS")
-SOURCEID:   JMP     ENTER
-            .word   ICB,LIT,ICBSOURCEID,PLUS,FETCH,EXIT
+            .linkTo pick,0,9,'D',"I-ECRUOS"
+sourceid JMP     enter
+            .word   icb,lit,icbsourceid,plus,fetch,exit
 
 
 ; ----------------------------------------------------------------------
@@ -309,10 +309,10 @@ SOURCEID:   JMP     ENTER
 ; Note: This word is obsolescent and is included as a concession to
 ; existing implementations.
 
-            LINKTO(SOURCEID,0,3,'B',"IT")
-TIB:        LHLD    TICKTIB
+            .linkTo sourceid,0,3,'B',"IT"
+tib LHLD    ticktib
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -320,10 +320,10 @@ TIB:        LHLD    TICKTIB
 ;
 ; Return a true flag.
 
-            LINKTO(TIB,0,4,'E',"URT")
-TRUE:       LXI     H,0FFFFH
+            .linkTo tib,0,4,'E',"URT"
+true LXI     H,0FFFFH
             PUSH    H
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -331,15 +331,15 @@ TRUE:       LXI     H,0FFFFH
 ;
 ; Copy the first (top) stack item below the second stack item.
 
-            LINKTO(TRUE,0,4,'K',"CUT")
-TUCK:       SAVEDE
+            .linkTo true,0,4,'K',"CUT"
+tuck .saveDe
             POP     D           ; Pop x2 into DE.
             POP     H           ; Pop x1 into HL.
             PUSH    D           ; Push x2 onto the stack.
             PUSH    H           ; Push x1 onto the stack.
             PUSH    D           ; Push x2 onto the stack again.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -354,9 +354,9 @@ TUCK:       SAVEDE
 ; ---
 ; ; WITHIN ( n1|u1 n2|u2 n3|u3 -- flag)   OVER - >R - R>  U< ;
 
-            LINKTO(TUCK,0,6,'N',"IHTIW")
-WITHIN:     JMP     ENTER
-            .word   OVER,MINUS,TOR,MINUS,RFROM,ULESSTHAN,EXIT
+            .linkTo tuck,0,6,'N',"IHTIW"
+within JMP     enter
+            .word   over,minus,tor,minus,rfrom,ulessthan,exit
 
 
 ; ----------------------------------------------------------------------
@@ -372,9 +372,9 @@ WITHIN:     JMP     ENTER
 ; ---
 ; : \   SOURCE NIP >IN ! ; IMMEDIATE
 
-            LINKTO0(WITHIN,1,1,05CH)
-BACKSLASH:  JMP     ENTER
-            .word   SOURCE,NIP,TOIN,STORE,EXIT
+            .linkTo0 within,1,1,05CH
+backslash JMP     enter
+            .word   source,nip,toin,store,exit
 
 
 
@@ -387,15 +387,15 @@ BACKSLASH:  JMP     ENTER
 ;
 ; Runtime behavior of C": return c-addr.
 
-            LINKTO(BACKSLASH,0,4,029H,"\"c(")
-PCQUOTE:    PUSH    D           ; Push string address onto the stack.
+            .linkTo backslash,0,4,029H,"\"c("
+pcquote PUSH    D           ; Push string address onto the stack.
             .byte 0EDH                ; Read string count from instruction stream.
             MVI     H,0         ; Clear high byte, which is not part of count.
             INX     H           ; Increment HL to include the count byte.
             XCHG                ; IP to HL, count to DE.
             DAD     D           ; Add count to address to skip over string.
             XCHG                ; Put IP back in DE (pointing after string).
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -409,13 +409,13 @@ PCQUOTE:    PUSH    D           ; Push string address onto the stack.
 ; the parsed string.  If the parse area was empty, the resulting string
 ; has a zero length.
 
-            LINKTO(PCQUOTE,0,7,029H,"esrap(")
-LAST_COREEXT:
-PPARSE:     SAVEDE
-            SAVEBC
+            .linkTo pcquote,0,7,029H,"esrap("
+last_coreext
+pparse .saveDe
+            .saveBc
 
             ; Get ICBLINEEND and ICBLINESTART on the stack.
-            LHLD    TICKICB     ; Get the current ICB into HL,
+            LHLD    tickicb     ; Get the current ICB into HL,
             XCHG                ; ..then move it to DE,
             .byte 0EDH                ; ..fetch ICBLINEEND,
             PUSH    H           ; ..and push it to the stack.
@@ -455,63 +455,63 @@ PPARSE:     SAVEDE
             ; D=delim E=flag HL=srcpos BC=srcrem  Stack: startpos c-addr
             MOV     A,E         ; Move the flag into A,
             ORA     A           ; ..see if the flag is zero,
-            JZ      _pparseLOOP ; ..and skip ahead to the loop if so.
-_pparseSKIP:MOV     A,B         ; See if we have reached
+            JZ      _pparseloop ; ..and skip ahead to the loop if so.
+_pparseskip MOV     A,B         ; See if we have reached
             ORA     C           ; ..the end of src
-            JZ      _pparseSKIP2; ..and exit the loop if so.
+            JZ      _pparseskip2; ..and exit the loop if so.
             MOV     A,M         ; Get the next character at srcpos
             CMP     D           ; ..and see if it is the same as delim;
-            JZ      _pparseSKIP1; ..keep skipping if so.
+            JZ      _pparseskip1; ..keep skipping if so.
             ANA     E           ; Not a match; but is our flag true?
-            JZ      _pparseSKIP2; ..if not, just start looping.
+            JZ      _pparseskip2; ..if not, just start looping.
             ANI     11100000b   ; Flag is true; is A a control char?
-            JNZ     _pparseSKIP2; ..if not, just start looping,
+            JNZ     _pparseskip2; ..if not, just start looping,
             MOV     A,D         ; ..otherwise move delim to A,
             CPI     020H        ; ..and see if the result is a space;
-            JNZ      _pparseSKIP2;..start looping if not, otherwise continue.
-_pparseSKIP1:INX    H           ; Increment srcpos,
+            JNZ      _pparseskip2;..start looping if not, otherwise continue.
+_pparseskip1 INX    H           ; Increment srcpos,
             DCX     B           ; ..decrement srcrem,
-            JMP     _pparseSKIP ; ..and continue skipping.
-_pparseSKIP2:INX    SP          ; Remove the old c-addr
+            JMP     _pparseskip ; ..and continue skipping.
+_pparseskip2 INX    SP          ; Remove the old c-addr
             INX     SP          ; ..from the stack
             PUSH    H           ; ..and replace it with the post-delim c-addr.
 
             ; Find the end of the delimited text.
             ; D=delim E=flag HL=srcpos BC=srcrem  Stack: startpos c-addr
-_pparseLOOP:MOV     A,B         ; See if we have reached
+_pparseloop MOV     A,B         ; See if we have reached
             ORA     C           ; ..the end of src
-            JZ      _pparseDONE ; ..and exit the loop if so.
+            JZ      _pparsedone ; ..and exit the loop if so.
             MOV     A,M         ; Get the next character at srcpos
             CMP     D           ; ..and see if it is the same as delim;
-            JZ      _pparseDONE ; ..we're done if so.
+            JZ      _pparsedone ; ..we're done if so.
             ANA     E           ; Not a match; but is our flag true?
-            JZ      _pparseLOOP1; ..if not just keep looping.
+            JZ      _pparseloop1; ..if not just keep looping.
             ANI     11100000b   ; Flag is true; is A a control char?
-            JNZ     _pparseLOOP1; ..if not, just keep looping,
+            JNZ     _pparseloop1; ..if not, just keep looping,
             MOV     A,D         ; ..otherwise move delim to A,
             CPI     020H        ; ..and see if the result is a space;
-            JZ      _pparseDONE ; ..stop looping if so, otherwise continue.
-_pparseLOOP1:INX    H           ; Increment srcpos,
+            JZ      _pparsedone ; ..stop looping if so, otherwise continue.
+_pparseloop1 INX    H           ; Increment srcpos,
             DCX     B           ; ..decrement srcrem,
-            JMP     _pparseLOOP ; ..and continue looping.
+            JMP     _pparseloop ; ..and continue looping.
 
             ; Update >IN and calculate the length of the parsed text.
             ; HL=endpos  Stack: startpos c-addr
-_pparseDONE:MOV     D,B         ; Move srcrem to D
+_pparsedone MOV     D,B         ; Move srcrem to D
             MOV     E,C         ; ..and E.
-            SHLD    HOLDH       ; Save endpos for later use.
+            SHLD    holdh       ; Save endpos for later use.
             POP     H           ; Pop c-addr from the stack,
             POP     B           ; ..pop the start position into BC.
             PUSH    H           ; ..then put c-addr back onto the stack,
-            LHLD    HOLDH       ; ..and restore endpos.
+            LHLD    holdh       ; ..and restore endpos.
             .byte 08H                ; Get the total number of bytes seen into HL.
             MOV     A,D         ; See if we exhaused srcrem, in which case we do
             ORA     E           ; ..not need to skip the (missing) final delim.
-            JZ      _pparseDONE1; No delim to skip if we hit EOL,
+            JZ      _pparsedone1; No delim to skip if we hit EOL,
             INX     H           ; ..otherwise increment length to include delim.
-_pparseDONE1:MOV    B,H         ; Move the total length to B
+_pparsedone1 MOV    B,H         ; Move the total length to B
             MOV     C,L         ; ..and C.
-            LHLD    TICKICB     ; Get the current ICB into HL,
+            LHLD    tickicb     ; Get the current ICB into HL,
             INX     H           ; ..skip
             INX     H           ; ..ahead
             INX     H           ; ..to
@@ -523,12 +523,12 @@ _pparseDONE1:MOV    B,H         ; Move the total length to B
             DAD     B           ; ..and add the parsed length to >IN.
             .byte 0D9H                ; Save the new >IN.
             
-            LHLD    HOLDH       ; Restore endpos again,
+            LHLD    holdh       ; Restore endpos again,
             POP     B           ; ..get c-addr from the stack,
             PUSH    B           ; ..put a copy of c-addr back onto the stack,
             .byte 08H                ; ..then calculate the parsed length,
             PUSH    H           ; ..and push that length onto the stack.
             
-            RESTOREBC
-            RESTOREDE
-            NEXT
+            .restoreBc
+            .restoreDe
+            .next

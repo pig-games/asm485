@@ -39,13 +39,13 @@
 ;   BASE @ 10 <>  IF UD. EXIT THEN
 ;   2DUP D0< >R DABS <# #S R> SIGN #> TYPE SPACE ;
 
-            LINKTO(LINK_DOUBLE,0,2,'.',"D")
-DDOT:       JMP     ENTER
-            .word   BASE,FETCH,LIT,10,NOTEQUALS,zbranch,_ddot1,UDDOT,EXIT
-_ddot1:     .word   TWODUP,DZEROLESS,TOR
-            .word   DABS,LESSNUMSIGN,NUMSIGNS,RFROM,SIGN,NUMSIGNGRTR
-            .word   TYPE,SPACE
-            .word   EXIT
+            .linkTo link_double,0,2,'.',"D"
+ddot JMP     enter
+            .word   base,fetch,lit,10,notequals,zbranch,_ddot1,uddot,exit
+_ddot1 .word   twodup,dzeroless,tor
+            .word   dabs,lessnumsign,numsigns,rfrom,sign,numsigngrtr
+            .word   type,space
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -53,8 +53,8 @@ _ddot1:     .word   TWODUP,DZEROLESS,TOR
 ;
 ; Subtract d2|ud2 from d1|ud1, giving the difference d3|ud3.
 
-            LINKTO(DDOT,0,2,'-',"D")
-DMINUS:     SAVEDE
+            .linkTo ddot,0,2,'-',"D"
+dminus .saveDe
             .byte 038H,    0           ; Get the address of d2
             XCHG                ; ..and move that address into HL
             .byte 038H,    4           ; Get the address of d1 into DE.
@@ -79,8 +79,8 @@ DMINUS:     SAVEDE
             STAX    D           ; ..and put the result into d1hh.
             POP     H           ; Pop d2l.
             POP     H           ; Pop d2h.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -91,9 +91,9 @@ DMINUS:     SAVEDE
 ; ---
 ; : D0< ( d -- flag)   SWAP DROP 0< ;
 
-            LINKTO(DMINUS,0,3,'<',"0D")
-DZEROLESS:  JMP     ENTER
-            .word   SWAP,DROP,ZEROLESS,EXIT
+            .linkTo dminus,0,3,'<',"0D"
+dzeroless JMP     enter
+            .word   swap,drop,zeroless,exit
 
 
 ; ----------------------------------------------------------------------
@@ -102,18 +102,18 @@ DZEROLESS:  JMP     ENTER
 ; xd2 is the result of shifting xd1 one bit toward the most-significant
 ; bit, filling the vacated least-significant bit with zero.
 
-            LINKTO(DZEROLESS,0,3,'*',"2D")
-DTWOSTAR:   POP     H           ; Pop xd1h,
+            .linkTo dzeroless,0,3,'*',"2D"
+dtwostar POP     H           ; Pop xd1h,
             XTHL                ; ..then swap it for xd1l.
             DAD     H           ; Double xd1l.
             XTHL                ; Swap xd2l with xd1h.
             JNC     _dtwostar1  ; No carry?  Then just double xd1h,
             DAD     H           ; ..otherwise double xd1h
             INX     H           ; ..and then propagate the carry.
-            JMP     _dwostarDONE; We're done.
-_dtwostar1: DAD     H           ; No carry bit, so just double xd1h.
-_dwostarDONE:PUSH    H          ; Push xd2h to the stack.
-            NEXT
+            JMP     _dwostardone; We're done.
+_dtwostar1 DAD     H           ; No carry bit, so just double xd1h.
+_dwostardone PUSH    H          ; Push xd2h to the stack.
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -124,9 +124,9 @@ _dwostarDONE:PUSH    H          ; Push xd2h to the stack.
 ; ---
 ; : DABS ( d -- ud )   DUP ?DNEGATE ;
 
-            LINKTO(DTWOSTAR,0,4,'S',"BAD")
-DABS:       JMP     ENTER
-            .word   DUP,QDNEGATE,EXIT
+            .linkTo dtwostar,0,4,'S',"BAD"
+dabs JMP     enter
+            .word   dup,qdnegate,exit
 
 
 ; ----------------------------------------------------------------------
@@ -137,9 +137,9 @@ DABS:       JMP     ENTER
 ; ---
 ; : DNEGATE ( d1 -- d2)   INVERT SWAP INVERT SWAP 1 M+ ;
 
-            LINKTO(DABS,0,7,'E',"TAGEND")
-DNEGATE:    JMP     ENTER
-            .word   INVERT,SWAP,INVERT,SWAP,ONE,MPLUS,EXIT
+            .linkTo dabs,0,7,'E',"TAGEND"
+dnegate JMP     enter
+            .word   invert,swap,invert,swap,one,mplus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -147,16 +147,16 @@ DNEGATE:    JMP     ENTER
 ;
 ; Add n to d1|ud1, giving the sum d2|ud2.
 
-            LINKTO(DNEGATE,0,2,'+',"M")
-LAST_DOUBLE:
-MPLUS:      SAVEDE
+            .linkTo dnegate,0,2,'+',"M"
+last_double
+mplus .saveDe
             POP     D           ; Pop n into DE.
             POP     H           ; Pop the high 16-bits of d1|ud1 into HL
             XTHL                ; ..and swap that value with the low 16-bits.
             DAD     D           ; Add n to the low 16-bits of d1|ud1.
             XTHL                ; Swap the high and low 16-bits again.
-            JNC     _mplusDONE  ; We're done if there was no carry.
+            JNC     _mplusdone  ; We're done if there was no carry.
             INX     H           ; Increment the high 16-bits on carry.
-_mplusDONE: PUSH    H           ; Push the high 16-bits back onto the stack.
-            RESTOREDE
-            NEXT
+_mplusdone PUSH    H           ; Push the high 16-bits back onto the stack.
+            .restoreDe
+            .next

@@ -1,4 +1,4 @@
-// Preprocessor for .DEFINE/.IFDEF/.IFNDEF/.ELSE/.ELSEIF/.ENDIF/.INCLUDE directives.
+// Preprocessor for .IFDEF/.IFNDEF/.ELSE/.ELSEIF/.ENDIF/.INCLUDE directives.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -540,8 +540,7 @@ impl Preprocessor {
         let column = leading.saturating_add(start).saturating_add(1);
 
         let is_else_directive = token == "ELSE" || token == "ELSEIF" || token == "ENDIF";
-        let is_pp_directive = token == "DEFINE"
-            || token == "IFDEF"
+        let is_pp_directive = token == "IFDEF"
             || token == "IFNDEF"
             || token == "INCLUDE"
             || is_else_directive;
@@ -584,12 +583,6 @@ impl Preprocessor {
         base_dir: &str,
     ) -> Result<(), PreprocessError> {
         match token {
-            "DEFINE" => {
-                if !self.is_active() {
-                    return Ok(());
-                }
-                self.handle_define(rest)
-            }
             "IFDEF" => self.handle_ifdef(rest, false),
             "IFNDEF" => self.handle_ifdef(rest, true),
             "ELSE" | "ELSEIF" => self.handle_else(rest),
@@ -602,81 +595,6 @@ impl Preprocessor {
             }
             _ => Ok(()),
         }
-    }
-
-    fn handle_define(&mut self, rest: &str) -> Result<(), PreprocessError> {
-        let mut r = ltrim(rest);
-        if r.is_empty() {
-            return Err(PreprocessError::new("DEFINE missing name"));
-        }
-
-        let mut pos = 0usize;
-        let bytes = r.as_bytes();
-        while pos < bytes.len() && is_ident_char(bytes[pos]) {
-            pos += 1;
-        }
-        let name = r[..pos].to_string();
-        if name.is_empty() {
-            return Err(PreprocessError::new("DEFINE missing name"));
-        }
-        r = ltrim(&r[pos..]);
-
-        let mut m = MacroDef {
-            is_function: false,
-            params: Vec::new(),
-            body: String::new(),
-        };
-
-        match r.as_bytes().first() {
-            Some(b'(') => {
-                let end = r
-                    .find(')')
-                    .ok_or_else(|| PreprocessError::new("DEFINE missing ')'"))?;
-                let params_str = &r[1..end];
-                let mut params = Vec::new();
-                let mut cur = String::new();
-                let mut in_single = false;
-                let mut in_double = false;
-                let mut escape = false;
-                for ch in params_str.chars() {
-                    match ch {
-                        _ if escape => {
-                            cur.push(ch);
-                            escape = false;
-                        }
-                        '\\' => {
-                            escape = true;
-                            cur.push(ch);
-                        }
-                        '\'' if !in_double => {
-                            in_single = !in_single;
-                            cur.push(ch);
-                        }
-                        '"' if !in_single => {
-                            in_double = !in_double;
-                            cur.push(ch);
-                        }
-                        ',' if !in_single && !in_double => {
-                            params.push(to_upper(&trim(&cur)));
-                            cur.clear();
-                        }
-                        _ => cur.push(ch),
-                    }
-                }
-                if !cur.is_empty() {
-                    params.push(to_upper(&trim(&cur)));
-                }
-                m.is_function = true;
-                m.params = params;
-                m.body = trim(&r[end + 1..]).to_string();
-            }
-            _ => {
-                m.is_function = false;
-                m.body = trim(&r).to_string();
-            }
-        }
-        self.macros.insert(to_upper(&name), m);
-        Ok(())
     }
 
     fn handle_ifdef(&mut self, rest: &str, negated: bool) -> Result<(), PreprocessError> {
@@ -965,9 +883,10 @@ mod tests {
     fn ifdef_selects_true_branch() {
         let path = temp_file(
             "test.asm",
-            ".DEFINE FOO 1\n.IFDEF FOO\nVAL .const 1\n.ELSE\nVAL .const 2\n.ENDIF\n",
+            ".IFDEF FOO\nVAL .const 1\n.ELSE\nVAL .const 2\n.ENDIF\n",
         );
         let mut pp = Preprocessor::new();
+        pp.define("FOO", "1");
         assert!(pp.process_file(path.to_str().unwrap()).is_ok());
         let lines = pp.lines();
         assert_eq!(lines.len(), 1);
@@ -975,12 +894,13 @@ mod tests {
     }
 
     #[test]
-    fn function_macro_expands() {
+    fn object_macro_expands() {
         let path = temp_file(
             "macro.asm",
-            ".DEFINE ADD(a,b) a + b\n.byte ADD(1,2)\n",
+            ".byte ADD\n",
         );
         let mut pp = Preprocessor::new();
+        pp.define("ADD", "1 + 2");
         assert!(pp.process_file(path.to_str().unwrap()).is_ok());
         let lines = pp.lines();
         assert_eq!(lines.len(), 1);
@@ -996,14 +916,6 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].trim(), ".byte 1");
         assert_eq!(lines[1].trim(), ".byte 2");
-    }
-
-    #[test]
-    fn reports_missing_define_name() {
-        let path = temp_file("bad_define.asm", ".DEFINE\n");
-        let mut pp = Preprocessor::new();
-        let err = pp.process_file(path.to_str().unwrap()).unwrap_err();
-        assert_eq!(err.message(), "DEFINE missing name");
     }
 
     #[test]
@@ -1026,7 +938,7 @@ mod tests {
 
     #[test]
     fn rejects_hash_directives() {
-        let path = temp_file("hash_define.asm", "#DEFINE FOO 1\n");
+        let path = temp_file("hash_directive.asm", "#IFDEF FOO\n");
         let mut pp = Preprocessor::new();
         let err = pp.process_file(path.to_str().unwrap()).unwrap_err();
         assert_eq!(err.message(), "Preprocessor directives must use '.'");

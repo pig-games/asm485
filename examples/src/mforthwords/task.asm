@@ -37,40 +37,40 @@
 ; the task list have had a chance to execute (and called PAUSE in order
 ; to relinquish execution to their next task).
 
-            LINKTO(LINK_TASK,0,5,'E',"SUAP")
-PAUSE:      ; Suspend the current task.
+            .linkTo link_task,0,5,'E',"SUAP"
+pause      ; Suspend the current task.
             PUSH    B           ; Push the return stack pointer.
             PUSH    D           ; Push the instruction pointer.
             LXI     H,0         ; Clear HL
             DAD     SP          ; ..and get SP in HL.
-            MVI     E,USERSAVEDSP;Put SAVEDSP variable offset into E
+            MVI     E,usersavedsp;Put SAVEDSP variable offset into E
             MOV     D,B         ; ..and put the Task Page into D.
             .byte 0D9H                ; Save the SP in SAVEDSP.
 
             ; Select the next task (which could be this task).
-            LHLD    TICKFIRSTTASK;Get the address of the first task,
+            LHLD    tickfirsttask;Get the address of the first task,
             MOV     A,H         ; ..move the page address into A,
-            LHLD    TICKNUMTASKS; ..get the number of tasks,
+            LHLD    ticknumtasks; ..get the number of tasks,
             SUB     L           ; ..and calc the page after the last task.
 
             DCR     B           ; Point B at the presumed next task,
             CMP     B           ; ..and see if we have gone too far;
             JNZ     _pause1     ; ..resume that task if not,
-            LHLD    TICKFIRSTTASK;..otherwise get the first task
+            LHLD    tickfirsttask;..otherwise get the first task
             MOV     B,H         ; ..and resume that task.
 
             ; Resume the next task.
-_pause1:    MVI     E,USERSAVEDSP;Get SAVEDSP variable offset into E
+_pause1 MVI     E,usersavedsp;Get SAVEDSP variable offset into E
             MOV     D,B         ; ..and put the Task Page into D.
             .byte 0EDH                ; Get the saved SP from SAVEDSP
             SPHL                ; ..and restore SP.
-            MVI     H,STACKGUARD; Put the stack guard into H
-            MVI     L,STACKGUARD; ..and L,
+            MVI     H,stackguard; Put the stack guard into H
+            MVI     L,stackguard; ..and L,
             .byte 0D9H                ; ..and then save the guard to SAVEDSP.
             POP     D           ; Pop the instruction pointer.
             POP     B           ; Pop the return stack pointer.
 
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -92,19 +92,19 @@ _pause1:    MVI     E,USERSAVEDSP;Get SAVEDSP variable offset into E
 ;   ['] STOPPED CFASZ +  OVER [HEX] FA OR  ! \ Push initial IP to the stack.
 ;   DROP ;
 
-            LINKTO(PAUSE,0,4,'K',"SAT")
-TASK:       JMP     ENTER
-            .word   LIT,TICKFIRSTTASK,FETCH,LIT,TICKNUMTASKS,FETCH
-            .word       LIT,8,LSHIFT,MINUS
-            .word   ONE,LIT,TICKNUMTASKS,PLUSSTORE
-            .word   LIT,07676H,OVER,LIT,080H,OR,STORE
-            .word   LIT,10,OVER,LIT,USERBASE,OR,STORE
-            .word   DUP,LIT,0FAH,OR,OVER,LIT,USERSAVEDSP,OR,STORE
-            .word   SWAP,OVER,LIT,0FEH,OR,STORE
-            .word   DUP,LIT,07FH,OR,OVER,LIT,0FCH,OR,STORE
-            .word   LIT,STOPPED,LIT,CFASZ,PLUS,OVER,LIT,0FAH,OR,STORE
-            .word   DROP
-            .word   EXIT
+            .linkTo pause,0,4,'K',"SAT"
+task JMP     enter
+            .word   lit,tickfirsttask,fetch,lit,ticknumtasks,fetch
+            .word       lit,8,lshift,minus
+            .word   one,lit,ticknumtasks,plusstore
+            .word   lit,07676H,over,lit,080H,or,store
+            .word   lit,10,over,lit,userbase,or,store
+            .word   dup,lit,0FAH,or,over,lit,usersavedsp,or,store
+            .word   swap,over,lit,0FEH,or,store
+            .word   dup,lit,07FH,or,over,lit,0FCH,or,store
+            .word   lit,stopped,lit,cfasz,plus,over,lit,0FAH,or,store
+            .word   drop
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -112,11 +112,11 @@ TASK:       JMP     ENTER
 ;
 ; a-addr is the base address of the Task Page for the current task.
 
-            LINKTO(TASK,0,9,'E',"GAP-KSAT")
-TASKPAGE:   MOV     H,B
+            .linkTo task,0,9,'E',"GAP-KSAT"
+taskpage MOV     H,B
             MVI     L,0
             PUSH    H
-            NEXT
+            .next
 
 
 
@@ -135,8 +135,8 @@ TASKPAGE:   MOV     H,B
 ; ---
 ; : STOPPED ( xt -- )   EXECUTE  BEGIN PAUSE AGAIN ;
 
-            LINKTO(TASKPAGE,0,7,'D',"EPPOTS")
-LAST_TASK:
-STOPPED:    JMP     ENTER
-            .word   EXECUTE
-_stopped1:  .word   PAUSE,branch,_stopped1
+            .linkTo taskpage,0,7,'D',"EPPOTS"
+last_task
+stopped JMP     enter
+            .word   execute
+_stopped1 .word   pause,branch,_stopped1

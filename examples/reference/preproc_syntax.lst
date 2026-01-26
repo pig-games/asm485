@@ -1,20 +1,21 @@
 asm485 8085 Assembler v1.0
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
-----                                1  ; Preprocessor directive and macro coverage
-----                                2  ; This file is preprocessed first, so we can safely use .define/.ifdef/.include.
+----                                1  ; Preprocessor directive coverage (no .define).
+----                                2  ; Preprocessor symbols are provided via -D/--define.
 ----                                3  
-----                                4  
-0000    03                          5          .byte (1 + 2)
-----                                6  
-0001    06                          7          .byte (3 + 3)
-----                                8  
-----                                9  ; Included by preproc_syntax.asm
-0002    05                         10          .byte 5
+0000    01                          4          .byte 1
+----                                5  
+0001    02                          6          .byte 2
+----                                7  
+----                                8  ; Included by preproc_syntax.asm
+----    EQU 0005                    9  INCVAL .const 5
+0002    05                         10          .byte INCVAL
 
 Lines: 10  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
+INCVAL          : 0005 (5)
 
 Total memory is 3 bytes

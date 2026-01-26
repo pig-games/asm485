@@ -39,10 +39,10 @@
 ; ---
 ; : END-CODE ( -- )   PREVIOUS ;
 
-            LINKTO(LINK_ASSEMBLER,0,8,'E',"DOC-DNE")
-ENDCODE:    JMP     ENTER
-            .word   PREVIOUS
-            .word   EXIT
+            .linkTo link_assembler,0,8,'E',"DOC-DNE"
+endcode JMP     enter
+            .word   previous
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -50,17 +50,17 @@ ENDCODE:    JMP     ENTER
 ;
 ; Compile the code for NEXT into the current code definition.
 
-            LINKTO(ENDCODE,0,4,'T',"XEN")
-asmNEXT:    JMP     ENTER
-.IFNDEF PROFILER
-            .word   asmLHLX
-            .word   asmOpD,asmINX
-            .word   asmOpD,asmINX
-            .word   asmPCHL
-.ELSE
-            .word   LIT,PROFILENEXT,asmJMP
-.ENDIF
-            .word   EXIT
+            .linkTo endcode,0,4,'T',"XEN"
+asmnext JMP     enter
+.ifndef profiler
+            .word   asmlhlx
+            .word   asmopd,asminx
+            .word   asmopd,asminx
+            .word   asmpchl
+.else
+            .word   lit,profilenext,asmjmp
+.endif
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -68,11 +68,11 @@ asmNEXT:    JMP     ENTER
 ;
 ; Call the Main ROM routine identified by addr.
 
-            LINKTO(asmNEXT,0,7,'L',"LACMOR")
-asmROMCALL:     JMP  ENTER
-            .word   LIT,STDCALL,asmCALL
-            .word   COMMA
-            .word   EXIT
+            .linkTo asmnext,0,7,'L',"LACMOR"
+asmromcall JMP  enter
+            .word   lit,stdcall,asmcall
+            .word   comma
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -80,14 +80,14 @@ asmROMCALL:     JMP  ENTER
 ;
 ; Restore BC and DE (corrupts HL).
 
-            LINKTO(asmROMCALL,0,11,'S',"GEREROTSER")
-asmRESTOREREGS:JMP  ENTER
-            .word   LIT,SAVEB,asmLHLD
-            .word   asmOpH,asmOpB,asmMOV
-            .word   asmOpL,asmOpC,asmMOV
-            .word   LIT,SAVED,asmLHLD
-            .word   asmXCHG
-            .word   EXIT
+            .linkTo asmromcall,0,11,'S',"GEREROTSER"
+asmrestoreregs JMP  enter
+            .word   lit,saveb,asmlhld
+            .word   asmoph,asmopb,asmmov
+            .word   asmopl,asmopc,asmmov
+            .word   lit,saved,asmlhld
+            .word   asmxchg
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -95,14 +95,14 @@ asmRESTOREREGS:JMP  ENTER
 ;
 ; Save BC and DE (corrupts HL).
 
-            LINKTO(asmRESTOREREGS,0,8,'S',"GEREVAS")
-asmSAVEREGS:JMP     ENTER
-            .word   asmOpB,asmOpH,asmMOV
-            .word   asmOpC,asmOpL,asmMOV
-            .word   LIT,SAVEB,asmSHLD
-            .word   asmXCHG
-            .word   LIT,SAVED,asmSHLD
-            .word   EXIT
+            .linkTo asmrestoreregs,0,8,'S',"GEREVAS"
+asmsaveregs JMP     enter
+            .word   asmopb,asmoph,asmmov
+            .word   asmopc,asmopl,asmmov
+            .word   lit,saveb,asmshld
+            .word   asmxchg
+            .word   lit,saved,asmshld
+            .word   exit
 
 
 
@@ -110,57 +110,57 @@ asmSAVEREGS:JMP     ENTER
 ; Control Flow Words
 ; ======================================================================
 
-            LINKTO(asmSAVEREGS,0,2,'=',"0")
-asmZEROEQUALS:JMP   ENTER
-            .word   LIT,0C2H,EXIT
+            .linkTo asmsaveregs,0,2,'=',"0"
+asmzeroequals JMP   enter
+            .word   lit,0C2H,exit
 
-            LINKTO(asmZEROEQUALS,0,2,'>',"0")
-asmZEROGREATER:JMP  ENTER
-            .word   LIT,0FAH,EXIT
+            .linkTo asmzeroequals,0,2,'>',"0"
+asmzerogreater JMP  enter
+            .word   lit,0FAH,exit
 
-            LINKTO(asmZEROGREATER,0,2,'<',"0")
-asmZEROLESS:JMP     ENTER
-            .word   LIT,0F2H,EXIT
+            .linkTo asmzerogreater,0,2,'<',"0"
+asmzeroless JMP     enter
+            .word   lit,0F2H,exit
 
-            LINKTO(asmZEROLESS,0,3,'>',"<0")
-asmZERONOTEQUALS:JMP ENTER
-            .word   LIT,0CAH,EXIT
+            .linkTo asmzeroless,0,3,'>',"<0"
+asmzeronotequals JMP enter
+            .word   lit,0CAH,exit
 
-            LINKTO(asmZERONOTEQUALS,0,2,'C',"C")
-asmCC:      JMP     ENTER
-            .word   LIT,0DAH,EXIT
+            .linkTo asmzeronotequals,0,2,'C',"C"
+asmcc JMP     enter
+            .word   lit,0DAH,exit
 
-            LINKTO(asmCC,0,2,'S',"C")
-asmCS:      JMP     ENTER
-            .word   LIT,0D2H,EXIT
+            .linkTo asmcc,0,2,'S',"C"
+asmcs JMP     enter
+            .word   lit,0D2H,exit
 
-            LINKTO(asmCS,0,5,'N',"IGEB")
-asmBEGIN:   JMP     ENTER
-            .word   HERE,EXIT
+            .linkTo asmcs,0,5,'N',"IGEB"
+asmbegin JMP     enter
+            .word   here,exit
 
-            LINKTO(asmBEGIN,0,4,'E',"SLE")
-asmELSE:    JMP     ENTER
-            .word   LIT,0C3H,asmIF,SWAP,asmTHEN,EXIT
+            .linkTo asmbegin,0,4,'E',"SLE"
+asmelse JMP     enter
+            .word   lit,0C3H,asmif,swap,asmthen,exit
 
-            LINKTO(asmELSE,0,2,'F',"I")
-asmIF:      JMP     ENTER
-            .word   CCOMMA,HERE,ZERO,COMMA,EXIT
+            .linkTo asmelse,0,2,'F',"I"
+asmif JMP     enter
+            .word   ccomma,here,zero,comma,exit
 
-            LINKTO(asmIF,0,4,'N',"EHT")
-asmTHEN:    JMP     ENTER
-            .word   HERE,SWAP,STORE,EXIT
+            .linkTo asmif,0,4,'N',"EHT"
+asmthen JMP     enter
+            .word   here,swap,store,exit
 
-            LINKTO(asmTHEN,0,6,'T',"AEPER")
-asmREPEAT:  JMP     ENTER
-            .word   SWAP,LIT,0C3H,CCOMMA,COMMA,asmTHEN,EXIT
+            .linkTo asmthen,0,6,'T',"AEPER"
+asmrepeat JMP     enter
+            .word   swap,lit,0C3H,ccomma,comma,asmthen,exit
 
-            LINKTO(asmREPEAT,0,5,'L',"ITNU")
-asmUNTIL:   JMP     ENTER
-            .word   CCOMMA,COMMA,EXIT
+            .linkTo asmrepeat,0,5,'L',"ITNU"
+asmuntil JMP     enter
+            .word   ccomma,comma,exit
 
-            LINKTO(asmUNTIL,0,5,'E',"LIHW")
-asmWHILE:   JMP     ENTER
-            .word   asmIF,EXIT
+            .linkTo asmuntil,0,5,'E',"LIHW"
+asmwhile JMP     enter
+            .word   asmif,exit
 
 
 ; ======================================================================
@@ -171,264 +171,283 @@ asmWHILE:   JMP     ENTER
 ; Operands
 ;
 
-.DEFINE     ASM_OP(value) LXI H,value\ PUSH H\ NEXT
+asmOp .macro value
+            LXI H,\value
+            PUSH H
+            .next
+.endmacro
 
-            LINKTO0(asmWHILE,0,1,'A')
-asmOpA:     ASM_OP(7)
+            .linkTo0 asmwhile,0,1,'A'
+asmopa .asmop 7
 
-            LINKTO0(asmOpA,0,1,'B')
-asmOpB:     ASM_OP(0)
+            .linkTo0 asmopa,0,1,'B'
+asmopb .asmop 0
 
-            LINKTO0(asmOpB,0,1,'C')
-asmOpC:     ASM_OP(1)
+            .linkTo0 asmopb,0,1,'C'
+asmopc .asmop 1
 
-            LINKTO0(asmOpC,0,1,'D')
-asmOpD:     ASM_OP(2)
+            .linkTo0 asmopc,0,1,'D'
+asmopd .asmop 2
 
-            LINKTO0(asmOpD,0,1,'E')
-asmOpE:     ASM_OP(3)
+            .linkTo0 asmopd,0,1,'E'
+asmope .asmop 3
 
-            LINKTO0(asmOpE,0,1,'H')
-asmOpH:     ASM_OP(4)
+            .linkTo0 asmope,0,1,'H'
+asmoph .asmop 4
 
-            LINKTO0(asmOpH,0,1,'L')
-asmOpL:     ASM_OP(5)
+            .linkTo0 asmoph,0,1,'L'
+asmopl .asmop 5
 
-            LINKTO0(asmOpL,0,1,'M')
-asmOpM:     ASM_OP(6)
+            .linkTo0 asmopl,0,1,'M'
+asmopm .asmop 6
 
-            LINKTO(asmOpM,0,3,'W',"SP")
-asmOpPSW:   ASM_OP(6)
+            .linkTo asmopm,0,3,'W',"SP"
+asmoppsw .asmop 6
 
-            LINKTO(asmOpPSW,0,2,'P',"S")
-asmOpSP:    ASM_OP(6)
+            .linkTo asmoppsw,0,2,'P',"S"
+asmopsp .asmop 6
 
 
 ; ----------------------------------------------------------------------
 ; Zero-operand instructions
 ;
 
-.DEFINE     ASM_ZERO_OP(opcode) JMP ENTER\ .word LIT,opcode,CCOMMA,EXIT
+asmZeroOp .macro opcode
+            JMP enter
+            .word lit,\opcode,ccomma,exit
+.endmacro
 
-            LINKTO(asmOpSP,0,4,'R',"HSA")
-asmASHR:    ASM_ZERO_OP(10H)
+            .linkTo asmopsp,0,4,'R',"HSA"
+asmashr .asmzeroop 10H
 
-            LINKTO(asmASHR,0,3,'A',"MC")
-asmCMA:     ASM_ZERO_OP(2FH)
+            .linkTo asmashr,0,3,'A',"MC"
+asmcma .asmzeroop 2FH
 
-            LINKTO(asmCMA,0,3,'C',"MC")
-asmCMC:     ASM_ZERO_OP(3FH)
+            .linkTo asmcma,0,3,'C',"MC"
+asmcmc .asmzeroop 3FH
 
-            LINKTO(asmCMC,0,3,'A',"AD")
-asmDAA:     ASM_ZERO_OP(27H)
+            .linkTo asmcmc,0,3,'A',"AD"
+asmdaa .asmzeroop 27H
 
-            LINKTO(asmDAA,0,2,'I',"D")
-asmDI:      ASM_ZERO_OP(0F3H)
+            .linkTo asmdaa,0,2,'I',"D"
+asmdi .asmzeroop 0F3H
 
-            LINKTO(asmDI,0,4,'B',"USD")
-asmDSUB:    ASM_ZERO_OP(08H)
+            .linkTo asmdi,0,4,'B',"USD"
+asmdsub .asmzeroop 08H
 
-            LINKTO(asmDSUB,0,2,'I',"E")
-asmEI:      ASM_ZERO_OP(0FBH)
+            .linkTo asmdsub,0,2,'I',"E"
+asmei .asmzeroop 0FBH
 
-            LINKTO(asmEI,0,3,'T',"LH")
-asmHLT:     ASM_ZERO_OP(76H)
+            .linkTo asmei,0,3,'T',"LH"
+asmhlt .asmzeroop 76H
 
-            LINKTO(asmHLT,0,4,'X',"LHL")
-asmLHLX:    ASM_ZERO_OP(0EDH)
+            .linkTo asmhlt,0,4,'X',"LHL"
+asmlhlx .asmzeroop 0EDH
 
-            LINKTO(asmLHLX,0,3,'P',"ON")
-asmNOP:     ASM_ZERO_OP(00H)
+            .linkTo asmlhlx,0,3,'P',"ON"
+asmnop .asmzeroop 00H
 
-            LINKTO(asmNOP,0,4,'L',"HCP")
-asmPCHL:    ASM_ZERO_OP(0E9H)
+            .linkTo asmnop,0,4,'L',"HCP"
+asmpchl .asmzeroop 0E9H
 
-            LINKTO(asmPCHL,0,3,'L',"AR")
-asmRAL:     ASM_ZERO_OP(17H)
+            .linkTo asmpchl,0,3,'L',"AR"
+asmral .asmzeroop 17H
 
-            LINKTO(asmRAL,0,3,'R',"AR")
-asmRAR:     ASM_ZERO_OP(1FH)
+            .linkTo asmral,0,3,'R',"AR"
+asmrar .asmzeroop 1FH
 
-            LINKTO(asmRAR,0,4,'L',"EDR")
-asmRDEL:    ASM_ZERO_OP(18H)
+            .linkTo asmrar,0,4,'L',"EDR"
+asmrdel .asmzeroop 18H
 
-            LINKTO(asmRDEL,0,3,'T',"ER")
-asmRET:     ASM_ZERO_OP(0C9H)
+            .linkTo asmrdel,0,3,'T',"ER"
+asmret .asmzeroop 0C9H
 
-            LINKTO(asmRET,0,3,'M',"IR")
-asmRIM:     ASM_ZERO_OP(20H)
+            .linkTo asmret,0,3,'M',"IR"
+asmrim .asmzeroop 20H
 
-            LINKTO(asmRIM,0,3,'C',"LR")
-asmRLC:     ASM_ZERO_OP(07H)
+            .linkTo asmrim,0,3,'C',"LR"
+asmrlc .asmzeroop 07H
 
-            LINKTO(asmRLC,0,3,'C',"RR")
-asmRRC:     ASM_ZERO_OP(0FH)
+            .linkTo asmrlc,0,3,'C',"RR"
+asmrrc .asmzeroop 0FH
 
-            LINKTO(asmRRC,0,4,'X',"LHS")
-asmSHLX:    ASM_ZERO_OP(0D9H)
+            .linkTo asmrrc,0,4,'X',"LHS"
+asmshlx .asmzeroop 0D9H
 
-            LINKTO(asmSHLX,0,3,'M',"IS")
-asmSIM:     ASM_ZERO_OP(30H)
+            .linkTo asmshlx,0,3,'M',"IS"
+asmsim .asmzeroop 30H
 
-            LINKTO(asmSIM,0,4,'L',"HPS")
-asmSPHL:    ASM_ZERO_OP(0F9H)
+            .linkTo asmsim,0,4,'L',"HPS"
+asmsphl .asmzeroop 0F9H
 
-            LINKTO(asmSPHL,0,3,'C',"TS")
-asmSTC:     ASM_ZERO_OP(37H)
+            .linkTo asmsphl,0,3,'C',"TS"
+asmstc .asmzeroop 37H
 
-            LINKTO(asmSTC,0,4,'G',"HCX")
-asmXCHG:    ASM_ZERO_OP(0EBH)
+            .linkTo asmstc,0,4,'G',"HCX"
+asmxchg .asmzeroop 0EBH
 
-            LINKTO(asmXCHG,0,4,'L',"HTX")
-asmXTHL:    ASM_ZERO_OP(0E3H)
+            .linkTo asmxchg,0,4,'L',"HTX"
+asmxthl .asmzeroop 0E3H
 
 
 ; ----------------------------------------------------------------------
 ; Register instructions
 ;
 
-.DEFINE     ASM_REG_OP(opcode) JMP ENTER\ .word LIT,opcode,PLUS,CCOMMA,EXIT
+asmRegOp .macro opcode
+            JMP enter
+            .word lit,\opcode,plus,ccomma,exit
+.endmacro
 
-            LINKTO(asmXTHL,0,3,'C',"DA")
-asmADC:     ASM_REG_OP(88H)
+            .linkTo asmxthl,0,3,'C',"DA"
+asmadc .asmregop 88H
 
-            LINKTO(asmADC,0,3,'D',"DA")
-asmADD:     ASM_REG_OP(80H)
+            .linkTo asmadc,0,3,'D',"DA"
+asmadd .asmregop 80H
 
-            LINKTO(asmADD,0,3,'A',"NA")
-asmANA:     ASM_REG_OP(0A0H)
+            .linkTo asmadd,0,3,'A',"NA"
+asmana .asmregop 0A0H
 
-            LINKTO(asmANA,0,3,'P',"MC")
-asmCMP:     ASM_REG_OP(0B8H)
+            .linkTo asmana,0,3,'P',"MC"
+asmcmp .asmregop 0B8H
 
-            LINKTO(asmCMP,0,3,'R',"DC")
-asmDCR:     JMP     ENTER
-            .word   EIGHTSTAR,LIT,05H,PLUS,CCOMMA,EXIT
+            .linkTo asmcmp,0,3,'R',"DC"
+asmdcr JMP     enter
+            .word   eightstar,lit,05H,plus,ccomma,exit
 
-            LINKTO(asmDCR,0,3,'R',"NI")
-asmINR:     JMP     ENTER
-            .word   EIGHTSTAR,LIT,04H,PLUS,CCOMMA,EXIT
+            .linkTo asmdcr,0,3,'R',"NI"
+asminr JMP     enter
+            .word   eightstar,lit,04H,plus,ccomma,exit
 
-            LINKTO(asmINR,0,3,'A',"RO")
-asmORA:     ASM_REG_OP(0B0H)
+            .linkTo asminr,0,3,'A',"RO"
+asmora .asmregop 0B0H
 
-            LINKTO(asmORA,0,3,'B',"BS")
-asmSBB:     ASM_REG_OP(98H)
+            .linkTo asmora,0,3,'B',"BS"
+asmsbb .asmregop 98H
 
-            LINKTO(asmSBB,0,3,'B',"US")
-asmSUB:     ASM_REG_OP(90H)
+            .linkTo asmsbb,0,3,'B',"US"
+asmsub .asmregop 90H
 
-            LINKTO(asmSUB,0,3,'A',"RX")
-asmXRA:     ASM_REG_OP(0A8H)
+            .linkTo asmsub,0,3,'A',"RX"
+asmxra .asmregop 0A8H
 
 
 ; ----------------------------------------------------------------------
 ; Register pair instructions
 ;
 
-.DEFINE     ASM_REGPAIR_OP(opcode) JMP ENTER\ .word EIGHTSTAR,LIT,opcode,PLUS,CCOMMA,EXIT
+asmRegpairOp .macro opcode
+            JMP enter
+            .word eightstar,lit,\opcode,plus,ccomma,exit
+.endmacro
 
-            LINKTO(asmXRA,0,3,'D',"AD")
-asmDAD:     ASM_REGPAIR_OP(09H)
+            .linkTo asmxra,0,3,'D',"AD"
+asmdad .asmregpairop 09H
 
-            LINKTO(asmDAD,0,3,'X',"CD")
-asmDCX:     ASM_REGPAIR_OP(0BH)
+            .linkTo asmdad,0,3,'X',"CD"
+asmdcx .asmregpairop 0BH
 
-            LINKTO(asmDCX,0,3,'X',"NI")
-asmINX:     ASM_REGPAIR_OP(03H)
+            .linkTo asmdcx,0,3,'X',"NI"
+asminx .asmregpairop 03H
 
-            LINKTO(asmINX,0,4,'X',"ADL")
-asmLDAX:    ASM_REGPAIR_OP(0AH)
+            .linkTo asminx,0,4,'X',"ADL"
+asmldax .asmregpairop 0AH
 
-            LINKTO(asmLDAX,0,3,'P',"OP")
-asmPOP:     ASM_REGPAIR_OP(0C1H)
+            .linkTo asmldax,0,3,'P',"OP"
+asmpop .asmregpairop 0C1H
 
-            LINKTO(asmPOP,0,4,'H',"SUP")
-asmPUSH:    ASM_REGPAIR_OP(0C5H)
+            .linkTo asmpop,0,4,'H',"SUP"
+asmpush .asmregpairop 0C5H
 
-            LINKTO(asmPUSH,0,4,'X',"ATS")
-asmSTAX:    ASM_REGPAIR_OP(02H)
+            .linkTo asmpush,0,4,'X',"ATS"
+asmstax .asmregpairop 02H
 
 
 ; ----------------------------------------------------------------------
 ; Byte operand instructions
 ;
 
-.DEFINE     ASM_BYTE_OP(opcode) JMP ENTER\ .word LIT,opcode,CCOMMA,CCOMMA,EXIT
+asmByteOp .macro opcode
+            JMP enter
+            .word lit,\opcode,ccomma,ccomma,exit
+.endmacro
 
-            LINKTO(asmSTAX,0,3,'I',"CA")
-asmACI:     ASM_BYTE_OP(0CEH)
+            .linkTo asmstax,0,3,'I',"CA"
+asmaci .asmbyteop 0CEH
 
-            LINKTO(asmACI,0,3,'I',"DA")
-asmADI:     ASM_BYTE_OP(0C6H)
+            .linkTo asmaci,0,3,'I',"DA"
+asmadi .asmbyteop 0C6H
 
-            LINKTO(asmADI,0,3,'I',"NA")
-asmANI:     ASM_BYTE_OP(0E6H)
+            .linkTo asmadi,0,3,'I',"NA"
+asmani .asmbyteop 0E6H
 
-            LINKTO(asmANI,0,3,'I',"PC")
-asmCPI:     ASM_BYTE_OP(0FEH)
+            .linkTo asmani,0,3,'I',"PC"
+asmcpi .asmbyteop 0FEH
 
-            LINKTO(asmCPI,0,2,'N',"I")
-asmIN:      ASM_BYTE_OP(0DBH)
+            .linkTo asmcpi,0,2,'N',"I"
+asmin .asmbyteop 0DBH
 
-            LINKTO(asmIN,0,3,'I',"RO")
-asmORI:     ASM_BYTE_OP(0F6H)
+            .linkTo asmin,0,3,'I',"RO"
+asmori .asmbyteop 0F6H
 
-            LINKTO(asmORI,0,3,'T',"UO")
-asmOUT:     ASM_BYTE_OP(0D3H)
+            .linkTo asmori,0,3,'T',"UO"
+asmout .asmbyteop 0D3H
 
-            LINKTO(asmOUT,0,3,'T',"SR")
-asmRST:     JMP     ENTER
-            .word   EIGHTSTAR,LIT,0C7H,PLUS,CCOMMA,EXIT
+            .linkTo asmout,0,3,'T',"SR"
+asmrst JMP     enter
+            .word   eightstar,lit,0C7H,plus,ccomma,exit
 
-            LINKTO(asmRST,0,3,'I',"BS")
-asmSBI:     ASM_BYTE_OP(0DEH)
+            .linkTo asmrst,0,3,'I',"BS"
+asmsbi .asmbyteop 0DEH
 
-            LINKTO(asmSBI,0,3,'I',"US")
-asmSUI:     ASM_BYTE_OP(0D6H)
+            .linkTo asmsbi,0,3,'I',"US"
+asmsui .asmbyteop 0D6H
 
-            LINKTO(asmSUI,0,3,'I',"RX")
-asmXRI:     ASM_BYTE_OP(0EEH)
+            .linkTo asmsui,0,3,'I',"RX"
+asmxri .asmbyteop 0EEH
 
 
 ; ----------------------------------------------------------------------
 ; Word operand instructions
 ;
 
-.DEFINE     ASM_WORD_OP(opcode) JMP ENTER\ .word LIT,opcode,CCOMMA,COMMA,EXIT
+asmWordOp .macro opcode
+            JMP enter
+            .word lit,\opcode,ccomma,comma,exit
+.endmacro
 
-            LINKTO(asmXRI,0,4,'L',"LAC")
-asmCALL:    ASM_WORD_OP(0CDH)
+            .linkTo asmxri,0,4,'L',"LAC"
+asmcall .asmwordop 0CDH
 
-            LINKTO(asmCALL,0,3,'P',"MJ")
-asmJMP:     ASM_WORD_OP(0C3H)
+            .linkTo asmcall,0,3,'P',"MJ"
+asmjmp .asmwordop 0C3H
 
-            LINKTO(asmJMP,0,3,'A',"DL")
-asmLDA:     ASM_WORD_OP(3AH)
+            .linkTo asmjmp,0,3,'A',"DL"
+asmlda .asmwordop 3AH
 
-            LINKTO(asmLDA,0,4,'D',"LHL")
-asmLHLD:    ASM_WORD_OP(2AH)
+            .linkTo asmlda,0,4,'D',"LHL"
+asmlhld .asmwordop 2AH
 
-            LINKTO(asmLHLD,0,4,'D',"LHS")
-asmSHLD:    ASM_WORD_OP(22H)
+            .linkTo asmlhld,0,4,'D',"LHS"
+asmshld .asmwordop 22H
 
-            LINKTO(asmSHLD,0,3,'A',"TS")
-asmSTA:     ASM_WORD_OP(32H)
+            .linkTo asmshld,0,3,'A',"TS"
+asmsta .asmwordop 32H
 
 
 ; ----------------------------------------------------------------------
 ; Move and Load Immediate instructions
 ;
 
-            LINKTO(asmSTA,0,3,'I',"XL")
-asmLXI:     JMP     ENTER
-            .word   EIGHTSTAR,ONEPLUS,CCOMMA,COMMA,EXIT
+            .linkTo asmsta,0,3,'I',"XL"
+asmlxi JMP     enter
+            .word   eightstar,oneplus,ccomma,comma,exit
 
-            LINKTO(asmLXI,0,3,'V',"OM")
-asmMOV:     JMP     ENTER
-            .word   EIGHTSTAR,LIT,40H,PLUS,PLUS,CCOMMA,EXIT
+            .linkTo asmlxi,0,3,'V',"OM"
+asmmov JMP     enter
+            .word   eightstar,lit,40H,plus,plus,ccomma,exit
 
-            LINKTO(asmMOV,0,3,'I',"VM")
-LAST_ASSEMBLER:
-asmMVI:     JMP     ENTER
-            .word   EIGHTSTAR,LIT,06H,PLUS,CCOMMA,CCOMMA,EXIT
+            .linkTo asmmov,0,3,'I',"VM"
+last_assembler
+asmmvi JMP     enter
+            .word   eightstar,lit,06H,plus,ccomma,ccomma,exit

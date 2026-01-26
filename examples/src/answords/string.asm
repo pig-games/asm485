@@ -36,8 +36,8 @@
 ; character string, specified by c-addr2 u2, begins at c-addr1 plus n
 ; characters and is u1 minus n characters long.
 
-            LINKTO(LINK_STRING,0,7,'G',"NIRTS/")
-SLASHSTRING:SAVEDE
+            .linkTo link_string,0,7,'G',"NIRTS/"
+slashstring .saveDe
             MOV     D,B         ; Save BC
             MOV     E,C         ; ..in DE.
             POP     B           ; Pop the adjustment value into BC.
@@ -49,8 +49,8 @@ SLASHSTRING:SAVEDE
             PUSH    H           ; Push the length onto the stack.
             MOV     B,D         ; Restore BC
             MOV     C,E         ; ..from DE.
-            RESTOREDE
-            NEXT
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -60,24 +60,24 @@ SLASHSTRING:SAVEDE
 ; space starting at c-addr1 to that starting at c-addr2, proceeding
 ; character-by-character from lower addresses to higher addresses.
 
-            LINKTO(SLASHSTRING,0,5,'E',"VOMC")
-CMOVE:      SAVEDE
-            SAVEBC
+            .linkTo slashstring,0,5,'E',"VOMC"
+cmove .saveDe
+            .saveBc
             POP     B           ; Pop u into BC.
             POP     D           ; Pop addr2 into DE.
             POP     H           ; Pop addr1 into HL.
-_cmove1:    MOV     A,B         ; We're done if B
+_cmove1 MOV     A,B         ; We're done if B
             ORA     C           ; ..and C
-            JZ      _cmoveDONE  ; ..are zero.
+            JZ      _cmovedone  ; ..are zero.
             MOV     A,M         ; Copy the next byte from [HL]
             STAX    D           ; ..to [DE]
             INX     H           ; ..and then increment both HL
             INX     D           ; ..and DE.
             DCX     B           ; Decrement BC
             JMP     _cmove1     ; ..and continue looping.
-_cmoveDONE: RESTOREBC
-            RESTOREDE
-            NEXT
+_cmovedone .restoreBc
+            .restoreDe
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -87,10 +87,10 @@ _cmoveDONE: RESTOREBC
 ; space starting at c-addr1 to that starting at c-addr2, proceeding
 ; character-by-character from higher addresses to lower addresses.
 
-            LINKTO(CMOVE,0,6,'>',"EVOMC")
-LAST_STRING:
-CMOVEUP:    SAVEDE
-            SAVEBC
+            .linkTo cmove,0,6,'>',"EVOMC"
+last_string
+cmoveup .saveDe
+            .saveBc
             POP     B           ; Pop u into BC.
             POP     D           ; Pop addr2 into DE.
             POP     H           ; Pop addr1 into HL.
@@ -98,15 +98,15 @@ CMOVEUP:    SAVEDE
             XCHG                ; Swap addr1 and addr2,
             DAD     B           ; ..add u to addr2,
             XCHG                ; ..then swap addr2 and addr1 again.
-_cmoveup1:  MOV     A,B         ; We're done if B
+_cmoveup1 MOV     A,B         ; We're done if B
             ORA     C           ; ..and C
-            JZ      _cmoveupDONE; ..are zero.
+            JZ      _cmoveupdone; ..are zero.
             DCX     H           ; Decrement both HL
             DCX     D           ; ..and DE.
             MOV     A,M         ; Copy the next byte from [HL]
             STAX    D           ; ..to [DE].
             DCX     B           ; Decrement BC
             JMP     _cmoveup1   ; ..and continue looping.
-_cmoveupDONE:RESTOREBC
-            RESTOREDE
-            NEXT
+_cmoveupdone .restoreBc
+            .restoreDe
+            .next

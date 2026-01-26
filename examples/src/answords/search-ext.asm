@@ -39,9 +39,9 @@
 ; ---
 ; : ALSO ( -- )   SOESTART  DUP CELL+  #SOES CELLS  MOVE ;
 
-            LINKTO(LINK_SEARCHEXT,0,4,'O',"SLA")
-ALSO:       JMP     ENTER
-            .word   LIT,SOESTART,DUP,CELLPLUS,NUMSOES,CELLS,MOVE,EXIT
+            .linkTo link_searchext,0,4,'O',"SLA"
+also JMP     enter
+            .word   lit,soestart,dup,cellplus,numsoes,cells,move,exit
 
 
 ; ----------------------------------------------------------------------
@@ -53,10 +53,10 @@ ALSO:       JMP     ENTER
 ; ---
 ; : FORTH ( -- )   FORTH-WORDLIST SOESTART ! ;
 
-            LINKTO(ALSO,0,5,'H',"TROF")
-FORTH:      JMP     ENTER
-            .word   FORTHWORDLIST,LIT,SOESTART,STORE
-            .word   EXIT
+            .linkTo also,0,5,'H',"TROF"
+forth JMP     enter
+            .word   forthwordlist,lit,soestart,store
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -69,10 +69,10 @@ FORTH:      JMP     ENTER
 ; ---
 ; : ONLY ( -- )   SOESTART [ MAXSOES CELLS ] 0 FILL  FORTH ;
 
-            LINKTO(FORTH,0,4,'Y',"LNO")
-ONLY:       JMP     ENTER
-            .word   LIT,SOESTART,LIT,MAXSOES,CELLS,ZERO,FILL,FORTH
-            .word   EXIT
+            .linkTo forth,0,4,'Y',"LNO"
+only JMP     enter
+            .word   lit,soestart,lit,maxsoes,cells,zero,fill,forth
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -92,12 +92,12 @@ ONLY:       JMP     ENTER
 ;   GET-ORDER 0 DO HEXCELL SPACE LOOP
 ;   [CHAR] [ EMIT GET-CURRENT HEXCELL [CHAR] ] EMIT ;
 
-            LINKTO(ONLY,0,5,'R',"EDRO")
-ORDER:      JMP     ENTER
-            .word   GETORDER,ZERO,pdo
-_order1:    .word   HEXCELL,SPACE,ploop,_order1
-_order2:    .word   LIT,'[',EMIT,GETCURRENT,HEXCELL,LIT,']',EMIT
-            .word   EXIT
+            .linkTo only,0,5,'R',"EDRO"
+order JMP     enter
+            .word   getorder,zero,pdo
+_order1 .word   hexcell,space,ploop,_order1
+_order2 .word   lit,'[',emit,getcurrent,hexcell,lit,']',emit
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -112,10 +112,10 @@ _order2:    .word   LIT,'[',EMIT,GETCURRENT,HEXCELL,LIT,']',EMIT
 ;   SOESTART  DUP CELL+  SWAP  #SOES 1- CELLS  MOVE
 ;   0  SOESTART  #SOES 1- CELLS  +  ! ;
 
-            LINKTO(ORDER,0,8,'S',"UOIVERP")
-LAST_SEARCHEXT:
-PREVIOUS:   JMP     ENTER
-            .word   LIT,SOESTART,DUP,CELLPLUS,SWAP
-            .word   NUMSOES,ONEMINUS,CELLS,MOVE
-            .word   ZERO,LIT,SOESTART,NUMSOES,ONEMINUS,CELLS,PLUS,STORE
-            .word   EXIT
+            .linkTo order,0,8,'S',"UOIVERP"
+last_searchext
+previous JMP     enter
+            .word   lit,soestart,dup,cellplus,swap
+            .word   numsoes,oneminus,cells,move
+            .word   zero,lit,soestart,numsoes,oneminus,cells,plus,store
+            .word   exit

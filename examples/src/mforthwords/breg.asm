@@ -34,9 +34,9 @@
 ;
 ; Push the address of the B register (a USER variable) to the stack.
 
-            LINKTO(LINK_BREG,0,2,'B',"\'")
-TICKB:      JMP     DOUSER
-            .byte   USERB
+            .linkTo link_breg,0,2,'B',"\'"
+tickb JMP     douser
+            .byte   userb
 
 
 ; ----------------------------------------------------------------------
@@ -44,9 +44,9 @@ TICKB:      JMP     DOUSER
 ;
 ; Push the address of the Bend register (a USER variable) to the stack.
 
-            LINKTO(TICKB,0,5,'d',"neB\'")
-TICKBEND:   JMP     DOUSER
-            .byte   USERBEND
+            .linkTo tickb,0,5,'d',"neB\'"
+tickbend JMP     douser
+            .byte   userbend
 
 
 ; ----------------------------------------------------------------------
@@ -57,9 +57,9 @@ TICKBEND:   JMP     DOUSER
 ; ---
 ; : 2>B  ( c-addr u --)   OVER + 'Bend !  'B ! ;
 
-            LINKTO(TICKBEND,0,3,'B',">2")
-TWOTOB:     JMP     ENTER
-            .word   OVER,PLUS,TICKBEND,STORE,TICKB,STORE,EXIT
+            .linkTo tickbend,0,3,'B',">2"
+twotob JMP     enter
+            .word   over,plus,tickbend,store,tickb,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -70,9 +70,9 @@ TWOTOB:     JMP     ENTER
 ; ---
 ; : >B ( c-addr --)   'B ! ;
 
-            LINKTO(TWOTOB,0,2,'B',">")
-TOB:        JMP     ENTER
-            .word   TICKB,STORE,EXIT
+            .linkTo twotob,0,2,'B',">"
+tob JMP     enter
+            .word   tickb,store,exit
 
 
 ; ----------------------------------------------------------------------
@@ -91,11 +91,11 @@ TOB:        JMP     ENTER
 ;   ['] branch COMPILE,  HERE  'PREVENDB @ ,  'PREVENDB !
 ;   POSTPONE THEN ; IMMEDIATE
 
-            LINKTO(TOB,1,5,'B',"DNE?")
-QENDB:      JMP     ENTER
-            .word   IF,LIT,branch,COMPILECOMMA
-            .word   HERE,LIT,TICKPREVENDB,FETCH,COMMA,LIT,TICKPREVENDB,STORE
-            .word   THEN,EXIT
+            .linkTo tob,1,5,'B',"DNE?"
+qendb JMP     enter
+            .word   if,lit,branch,compilecomma
+            .word   here,lit,tickprevendb,fetch,comma,lit,tickprevendb,store
+            .word   then,exit
 
 
 ; ----------------------------------------------------------------------
@@ -106,15 +106,15 @@ QENDB:      JMP     ENTER
 ; ---
 ; : B ( -- c-addr)  'B @ ;
 
-            LINKTO0(QENDB,0,1,'B')
-B:          MOV     H,B
-            MVI     L,USERB
+            .linkTo0 qendb,0,1,'B'
+b MOV     H,B
+            MVI     L,userb
             MOV     A,M         ; Load LSB of cell value into A
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
             MOV     L,A         ; Move LSB of cell value from A to L
             PUSH    H           ; Push cell value onto stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -125,9 +125,9 @@ B:          MOV     H,B
 ; ---
 ; : B! (c --)   B C! ;
 
-            LINKTO(B,0,2,'!',"B")
-BSTORE:     MOV     H,B
-            MVI     L,USERB
+            .linkTo B,0,2,'!',"B"
+bstore MOV     H,B
+            MVI     L,userb
             MOV     A,M         ; Load LSB of cell value into A
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
@@ -136,7 +136,7 @@ BSTORE:     MOV     H,B
             MOV     A,L         ; ..then move c into A,
             POP     H           ; ..restore store HL.
             MOV     M,A         ; ..and store c at HL.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -148,9 +148,9 @@ BSTORE:     MOV     H,B
 ; ---
 ; : B!+ ( c --)   B! B+ ;
 
-            LINKTO(BSTORE,0,3,'+',"!B")
-BSTOREPLUS: JMP     ENTER
-            .word   BSTORE,BPLUS,EXIT
+            .linkTo bstore,0,3,'+',"!B"
+bstoreplus JMP     enter
+            .word   bstore,bplus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -161,14 +161,14 @@ BSTOREPLUS: JMP     ENTER
 ; ---
 ; : B# ( -- u)   'Bend @  B  - ;
 
-            LINKTO(BSTOREPLUS,0,2,'#',"B")
-BNUMBER:    PUSH    B
+            .linkTo bstoreplus,0,2,'#',"B"
+bnumber PUSH    B
             MOV     H,B
-            MVI     L,USERB
+            MVI     L,userb
             MOV     C,M         ; Load LSB of cell value into C
             INX     H           ; Increment to MSB of the cell value
             MOV     B,M         ; Load MSB of the cell value into B.
-            MVI     L,USERBEND
+            MVI     L,userbend
             MOV     A,M         ; Load LSB of cell value into A
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
@@ -177,7 +177,7 @@ BNUMBER:    PUSH    B
             XTHL
             MOV     B,H
             MOV     C,L
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -188,14 +188,14 @@ BNUMBER:    PUSH    B
 ; ---
 ; : B+ ( --)  1 CHARS 'B +! ;
 
-            LINKTO(BNUMBER,0,2,'+',"B")
-BPLUS:      MOV     H,B         ; Get the address of the B user variable
-            MVI     L,USERB     ; ..into HL.
+            .linkTo bnumber,0,2,'+',"B"
+bplus MOV     H,B         ; Get the address of the B user variable
+            MVI     L,userb     ; ..into HL.
             INR     M           ; Increment the B user variable;
-            JNZ     _bplusDONE  ; ..we're done if the low byte didn't roll.
+            JNZ     _bplusdone  ; ..we're done if the low byte didn't roll.
             INX     H           ; Otherwise increment to the high byte
             INR     M           ; ..and propagate the overflow.
-_bplusDONE: NEXT
+_bplusdone .next
 
 
 ; ----------------------------------------------------------------------
@@ -206,25 +206,25 @@ _bplusDONE: NEXT
 ; ---
 ; : B? ( -- f)   B# 0 > ;
 
-            LINKTO(BPLUS,0,2,'?',"B")
-BQUES:      PUSH    B
+            .linkTo bplus,0,2,'?',"B"
+bques PUSH    B
             MOV     H,B
-            MVI     L,USERB
+            MVI     L,userb
             MOV     C,M         ; Load LSB of cell value into C
             INX     H           ; Increment to MSB of the cell value
             MOV     B,M         ; Load MSB of the cell value into B.
-            MVI     L,USERBEND
+            MVI     L,userbend
             MOV     A,M         ; Load LSB of cell value into A
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
             MOV     L,A         ; Move LSB of cell value from A to L
             .byte 08H
-            JZ      _bquesDONE  ; Leave zero in HL and we're done; otherwise
+            JZ      _bquesdone  ; Leave zero in HL and we're done; otherwise
             LXI     H,0FFFFH    ; ..put true in HL.
-_bquesDONE: XTHL
+_bquesdone XTHL
             MOV     B,H
             MOV     C,L
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -235,9 +235,9 @@ _bquesDONE: XTHL
 ; ---
 ; : B@ ( -- c)   B C@ ;
 
-            LINKTO(BQUES,0,2,'@',"B")
-BFETCH:     MOV     H,B
-            MVI     L,USERB
+            .linkTo bques,0,2,'@',"B"
+bfetch MOV     H,B
+            MVI     L,userb
             MOV     A,M         ; Load LSB of cell value into A
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
@@ -246,7 +246,7 @@ BFETCH:     MOV     H,B
             MOV     L,A         ; ..put target byte into L,
             MVI     H,0         ; ..clear the high byte,
             PUSH    H           ; ..and then push the byte to the stack.
-            NEXT
+            .next
 
 
 ; ----------------------------------------------------------------------
@@ -258,9 +258,9 @@ BFETCH:     MOV     H,B
 ; ---
 ; : B@+ ( -- c)   B@ B+ ;
 
-            LINKTO(BFETCH,0,3,'+',"@B")
-BFETCHPLUS: JMP     ENTER
-            .word   BFETCH,BPLUS,EXIT
+            .linkTo bfetch,0,3,'+',"@B"
+bfetchplus JMP     enter
+            .word   bfetch,bplus,exit
 
 
 ; ----------------------------------------------------------------------
@@ -287,11 +287,11 @@ BFETCHPLUS: JMP     ENTER
 ;   POSTPONE B# POSTPONE 0= POSTPONE ?ENDB
 ; ; IMMEDIATE
 
-            LINKTO(BFETCHPLUS,1,4,'B',"ROF")
-FORB:       JMP     ENTER
-            .word   ZERO,LIT,TICKPREVENDB,STORE,BEGIN
-            .word   LIT,BNUMBER,COMPILECOMMA,LIT,ZEROEQUALS,COMPILECOMMA,QENDB
-            .word   EXIT
+            .linkTo bfetchplus,1,4,'B',"ROF"
+forb JMP     enter
+            .word   zero,lit,tickprevendb,store,begin
+            .word   lit,bnumber,compilecomma,lit,zeroequals,compilecomma,qendb
+            .word   exit
 
 
 ; ----------------------------------------------------------------------
@@ -312,8 +312,8 @@ FORB:       JMP     ENTER
 ; ---
 ; NEXTB   POSTPONE B+ POSTPONE AGAIN  'PREVENDB @ HERE>CHAIN ; IMMEDIATE
 
-            LINKTO(FORB,1,5,'B',"TXEN")
-LAST_BREG:
-NEXTB:      JMP     ENTER
-            .word   LIT,BPLUS,COMPILECOMMA,AGAIN
-            .word   LIT,TICKPREVENDB,FETCH,HERETOCHAIN,EXIT
+            .linkTo forb,1,5,'B',"TXEN"
+last_breg
+nextb JMP     enter
+            .word   lit,bplus,compilecomma,again
+            .word   lit,tickprevendb,fetch,heretochain,exit
