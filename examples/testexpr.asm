@@ -5,5 +5,5 @@
 EXEC:   nop
 CHKIO:  ret
 
-TAB2:   db      'abcd'
+TAB2:   .byte      'abcd'
 

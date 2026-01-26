@@ -41,8 +41,8 @@
 
             LINKTO(LINK_ASSEMBLER,0,8,'E',"DOC-DNE")
 ENDCODE:    JMP     ENTER
-            DW   PREVIOUS
-            DW   EXIT
+            .word   PREVIOUS
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -53,14 +53,14 @@ ENDCODE:    JMP     ENTER
             LINKTO(ENDCODE,0,4,'T',"XEN")
 asmNEXT:    JMP     ENTER
 .IFNDEF PROFILER
-            DW   asmLHLX
-            DW   asmOpD,asmINX
-            DW   asmOpD,asmINX
-            DW   asmPCHL
+            .word   asmLHLX
+            .word   asmOpD,asmINX
+            .word   asmOpD,asmINX
+            .word   asmPCHL
 .ELSE
-            DW   LIT,PROFILENEXT,asmJMP
+            .word   LIT,PROFILENEXT,asmJMP
 .ENDIF
-            DW   EXIT
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -70,9 +70,9 @@ asmNEXT:    JMP     ENTER
 
             LINKTO(asmNEXT,0,7,'L',"LACMOR")
 asmROMCALL:     JMP  ENTER
-            DW   LIT,STDCALL,asmCALL
-            DW   COMMA
-            DW   EXIT
+            .word   LIT,STDCALL,asmCALL
+            .word   COMMA
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -82,12 +82,12 @@ asmROMCALL:     JMP  ENTER
 
             LINKTO(asmROMCALL,0,11,'S',"GEREROTSER")
 asmRESTOREREGS:JMP  ENTER
-            DW   LIT,SAVEB,asmLHLD
-            DW   asmOpH,asmOpB,asmMOV
-            DW   asmOpL,asmOpC,asmMOV
-            DW   LIT,SAVED,asmLHLD
-            DW   asmXCHG
-            DW   EXIT
+            .word   LIT,SAVEB,asmLHLD
+            .word   asmOpH,asmOpB,asmMOV
+            .word   asmOpL,asmOpC,asmMOV
+            .word   LIT,SAVED,asmLHLD
+            .word   asmXCHG
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -97,12 +97,12 @@ asmRESTOREREGS:JMP  ENTER
 
             LINKTO(asmRESTOREREGS,0,8,'S',"GEREVAS")
 asmSAVEREGS:JMP     ENTER
-            DW   asmOpB,asmOpH,asmMOV
-            DW   asmOpC,asmOpL,asmMOV
-            DW   LIT,SAVEB,asmSHLD
-            DW   asmXCHG
-            DW   LIT,SAVED,asmSHLD
-            DW   EXIT
+            .word   asmOpB,asmOpH,asmMOV
+            .word   asmOpC,asmOpL,asmMOV
+            .word   LIT,SAVEB,asmSHLD
+            .word   asmXCHG
+            .word   LIT,SAVED,asmSHLD
+            .word   EXIT
 
 
 
@@ -112,55 +112,55 @@ asmSAVEREGS:JMP     ENTER
 
             LINKTO(asmSAVEREGS,0,2,'=',"0")
 asmZEROEQUALS:JMP   ENTER
-            DW   LIT,0C2H,EXIT
+            .word   LIT,0C2H,EXIT
 
             LINKTO(asmZEROEQUALS,0,2,'>',"0")
 asmZEROGREATER:JMP  ENTER
-            DW   LIT,0FAH,EXIT
+            .word   LIT,0FAH,EXIT
 
             LINKTO(asmZEROGREATER,0,2,'<',"0")
 asmZEROLESS:JMP     ENTER
-            DW   LIT,0F2H,EXIT
+            .word   LIT,0F2H,EXIT
 
             LINKTO(asmZEROLESS,0,3,'>',"<0")
 asmZERONOTEQUALS:JMP ENTER
-            DW   LIT,0CAH,EXIT
+            .word   LIT,0CAH,EXIT
 
             LINKTO(asmZERONOTEQUALS,0,2,'C',"C")
 asmCC:      JMP     ENTER
-            DW   LIT,0DAH,EXIT
+            .word   LIT,0DAH,EXIT
 
             LINKTO(asmCC,0,2,'S',"C")
 asmCS:      JMP     ENTER
-            DW   LIT,0D2H,EXIT
+            .word   LIT,0D2H,EXIT
 
             LINKTO(asmCS,0,5,'N',"IGEB")
 asmBEGIN:   JMP     ENTER
-            DW   HERE,EXIT
+            .word   HERE,EXIT
 
             LINKTO(asmBEGIN,0,4,'E',"SLE")
 asmELSE:    JMP     ENTER
-            DW   LIT,0C3H,asmIF,SWAP,asmTHEN,EXIT
+            .word   LIT,0C3H,asmIF,SWAP,asmTHEN,EXIT
 
             LINKTO(asmELSE,0,2,'F',"I")
 asmIF:      JMP     ENTER
-            DW   CCOMMA,HERE,ZERO,COMMA,EXIT
+            .word   CCOMMA,HERE,ZERO,COMMA,EXIT
 
             LINKTO(asmIF,0,4,'N',"EHT")
 asmTHEN:    JMP     ENTER
-            DW   HERE,SWAP,STORE,EXIT
+            .word   HERE,SWAP,STORE,EXIT
 
             LINKTO(asmTHEN,0,6,'T',"AEPER")
 asmREPEAT:  JMP     ENTER
-            DW   SWAP,LIT,0C3H,CCOMMA,COMMA,asmTHEN,EXIT
+            .word   SWAP,LIT,0C3H,CCOMMA,COMMA,asmTHEN,EXIT
 
             LINKTO(asmREPEAT,0,5,'L',"ITNU")
 asmUNTIL:   JMP     ENTER
-            DW   CCOMMA,COMMA,EXIT
+            .word   CCOMMA,COMMA,EXIT
 
             LINKTO(asmUNTIL,0,5,'E',"LIHW")
 asmWHILE:   JMP     ENTER
-            DW   asmIF,EXIT
+            .word   asmIF,EXIT
 
 
 ; ======================================================================
@@ -208,7 +208,7 @@ asmOpSP:    ASM_OP(6)
 ; Zero-operand instructions
 ;
 
-.DEFINE     ASM_ZERO_OP(opcode) JMP ENTER\ DW LIT,opcode,CCOMMA,EXIT
+.DEFINE     ASM_ZERO_OP(opcode) JMP ENTER\ .word LIT,opcode,CCOMMA,EXIT
 
             LINKTO(asmOpSP,0,4,'R',"HSA")
 asmASHR:    ASM_ZERO_OP(10H)
@@ -287,7 +287,7 @@ asmXTHL:    ASM_ZERO_OP(0E3H)
 ; Register instructions
 ;
 
-.DEFINE     ASM_REG_OP(opcode) JMP ENTER\ DW LIT,opcode,PLUS,CCOMMA,EXIT
+.DEFINE     ASM_REG_OP(opcode) JMP ENTER\ .word LIT,opcode,PLUS,CCOMMA,EXIT
 
             LINKTO(asmXTHL,0,3,'C',"DA")
 asmADC:     ASM_REG_OP(88H)
@@ -303,11 +303,11 @@ asmCMP:     ASM_REG_OP(0B8H)
 
             LINKTO(asmCMP,0,3,'R',"DC")
 asmDCR:     JMP     ENTER
-            DW   EIGHTSTAR,LIT,05H,PLUS,CCOMMA,EXIT
+            .word   EIGHTSTAR,LIT,05H,PLUS,CCOMMA,EXIT
 
             LINKTO(asmDCR,0,3,'R',"NI")
 asmINR:     JMP     ENTER
-            DW   EIGHTSTAR,LIT,04H,PLUS,CCOMMA,EXIT
+            .word   EIGHTSTAR,LIT,04H,PLUS,CCOMMA,EXIT
 
             LINKTO(asmINR,0,3,'A',"RO")
 asmORA:     ASM_REG_OP(0B0H)
@@ -326,7 +326,7 @@ asmXRA:     ASM_REG_OP(0A8H)
 ; Register pair instructions
 ;
 
-.DEFINE     ASM_REGPAIR_OP(opcode) JMP ENTER\ DW EIGHTSTAR,LIT,opcode,PLUS,CCOMMA,EXIT
+.DEFINE     ASM_REGPAIR_OP(opcode) JMP ENTER\ .word EIGHTSTAR,LIT,opcode,PLUS,CCOMMA,EXIT
 
             LINKTO(asmXRA,0,3,'D',"AD")
 asmDAD:     ASM_REGPAIR_OP(09H)
@@ -354,7 +354,7 @@ asmSTAX:    ASM_REGPAIR_OP(02H)
 ; Byte operand instructions
 ;
 
-.DEFINE     ASM_BYTE_OP(opcode) JMP ENTER\ DW LIT,opcode,CCOMMA,CCOMMA,EXIT
+.DEFINE     ASM_BYTE_OP(opcode) JMP ENTER\ .word LIT,opcode,CCOMMA,CCOMMA,EXIT
 
             LINKTO(asmSTAX,0,3,'I',"CA")
 asmACI:     ASM_BYTE_OP(0CEH)
@@ -379,7 +379,7 @@ asmOUT:     ASM_BYTE_OP(0D3H)
 
             LINKTO(asmOUT,0,3,'T',"SR")
 asmRST:     JMP     ENTER
-            DW   EIGHTSTAR,LIT,0C7H,PLUS,CCOMMA,EXIT
+            .word   EIGHTSTAR,LIT,0C7H,PLUS,CCOMMA,EXIT
 
             LINKTO(asmRST,0,3,'I',"BS")
 asmSBI:     ASM_BYTE_OP(0DEH)
@@ -395,7 +395,7 @@ asmXRI:     ASM_BYTE_OP(0EEH)
 ; Word operand instructions
 ;
 
-.DEFINE     ASM_WORD_OP(opcode) JMP ENTER\ DW LIT,opcode,CCOMMA,COMMA,EXIT
+.DEFINE     ASM_WORD_OP(opcode) JMP ENTER\ .word LIT,opcode,CCOMMA,COMMA,EXIT
 
             LINKTO(asmXRI,0,4,'L',"LAC")
 asmCALL:    ASM_WORD_OP(0CDH)
@@ -422,13 +422,13 @@ asmSTA:     ASM_WORD_OP(32H)
 
             LINKTO(asmSTA,0,3,'I',"XL")
 asmLXI:     JMP     ENTER
-            DW   EIGHTSTAR,ONEPLUS,CCOMMA,COMMA,EXIT
+            .word   EIGHTSTAR,ONEPLUS,CCOMMA,COMMA,EXIT
 
             LINKTO(asmLXI,0,3,'V',"OM")
 asmMOV:     JMP     ENTER
-            DW   EIGHTSTAR,LIT,40H,PLUS,PLUS,CCOMMA,EXIT
+            .word   EIGHTSTAR,LIT,40H,PLUS,PLUS,CCOMMA,EXIT
 
             LINKTO(asmMOV,0,3,'I',"VM")
 LAST_ASSEMBLER:
 asmMVI:     JMP     ENTER
-            DW   EIGHTSTAR,LIT,06H,PLUS,CCOMMA,CCOMMA,EXIT
+            .word   EIGHTSTAR,LIT,06H,PLUS,CCOMMA,CCOMMA,EXIT

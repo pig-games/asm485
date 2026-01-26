@@ -1575,7 +1575,12 @@ impl<'a> AsmLine<'a> {
 
     fn process_directive_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
         let upper = mnemonic.to_ascii_uppercase();
-        match upper.as_str() {
+        let had_dot = upper.starts_with('.');
+        let directive = upper.strip_prefix('.').unwrap_or(&upper);
+        if !had_dot {
+            return LineStatus::NothingDone;
+        }
+        match directive {
             "ORG" => {
                 let expr = match operands.first() {
                     Some(expr) => expr,
@@ -1604,12 +1609,12 @@ impl<'a> AsmLine<'a> {
                 self.aux_value = val as u16;
                 LineStatus::DirEqu
             }
-            "EQU" | "SET" => {
+            "CONST" | "VAR" | "SET" => {
                 if self.label.is_none() {
                     return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
-                        "Must specify name before EQU or SET",
+                        "Must specify name before .const/.var/.set",
                         None,
                         Some(1),
                     );
@@ -1618,7 +1623,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
-                        "EQU or SET name should not end in ':'",
+                        ".const/.var/.set name should not end in ':'",
                         None,
                         Some(1),
                     );
@@ -1629,12 +1634,12 @@ impl<'a> AsmLine<'a> {
                         return self.failure(
                             LineStatus::Error,
                             AsmErrorKind::Directive,
-                            "Missing expression for EQU/SET",
+                            "Missing expression for .const/.var/.set",
                             None,
                         )
                     }
                 };
-                let is_rw = upper == "SET";
+                let is_rw = directive == "SET" || directive == "VAR";
                 let val = match self.eval_expr_ast(expr) {
                     Ok(value) => value,
                     Err(err) => {
@@ -1673,8 +1678,8 @@ impl<'a> AsmLine<'a> {
                 self.aux_value = val as u16;
                 LineStatus::DirEqu
             }
-            "DB" => self.store_arg_list_ast(operands, 1),
-            "DW" => self.store_arg_list_ast(operands, 2),
+            "BYTE" => self.store_arg_list_ast(operands, 1),
+            "WORD" => self.store_arg_list_ast(operands, 2),
             "DS" => {
                 let expr = match operands.first() {
                     Some(expr) => expr,
@@ -2545,17 +2550,21 @@ mod tests {
     fn org_sets_address() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    ORG 1000h", 0, 1);
+        let status = process_line(&mut asm, "    .org 1000h", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
         assert_eq!(asm.start_addr(), 0x1000);
         assert_eq!(asm.aux_value(), 0x1000);
+
+        let status = process_line(&mut asm, "* = 1200h", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.start_addr(), 0x1200);
     }
 
     #[test]
     fn ds_reserves_space_and_defines_label() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "BUFFER: DS 4", 0x0200, 1);
+        let status = process_line(&mut asm, "BUFFER: .ds 4", 0x0200, 1);
         assert_eq!(status, LineStatus::DirDs);
         assert_eq!(asm.aux_value(), 4);
         assert_eq!(asm.symbols().lookup("BUFFER"), 0x0200);
@@ -2565,11 +2574,11 @@ mod tests {
     fn db_and_dw_emit_bytes() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DB 1, 2, 3", 0, 2);
+        let status = process_line(&mut asm, "    .byte 1, 2, 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[1, 2, 3]);
 
-        let status = process_line(&mut asm, "    DW 7", 0, 2);
+        let status = process_line(&mut asm, "    .word 7", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[7, 0]);
     }
@@ -2578,13 +2587,48 @@ mod tests {
     fn equ_defines_symbol_for_pass2() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "VAL EQU 3", 0, 1);
+        let status = process_line(&mut asm, "VAL .const 3", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
         assert_eq!(asm.symbols().lookup("VAL"), 3);
 
-        let status = process_line(&mut asm, "    DW VAL+1", 0, 2);
+        let status = process_line(&mut asm, "    .word VAL+1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[4, 0]);
+    }
+
+    #[test]
+    fn var_allows_redefinition_and_set_alias() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "VAL .var 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("VAL"), 1);
+
+        let status = process_line(&mut asm, "VAL .var 2", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("VAL"), 2);
+
+        let status = process_line(&mut asm, "VAL .set 3", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("VAL"), 3);
+    }
+
+    #[test]
+    fn set_without_dot_is_not_directive() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "    SET 1", 0, 1);
+        assert_eq!(status, LineStatus::Error);
+        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
+    }
+
+    #[test]
+    fn undotted_directives_are_not_recognized() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "    ORG 1000h", 0, 1);
+        assert_eq!(status, LineStatus::Error);
+        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
     }
 
     #[test]
@@ -2604,7 +2648,7 @@ mod tests {
         assert_eq!(status, LineStatus::Ok);
         assert!(asm.cond_skipping());
 
-        let status = process_line(&mut asm, "    DB 5", 0, 2);
+        let status = process_line(&mut asm, "    .byte 5", 0, 2);
         assert_eq!(status, LineStatus::Skip);
         assert!(asm.bytes().is_empty());
     }
@@ -2613,7 +2657,7 @@ mod tests {
     fn undefined_label_in_pass2_errors() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW MISSING", 0, 2);
+        let status = process_line(&mut asm, "    .word MISSING", 0, 2);
         assert_eq!(status, LineStatus::Error);
         assert_eq!(asm.symbols().lookup("MISSING"), NO_ENTRY);
     }
@@ -2622,27 +2666,27 @@ mod tests {
     fn expression_precedence_and_ops() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW 1+2*3", 0, 2);
+        let status = process_line(&mut asm, "    .word 1+2*3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[7, 0]);
 
-        let status = process_line(&mut asm, "    DW (1+2)*3", 0, 2);
+        let status = process_line(&mut asm, "    .word (1+2)*3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[9, 0]);
 
-        let status = process_line(&mut asm, "    DW 1 << 4", 0, 2);
+        let status = process_line(&mut asm, "    .word 1 << 4", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x10, 0x00]);
 
-        let status = process_line(&mut asm, "    DW 1 | 2", 0, 2);
+        let status = process_line(&mut asm, "    .word 1 | 2", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[3, 0]);
 
-        let status = process_line(&mut asm, "    DW 2 ** 3", 0, 2);
+        let status = process_line(&mut asm, "    .word 2 ** 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[8, 0]);
 
-        let status = process_line(&mut asm, "    DW 0 ? 1 : 2", 0, 2);
+        let status = process_line(&mut asm, "    .word 0 ? 1 : 2", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[2, 0]);
     }
@@ -2651,27 +2695,27 @@ mod tests {
     fn logical_ops_use_truthiness() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW 2 && 4", 0, 2);
+        let status = process_line(&mut asm, "    .word 2 && 4", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x01, 0x00]);
 
-        let status = process_line(&mut asm, "    DW 0 && 4", 0, 2);
+        let status = process_line(&mut asm, "    .word 0 && 4", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x00, 0x00]);
 
-        let status = process_line(&mut asm, "    DW 0 || 3", 0, 2);
+        let status = process_line(&mut asm, "    .word 0 || 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x01, 0x00]);
 
-        let status = process_line(&mut asm, "    DW 2 ^^ 3", 0, 2);
+        let status = process_line(&mut asm, "    .word 2 ^^ 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x00, 0x00]);
 
-        let status = process_line(&mut asm, "    DW 0 ^^ 3", 0, 2);
+        let status = process_line(&mut asm, "    .word 0 ^^ 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x01, 0x00]);
 
-        let status = process_line(&mut asm, "    DW !0", 0, 2);
+        let status = process_line(&mut asm, "    .word !0", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x01, 0x00]);
     }
@@ -2682,7 +2726,7 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(
             &mut asm,
-            "    DW $1f, %1010, 1_0_0_0, 17o, 17q",
+            "    .word $1f, %1010, 1_0_0_0, 17o, 17q",
             0,
             2,
         );
@@ -2699,7 +2743,7 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(
             &mut asm,
-            "    DB 3==3, 3!=4, 3<>4, 3<=3, 2<3, 3>=2, 3>2, 4=4",
+            "    .byte 3==3, 3!=4, 3<>4, 3<=3, 2<3, 3>=2, 3>2, 4=4",
             0,
             2,
         );
@@ -2708,7 +2752,7 @@ mod tests {
 
         let status = process_line(
             &mut asm,
-            "    DB 2&&3, 0||5, 2^^3, !0, !1",
+            "    .byte 2&&3, 0||5, 2^^3, !0, !1",
             0,
             2,
         );
@@ -2722,7 +2766,7 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(
             &mut asm,
-            "    DB 0f0h & 00fh, 0f0h | 00fh, 0f0h ^ 00fh",
+            "    .byte 0f0h & 00fh, 0f0h | 00fh, 0f0h ^ 00fh",
             0,
             2,
         );
@@ -2734,11 +2778,11 @@ mod tests {
     fn expression_power_and_ternary_precedence() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW 2 ** 3 ** 2", 0, 2);
+        let status = process_line(&mut asm, "    .word 2 ** 3 ** 2", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x00, 0x02]);
 
-        let status = process_line(&mut asm, "    DB 0 || 1 ? 2 : 3", 0, 2);
+        let status = process_line(&mut asm, "    .byte 0 || 1 ? 2 : 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[2]);
     }
@@ -2747,11 +2791,11 @@ mod tests {
     fn expression_ternary_associativity() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DB 0 ? 1 : 0 ? 2 : 3", 0, 2);
+        let status = process_line(&mut asm, "    .byte 0 ? 1 : 0 ? 2 : 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[3]);
 
-        let status = process_line(&mut asm, "    DB 0 ? 1 : 0 || 1", 0, 2);
+        let status = process_line(&mut asm, "    .byte 0 ? 1 : 0 || 1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[1]);
     }
@@ -2760,11 +2804,11 @@ mod tests {
     fn expression_shift_precedence() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW 1 + 2 << 3", 0, 2);
+        let status = process_line(&mut asm, "    .word 1 + 2 << 3", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[24, 0]);
 
-        let status = process_line(&mut asm, "    DW 1 << 2 + 1", 0, 2);
+        let status = process_line(&mut asm, "    .word 1 << 2 + 1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[8, 0]);
     }
@@ -2773,7 +2817,7 @@ mod tests {
     fn expression_high_low_with_groups() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DB >($1234+1), <($1234+1)", 0, 2);
+        let status = process_line(&mut asm, "    .byte >($1234+1), <($1234+1)", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x12, 0x35]);
     }
@@ -2782,7 +2826,7 @@ mod tests {
     fn expression_not_equal_aliases() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DB 3 <> 4, 3 != 4", 0, 2);
+        let status = process_line(&mut asm, "    .byte 3 <> 4, 3 != 4", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[1, 1]);
     }
@@ -2791,11 +2835,11 @@ mod tests {
     fn expression_nested_ternary_with_parens() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DB 1 ? (0 ? 2 : 3) : 4", 0, 2);
+        let status = process_line(&mut asm, "    .byte 1 ? (0 ? 2 : 3) : 4", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[3]);
 
-        let status = process_line(&mut asm, "    DB 0 ? 1 : (0 ? 2 : 5)", 0, 2);
+        let status = process_line(&mut asm, "    .byte 0 ? 1 : (0 ? 2 : 5)", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[5]);
     }
@@ -2804,7 +2848,7 @@ mod tests {
     fn expression_underscores_in_hex_suffix() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW 1_2_3_4h, 0_f_f_fh", 0, 2);
+        let status = process_line(&mut asm, "    .word 1_2_3_4h, 0_f_f_fh", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x34, 0x12, 0xff, 0x0f]);
     }
@@ -2835,7 +2879,7 @@ mod tests {
         assert_eq!(status, LineStatus::Ok);
         assert!(!asm.cond_skipping());
 
-        let status = process_line(&mut asm, "    DB 1", 0, 2);
+        let status = process_line(&mut asm, "    .byte 1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[1]);
 
@@ -2843,7 +2887,7 @@ mod tests {
         assert_eq!(status, LineStatus::Ok);
         assert!(asm.cond_skipping());
 
-        let status = process_line(&mut asm, "    DB 2", 0, 2);
+        let status = process_line(&mut asm, "    .byte 2", 0, 2);
         assert_eq!(status, LineStatus::Skip);
         assert!(asm.bytes().is_empty());
 
@@ -2861,14 +2905,14 @@ mod tests {
 
         let lines = [
             "    .if 1",
-            "    DB 1",
+            "    .byte 1",
             "    .else",
-            "    DB 2",
+            "    .byte 2",
             "    .endif",
             "    .if 0",
-            "    DB 3",
+            "    .byte 3",
             "    .else",
-            "    DB 4",
+            "    .byte 4",
             "    .endif",
         ];
 
@@ -2896,15 +2940,15 @@ mod tests {
     fn expression_high_low_and_unary() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW > 1234H", 0, 2);
+        let status = process_line(&mut asm, "    .word > 1234H", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x12, 0x00]);
 
-        let status = process_line(&mut asm, "    DW < 1234H", 0, 2);
+        let status = process_line(&mut asm, "    .word < 1234H", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x34, 0x00]);
 
-        let status = process_line(&mut asm, "    DW -1", 0, 2);
+        let status = process_line(&mut asm, "    .word -1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0xff, 0xff]);
     }
@@ -2913,7 +2957,7 @@ mod tests {
     fn expression_current_address_dollar() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW $ + 1", 0x1000, 2);
+        let status = process_line(&mut asm, "    .word $ + 1", 0x1000, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[0x01, 0x10]);
     }
@@ -2951,7 +2995,7 @@ mod tests {
     fn error_kind_for_directive_failure() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    EQU 5", 0, 1);
+        let status = process_line(&mut asm, "    .const 5", 0, 1);
         assert_eq!(status, LineStatus::Error);
         assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
     }
@@ -2969,7 +3013,7 @@ mod tests {
     fn error_kind_for_expression_failure() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
-        let status = process_line(&mut asm, "    DW 1/0", 0, 2);
+        let status = process_line(&mut asm, "    .word 1/0", 0, 2);
         assert_eq!(status, LineStatus::Error);
         assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Expression);
     }

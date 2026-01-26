@@ -2,45 +2,45 @@ asm485 8085 Assembler v1.0
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; Conditional assembly (.if/.elseif/.else/.endif) coverage
-----    EQU 2000                    2          org     2000h
+----    EQU 2000                    2          .org     2000h
 ----                                3  
-----    EQU 0001                    4  TRUE    equ     1
-----    EQU 0000                    5  FALSE   equ     0
+----    EQU 0001                    4  TRUE    .const     1
+----    EQU 0000                    5  FALSE   .const     0
 ----                                6  
 ----                                7  ; simple if/else
 ----                                8          .if TRUE
-2000    01                          9                  db 1
+2000    01                          9                  .byte 1
 ----                               10          .else
-----                               11                  db 2
+----                               11                  .byte 2
 ----                               12          .endif
 ----                               13  
 ----                               14  ; elseif chain
 ----                               15          .if 0
-----                               16                  db 3
+----                               16                  .byte 3
 ----                               17          .elseif 0
-----                               18                  db 4
+----                               18                  .byte 4
 ----                               19          .elseif 5
-2001    05                         20                  db 5
+2001    05                         20                  .byte 5
 ----                               21          .else
-----                               22                  db 6
+----                               22                  .byte 6
 ----                               23          .endif
 ----                               24  
 ----                               25  ; nested conditionals
 ----                               26          .if 1
 ----                               27                  .if 0
-----                               28                          db 7
+----                               28                          .byte 7
 ----                               29                  .else
-2002    08                         30                          db 8
+2002    08                         30                          .byte 8
 ----                               31                  .endif
 ----                               32          .else
-----                               33                  db 9
+----                               33                  .byte 9
 ----                               34          .endif
 ----                               35  
 ----                               36  ; labels on conditionals
 ----                               37  LABIF:  .if TRUE
-2003    0A                         38                  db 10
+2003    0A                         38                  .byte 10
 ----                               39  LABELSE:.else
-----                               40                  db 11
+----                               40                  .byte 11
 ----                               41  LABEND: .endif
 
 Lines: 41  Errors: 0  Warnings: 0

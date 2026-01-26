@@ -7,7 +7,7 @@
 ; clear and the normal addressing scheme will be activated.  At this point,
 ; the RAM and ROM use their normal addressing.
 
-	ORG 8000h
+	.org 8000h
 	
 	JMP START	; Jump to ROM
 

@@ -10,7 +10,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                7  ; clear and the normal addressing scheme will be activated.  At this point,
 ----                                8  ; the RAM and ROM use their normal addressing.
 ----                                9  
-----    EQU 8000                   10  	ORG 8000h
+----    EQU 8000                   10  	.org 8000h
 ----                               11  	
 8000    C3 03 80                   12  	JMP START	; Jump to ROM
 ----                               13  

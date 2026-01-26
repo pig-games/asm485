@@ -37,7 +37,7 @@
 
             LINKTO(LINK_TOOLSEXT,0,9,'R',"ELBMESSA")
 ASSEMBLER:  JMP     ENTER
-            DW   LIT,ASSEMBLERWL,LIT,SOESTART,STORE,EXIT
+            .word   LIT,ASSEMBLERWL,LIT,SOESTART,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -49,7 +49,7 @@ ASSEMBLER:  JMP     ENTER
 BYE:        LHLD    BOPSTK      ; Load the SP on entry into MFORTH
             SPHL                ; ..and restore that SP.
             CALL    STDCALL     ; Call the
-            DW   5797H       ; ..main menu routine (never returns).
+            .word   5797H       ; ..main menu routine (never returns).
 
 
 ; ----------------------------------------------------------------------
@@ -77,5 +77,5 @@ BYE:        LHLD    BOPSTK      ; Load the SP on entry into MFORTH
             LINKTO(BYE,0,4,'E',"DOC")
 LAST_TOOLSEXT:
 CODE:       JMP     ENTER
-            DW   CREATE,LIT,-CFASZ,ALLOT,ALSO,ASSEMBLER
-            DW   EXIT
+            .word   CREATE,LIT,-CFASZ,ALLOT,ALSO,ASSEMBLER
+            .word   EXIT

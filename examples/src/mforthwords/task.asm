@@ -45,7 +45,7 @@ PAUSE:      ; Suspend the current task.
             DAD     SP          ; ..and get SP in HL.
             MVI     E,USERSAVEDSP;Put SAVEDSP variable offset into E
             MOV     D,B         ; ..and put the Task Page into D.
-            DB 0D9H                ; Save the SP in SAVEDSP.
+            .byte 0D9H                ; Save the SP in SAVEDSP.
 
             ; Select the next task (which could be this task).
             LHLD    TICKFIRSTTASK;Get the address of the first task,
@@ -62,11 +62,11 @@ PAUSE:      ; Suspend the current task.
             ; Resume the next task.
 _pause1:    MVI     E,USERSAVEDSP;Get SAVEDSP variable offset into E
             MOV     D,B         ; ..and put the Task Page into D.
-            DB 0EDH                ; Get the saved SP from SAVEDSP
+            .byte 0EDH                ; Get the saved SP from SAVEDSP
             SPHL                ; ..and restore SP.
             MVI     H,STACKGUARD; Put the stack guard into H
             MVI     L,STACKGUARD; ..and L,
-            DB 0D9H                ; ..and then save the guard to SAVEDSP.
+            .byte 0D9H                ; ..and then save the guard to SAVEDSP.
             POP     D           ; Pop the instruction pointer.
             POP     B           ; Pop the return stack pointer.
 
@@ -94,17 +94,17 @@ _pause1:    MVI     E,USERSAVEDSP;Get SAVEDSP variable offset into E
 
             LINKTO(PAUSE,0,4,'K',"SAT")
 TASK:       JMP     ENTER
-            DW   LIT,TICKFIRSTTASK,FETCH,LIT,TICKNUMTASKS,FETCH
-            DW       LIT,8,LSHIFT,MINUS
-            DW   ONE,LIT,TICKNUMTASKS,PLUSSTORE
-            DW   LIT,07676H,OVER,LIT,080H,OR,STORE
-            DW   LIT,10,OVER,LIT,USERBASE,OR,STORE
-            DW   DUP,LIT,0FAH,OR,OVER,LIT,USERSAVEDSP,OR,STORE
-            DW   SWAP,OVER,LIT,0FEH,OR,STORE
-            DW   DUP,LIT,07FH,OR,OVER,LIT,0FCH,OR,STORE
-            DW   LIT,STOPPED,LIT,CFASZ,PLUS,OVER,LIT,0FAH,OR,STORE
-            DW   DROP
-            DW   EXIT
+            .word   LIT,TICKFIRSTTASK,FETCH,LIT,TICKNUMTASKS,FETCH
+            .word       LIT,8,LSHIFT,MINUS
+            .word   ONE,LIT,TICKNUMTASKS,PLUSSTORE
+            .word   LIT,07676H,OVER,LIT,080H,OR,STORE
+            .word   LIT,10,OVER,LIT,USERBASE,OR,STORE
+            .word   DUP,LIT,0FAH,OR,OVER,LIT,USERSAVEDSP,OR,STORE
+            .word   SWAP,OVER,LIT,0FEH,OR,STORE
+            .word   DUP,LIT,07FH,OR,OVER,LIT,0FCH,OR,STORE
+            .word   LIT,STOPPED,LIT,CFASZ,PLUS,OVER,LIT,0FAH,OR,STORE
+            .word   DROP
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -138,5 +138,5 @@ TASKPAGE:   MOV     H,B
             LINKTO(TASKPAGE,0,7,'D',"EPPOTS")
 LAST_TASK:
 STOPPED:    JMP     ENTER
-            DW   EXECUTE
-_stopped1:  DW   PAUSE,branch,_stopped1
+            .word   EXECUTE
+_stopped1:  .word   PAUSE,branch,_stopped1

@@ -43,9 +43,9 @@
 
             LINKTO(LINK_TOOLS,0,2,'S',".")
 DOTS:       JMP     ENTER
-            DW   DEPTH
-_dots1:     DW   QDUP,zbranch,_dots2,DUP,PICK,DOT,ONEMINUS,branch,_dots1
-_dots2:     DW   EXIT
+            .word   DEPTH
+_dots1:     .word   QDUP,zbranch,_dots2,DUP,PICK,DOT,ONEMINUS,branch,_dots1
+_dots2:     .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -78,29 +78,29 @@ _dots2:     DW   EXIT
 
             LINKTO(DOTS,0,4,'P',"MUD")
 DUMP:       JMP     ENTER
-            DW   DUP,ZERO,pqdo,_dump2
-_dump1:     DW   CR,OVER,I,PLUS,OVER,I,MINUS,LIT,8,MIN,DUMPLINE
-            DW       LIT,8,pplusloop,_dump1
-_dump2:     DW   TWODROP,EXIT
+            .word   DUP,ZERO,pqdo,_dump2
+_dump1:     .word   CR,OVER,I,PLUS,OVER,I,MINUS,LIT,8,MIN,DUMPLINE
+            .word       LIT,8,pplusloop,_dump1
+_dump2:     .word   TWODROP,EXIT
 HEXCELL:    JMP     ENTER
-            DW   BASE,FETCH,SWAP,HEX,ZERO
-            DW   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR,TYPE
-            DW   BASE,STORE,EXIT
+            .word   BASE,FETCH,SWAP,HEX,ZERO
+            .word   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR,TYPE
+            .word   BASE,STORE,EXIT
 HEXCHAR:    JMP     ENTER
-            DW   BASE,FETCH,SWAP,HEX,ZERO
-            DW   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR,TYPE
-            DW   BASE,STORE,EXIT
+            .word   BASE,FETCH,SWAP,HEX,ZERO
+            .word   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR,TYPE
+            .word   BASE,STORE,EXIT
 EMITVALID:  JMP     ENTER
-            DW   DUP,LIT,32,LESSTHAN,OVER,LIT,127,EQUALS,OR
-            DW   LIT,'.',AND,OR,EMIT,EXIT
+            .word   DUP,LIT,32,LESSTHAN,OVER,LIT,127,EQUALS,OR
+            .word   LIT,'.',AND,OR,EMIT,EXIT
 DUMPLINE:   JMP     ENTER
-            DW   OVER,HEXCELL,LIT,2,SPACES
-            DW   DUP,ZERO,pdo
-_dumpline1: DW   OVER,I,PLUS,CFETCH,HEXCHAR,SPACE,ploop,_dumpline1
-            DW   LIT,8,OVER,MINUS,LIT,3,STAR,SPACES,SPACE
-            DW   ZERO,pdo
-_dumpline2: DW   DUP,I,PLUS,CFETCH,EMITVALID,ploop,_dumpline2
-            DW   DROP,EXIT
+            .word   OVER,HEXCELL,LIT,2,SPACES
+            .word   DUP,ZERO,pdo
+_dumpline1: .word   OVER,I,PLUS,CFETCH,HEXCHAR,SPACE,ploop,_dumpline1
+            .word   LIT,8,OVER,MINUS,LIT,3,STAR,SPACES,SPACE
+            .word   ZERO,pdo
+_dumpline2: .word   DUP,I,PLUS,CFETCH,EMITVALID,ploop,_dumpline2
+            .word   DROP,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -119,11 +119,11 @@ _dumpline2: DW   DUP,I,PLUS,CFETCH,EMITVALID,ploop,_dumpline2
 
             LINKTO(DUMP,0,5,'S',"DROW")
 WORDS:      JMP     ENTER
-            DW   LATEST,FETCH
-_words1:    DW   DUP,HIDDENQ,ZEROEQUALS,zbranch,_words2
-            DW   SPACE,DUP,DOTNAME
-_words2:    DW   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_words1
-            DW   DROP,EXIT
+            .word   LATEST,FETCH
+_words1:    .word   DUP,HIDDENQ,ZEROEQUALS,zbranch,_words2
+            .word   SPACE,DUP,DOTNAME
+_words2:    .word   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_words1
+            .word   DROP,EXIT
 
 
 
@@ -144,8 +144,8 @@ _words2:    DW   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_words1
             LINKTO(WORDS,0,5,'E',"MAN.")
 LAST_TOOLS:
 DOTNAME:    JMP     ENTER
-_dotname1:  DW   ONEMINUS,DUP,CFETCH,DUP,LIT,127,AND,EMIT
-            DW       LIT,128,AND,zbranch,_dotname1
-            DW   DROP,EXIT
+_dotname1:  .word   ONEMINUS,DUP,CFETCH,DUP,LIT,127,AND,EMIT
+            .word       LIT,128,AND,zbranch,_dotname1
+            .word   DROP,EXIT
 
 

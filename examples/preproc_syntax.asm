@@ -6,15 +6,15 @@
 .define TWICE(x) (x + x)
 
 .ifdef VAL
-        db ADD(1,2)
+        .byte ADD(1,2)
 .else
-        db 0
+        .byte 0
 .endif
 
 .ifndef UNKNOWN
-        db TWICE(3)
+        .byte TWICE(3)
 .else
-        db 0
+        .byte 0
 .endif
 
 .include "preproc_syntax.inc"

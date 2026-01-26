@@ -1,9 +1,9 @@
 ; Test program to bit-bang a single character out SOD as serial async data
 
-        org     00000H
+        .org     00000H
 
-BITTIME equ     0113h          ; Time delay for a single bit
-OUTBITS equ	00Bh
+BITTIME .const     0113h          ; Time delay for a single bit
+OUTBITS .const	00Bh
 
 START:
         mvi     c,'T'           ; Send a test character

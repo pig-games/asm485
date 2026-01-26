@@ -3,10 +3,10 @@ ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; Test program to bit-bang a single character out SOD as serial async data
 ----                                2  
-----    EQU 0000                    3          org     00000H
+----    EQU 0000                    3          .org     00000H
 ----                                4  
-----    EQU 0113                    5  BITTIME equ     0113h          ; Time delay for a single bit
-----    EQU 000B                    6  OUTBITS equ	00Bh
+----    EQU 0113                    5  BITTIME .const     0113h          ; Time delay for a single bit
+----    EQU 000B                    6  OUTBITS .const	00Bh
 ----                                7  
 ----                                8  START:
 0000    0E 54                       9          mvi     c,'T'           ; Send a test character

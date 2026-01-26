@@ -5,12 +5,12 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                2  ; This file is preprocessed first, so we can safely use .define/.ifdef/.include.
 ----                                3  
 ----                                4  
-0000    03                          5          db (1 + 2)
+0000    03                          5          .byte (1 + 2)
 ----                                6  
-0001    06                          7          db (3 + 3)
+0001    06                          7          .byte (3 + 3)
 ----                                8  
 ----                                9  ; Included by preproc_syntax.asm
-0002    05                         10          db 5
+0002    05                         10          .byte 5
 
 Lines: 10  Errors: 0  Warnings: 0
 

@@ -44,7 +44,7 @@
 
             LINKTO(LINK_COREEXT,1,2,028H,".")
 DOTPAREN:   JMP     ENTER
-            DW   LIT,')',PARSE,TYPE,EXIT
+            .word   LIT,')',PARSE,TYPE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -114,7 +114,7 @@ NOTEQUALS:  SAVEDE
             PUSH    B           ; Save BC.
             MOV     B,D         ; Move x1
             MOV     C,E         ; ..to BC.
-            DB 08H                ; HL=HL-BC
+            .byte 08H                ; HL=HL-BC
             POP     B           ; Restore BC.
             JZ      _neqFALSE   ; Jump if zero (equals) to where we push false.
             LXI     H,0FFFFH    ; Put true in HL.
@@ -142,7 +142,7 @@ _neqDONE:   PUSH    H           ; Push the flag to the stack.
 
             LINKTO(NOTEQUALS,1,5,'N',"IAGA")
 AGAIN:      JMP     ENTER
-            DW   LIT,branch,COMPILECOMMA,COMMA,EXIT
+            .word   LIT,branch,COMPILECOMMA,COMMA,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -165,8 +165,8 @@ AGAIN:      JMP     ENTER
 
             LINKTO(AGAIN,1,2,022H,"C")
 CQUOTE:     JMP     ENTER
-            DW   LIT,PCQUOTE,COMPILECOMMA,LIT,022H,PARSE,DUP,CCOMMA
-            DW   HERE,OVER,ALLOT,SWAP,CMOVE,EXIT
+            .word   LIT,PCQUOTE,COMPILECOMMA,LIT,022H,PARSE,DUP,CCOMMA
+            .word   HERE,OVER,ALLOT,SWAP,CMOVE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -181,7 +181,7 @@ CQUOTE:     JMP     ENTER
 
             LINKTO(CQUOTE,0,8,02CH,"ELIPMOC")
 COMPILECOMMA:JMP    ENTER
-            DW   COMMA,EXIT
+            .word   COMMA,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -202,7 +202,7 @@ FALSE:      LXI     H,0
 
             LINKTO(FALSE,0,3,'X',"EH")
 HEX:        JMP     ENTER
-            DW   LIT,16,BASE,STORE,EXIT
+            .word   LIT,16,BASE,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -258,7 +258,7 @@ PAD:        PUSH    D           ; Save DE.
 
             LINKTO(PAD,0,5,'E',"SRAP")
 PARSE:      JMP     ENTER
-            DW   FALSE,SWAP,PPARSE,EXIT
+            .word   FALSE,SWAP,PPARSE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -298,7 +298,7 @@ PICK:       POP     H           ; Get u into HL,
 
             LINKTO(PICK,0,9,'D',"I-ECRUOS")
 SOURCEID:   JMP     ENTER
-            DW   ICB,LIT,ICBSOURCEID,PLUS,FETCH,EXIT
+            .word   ICB,LIT,ICBSOURCEID,PLUS,FETCH,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -356,7 +356,7 @@ TUCK:       SAVEDE
 
             LINKTO(TUCK,0,6,'N',"IHTIW")
 WITHIN:     JMP     ENTER
-            DW   OVER,MINUS,TOR,MINUS,RFROM,ULESSTHAN,EXIT
+            .word   OVER,MINUS,TOR,MINUS,RFROM,ULESSTHAN,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -374,7 +374,7 @@ WITHIN:     JMP     ENTER
 
             LINKTO0(WITHIN,1,1,05CH)
 BACKSLASH:  JMP     ENTER
-            DW   SOURCE,NIP,TOIN,STORE,EXIT
+            .word   SOURCE,NIP,TOIN,STORE,EXIT
 
 
 
@@ -389,7 +389,7 @@ BACKSLASH:  JMP     ENTER
 
             LINKTO(BACKSLASH,0,4,029H,"\"c(")
 PCQUOTE:    PUSH    D           ; Push string address onto the stack.
-            DB 0EDH                ; Read string count from instruction stream.
+            .byte 0EDH                ; Read string count from instruction stream.
             MVI     H,0         ; Clear high byte, which is not part of count.
             INX     H           ; Increment HL to include the count byte.
             XCHG                ; IP to HL, count to DE.
@@ -417,11 +417,11 @@ PPARSE:     SAVEDE
             ; Get ICBLINEEND and ICBLINESTART on the stack.
             LHLD    TICKICB     ; Get the current ICB into HL,
             XCHG                ; ..then move it to DE,
-            DB 0EDH                ; ..fetch ICBLINEEND,
+            .byte 0EDH                ; ..fetch ICBLINEEND,
             PUSH    H           ; ..and push it to the stack.
             INX     D           ; Increment to
             INX     D           ; ..ICBLINESTART,
-            DB 0EDH                ; ..fetch ICBLINESTART,
+            .byte 0EDH                ; ..fetch ICBLINESTART,
             PUSH    H           ; ..and push it to the stack.
             
             ; Get >IN and add that to ICBLINESTART.
@@ -429,7 +429,7 @@ PPARSE:     SAVEDE
             INX     D           ; ..past SOURCE-ID
             INX     D           ; ..to
             INX     D           ; ..ICBTOIN,
-            DB 0EDH                ; ..and fetch ICBTOIN.
+            .byte 0EDH                ; ..and fetch ICBTOIN.
             POP     B           ; Pop ICBLINESTART
             DAD     B           ; ..and add it to ICBTOIN to get srcpos.
             MOV     D,H         ; Make a copy of srcpos
@@ -438,7 +438,7 @@ PPARSE:     SAVEDE
             ; Calculate srcrem.
             XTHL                ; Swap srcpos and ICBLINEEND.
             POP     B           ; Pop srcpos into BC,
-            DB 08H                ; ..then subtract srcpos from ICBLINEEND.
+            .byte 08H                ; ..then subtract srcpos from ICBLINEEND.
             MOV     B,H         ; Move srcrem into B
             MOV     C,L         ; ..and C.
             XCHG                ; Get ICBLINESTART into HL as srcpos.
@@ -504,7 +504,7 @@ _pparseDONE:MOV     D,B         ; Move srcrem to D
             POP     B           ; ..pop the start position into BC.
             PUSH    H           ; ..then put c-addr back onto the stack,
             LHLD    HOLDH       ; ..and restore endpos.
-            DB 08H                ; Get the total number of bytes seen into HL.
+            .byte 08H                ; Get the total number of bytes seen into HL.
             MOV     A,D         ; See if we exhaused srcrem, in which case we do
             ORA     E           ; ..not need to skip the (missing) final delim.
             JZ      _pparseDONE1; No delim to skip if we hit EOL,
@@ -519,14 +519,14 @@ _pparseDONE1:MOV    B,H         ; Move the total length to B
             INX     H           ; ..>IN
             INX     H           ; ..offset,
             XCHG                ; ..move the offset to DE,
-            DB 0EDH                ; ..load the current value of >IN into HL,
+            .byte 0EDH                ; ..load the current value of >IN into HL,
             DAD     B           ; ..and add the parsed length to >IN.
-            DB 0D9H                ; Save the new >IN.
+            .byte 0D9H                ; Save the new >IN.
             
             LHLD    HOLDH       ; Restore endpos again,
             POP     B           ; ..get c-addr from the stack,
             PUSH    B           ; ..put a copy of c-addr back onto the stack,
-            DB 08H                ; ..then calculate the parsed length,
+            .byte 08H                ; ..then calculate the parsed length,
             PUSH    H           ; ..and push that length onto the stack.
             
             RESTOREBC

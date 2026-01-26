@@ -41,7 +41,7 @@
 
             LINKTO(LINK_SEARCHEXT,0,4,'O',"SLA")
 ALSO:       JMP     ENTER
-            DW   LIT,SOESTART,DUP,CELLPLUS,NUMSOES,CELLS,MOVE,EXIT
+            .word   LIT,SOESTART,DUP,CELLPLUS,NUMSOES,CELLS,MOVE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -55,8 +55,8 @@ ALSO:       JMP     ENTER
 
             LINKTO(ALSO,0,5,'H',"TROF")
 FORTH:      JMP     ENTER
-            DW   FORTHWORDLIST,LIT,SOESTART,STORE
-            DW   EXIT
+            .word   FORTHWORDLIST,LIT,SOESTART,STORE
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -71,8 +71,8 @@ FORTH:      JMP     ENTER
 
             LINKTO(FORTH,0,4,'Y',"LNO")
 ONLY:       JMP     ENTER
-            DW   LIT,SOESTART,LIT,MAXSOES,CELLS,ZERO,FILL,FORTH
-            DW   EXIT
+            .word   LIT,SOESTART,LIT,MAXSOES,CELLS,ZERO,FILL,FORTH
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -94,10 +94,10 @@ ONLY:       JMP     ENTER
 
             LINKTO(ONLY,0,5,'R',"EDRO")
 ORDER:      JMP     ENTER
-            DW   GETORDER,ZERO,pdo
-_order1:    DW   HEXCELL,SPACE,ploop,_order1
-_order2:    DW   LIT,'[',EMIT,GETCURRENT,HEXCELL,LIT,']',EMIT
-            DW   EXIT
+            .word   GETORDER,ZERO,pdo
+_order1:    .word   HEXCELL,SPACE,ploop,_order1
+_order2:    .word   LIT,'[',EMIT,GETCURRENT,HEXCELL,LIT,']',EMIT
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -115,7 +115,7 @@ _order2:    DW   LIT,'[',EMIT,GETCURRENT,HEXCELL,LIT,']',EMIT
             LINKTO(ORDER,0,8,'S',"UOIVERP")
 LAST_SEARCHEXT:
 PREVIOUS:   JMP     ENTER
-            DW   LIT,SOESTART,DUP,CELLPLUS,SWAP
-            DW   NUMSOES,ONEMINUS,CELLS,MOVE
-            DW   ZERO,LIT,SOESTART,NUMSOES,ONEMINUS,CELLS,PLUS,STORE
-            DW   EXIT
+            .word   LIT,SOESTART,DUP,CELLPLUS,SWAP
+            .word   NUMSOES,ONEMINUS,CELLS,MOVE
+            .word   ZERO,LIT,SOESTART,NUMSOES,ONEMINUS,CELLS,PLUS,STORE
+            .word   EXIT

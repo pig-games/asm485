@@ -62,20 +62,20 @@ DASHROT:    SAVEDE
 
             LINKTO(DASHROT,0,4,'R',"EV.")
 DOTVER:     JMP     ENTER
-            DW   PSQUOTE,7
-            DB   "MFORTH "
-            DW   TYPE
-            DW   LIT,MFORTH_MAJOR,LIT,'0',PLUS,EMIT,LIT,'.',EMIT
-            DW   LIT,MFORTH_MINOR,LIT,'0',PLUS,EMIT,LIT,'.',EMIT
-            DW   BASE,FETCH,HEX,LIT,MFORTH_CHANGE,ZERO
-            DW   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR
-            DW   TYPE,BASE,STORE
+            .word   PSQUOTE,7
+            .byte   "MFORTH "
+            .word   TYPE
+            .word   LIT,MFORTH_MAJOR,LIT,'0',PLUS,EMIT,LIT,'.',EMIT
+            .word   LIT,MFORTH_MINOR,LIT,'0',PLUS,EMIT,LIT,'.',EMIT
+            .word   BASE,FETCH,HEX,LIT,MFORTH_CHANGE,ZERO
+            .word   LESSNUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGN,NUMSIGNGRTR
+            .word   TYPE,BASE,STORE
 .IFDEF PROFILER
-            DW   LIT,'P',EMIT
+            .word   LIT,'P',EMIT
 .ELSE
-            DW   SPACE
+            .word   SPACE
 .ENDIF
-            DW   EXIT
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -148,11 +148,11 @@ GETXY:      MVI     H,0         ; Initialize H with zero.
 
             LINKTO(GETXY,0,4,'D',"LOC")
 COLD:       JMP     ENTER
-            DW   PAGE,DOTVER,LIT,2,SPACES
-            DW   PSQUOTE,22
-            DB   "(C)Michael Alyn Miller"
-            DW   TYPE,INSROMTRIG,INITFCBS,ABORT
-            DW   HALT
+            .word   PAGE,DOTVER,LIT,2,SPACES
+            .word   PSQUOTE,22
+            .byte   "(C)Michael Alyn Miller"
+            .word   TYPE,INSROMTRIG,INITFCBS,ABORT
+            .word   HALT
 
 
 ; ----------------------------------------------------------------------
@@ -179,15 +179,15 @@ COLD:       JMP     ENTER
 
             LINKTO(COLD,0,9,'E',"NIL-YPOC")
 COPYLINE:   JMP     ENTER
-            DW   ROT,SWAP,TWOTOB,DUP
-_copyline1: DW   BQUES,zbranch,_copyline3
-            DW   BFETCH,LIT,26,EQUALS,INVERT,zbranch,_copyline3
-            DW   BFETCH,LIT,13,EQUALS,BNUMBER,ONE,GREATERTHAN,AND
-            DW       zbranch,_copyline2
-            DW   B,ONEPLUS,CFETCH,LIT,10,EQUALS,zbranch,_copyline2
-            DW   SWAP,MINUS,DUP,ONEPLUS,ONEPLUS,EXIT
-_copyline2: DW   BFETCH,OVER,CSTORE,ONEPLUS,BPLUS,branch,_copyline1
-_copyline3: DW   SWAP,MINUS,DUP,EXIT
+            .word   ROT,SWAP,TWOTOB,DUP
+_copyline1: .word   BQUES,zbranch,_copyline3
+            .word   BFETCH,LIT,26,EQUALS,INVERT,zbranch,_copyline3
+            .word   BFETCH,LIT,13,EQUALS,BNUMBER,ONE,GREATERTHAN,AND
+            .word       zbranch,_copyline2
+            .word   B,ONEPLUS,CFETCH,LIT,10,EQUALS,zbranch,_copyline2
+            .word   SWAP,MINUS,DUP,ONEPLUS,ONEPLUS,EXIT
+_copyline2: .word   BFETCH,OVER,CSTORE,ONEPLUS,BPLUS,branch,_copyline1
+_copyline3: .word   SWAP,MINUS,DUP,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -227,26 +227,26 @@ INITRP:     MVI     C,07FH
 
             LINKTO(INITRP,0,11,'G',"IRTMOR-SNI")
 INSROMTRIG: JMP     ENTER
-            DW   FINDROMTRIG,DUP,ZEROEQUALS,zbranch,_insromtrig1,FREDIR
-_insromtrig1:DW  TOB,LIT,240,BSTOREPLUS,LIT,255,BSTOREPLUS,LIT,255,BSTOREPLUS
-            DW   PSQUOTE,6
-            DB   "MFORTH"
-            DW   B,SWAP,DUP,B,PLUS,TOB,MOVE,BL,BSTOREPLUS,BL,BSTOREPLUS
-            DW   EXIT
+            .word   FINDROMTRIG,DUP,ZEROEQUALS,zbranch,_insromtrig1,FREDIR
+_insromtrig1: .word  TOB,LIT,240,BSTOREPLUS,LIT,255,BSTOREPLUS,LIT,255,BSTOREPLUS
+            .word   PSQUOTE,6
+            .byte   "MFORTH"
+            .word   B,SWAP,DUP,B,PLUS,TOB,MOVE,BL,BSTOREPLUS,BL,BSTOREPLUS
+            .word   EXIT
 
             LINKTO(INSROMTRIG,0,12,'G',"IRTMOR-DNIF")
 FINDROMTRIG:JMP     ENTER
-            DW   LIT,0F9BAH-11
-_findromtrig1:DW NXTDIR,DUP,zbranch,_findromtrig3
-            DW   DUP,CFETCH,LIT,16,AND,zbranch,_findromtrig2
-            DW   EXIT
-_findromtrig2:DW branch,_findromtrig1
-_findromtrig3:DW EXIT
+            .word   LIT,0F9BAH-11
+_findromtrig1: .word NXTDIR,DUP,zbranch,_findromtrig3
+            .word   DUP,CFETCH,LIT,16,AND,zbranch,_findromtrig2
+            .word   EXIT
+_findromtrig2: .word branch,_findromtrig1
+_findromtrig3: .word EXIT
 
             LINKTO(FINDROMTRIG,0,6,'R',"IDTXN")
 NXTDIR:     POP     H           ; Get the entry prior to the start position.
             CALL    STDCALL     ; Call the
-            DW   020D5H      ; .."NXTDIR" routine.
+            .word   020D5H      ; .."NXTDIR" routine.
             JZ      _nxtdirZERO ; Jump if zero to where we push zero/not found.
             JMP     _nxtdirFOUND; We're done.
 _nxtdirZERO:LXI     H,0         ; Put zero in HL.
@@ -256,7 +256,7 @@ _nxtdirFOUND:PUSH   H           ; Push the location (or zero) to the stack.
             LINKTO(NXTDIR,0,6,'R',"IDERF")
 FREDIR:     PUSH    B           ; Save BC (corrupted by FREDIR).
             CALL    STDCALL     ; Call the
-            DW   020ECH      ; .."FREDIR" routine.
+            .word   020ECH      ; .."FREDIR" routine.
             POP     B           ; Restore BC.
             PUSH    H           ; Push the location of the free entry.
             NEXT
@@ -270,7 +270,7 @@ FREDIR:     PUSH    B           ; Save BC (corrupted by FREDIR).
 
             LINKTO(FREDIR,0,3,'D',"CL")
 LCD:        CALL    STDCALL     ; Call the
-            DW   04B92H      ; .."Reinitialize back to LCD" routine.
+            .word   04B92H      ; .."Reinitialize back to LCD" routine.
             NEXT
 
 
@@ -286,7 +286,7 @@ LCD:        CALL    STDCALL     ; Call the
 
             LINKTO(LCD,0,10,'D',"ROW-ESRAP")
 PARSEWORD:  JMP     ENTER
-            DW   TRUE,BL,PPARSE,EXIT
+            .word   TRUE,BL,PPARSE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -296,7 +296,7 @@ PARSEWORD:  JMP     ENTER
 
             LINKTO(PARSEWORD,0,3,'N',"RP")
 PRN:        JMP     ENTER
-            DW   ONE,LIT,0F675H,STORE,EXIT
+            .word   ONE,LIT,0F675H,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -348,7 +348,7 @@ TICKS:      DI
 
             LINKTO(TICKS,0,8,'S',"M>SKCIT")
 TICKSTOMS:  JMP     ENTER
-            DW   DTWOSTAR,DTWOSTAR,EXIT
+            .word   DTWOSTAR,DTWOSTAR,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -363,7 +363,7 @@ TICKSTOMS:  JMP     ENTER
 
             LINKTO(TICKSTOMS,0,13,'E',"TUCEXE-DEMIT")
 TIMEDEXECUTE:JMP    ENTER
-            DW   TICKS,TWOTOR,EXECUTE,TICKS,TWORFROM,DMINUS,EXIT
+            .word   TICKS,TWOTOR,EXECUTE,TICKS,TWORFROM,DMINUS,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -383,11 +383,11 @@ TIMEDEXECUTE:JMP    ENTER
 
             LINKTO(TIMEDEXECUTE,0,10,'Y',"RALUBACOV")
 VOCABULARY: JMP     ENTER
-            DW   CREATE,LIT,-CFASZ,ALLOT,LIT,195,CCOMMA,LIT,pvocabulary,COMMA
-            DW   WORDLIST
-            DW   EXIT
+            .word   CREATE,LIT,-CFASZ,ALLOT,LIT,195,CCOMMA,LIT,pvocabulary,COMMA
+            .word   WORDLIST
+            .word   EXIT
 pvocabulary:CALL    DODOES
-            DW   LIT,SOESTART,STORE,EXIT
+            .word   LIT,SOESTART,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -413,9 +413,9 @@ pvocabulary:CALL    DODOES
             LINKTO(VOCABULARY,1,5,']',"XEH[")
 LAST_MFORTH:
 BRACKETHEX: JMP     ENTER
-            DW   BASE,FETCH,HEX,PARSEWORD
-            DW   NUMBERQ,zbranch,_brackethex1
-            DW   LIT,LIT,COMPILECOMMA,COMMA,BASE,STORE,EXIT
-_brackethex1:DW  PSQUOTE,16
-            DB   "Not a hex number"
-            DW   TYPE,ABORT
+            .word   BASE,FETCH,HEX,PARSEWORD
+            .word   NUMBERQ,zbranch,_brackethex1
+            .word   LIT,LIT,COMPILECOMMA,COMMA,BASE,STORE,EXIT
+_brackethex1: .word  PSQUOTE,16
+            .byte   "Not a hex number"
+            .word   TYPE,ABORT

@@ -29,9 +29,9 @@
 ; MFORTH Version Information
 ; ======================================================================
 
-MFORTH_MAJOR    EQU    1
-MFORTH_MINOR    EQU    1
-;MFORTH_CHANGE  .EQU    Supplied on the TASM command line.
+MFORTH_MAJOR    .const    1
+MFORTH_MINOR    .const    1
+;MFORTH_CHANGE  .const  Supplied on the TASM command line.
 .IFNDEF MFORTH_CHANGE
 .DEFINE MFORTH_CHANGE 0
 .ENDIF
@@ -202,15 +202,15 @@ MFORTH_MINOR    EQU    1
 ; Model 100/102 Constants
 ; ======================================================================
 
-FRETOP EQU    0FBB6H      ; Beginning of free space on the machine
+FRETOP .const    0FBB6H      ; Beginning of free space on the machine
                                 ; (after all files, BASIC vars, etc.)
-STKTOP EQU    0F678H      ; Top of the system stack; system stack
+STKTOP .const    0F678H      ; Top of the system stack; system stack
                                 ; grows downward, although we don't
                                 ; use this stack for anything.
-ALTBGN EQU    0FCC0H      ; Beginning of the Alternate LCD buffer
-ALTEND EQU    0FDFFH      ; End of the Alternate LCD buffer
+ALTBGN .const    0FCC0H      ; Beginning of the Alternate LCD buffer
+ALTEND .const    0FDFFH      ; End of the Alternate LCD buffer
 
-STACKGUARD EQU    076H        ; The guard value used to see if a Task
+STACKGUARD .const    076H        ; The guard value used to see if a Task
                                 ; has over-/under-flown a stack.  $76
                                 ; is "HLT" just in case someone tries
                                 ; to execute the stack pointer.
@@ -221,22 +221,22 @@ STACKGUARD EQU    076H        ; The guard value used to see if a Task
 ; MFORTH Dictionary Constants
 ; ======================================================================
 
-NFASZ EQU    1           ; Size of the Name Field.
+NFASZ .const    1           ; Size of the Name Field.
 .DEFINE     INXNFATOLFA(r) INX r
 
-LFASZ EQU    2           ; Size of the Link Field.
+LFASZ .const    2           ; Size of the Link Field.
 
 .IFNDEF PROFILER
-NFATOCFASZ EQU    NFASZ+LFASZ
+NFATOCFASZ .const    NFASZ+LFASZ
 .DEFINE     INXNFATOCFA(r) INX r\ INX r\ INX r
 .ELSE
-NFATOPECSZ EQU    NFASZ+LFASZ
-PECSZ EQU    2           ; Size of the Profiler Execution Count.
-NFATOCFASZ EQU    NFASZ+LFASZ+PECSZ
+NFATOPECSZ .const    NFASZ+LFASZ
+PECSZ .const    2           ; Size of the Profiler Execution Count.
+NFATOCFASZ .const    NFASZ+LFASZ+PECSZ
 .DEFINE     INXNFATOCFA(r) INX r\ INX r\ INX r\ INX r\ INX r
 .ENDIF
 
-CFASZ EQU    3           ; Size of the Code Field.
+CFASZ .const    3           ; Size of the Code Field.
 .DEFINE     INXCFATOPFA(r) INX r\ INX r\ INX r
 
 
@@ -245,19 +245,19 @@ CFASZ EQU    3           ; Size of the Code Field.
 ; MFORTH Constants
 ; ======================================================================
 
-TIBSIZE EQU    80          ; Length of the Terminal Input Buffer.
+TIBSIZE .const    80          ; Length of the Terminal Input Buffer.
 
-WORDOFFSET EQU    64          ; Offset from HERE to WORD buffer.
-WORDSIZE EQU    258         ; Size of WORD buffer.
-HLDEND EQU    WORDOFFSET+WORDSIZE ; End (and thus, start) of HLD.
-SQOFFSET EQU    HLDEND      ; Offset from HERE to S" buffer.
-SQSIZE EQU    80          ; Size of S" buffer.
-PADOFFSET EQU    SQOFFSET+SQSIZE ; Offset from HERE to first PAD buffer.
-PADSIZE EQU    256         ; Size of each task's PAD buffer.
+WORDOFFSET .const    64          ; Offset from HERE to WORD buffer.
+WORDSIZE .const    258         ; Size of WORD buffer.
+HLDEND .const    WORDOFFSET+WORDSIZE ; End (and thus, start) of HLD.
+SQOFFSET .const    HLDEND      ; Offset from HERE to S" buffer.
+SQSIZE .const    80          ; Size of S" buffer.
+PADOFFSET .const    SQOFFSET+SQSIZE ; Offset from HERE to first PAD buffer.
+PADSIZE .const    256         ; Size of each task's PAD buffer.
 
-MAXICBS EQU    8           ; Maximum number of active input sources.
-MAXFCBS EQU    8           ; Maximum number of files open at one time.
-MAXSOES EQU    8           ; Max. number of word lists in the search order.
+MAXICBS .const    8           ; Maximum number of active input sources.
+MAXFCBS .const    8           ; Maximum number of files open at one time.
+MAXSOES .const    8           ; Max. number of word lists in the search order.
 
 
 
@@ -277,39 +277,39 @@ MAXSOES EQU    8           ; Max. number of word lists in the search order.
 ; is supported.
 ; ======================================================================
 
-OPON        EQU    ALTBGN +  0
+OPON        .const    ALTBGN +  0
 
         .if (OPONLEN > 16)
 ; ECHO "\t*** ERROR: OPON is too large; Global Variables expect OPONLEN<=16 ***\n"
         .endif
 
-HOLDH EQU    ALTBGN + 16
-HOLDD EQU    ALTBGN + 18
-INTH EQU    ALTBGN + 20
-INTD EQU    ALTBGN + 22
+HOLDH .const    ALTBGN + 16
+HOLDD .const    ALTBGN + 18
+INTH .const    ALTBGN + 20
+INTD .const    ALTBGN + 22
 
-DP EQU    ALTBGN + 24 ; Data Pointer.
-BOPSTK EQU    ALTBGN + 26 ; Initial value of SP on entry to MFORTH.
-TICKCURRENT EQU   ALTBGN + 28 ; Pointer to the compilation word list.
-TICKSTATE EQU    ALTBGN + 30 ; Compilation-state flag.
-TICKTIB EQU    ALTBGN + 32 ; Terminal Input Buffer pointer.
-TICKHLD EQU    ALTBGN + 34 ; Pictured Numeric Output hold pointer.
-TICKNUMTASKS EQU   ALTBGN + 36 ; Number of tasks
-TICKFIRSTTASK EQU  ALTBGN + 38 ; Address of the first task (always XX00)
-TICKNUMUSERVARS EQU ALTBGN+ 40 ; Number of USER variables
-SAVED EQU    ALTBGN + 42 ; DE is saved here when used as a temporary.
-TICKPREVLEAVE EQU  ALTBGN + 44 ; Pointer to the previous LEAVE in a DO..LOOP.
-TICKPREVENDB EQU   ALTBGN + 46 ; Pointer to the previous ?ENDB in a FORB..NEXTB
-TICKICB EQU    ALTBGN + 48 ; Address of the current Input Control Block.
-PROFILING EQU    ALTBGN + 50 ; Non-zero if the profiler is on.
-TICKTICKS EQU    ALTBGN + 52 ; (double) Number of ticks (4ms) since start.
-SAVEB EQU    ALTBGN + 56 ; DE is saved here when used as a temporary.
-FORTHWL EQU    ALTBGN + 58 ; FORTH word list.
-ASSEMBLERWL EQU    ALTBGN + 60 ; ASSEMBLER word list.
+DP .const    ALTBGN + 24 ; Data Pointer.
+BOPSTK .const    ALTBGN + 26 ; Initial value of SP on entry to MFORTH.
+TICKCURRENT .const   ALTBGN + 28 ; Pointer to the compilation word list.
+TICKSTATE .const    ALTBGN + 30 ; Compilation-state flag.
+TICKTIB .const    ALTBGN + 32 ; Terminal Input Buffer pointer.
+TICKHLD .const    ALTBGN + 34 ; Pictured Numeric Output hold pointer.
+TICKNUMTASKS .const   ALTBGN + 36 ; Number of tasks
+TICKFIRSTTASK .const  ALTBGN + 38 ; Address of the first task (always XX00)
+TICKNUMUSERVARS .const ALTBGN+ 40 ; Number of USER variables
+SAVED .const    ALTBGN + 42 ; DE is saved here when used as a temporary.
+TICKPREVLEAVE .const  ALTBGN + 44 ; Pointer to the previous LEAVE in a DO..LOOP.
+TICKPREVENDB .const   ALTBGN + 46 ; Pointer to the previous ?ENDB in a FORB..NEXTB
+TICKICB .const    ALTBGN + 48 ; Address of the current Input Control Block.
+PROFILING .const    ALTBGN + 50 ; Non-zero if the profiler is on.
+TICKTICKS .const    ALTBGN + 52 ; (double) Number of ticks (4ms) since start.
+SAVEB .const    ALTBGN + 56 ; DE is saved here when used as a temporary.
+FORTHWL .const    ALTBGN + 58 ; FORTH word list.
+ASSEMBLERWL .const    ALTBGN + 60 ; ASSEMBLER word list.
 ; 2 bytes free.
-ICBSTART EQU    ALTBGN + 64 ; Start of the 8, 8-byte Input Control Blocks.
-FCBSTART EQU    ALTBGN + 128; Start of the 8, 8-byte File Control Blocks.
-SOESTART EQU    ALTBGN + 192; Start of the 8, 2-byte Search Order Entries.
+ICBSTART .const    ALTBGN + 64 ; Start of the 8, 8-byte Input Control Blocks.
+FCBSTART .const    ALTBGN + 128; Start of the 8, 8-byte File Control Blocks.
+SOESTART .const    ALTBGN + 192; Start of the 8, 2-byte Search Order Entries.
 ; 112 bytes free.
 
 
@@ -322,11 +322,11 @@ SOESTART EQU    ALTBGN + 192; Start of the 8, 2-byte Search Order Entries.
 ; third User Variable is 4 (0, 2, 4) and not 2 (0, 1, 2).
 ; ======================================================================
 
-USERSAVEDSP EQU    0           ; Saved stack pointer
-USERBASE EQU    2           ; Number-conversion radix pointer.
-USERB EQU    4           ; "B" register
-USERBEND EQU    6           ; "B" register end
-NUMUSERVARS EQU    4           ; Total number of user variables.
+USERSAVEDSP .const    0           ; Saved stack pointer
+USERBASE .const    2           ; Number-conversion radix pointer.
+USERB .const    4           ; "B" register
+USERBEND .const    6           ; "B" register end
+NUMUSERVARS .const    4           ; Total number of user variables.
 
 
 
@@ -353,57 +353,57 @@ NUMUSERVARS EQU    4           ; Total number of user variables.
 ; Interrupt Vectors
 ; ======================================================================
 
- ORG    00000H
+ .org    00000H
 RST0:
             INX     SP
             INX     SP
             JMP     INIT
 
- ORG    00008H
+ .org    00008H
 RST1:
             RET
 
- ORG    00010H
+ .org    00010H
 RST2:
             RET
 
- ORG    00018H
+ .org    00018H
 RST3:
             RET
 
- ORG    00020H
+ .org    00020H
 RST4:
             RET
 
 ; Power down interrupt.
- ORG    00024H
+ .org    00024H
 TRAP:
             DI
             JMP     INTRAP
 
- ORG    00028H
+ .org    00028H
 RST5:
             RET
 
- ORG    0002CH
+ .org    0002CH
 RST55:
             DI
             JMP     INT55
 
- ORG    00030H
+ .org    00030H
 RST6:
             JMP     STDCALL
 
- ORG    00034H
+ .org    00034H
 RST65:
             DI
             JMP     INT65
 
- ORG    00038H
+ .org    00038H
 RST7:
             RET
 
- ORG    0003CH
+ .org    0003CH
 RST75:
             DI
             JMP     INT75
@@ -426,7 +426,7 @@ RST75:
 ; initialization process.
 ; ======================================================================
 
-            ORG    00040H
+            .org    00040H
             HLT
             HLT
             HLT
@@ -444,19 +444,19 @@ RST75:
 
 ; Power down interrupt
 INTRAP:     CALL    INTCALL     ; Let the Main ROM turn off the computer
-            DW   00024H      ; ..and handle the wake-up sequence.
+            .word   00024H      ; ..and handle the wake-up sequence.
             RET
 
 INT55:      CALL    INTCALL
-            DW   0002CH
+            .word   0002CH
             RET
 
 INT65:      CALL    INTCALL
-            DW   00034H
+            .word   00034H
             RET
 
 INT75:      CALL    INTCALL
-            DW   0003CH
+            .word   0003CH
             PUSH    H
             PUSH    PSW
             CALL    INCTICKS
@@ -520,7 +520,7 @@ INCTICKS:   LXI     H,TICKTICKS
 ; so STDON is ORGed in such a way as to ensure that the final RET statement
 ; falls at $008E.
 
- ORG    0007EH
+ .org    0007EH
 STDON:
             PUSH    PSW         ; Preserve A+PSW (which $26C8 POPs).
             PUSH    H           ; Get $26C8 onto the stack
@@ -562,7 +562,7 @@ OPONIMG:    DI
             POP     PSW         ; Now in Option ROM; restore A+PSW.
             EI
             RET                 ; Return to whatever called STDCALL/INTCALL.
-OPONLEN EQU    $-OPONIMG   ; Calculate length of OPON for use by INIT.
+OPONLEN .const    $-OPONIMG   ; Calculate length of OPON for use by INIT.
 
 
 
@@ -696,7 +696,7 @@ _init1:     LDAX    D           ; Load value from [DE]
 
             ; Call LNKFIL to ensure that the file addresses are accurate.
             CALL    STDCALL     ; Call the
-            DW   02146H      ; .."LNKFIL" routine.
+            .word   02146H      ; .."LNKFIL" routine.
             
             ; Set up our memory map.
             LHLD    FRETOP      ; Store the beginning of free memory to HL
@@ -736,7 +736,7 @@ _init1:     LDAX    D           ; Load value from [DE]
             LXI     H,0         ; Get SP
             DAD     SP          ; ..into HL,
             LXI     B,0100H     ; ..then subtract 256
-            DB 08H                ; ..from HL to get into the middle of the page,
+            .byte 08H                ; ..from HL to get into the middle of the page,
             MVI     L,0         ; ..then clear L to get to the start of the page
             SHLD    TICKFIRSTTASK ;.and then store address of the first task.
 
@@ -780,56 +780,56 @@ _init1:     LDAX    D           ; Load value from [DE]
 .INCLUDE "kernel.asm"
 
 ; ANS word sets.
-LINK_CORE       EQU    NFATOCFASZ
+LINK_CORE       .const    NFATOCFASZ
 .INCLUDE "answords/core.asm"
 
-LINK_COREEXT    EQU    LAST_CORE
+LINK_COREEXT    .const    LAST_CORE
 .INCLUDE "answords/core-ext.asm"
 
-LINK_DOUBLE     EQU    LAST_COREEXT
+LINK_DOUBLE     .const    LAST_COREEXT
 .INCLUDE "answords/double.asm"
 
-LINK_FACILITY   EQU    LAST_DOUBLE
+LINK_FACILITY   .const    LAST_DOUBLE
 .INCLUDE "answords/facility.asm"
 
-LINK_FACILITYEXT EQU   LAST_FACILITY
+LINK_FACILITYEXT .const   LAST_FACILITY
 .INCLUDE "answords/facility-ext.asm"
 
-LINK_FILE       EQU    LAST_FACILITYEXT
+LINK_FILE       .const    LAST_FACILITYEXT
 .INCLUDE "answords/file.asm"
 
-LINK_SEARCH     EQU    LAST_FILE
+LINK_SEARCH     .const    LAST_FILE
 .INCLUDE "answords/search.asm"
 
-LINK_SEARCHEXT  EQU    LAST_SEARCH
+LINK_SEARCHEXT  .const    LAST_SEARCH
 .INCLUDE "answords/search-ext.asm"
 
-LINK_STRING     EQU    LAST_SEARCHEXT
+LINK_STRING     .const    LAST_SEARCHEXT
 .INCLUDE "answords/string.asm"
 
-LINK_TOOLS      EQU    LAST_STRING
+LINK_TOOLS      .const    LAST_STRING
 .INCLUDE "answords/tools.asm"
 
-LINK_TOOLSEXT   EQU    LAST_TOOLS
+LINK_TOOLSEXT   .const    LAST_TOOLS
 .INCLUDE "answords/tools-ext.asm"
 
 ; MFORTH word sets.
-LINK_BREG       EQU    LAST_TOOLSEXT
+LINK_BREG       .const    LAST_TOOLSEXT
 .INCLUDE "mforthwords/breg.asm"
 
-LINK_MFORTH     EQU    LAST_BREG
+LINK_MFORTH     .const    LAST_BREG
 .INCLUDE "mforthwords/mforth.asm"
 
-LINK_TASK       EQU    LAST_MFORTH
+LINK_TASK       .const    LAST_MFORTH
 .INCLUDE "mforthwords/task.asm"
 
 .IFNDEF PROFILER
-_latestFORTH    EQU    LAST_TASK
+_latestFORTH    .const    LAST_TASK
 .ELSE
-LINK_PROFILER   EQU    LAST_TASK
+LINK_PROFILER   .const    LAST_TASK
 .INCLUDE "mforthwords/profiler.asm"
 
-_latestFORTH    EQU    LAST_PROFILER
+_latestFORTH    .const    LAST_PROFILER
 .ENDIF
 
 
@@ -839,10 +839,10 @@ _latestFORTH    EQU    LAST_PROFILER
 ; ======================================================================
 
 ; ASSEMBLER Word List
-LINK_ASSEMBLER  EQU    NFATOCFASZ
+LINK_ASSEMBLER  .const    NFATOCFASZ
 .INCLUDE "mforthwords/assembler.asm"
 
-_latestASSEMBLER EQU   LAST_ASSEMBLER
+_latestASSEMBLER .const   LAST_ASSEMBLER
 
 
 
@@ -860,8 +860,8 @@ _latestASSEMBLER EQU   LAST_ASSEMBLER
 ; Zero-out the rest of the ROM.
 ; ======================================================================
 
-            ORG    07FFFH
-            DB   0
+            .org    07FFFH
+            .byte   0
 
 
 
@@ -871,8 +871,8 @@ _latestASSEMBLER EQU   LAST_ASSEMBLER
 
 .IFNDEF PHASH
 ; Temporarily store _latestFORTH at 07FFE for use by phashgen.exe.
-            ORG    07FFEH
-            DW   _latestFORTH-NFATOCFASZ
+            .org    07FFEH
+            .word   _latestFORTH-NFATOCFASZ
 .ELSE
 ; phash.asm already generated.
 .INCLUDE "phash.asm"
@@ -884,4 +884,4 @@ _latestASSEMBLER EQU   LAST_ASSEMBLER
 ; End of ROM.
 ; ======================================================================
 
-            END
+            .end

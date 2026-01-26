@@ -41,7 +41,7 @@ LAST_FACILITYEXT:
 TIMEANDDATE:PUSH    B           ; Update
             PUSH    D           ; ..the
             CALL    STDCALL     ; ..clock
-            DW   019A0H      ; ..chip
+            .word   019A0H      ; ..chip
             POP     D           ; ..values
             POP     B           ; ..(which corrupts every register).
 

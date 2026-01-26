@@ -42,11 +42,11 @@
 
             LINKTO(LINK_PROFILER,0,13,'E',"LIFORP-TNIRP")
 PRINTPROFILE:JMP    ENTER
-            DW   PRN,LATEST,FETCH
-_printprof1:DW   DUP,LIT,NFATOPECSZ,PLUS,FETCH,QDUP,zbranch,_printprof2
-            DW   UDOT,DUP,DOTNAME,CR
-_printprof2:DW   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_printprof1
-            DW   DROP,LIT,0CH,EMIT,LCD,EXIT
+            .word   PRN,LATEST,FETCH
+_printprof1: .word   DUP,LIT,NFATOPECSZ,PLUS,FETCH,QDUP,zbranch,_printprof2
+            .word   UDOT,DUP,DOTNAME,CR
+_printprof2: .word   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_printprof1
+            .word   DROP,LIT,0CH,EMIT,LCD,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -61,14 +61,14 @@ _printprof2:DW   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_printprof1
 
             LINKTO(PRINTPROFILE,0,7,'E',"LIFORP")
 PROFILE:    JMP     ENTER
-            DW   CLEARPROFILE,ONE,LIT,PROFILING,STORE
-            DW   TIMEDEXECUTE
-            DW   ZERO,LIT,PROFILING,STORE
-            DW   TICKSTOMS,CR,PSQUOTE,12
-            DB   "Total time: "
-            DW   TYPE,UDDOT,PSQUOTE,2
-            DB   "ms"
-            DW   TYPE,EXIT
+            .word   CLEARPROFILE,ONE,LIT,PROFILING,STORE
+            .word   TIMEDEXECUTE
+            .word   ZERO,LIT,PROFILING,STORE
+            .word   TICKSTOMS,CR,PSQUOTE,12
+            .byte   "Total time: "
+            .word   TYPE,UDDOT,PSQUOTE,2
+            .byte   "ms"
+            .word   TYPE,EXIT
 
 
 
@@ -88,7 +88,7 @@ PROFILE:    JMP     ENTER
             LINKTO(PROFILE,0,13,'E',"LIFORP-RAELC")
 LAST_PROFILER:
 CLEARPROFILE:JMP    ENTER
-            DW   LATEST,FETCH
-_clearprof1:DW   ZERO,OVER,LIT,NFATOPECSZ,PLUS,STORE
-            DW   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_clearprof1
-            DW   DROP,EXIT
+            .word   LATEST,FETCH
+_clearprof1: .word   ZERO,OVER,LIT,NFATOPECSZ,PLUS,STORE
+            .word   NFATOLFA,FETCH,DUP,ZEROEQUALS,zbranch,_clearprof1
+            .word   DROP,EXIT

@@ -42,7 +42,7 @@
 
             LINKTO(LINK_SEARCH,0,11,'S',"NOITINIFED")
 DEFINITIONS:JMP     ENTER
-            DW   CONTEXT,FETCH,SETCURRENT,EXIT
+            .word   CONTEXT,FETCH,SETCURRENT,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -54,7 +54,7 @@ DEFINITIONS:JMP     ENTER
 
             LINKTO(DEFINITIONS,0,14,'T',"SILDROW-HTROF")
 FORTHWORDLIST:JMP   ENTER
-            DW   LIT,FORTHWL,EXIT
+            .word   LIT,FORTHWL,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -64,7 +64,7 @@ FORTHWORDLIST:JMP   ENTER
 
             LINKTO(FORTHWORDLIST,0,11,'T',"NERRUC-TEG")
 GETCURRENT: JMP     ENTER
-            DW   CURRENT,FETCH,EXIT
+            .word   CURRENT,FETCH,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -81,10 +81,10 @@ GETCURRENT: JMP     ENTER
 
             LINKTO(GETCURRENT,0,9,'R',"EDRO-TEG")
 GETORDER:   JMP     ENTER
-            DW   ZERO,NUMSOES,ONEMINUS,pdo
-_getorder1: DW   LIT,SOESTART,I,CELLS,PLUS,FETCH,LIT,-1,pplusloop,_getorder1
-            DW   NUMSOES
-            DW   EXIT
+            .word   ZERO,NUMSOES,ONEMINUS,pdo
+_getorder1: .word   LIT,SOESTART,I,CELLS,PLUS,FETCH,LIT,-1,pplusloop,_getorder1
+            .word   NUMSOES
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -114,12 +114,12 @@ SEARCHWORDLIST:SAVEDE
             MOV     B,D         ; ..copy wid into B
             MOV     C,E         ; ..and C,
             LXI     H,FORTHWL   ; ..get the FORTH wid in HL,
-            DB 08H                ; ..then compare wid to the FORTH wid;
+            .byte 08H                ; ..then compare wid to the FORTH wid;
             JZ      _swlFORTH   ; ..jump to where we clear B if FORTH,
             MVI     B,-1        ; ..otherwise set B to -1
             JMP     _swlLATEST  ; ..and load LATEST.
 _swlFORTH:  MVI     B,0         ; FORTH wid, so clear B.
-_swlLATEST: DB 0EDH                ; Get the latest word in wid
+_swlLATEST: .byte 0EDH                ; Get the latest word in wid
             XCHG                ; ..and put that value in DE.
             MVI     C,-1        ; Initialize our phash flag to -1.
             POP     H           ; Pop the length of the string
@@ -200,7 +200,7 @@ _swlIMM:    LXI     H,1         ; Immediate word, so push 1
             JMP     _swlDONE    ; We're done.
 _swlNEXTWORDDE:POP  D           ; Restore DE (which is now pointing at a char).
 _swlNEXTWORD:INXNFATOLFA(D)     ; Move to the word's LFA,
-            DB 0EDH                ; ..get the LFA in HL,
+            .byte 0EDH                ; ..get the LFA in HL,
             XCHG                ; ..put the LFA into DE,
             LHLD    HOLDH       ; ..and restore HL.
 .IFDEF PHASH
@@ -266,7 +266,7 @@ _phashDONE: POP     H           ; Pop the hash values into HL.
 
             LINKTO(SEARCHWORDLIST,0,11,'T',"NERRUC-TES")
 SETCURRENT: JMP     ENTER
-            DW   CURRENT,STORE,EXIT
+            .word   CURRENT,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -285,9 +285,9 @@ SETCURRENT: JMP     ENTER
 
             LINKTO(SETCURRENT,0,9,'R',"EDRO-TES")
 SETORDER:   JMP     ENTER
-            DW   ZERO,pdo
-_setorder1: DW   LIT,SOESTART,I,CELLS,PLUS,STORE,ploop,_setorder1
-_setorder2: DW   EXIT
+            .word   ZERO,pdo
+_setorder1: .word   LIT,SOESTART,I,CELLS,PLUS,STORE,ploop,_setorder1
+_setorder2: .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -301,7 +301,7 @@ _setorder2: DW   EXIT
 
             LINKTO(SETORDER,0,8,'T',"SILDROW")
 WORDLIST:   JMP     ENTER
-            DW   HERE,ZERO,COMMA,EXIT
+            .word   HERE,ZERO,COMMA,EXIT
 
 
 
@@ -320,10 +320,10 @@ WORDLIST:   JMP     ENTER
 
             LINKTO(WORDLIST,0,5,'S',"EOS#")
 NUMSOES:    JMP     ENTER
-            DW   CONTEXT,DUP
-_numsoes1:  DW   DUP,FETCH,ZERONOTEQUALS,zbranch,_numsoes2
-            DW   CELLPLUS,branch,_numsoes1
-_numsoes2:  DW   SWAP,MINUS,TWOSLASH,EXIT
+            .word   CONTEXT,DUP
+_numsoes1:  .word   DUP,FETCH,ZERONOTEQUALS,zbranch,_numsoes2
+            .word   CELLPLUS,branch,_numsoes1
+_numsoes2:  .word   SWAP,MINUS,TWOSLASH,EXIT
 
 
 ; ----------------------------------------------------------------------

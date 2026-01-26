@@ -8,7 +8,7 @@ ADDR    BYTES                    LINE  SOURCE
 0007    00                          5  EXEC:   nop
 0008    C9                          6  CHKIO:  ret
 ----                                7  
-0009    61 62 63 64                 8  TAB2:   db      'abcd'
+0009    61 62 63 64                 8  TAB2:   .byte      'abcd'
 ----                                9  
 
 Lines: 9  Errors: 0  Warnings: 0

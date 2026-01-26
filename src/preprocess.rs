@@ -857,37 +857,37 @@ mod tests {
     fn ifdef_selects_true_branch() {
         let path = temp_file(
             "test.asm",
-            ".DEFINE FOO 1\n.IFDEF FOO\nVAL EQU 1\n.ELSE\nVAL EQU 2\n.ENDIF\n",
+            ".DEFINE FOO 1\n.IFDEF FOO\nVAL .const 1\n.ELSE\nVAL .const 2\n.ENDIF\n",
         );
         let mut pp = Preprocessor::new();
         assert!(pp.process_file(path.to_str().unwrap()).is_ok());
         let lines = pp.lines();
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].trim(), "VAL EQU 1");
+        assert_eq!(lines[0].trim(), "VAL .const 1");
     }
 
     #[test]
     fn function_macro_expands() {
         let path = temp_file(
             "macro.asm",
-            ".DEFINE ADD(a,b) a + b\nDB ADD(1,2)\n",
+            ".DEFINE ADD(a,b) a + b\n.byte ADD(1,2)\n",
         );
         let mut pp = Preprocessor::new();
         assert!(pp.process_file(path.to_str().unwrap()).is_ok());
         let lines = pp.lines();
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].trim(), "DB 1 + 2");
+        assert_eq!(lines[0].trim(), ".byte 1 + 2");
     }
 
     #[test]
     fn splits_unquoted_backslash() {
-        let path = temp_file("split.asm", "DB 1\\DB 2\n");
+        let path = temp_file("split.asm", ".byte 1\\.byte 2\n");
         let mut pp = Preprocessor::new();
         assert!(pp.process_file(path.to_str().unwrap()).is_ok());
         let lines = pp.lines();
         assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].trim(), "DB 1");
-        assert_eq!(lines[1].trim(), "DB 2");
+        assert_eq!(lines[0].trim(), ".byte 1");
+        assert_eq!(lines[1].trim(), ".byte 2");
     }
 
     #[test]

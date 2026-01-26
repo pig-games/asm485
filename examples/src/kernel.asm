@@ -98,20 +98,20 @@
 ;           INX     D           ;[1. 5] IP+1 -> IP
 ;           PCHL                ;[1. 5] JMP W
 ;                               ;[4.25]
-.DEFINE     NEXT    DB 0EDH\ INX D\ INX D\ PCHL
+.DEFINE     NEXT    .byte 0EDH\ INX D\ INX D\ PCHL
 .ELSE
 PROFILENEXT:LHLD    PROFILING   ; Don't increment the Execution Count
             MOV     A,L         ; ..if the profiling
             ORA     H           ; ..flag
             JZ      _profnext1  ; ..is zero.
-            DB 0EDH                ; (IP) -> W
+            .byte 0EDH                ; (IP) -> W
             DCX     H           ; Decrement HL
             DCX     H           ; ..to the low byte of the Execution Count.
             INR     M           ; Increment the low byte of the count
             JNZ     _profnext1  ; ..and skip the high byte if we didn't wrap.
             INX     H           ; Increment to the high byte of the count.
             INR     M           ; Increment the high byte of the count.
-_profnext1: DB 0EDH                ; (IP) -> W
+_profnext1: .byte 0EDH                ; (IP) -> W
             INX     D           ; IP+1 -> IP
             INX     D           ; IP+1 -> IP
             PCHL                ; JMP W
@@ -124,7 +124,7 @@ _profnext1: DB 0EDH                ; (IP) -> W
 
 DOCOLON:
 ENTER:      RSPUSH(D,E)         ;[6.34]
-            DB 028H, CFASZ          ;[2.10] W+CFASZ -> IP
+            .byte 028H, CFASZ          ;[2.10] W+CFASZ -> IP
             NEXT                ;[4.25]
                                 ;[12.69]
 
@@ -188,9 +188,9 @@ DOUSER:     INXCFATOPFA(H)      ; Skip over the CFA so that HL points to PFA.
 ; specified as a separate byte.
 
 .IFNDEF PROFILER
-.DEFINE     LINKTO(prev,isimm,len,lastchar,revchars) DB 10000000b|lastchar,revchars\ DB (isimm << 7)|len\ DW prev-NFATOCFASZ
-.DEFINE     LINKTO0(prev,isimm,len,lastchar) DB 10000000b|lastchar\ DB (isimm << 7)|len\ DW prev-NFATOCFASZ
+.DEFINE     LINKTO(prev,isimm,len,lastchar,revchars) .byte 10000000b|lastchar,revchars\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ
+.DEFINE     LINKTO0(prev,isimm,len,lastchar) .byte 10000000b|lastchar\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ
 .ELSE
-.DEFINE     LINKTO(prev,isimm,len,lastchar,revchars) DB 10000000b|lastchar,revchars\ DB (isimm << 7)|len\ DW prev-NFATOCFASZ\ DW 0
-.DEFINE     LINKTO0(prev,isimm,len,lastchar) DB 10000000b|lastchar\ DB (isimm << 7)|len\ DW prev-NFATOCFASZ\ DW 0
+.DEFINE     LINKTO(prev,isimm,len,lastchar,revchars) .byte 10000000b|lastchar,revchars\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ\ .word 0
+.DEFINE     LINKTO0(prev,isimm,len,lastchar) .byte 10000000b|lastchar\ .byte (isimm << 7)|len\ .word prev-NFATOCFASZ\ .word 0
 .ENDIF

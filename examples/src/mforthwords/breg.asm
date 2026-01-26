@@ -36,7 +36,7 @@
 
             LINKTO(LINK_BREG,0,2,'B',"\'")
 TICKB:      JMP     DOUSER
-            DB   USERB
+            .byte   USERB
 
 
 ; ----------------------------------------------------------------------
@@ -46,7 +46,7 @@ TICKB:      JMP     DOUSER
 
             LINKTO(TICKB,0,5,'d',"neB\'")
 TICKBEND:   JMP     DOUSER
-            DB   USERBEND
+            .byte   USERBEND
 
 
 ; ----------------------------------------------------------------------
@@ -59,7 +59,7 @@ TICKBEND:   JMP     DOUSER
 
             LINKTO(TICKBEND,0,3,'B',">2")
 TWOTOB:     JMP     ENTER
-            DW   OVER,PLUS,TICKBEND,STORE,TICKB,STORE,EXIT
+            .word   OVER,PLUS,TICKBEND,STORE,TICKB,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -72,7 +72,7 @@ TWOTOB:     JMP     ENTER
 
             LINKTO(TWOTOB,0,2,'B',">")
 TOB:        JMP     ENTER
-            DW   TICKB,STORE,EXIT
+            .word   TICKB,STORE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -93,9 +93,9 @@ TOB:        JMP     ENTER
 
             LINKTO(TOB,1,5,'B',"DNE?")
 QENDB:      JMP     ENTER
-            DW   IF,LIT,branch,COMPILECOMMA
-            DW   HERE,LIT,TICKPREVENDB,FETCH,COMMA,LIT,TICKPREVENDB,STORE
-            DW   THEN,EXIT
+            .word   IF,LIT,branch,COMPILECOMMA
+            .word   HERE,LIT,TICKPREVENDB,FETCH,COMMA,LIT,TICKPREVENDB,STORE
+            .word   THEN,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -150,7 +150,7 @@ BSTORE:     MOV     H,B
 
             LINKTO(BSTORE,0,3,'+',"!B")
 BSTOREPLUS: JMP     ENTER
-            DW   BSTORE,BPLUS,EXIT
+            .word   BSTORE,BPLUS,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -173,7 +173,7 @@ BNUMBER:    PUSH    B
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
             MOV     L,A         ; Move LSB of cell value from A to L
-            DB 08H
+            .byte 08H
             XTHL
             MOV     B,H
             MOV     C,L
@@ -218,7 +218,7 @@ BQUES:      PUSH    B
             INX     H           ; Increment to MSB of the cell value
             MOV     H,M         ; Load MSB of the cell value into H
             MOV     L,A         ; Move LSB of cell value from A to L
-            DB 08H
+            .byte 08H
             JZ      _bquesDONE  ; Leave zero in HL and we're done; otherwise
             LXI     H,0FFFFH    ; ..put true in HL.
 _bquesDONE: XTHL
@@ -260,7 +260,7 @@ BFETCH:     MOV     H,B
 
             LINKTO(BFETCH,0,3,'+',"@B")
 BFETCHPLUS: JMP     ENTER
-            DW   BFETCH,BPLUS,EXIT
+            .word   BFETCH,BPLUS,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -289,9 +289,9 @@ BFETCHPLUS: JMP     ENTER
 
             LINKTO(BFETCHPLUS,1,4,'B',"ROF")
 FORB:       JMP     ENTER
-            DW   ZERO,LIT,TICKPREVENDB,STORE,BEGIN
-            DW   LIT,BNUMBER,COMPILECOMMA,LIT,ZEROEQUALS,COMPILECOMMA,QENDB
-            DW   EXIT
+            .word   ZERO,LIT,TICKPREVENDB,STORE,BEGIN
+            .word   LIT,BNUMBER,COMPILECOMMA,LIT,ZEROEQUALS,COMPILECOMMA,QENDB
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -315,5 +315,5 @@ FORB:       JMP     ENTER
             LINKTO(FORB,1,5,'B',"TXEN")
 LAST_BREG:
 NEXTB:      JMP     ENTER
-            DW   LIT,BPLUS,COMPILECOMMA,AGAIN
-            DW   LIT,TICKPREVENDB,FETCH,HERETOCHAIN,EXIT
+            .word   LIT,BPLUS,COMPILECOMMA,AGAIN
+            .word   LIT,TICKPREVENDB,FETCH,HERETOCHAIN,EXIT

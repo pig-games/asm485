@@ -6,51 +6,51 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                3  ; lines marked as *ERR should be detected, but are currently not
 ----                                4  
 ----                                5  ; constants
-----    EQU 0037                    6  symd1   equ 55          ; decimal constant
-----                                7  symd2   equ 5X5         ; ERR: bad decimal constant
-    7 | symd2   equ [31m5[0mX5         ; ERR: bad decimal constant
+----    EQU 0037                    6  symd1   .const 55          ; decimal constant
+----                                7  symd2   .const 5X5         ; ERR: bad decimal constant
+    7 | symd2   .const [31m5[0mX5         ; ERR: bad decimal constant
 ERROR: Illegal character in decimal constant: 5X5
-----                                8  symd3   equ 55X         ; ERR: bad decimal constant
-    8 | symd3   equ [31m5[0m5X         ; ERR: bad decimal constant
+----                                8  symd3   .const 55X         ; ERR: bad decimal constant
+    8 | symd3   .const [31m5[0m5X         ; ERR: bad decimal constant
 ERROR: Illegal character in decimal constant: 55X
-----    EQU 05A5                    9  symh1   equ 5A5h        ; hex constant
-----                               10  symh2   equ 5A5         ; ERR: missing H for hex constant
-   10 | symh2   equ [31m5[0mA5         ; ERR: missing H for hex constant
+----    EQU 05A5                    9  symh1   .const 5A5h        ; hex constant
+----                               10  symh2   .const 5A5         ; ERR: missing H for hex constant
+   10 | symh2   .const [31m5[0mA5         ; ERR: missing H for hex constant
 ERROR: Illegal character in decimal constant: 5A5
-----                               11  symh3   equ ffffH       ; ERR: hex must start with numeric
-   11 | symh3   equ [31mf[0mfffH       ; ERR: hex must start with numeric
+----                               11  symh3   .const ffffH       ; ERR: hex must start with numeric
+   11 | symh3   .const [31mf[0mfffH       ; ERR: hex must start with numeric
 ERROR: Label not found: ffffH
-----    EQU FFFF                   12  symh4   equ 0ffffH      ; Hex with leading zero
-----    EQU 0066                   13  symb1   equ 01100110b   ; Binary constant
-----                               14  symb2   equ 01101210b   ; ERR: bad binary constant
-   14 | symb2   equ [31m0[0m1101210b   ; ERR: bad binary constant
+----    EQU FFFF                   12  symh4   .const 0ffffH      ; Hex with leading zero
+----    EQU 0066                   13  symb1   .const 01100110b   ; Binary constant
+----                               14  symb2   .const 01101210b   ; ERR: bad binary constant
+   14 | symb2   .const [31m0[0m1101210b   ; ERR: bad binary constant
 ERROR: Illegal character in binary constant: 01101210b
-----    EQU 0053                   15  symq1   equ 123q        ; octal constant
-----                               16  symq2   equ 128o        ; ERR: bad octal constant
-   16 | symq2   equ [31m1[0m28o        ; ERR: bad octal constant
+----    EQU 0053                   15  symq1   .const 123q        ; octal constant
+----                               16  symq2   .const 128o        ; ERR: bad octal constant
+   16 | symq2   .const [31m1[0m28o        ; ERR: bad octal constant
 ERROR: Illegal character in octal constant: 128o
 ----                               17  
-----    EQU 0077                   18  bah     equ 77h
-----                               19  bad:    db  "where is the end  ; ERR: unterminated string
-   19 | bad:    db  [31m"[0mwhere is the end  ; ERR: unterminated string
-ERROR: Unterminated string: "where is the end  ; ERR: unterminated string
-0000    09 0A 0D 77                20  special:db  "\t\n\r",bah,beh, bad  ; ERR: undefined symbol
-   20 | special:db  "\t\n\r",bah,[31mb[0meh, bad  ; ERR: undefined symbol
+----    EQU 0077                   18  bah     .const 77h
+----                               19  bad:    .byte  "where is the .end  ; ERR: unterminated string
+   19 | bad:    .byte  [31m"[0mwhere is the .end  ; ERR: unterminated string
+ERROR: Unterminated string: "where is the .end  ; ERR: unterminated string
+0000    09 0A 0D 77                20  special: .byte  "\t\n\r",bah,beh, bad  ; ERR: undefined symbol
+   20 | special: .byte  "\t\n\r",bah,[31mb[0meh, bad  ; ERR: undefined symbol
 ERROR: Label not found: beh
 ----                               21  
 ----                               22  ; column zero
 ----                               23  LABEL1:                 ; label can start in column 0
 0004    4F                         24  LABEL2: MOV   C,A       ; label with instruction also OK
-----    EQU 0007                   25  NAME1   EQU   7         ; name can start in column zero
+----    EQU 0007                   25  NAME1   .const   7         ; name can start in column zero
 ----                               26  123                     ; ERR: not name or label
    26 | [31m1[0m23                     ; ERR: not name or label
-ERROR: Illegal character in column 1.  Must be label, name, comment, or space. Found: 123                     ; ERR: not name or label
+ERROR: Illegal character in column 1. Must be label, name, '.', '*', comment, or space. Found: 123                     ; ERR: not name or label
 ----                               27  "abc"                   ; ERR: not name or label
    27 | [31m"[0mabc"                   ; ERR: not name or label
-ERROR: Illegal character in column 1.  Must be label, name, comment, or space. Found: "abc"                   ; ERR: not name or label
+ERROR: Illegal character in column 1. Must be label, name, '.', '*', comment, or space. Found: "abc"                   ; ERR: not name or label
 ----                               28  +                       ; ERR: not name or label
    28 | [31m+[0m                       ; ERR: not name or label
-ERROR: Illegal character in column 1.  Must be label, name, comment, or space. Found: +                       ; ERR: not name or label
+ERROR: Illegal character in column 1. Must be label, name, '.', '*', comment, or space. Found: +                       ; ERR: not name or label
 ----                               29  mov h,l                 ; ERR: instruction can't start in column zero
    29 | [31mm[0mov h,l                 ; ERR: instruction can't start in column zero
 ERROR: Expecting label, comment, or space n column 1, found: mov
@@ -92,7 +92,7 @@ ERROR: Expected label or numeric constant, found: ;
 ----                               45          RST     A       ; ERR: must be number
    45 |         RST     [31mA[0m       ; ERR: must be number
 ERROR: RST instruction argument must be 0-7: A
-----    EQU 0001                   46  RNUM    equ     1
+----    EQU 0001                   46  RNUM    .const     1
 ----                               47          RST     RNUM    ; ERR: expression not allowed
    47 |         RST     [31mR[0mNUM    ; ERR: expression not allowed
 ERROR: RST instruction argument must be 0-7: RNUM
@@ -114,38 +114,38 @@ ERROR: Multi-character string not allowed in expression.
 ----                               57  
 ----                               58  
 ----                               59  ; math
-----                               60  var1    equ     23 / 0  ; ERR: divide by zero
-   60 | var1    equ     23 / 0  [31m;[0m ERR: divide by zero
+----                               60  var1    .const     23 / 0  ; ERR: divide by zero
+   60 | var1    .const     23 / 0  [31m;[0m ERR: divide by zero
 ERROR: Divide by zero
-0017    09 01                      61  var2:   dw      255 + 10; OK as a 16 bit value
-0019    09                         62  var3:   db      255 + 10; *ERR: 8 bit constant overflow
+0017    09 01                      61  var2:   .word      255 + 10; OK as a 16 bit value
+0019    09                         62  var3:   .byte      255 + 10; *ERR: 8 bit constant overflow
 ----                               63  
 ----                               64  
 ----                               65  ; name/label mismatch
-001A    07 00                      66  nam1    dw  7           ; ERR: dw uses label, not name
-001C    +000A                      67  nam2    ds  10          ; ERR: ds uses label, not name
+001A    07 00                      66  nam1    .word  7           ; ERR: .word uses label, not name
+001C    +000A                      67  nam2    .ds  10          ; ERR: .ds uses label, not name
 ----                               68  nam3    jmp 0           ; ERR: instruction uses label, not name
    68 | [31mn[0mam3    jmp 0           ; ERR: instruction uses label, not name
 ERROR: Expecting label, comment, or space n column 1, found: nam3
-----                               69  lab1:   equ 6           ; ERR: equ uses name, not label
-   69 | [31ml[0mab1:   equ 6           ; ERR: equ uses name, not label
-ERROR: EQU or SET name should not end in ':'
-----                               70  lab2:   set 8           ; ERR: set uses name, not label
-   70 | [31ml[0mab2:   set 8           ; ERR: set uses name, not label
-ERROR: EQU or SET name should not end in ':'
+----                               69  lab1:   .const 6           ; ERR: .const uses name, not label
+   69 | [31ml[0mab1:   .const 6           ; ERR: .const uses name, not label
+ERROR: .const/.var/.set name should not end in ':'
+----                               70  lab2:   .var 8           ; ERR: .var uses name, not label
+   70 | [31ml[0mab2:   .var 8           ; ERR: .var uses name, not label
+ERROR: .const/.var/.set name should not end in ':'
 ----                               71  
 ----                               72  ; redeine symbols and labels
-----    EQU 0001                   73  equ1    equ 1           ; OK
-----                               74  equ1    equ 2           ; ERR: redefined symbol with EQU
-   74 | [31me[0mqu1    equ 2           ; ERR: redefined symbol with EQU
+----    EQU 0001                   73  equ1    .const 1           ; OK
+----                               74  equ1    .const 2           ; ERR: redefined symbol with .const
+   74 | [31me[0mqu1    .const 2           ; ERR: redefined symbol with .const
 ERROR: symbol has already been defined: equ1
-----    EQU 0001                   75  set1    set 1           ; OK
-----    EQU 0002                   76  set1    set 2           ; OK, can redefine SET
-----    EQU 0003                   77  set1    equ 3           ; should be an error to mix set and equ
-----    EQU 0004                   78  set1    set 4           ; OK, can redefine SET
-----    EQU 0002                   79  equ2    equ 2           ; OK
-----                               80  equ2    set 3           ; ERR: cannot redefine EQU
-   80 | [31me[0mqu2    set 3           ; ERR: cannot redefine EQU
+----    EQU 0001                   75  set1    .var 1           ; OK
+----    EQU 0002                   76  set1    .var 2           ; OK, can redefine .var
+----    EQU 0003                   77  set1    .const 3           ; should be an error to mix set and equ
+----    EQU 0004                   78  set1    .var 4           ; OK, can redefine .var
+----    EQU 0002                   79  equ2    .const 2           ; OK
+----                               80  equ2    .var 3           ; ERR: cannot redefine .const
+   80 | [31me[0mqu2    .var 3           ; ERR: cannot redefine .const
 ERROR: symbol has already been defined: equ2
 ----                               81  
 0026    C3 00 00                   82  lab3:   jmp 0           ; OK
@@ -156,12 +156,12 @@ ERROR: Symbol defined more than once: lab3
 ----                               85  
 ----                               86  
 ----                               87  ; Conditional directives
-----    EQU 0001                   88  YES         EQU 1
-----    EQU FFFF                   89  TRUE        EQU 0ffffh
-----    EQU 0000                   90  NO          EQU 0
-----    EQU 0000                   91  FALSE       EQU 0
+----    EQU 0001                   88  YES         .const 1
+----    EQU FFFF                   89  TRUE        .const 0ffffh
+----    EQU 0000                   90  NO          .const 0
+----    EQU 0000                   91  FALSE       .const 0
 ----                               92  
-----    EQU 5000                   93                  org 5000h
+----    EQU 5000                   93                  .org 5000h
 ----                               94  ; ERR - missing IF
 ----                               95          .elseif YES                     ; ERR - missing IF
    95 |         .elseif [31mY[0mES                     ; ERR - missing IF

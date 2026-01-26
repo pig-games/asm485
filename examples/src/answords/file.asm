@@ -32,10 +32,10 @@
 ; ----------------------------------------------------------------------
 ; I/O Result Codes
 ;
-IOROK EQU    0           ; No error.
-IORFNF EQU    1           ; File not found or invalid filename (>6 chars)
-IORRDONLY EQU    2           ; Files cannot be opened R/W.
-IORBADFILEID EQU   3           ; Bad fileid.
+IOROK .const    0           ; No error.
+IORFNF .const    1           ; File not found or invalid filename (>6 chars)
+IORRDONLY .const    2           ; Files cannot be opened R/W.
+IORBADFILEID .const   3           ; Bad fileid.
 
 
 
@@ -70,8 +70,8 @@ BIN:        NEXT
 
             LINKTO(BIN,0,10,'E',"LIF-ESOLC")
 CLOSEFILE:  JMP     ENTER
-            DW   FILEIDTOFCBQ,QDUP,zbranch,_closefile1,EXIT
-_closefile1:DW   LIT,FCBADDR,PLUS,ZERO,SWAP,STORE,LIT,IOROK,EXIT
+            .word   FILEIDTOFCBQ,QDUP,zbranch,_closefile1,EXIT
+_closefile1: .word   LIT,FCBADDR,PLUS,ZERO,SWAP,STORE,LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -93,7 +93,7 @@ _closefile1:DW   LIT,FCBADDR,PLUS,ZERO,SWAP,STORE,LIT,IOROK,EXIT
 
             LINKTO(CLOSEFILE,0,11,'E',"LIF-ETAERC")
 CREATEFILE: JMP     ENTER
-            DW   DROP,TWODROP,ZERO,LIT,IORRDONLY,EXIT
+            .word   DROP,TWODROP,ZERO,LIT,IORRDONLY,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -107,7 +107,7 @@ CREATEFILE: JMP     ENTER
 
             LINKTO(CREATEFILE,0,11,'E',"LIF-ETELED")
 DELETEFILE: JMP     ENTER
-            DW   TWODROP,LIT,IORRDONLY,EXIT
+            .word   TWODROP,LIT,IORRDONLY,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -124,9 +124,9 @@ DELETEFILE: JMP     ENTER
 
             LINKTO(DELETEFILE,0,13,'N',"OITISOP-ELIF")
 FILEPOSITION:JMP    ENTER
-            DW   FILEIDTOFCBQ,QDUP,zbranch,_filepos1,ZERO,SWAP,EXIT
-_filepos1:  DW   DUP,LIT,FCBPOS,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
-            DW   MINUS,LIT,IOROK,EXIT
+            .word   FILEIDTOFCBQ,QDUP,zbranch,_filepos1,ZERO,SWAP,EXIT
+_filepos1:  .word   DUP,LIT,FCBPOS,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
+            .word   MINUS,LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -144,9 +144,9 @@ _filepos1:  DW   DUP,LIT,FCBPOS,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
 
             LINKTO(FILEPOSITION,0,9,'E',"ZIS-ELIF")
 FILESIZE:    JMP    ENTER
-            DW   FILEIDTOFCBQ,QDUP,zbranch,_filesize1,ZERO,SWAP,EXIT
-_filesize1: DW   DUP,LIT,FCBEND,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
-            DW   MINUS,LIT,IOROK,EXIT
+            .word   FILEIDTOFCBQ,QDUP,zbranch,_filesize1,ZERO,SWAP,EXIT
+_filesize1: .word   DUP,LIT,FCBEND,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
+            .word   MINUS,LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -184,13 +184,13 @@ _filesize1: DW   DUP,LIT,FCBEND,PLUS,FETCH,SWAP,LIT,FCBADDR,PLUS,FETCH
 
             LINKTO(FILESIZE,0,12,'E',"LIF-EDULCNI")
 INCLUDEFILE:JMP     ENTER
-            DW   PUSHICB,ICB,LIT,ICBSOURCEID,PLUS,STORE
-_includefile1:DW SOURCEID,FILEIDTOFCB,DUP
-            DW       TWOFETCH,NOTEQUALS,zbranch,_includefile2
-            DW   DUP,FETCH,OVER,NEXTLINE
-            DW   DASHROT,ICB,TWOSTORE,SWAP,STORE
-            DW   INTERPRET,branch,_includefile1
-_includefile2:DW DROP,SOURCEID,CLOSEFILE,DROP,POPICB,EXIT
+            .word   PUSHICB,ICB,LIT,ICBSOURCEID,PLUS,STORE
+_includefile1: .word SOURCEID,FILEIDTOFCB,DUP
+            .word       TWOFETCH,NOTEQUALS,zbranch,_includefile2
+            .word   DUP,FETCH,OVER,NEXTLINE
+            .word   DASHROT,ICB,TWOSTORE,SWAP,STORE
+            .word   INTERPRET,branch,_includefile1
+_includefile2: .word DROP,SOURCEID,CLOSEFILE,DROP,POPICB,EXIT
 
 
 
@@ -223,11 +223,11 @@ _includefile2:DW DROP,SOURCEID,CLOSEFILE,DROP,POPICB,EXIT
 
             LINKTO(INCLUDEFILE,0,8,'D',"EDULCNI")
 INCLUDED:   JMP     ENTER
-            DW   RO,OPENFILE,zbranch,_included1
-            DW   PSQUOTE,12
-            DB   "Unknown file"
-            DW   TYPE,ABORT
-_included1: DW   INCLUDEFILE,EXIT
+            .word   RO,OPENFILE,zbranch,_included1
+            .word   PSQUOTE,12
+            .byte   "Unknown file"
+            .word   TYPE,ABORT
+_included1: .word   INCLUDEFILE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -254,16 +254,16 @@ _included1: DW   INCLUDEFILE,EXIT
 
             LINKTO(INCLUDED,0,9,'E',"LIF-NEPO")
 OPENFILE:   JMP     ENTER
-            DW   RO,NOTEQUALS,zbranch,_openfile1
-            DW   TWODROP,ZERO,LIT,IORRDONLY,EXIT
-_openfile1: DW   FINDFILE,QDUP,zbranch,_openfile2
-            DW   ZERO,SWAP,EXIT
-_openfile2: DW   NEWFCB,TOR
-            DW   OVER,PLUS,RFETCH,LIT,FCBEND,PLUS,STORE
-            DW   DUP,RFETCH,LIT,FCBADDR,PLUS,STORE
-            DW       RFETCH,LIT,FCBPOS,PLUS,STORE
-            DW   RFETCH,LIT,FCBGENNUM,PLUS,DUP,CFETCH,ONEPLUS,SWAP,CSTORE
-            DW   RFROM,FCBTOFILEID,LIT,IOROK,EXIT
+            .word   RO,NOTEQUALS,zbranch,_openfile1
+            .word   TWODROP,ZERO,LIT,IORRDONLY,EXIT
+_openfile1: .word   FINDFILE,QDUP,zbranch,_openfile2
+            .word   ZERO,SWAP,EXIT
+_openfile2: .word   NEWFCB,TOR
+            .word   OVER,PLUS,RFETCH,LIT,FCBEND,PLUS,STORE
+            .word   DUP,RFETCH,LIT,FCBADDR,PLUS,STORE
+            .word       RFETCH,LIT,FCBPOS,PLUS,STORE
+            .word   RFETCH,LIT,FCBGENNUM,PLUS,DUP,CFETCH,ONEPLUS,SWAP,CSTORE
+            .word   RFROM,FCBTOFILEID,LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -274,7 +274,7 @@ _openfile2: DW   NEWFCB,TOR
 
             LINKTO(OPENFILE,0,3,'O',"/R")
 RO:         JMP     ENTER
-            DW   LIT,00000001b,EXIT
+            .word   LIT,00000001b,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -285,7 +285,7 @@ RO:         JMP     ENTER
 
             LINKTO(RO,0,3,'W',"/R")
 RW:         JMP     ENTER
-            DW   LIT,00000011b,EXIT
+            .word   LIT,00000011b,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -326,10 +326,10 @@ RW:         JMP     ENTER
 
             LINKTO(RW,0,9,'E',"LIF-DAER")
 READFILE:    JMP    ENTER
-            DW   FILEIDTOFCBQ,QDUP,zbranch,_readfile1,NIP,NIP,ZERO,SWAP,EXIT
-_readfile1: DW   DUP,TOR,FETCH,DASHROT,DUP,TOR,MOVE,RFROM
-            DW   RFETCH,TWOFETCH,MINUS,MIN
-            DW   DUP,RFROM,PLUSSTORE,LIT,IOROK,EXIT
+            .word   FILEIDTOFCBQ,QDUP,zbranch,_readfile1,NIP,NIP,ZERO,SWAP,EXIT
+_readfile1: .word   DUP,TOR,FETCH,DASHROT,DUP,TOR,MOVE,RFROM
+            .word   RFETCH,TWOFETCH,MINUS,MIN
+            .word   DUP,RFROM,PLUSSTORE,LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -369,11 +369,11 @@ _readfile1: DW   DUP,TOR,FETCH,DASHROT,DUP,TOR,MOVE,RFROM
 
             LINKTO(READFILE,0,9,'E',"NIL-DAER")
 READLINE:    JMP    ENTER
-            DW   FILEIDTOFCBQ,QDUP,zbranch,_readline1,NIP,NIP,ZERO,SWAP,EXIT
-_readline1: DW   DUP,TWOFETCH,MINUS,ZEROEQUALS,zbranch,_readline2
-            DW       DROP,TWODROP,ZERO,ZERO,LIT,IOROK,EXIT
-_readline2: DW   DUP,TOR,FETCH,DASHROT,COPYLINE
-            DW   RFROM,PLUSSTORE,LIT,-1,LIT,IOROK,EXIT
+            .word   FILEIDTOFCBQ,QDUP,zbranch,_readline1,NIP,NIP,ZERO,SWAP,EXIT
+_readline1: .word   DUP,TWOFETCH,MINUS,ZEROEQUALS,zbranch,_readline2
+            .word       DROP,TWODROP,ZERO,ZERO,LIT,IOROK,EXIT
+_readline2: .word   DUP,TOR,FETCH,DASHROT,COPYLINE
+            .word   RFROM,PLUSSTORE,LIT,-1,LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -391,9 +391,9 @@ _readline2: DW   DUP,TOR,FETCH,DASHROT,COPYLINE
 
             LINKTO(READLINE,0,15,'E',"LIF-NOITISOPER")
 REPOSFILE:   JMP    ENTER
-            DW   FILEIDTOFCBQ,QDUP,zbranch,_reposfile,DROP,EXIT
-_reposfile: DW   DUP,LIT,FCBADDR,PLUS,FETCH,ROT,PLUS,SWAP,STORE
-            DW   LIT,IOROK,EXIT
+            .word   FILEIDTOFCBQ,QDUP,zbranch,_reposfile,DROP,EXIT
+_reposfile: .word   DUP,LIT,FCBADDR,PLUS,FETCH,ROT,PLUS,SWAP,STORE
+            .word   LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -414,7 +414,7 @@ _reposfile: DW   DUP,LIT,FCBADDR,PLUS,FETCH,ROT,PLUS,SWAP,STORE
 
             LINKTO(REPOSFILE,0,11,'E',"LIF-EZISER")
 RESIZEFILE: JMP     ENTER
-            DW   TWODROP,LIT,IORRDONLY,EXIT
+            .word   TWODROP,LIT,IORRDONLY,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -425,7 +425,7 @@ RESIZEFILE: JMP     ENTER
 
             LINKTO(RESIZEFILE,0,3,'O',"/W")
 WO:         JMP     ENTER
-            DW   LIT,00000010b,EXIT
+            .word   LIT,00000010b,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -443,7 +443,7 @@ WO:         JMP     ENTER
 
             LINKTO(WO,0,10,'E',"LIF-ETIRW")
 WRITEFILE:  JMP     ENTER
-            DW   DROP,TWODROP,LIT,IORRDONLY,EXIT
+            .word   DROP,TWODROP,LIT,IORRDONLY,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -462,7 +462,7 @@ WRITEFILE:  JMP     ENTER
 
             LINKTO(WRITEFILE,0,10,'E',"NIL-ETIRW")
 WRITELINE:  JMP     ENTER
-            DW   DROP,TWODROP,LIT,IORRDONLY,EXIT
+            .word   DROP,TWODROP,LIT,IORRDONLY,EXIT
 
 
 
@@ -486,10 +486,10 @@ WRITELINE:  JMP     ENTER
 ; other words, an FCB address is also the address of the POS cell for that
 ; FCB.
 
-FCBPOS EQU    0           ; Offset from FCB to position in file.
-FCBEND EQU    2           ; Offset to end address of file.
-FCBADDR EQU    4           ; Offset to address of file.
-FCBGENNUM EQU    6           ; Offset to generation number.
+FCBPOS .const    0           ; Offset from FCB to position in file.
+FCBEND .const    2           ; Offset to end address of file.
+FCBADDR .const    4           ; Offset to address of file.
+FCBGENNUM .const    6           ; Offset to generation number.
 
 
 ; ======================================================================
@@ -512,8 +512,8 @@ FCBGENNUM EQU    6           ; Offset to generation number.
 
             LINKTO(WRITELINE,0,10,'D',"IELIF>BCF")
 FCBTOFILEID:JMP     ENTER
-            DW   DUP,LIT,FCBGENNUM,PLUS,CFETCH,LIT,8,LSHIFT
-            DW   SWAP,LIT,FCBSTART,MINUS,ONEPLUS,OR,EXIT
+            .word   DUP,LIT,FCBGENNUM,PLUS,CFETCH,LIT,8,LSHIFT
+            .word   SWAP,LIT,FCBSTART,MINUS,ONEPLUS,OR,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -527,7 +527,7 @@ FCBTOFILEID:JMP     ENTER
 
             LINKTO(FCBTOFILEID,0,10,'B',"CF>DIELIF")
 FILEIDTOFCB: JMP    ENTER
-            DW   LIT,255,AND,ONEMINUS,LIT,FCBSTART,PLUS,EXIT
+            .word   LIT,255,AND,ONEMINUS,LIT,FCBSTART,PLUS,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -546,16 +546,16 @@ FILEIDTOFCB: JMP    ENTER
 
             LINKTO(FILEIDTOFCB,0,11,'?',"BCF>DIELIF")
 FILEIDTOFCBQ:JMP    ENTER
-            DW   DUP,LIT,8,RSHIFT,SWAP,LIT,255,AND
-            DW   DUP,ZEROEQUALS,OVER,LIT,MAXFCBS*8,GREATERTHAN
-            DW       OR,zbranch,_fileidtofcbq1
-            DW   TWODROP,LIT,IORBADFILEID,EXIT
-_fileidtofcbq1:DW ONEMINUS,LIT,FCBSTART,PLUS,DUP,LIT,FCBGENNUM,PLUS
-            DW       CFETCH,ROT,NOTEQUALS,zbranch,_fileidtofcbq2
-            DW   DROP,LIT,IORBADFILEID,EXIT
-_fileidtofcbq2:DW DUP,LIT,FCBADDR,PLUS,FETCH,ZEROEQUALS,zbranch,_fileidtofcbq3
-            DW       DROP,LIT,IORBADFILEID,EXIT
-_fileidtofcbq3:DW LIT,IOROK,EXIT
+            .word   DUP,LIT,8,RSHIFT,SWAP,LIT,255,AND
+            .word   DUP,ZEROEQUALS,OVER,LIT,MAXFCBS*8,GREATERTHAN
+            .word       OR,zbranch,_fileidtofcbq1
+            .word   TWODROP,LIT,IORBADFILEID,EXIT
+_fileidtofcbq1: .word ONEMINUS,LIT,FCBSTART,PLUS,DUP,LIT,FCBGENNUM,PLUS
+            .word       CFETCH,ROT,NOTEQUALS,zbranch,_fileidtofcbq2
+            .word   DROP,LIT,IORBADFILEID,EXIT
+_fileidtofcbq2: .word DUP,LIT,FCBADDR,PLUS,FETCH,ZEROEQUALS,zbranch,_fileidtofcbq3
+            .word       DROP,LIT,IORBADFILEID,EXIT
+_fileidtofcbq3: .word LIT,IOROK,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -576,14 +576,14 @@ _fileidtofcbq3:DW LIT,IOROK,EXIT
 
             LINKTO(FILEIDTOFCBQ,0,9,'E',"LIF-DNIF")
 FINDFILE:   JMP     ENTER
-            DW   DUP,LIT,6,GREATERTHAN,zbranch,_findfile1
-            DW   TWODROP,LIT,IORFNF,EXIT
-_findfile1: DW   TUCK,LIT,0FC93H,SWAP,MOVE
-            DW   LIT,6,SWAP,pqdo,_findfile3
-_findfile2: DW   BL,LIT,0FC93H,I,PLUS,CSTORE,ploop,_findfile2
-_findfile3: DW   LIT,0FC93H,LIT,6,PLUS
-            DW   LIT,'D',OVER,CSTORE,LIT,'O',SWAP,ONEPLUS,CSTORE
-            DW   SRCNAM,EXIT
+            .word   DUP,LIT,6,GREATERTHAN,zbranch,_findfile1
+            .word   TWODROP,LIT,IORFNF,EXIT
+_findfile1: .word   TUCK,LIT,0FC93H,SWAP,MOVE
+            .word   LIT,6,SWAP,pqdo,_findfile3
+_findfile2: .word   BL,LIT,0FC93H,I,PLUS,CSTORE,ploop,_findfile2
+_findfile3: .word   LIT,0FC93H,LIT,6,PLUS
+            .word   LIT,'D',OVER,CSTORE,LIT,'O',SWAP,ONEPLUS,CSTORE
+            .word   SRCNAM,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -597,7 +597,7 @@ _findfile3: DW   LIT,0FC93H,LIT,6,PLUS
 
             LINKTO(FINDFILE,0,9,'S',"BCF-TINI")
 INITFCBS:   JMP     ENTER
-            DW   LIT,FCBSTART,LIT,MAXFCBS*8,ZERO,FILL,EXIT
+            .word   LIT,FCBSTART,LIT,MAXFCBS*8,ZERO,FILL,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -615,11 +615,11 @@ INITFCBS:   JMP     ENTER
 
             LINKTO(INITFCBS,0,7,'B',"CF-WEN")
 NEWFCB:     JMP     ENTER
-            DW   LIT,MAXFCBS*8,ZERO,pdo
-_newfcb1:   DW   LIT,FCBSTART,I,PLUS,DUP,LIT,FCBADDR,PLUS,FETCH
-            DW   ZEROEQUALS,zbranch,_newfcb2,UNLOOP,EXIT
-_newfcb2:   DW   DROP,LIT,8,pplusloop,_newfcb1
-            DW   ZERO,EXIT
+            .word   LIT,MAXFCBS*8,ZERO,pdo
+_newfcb1:   .word   LIT,FCBSTART,I,PLUS,DUP,LIT,FCBADDR,PLUS,FETCH
+            .word   ZEROEQUALS,zbranch,_newfcb2,UNLOOP,EXIT
+_newfcb2:   .word   DROP,LIT,8,pplusloop,_newfcb1
+            .word   ZERO,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -678,7 +678,7 @@ LAST_FILE:
 SRCNAM:     SAVEDE              ; Save DE
             PUSH    B           ; ..and BC, both of which are corrupted.
             CALL    STDCALL     ; Call the
-            DW   20AFH       ; .."SRCNAM" routine.
+            .word   20AFH       ; .."SRCNAM" routine.
             POP     B           ; Restore BC.
             JZ      _srcnamFAIL ; Zero indicates not found.
             PUSH    D           ; Push file-addr to the stack.

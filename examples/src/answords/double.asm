@@ -41,11 +41,11 @@
 
             LINKTO(LINK_DOUBLE,0,2,'.',"D")
 DDOT:       JMP     ENTER
-            DW   BASE,FETCH,LIT,10,NOTEQUALS,zbranch,_ddot1,UDDOT,EXIT
-_ddot1:     DW   TWODUP,DZEROLESS,TOR
-            DW   DABS,LESSNUMSIGN,NUMSIGNS,RFROM,SIGN,NUMSIGNGRTR
-            DW   TYPE,SPACE
-            DW   EXIT
+            .word   BASE,FETCH,LIT,10,NOTEQUALS,zbranch,_ddot1,UDDOT,EXIT
+_ddot1:     .word   TWODUP,DZEROLESS,TOR
+            .word   DABS,LESSNUMSIGN,NUMSIGNS,RFROM,SIGN,NUMSIGNGRTR
+            .word   TYPE,SPACE
+            .word   EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -55,9 +55,9 @@ _ddot1:     DW   TWODUP,DZEROLESS,TOR
 
             LINKTO(DDOT,0,2,'-',"D")
 DMINUS:     SAVEDE
-            DB 038H,    0           ; Get the address of d2
+            .byte 038H,    0           ; Get the address of d2
             XCHG                ; ..and move that address into HL
-            DB 038H,    4           ; Get the address of d1 into DE.
+            .byte 038H,    4           ; Get the address of d1 into DE.
             ANA     A           ; Clear the carry flag.
             LDAX    D           ; Get d1ll into A,
             SUB     M           ; ..subtract d2ll from d1ll,
@@ -93,7 +93,7 @@ DMINUS:     SAVEDE
 
             LINKTO(DMINUS,0,3,'<',"0D")
 DZEROLESS:  JMP     ENTER
-            DW   SWAP,DROP,ZEROLESS,EXIT
+            .word   SWAP,DROP,ZEROLESS,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -126,7 +126,7 @@ _dwostarDONE:PUSH    H          ; Push xd2h to the stack.
 
             LINKTO(DTWOSTAR,0,4,'S',"BAD")
 DABS:       JMP     ENTER
-            DW   DUP,QDNEGATE,EXIT
+            .word   DUP,QDNEGATE,EXIT
 
 
 ; ----------------------------------------------------------------------
@@ -139,7 +139,7 @@ DABS:       JMP     ENTER
 
             LINKTO(DABS,0,7,'E',"TAGEND")
 DNEGATE:    JMP     ENTER
-            DW   INVERT,SWAP,INVERT,SWAP,ONE,MPLUS,EXIT
+            .word   INVERT,SWAP,INVERT,SWAP,ONE,MPLUS,EXIT
 
 
 ; ----------------------------------------------------------------------

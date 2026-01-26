@@ -112,11 +112,12 @@ impl Parser {
             if !first.is_ascii_whitespace()
                 && first != b';'
                 && first != b'.'
+                && first != b'*'
                 && !is_ident_start(first)
             {
                 return Err(ParseError {
                     message: format!(
-                        "Illegal character in column 1.  Must be label, name, comment, or space. Found: {}",
+                        "Illegal character in column 1. Must be label, name, '.', '*', comment, or space. Found: {}",
                         line
                     ),
                     span: Span {
@@ -204,6 +205,36 @@ impl Parser {
             });
         }
 
+        if label.is_none() {
+            if let Some(Token {
+                kind: TokenKind::Operator(OperatorKind::Multiply),
+                ..
+            }) = self.tokens.get(self.index)
+            {
+                if matches!(
+                    self.tokens.get(self.index + 1),
+                    Some(Token {
+                        kind: TokenKind::Operator(OperatorKind::Eq),
+                        ..
+                    })
+                ) {
+                    self.index = self.index.saturating_add(2);
+                    let expr = self.parse_expr()?;
+                    if self.index < self.tokens.len() {
+                        return Err(ParseError {
+                            message: "Unexpected trailing tokens".to_string(),
+                            span: self.tokens[self.index].span,
+                        });
+                    }
+                    return Ok(LineAst::Statement {
+                        label,
+                        mnemonic: Some(".org".to_string()),
+                        operands: vec![expr],
+                    });
+                }
+            }
+        }
+
         if self.consume_kind(TokenKind::Dot) {
             let (name, span) = match self.next() {
                 Some(Token {
@@ -234,10 +265,44 @@ impl Parser {
                 "ELSE" => (ConditionalKind::Else, false),
                 "ENDIF" => (ConditionalKind::EndIf, false),
                 _ => {
-                    return Err(ParseError {
-                        message: format!("Unknown conditional: .{name}"),
-                        span,
-                    })
+                    let mut operands = Vec::new();
+                    if self.index < self.tokens.len() {
+                        match self.parse_expr() {
+                            Ok(expr) => operands.push(expr),
+                            Err(err) => {
+                                operands.push(Expr::Error(err.message, err.span));
+                                return Ok(LineAst::Statement {
+                                    label,
+                                    mnemonic: Some(format!(".{name}")),
+                                    operands,
+                                });
+                            }
+                        }
+                        while self.consume_comma() {
+                            match self.parse_expr() {
+                                Ok(expr) => operands.push(expr),
+                                Err(err) => {
+                                    operands.push(Expr::Error(err.message, err.span));
+                                    return Ok(LineAst::Statement {
+                                        label,
+                                        mnemonic: Some(format!(".{name}")),
+                                        operands,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    if self.index < self.tokens.len() {
+                        return Err(ParseError {
+                            message: "Unexpected trailing tokens".to_string(),
+                            span: self.tokens[self.index].span,
+                        });
+                    }
+                    return Ok(LineAst::Statement {
+                        label,
+                        mnemonic: Some(format!(".{name}")),
+                        operands,
+                    });
                 }
             };
             let expr = if needs_expr {
@@ -765,15 +830,15 @@ mod tests {
     }
 
     #[test]
-    fn parses_name_label_for_equ() {
-        let mut parser = Parser::from_line("NAME EQU 3", 1).unwrap();
+    fn parses_name_label_for_const() {
+        let mut parser = Parser::from_line("NAME .const 3", 1).unwrap();
         let line = parser.parse_line().unwrap();
         match line {
             LineAst::Statement { label, mnemonic, operands } => {
                 let label = label.expect("label");
                 assert_eq!(label.kind, LabelKind::Name);
                 assert_eq!(label.name, "NAME");
-                assert_eq!(mnemonic.as_deref(), Some("EQU"));
+                assert_eq!(mnemonic.as_deref(), Some(".const"));
                 assert_eq!(operands.len(), 1);
             }
             _ => panic!("Expected statement"),
@@ -800,6 +865,32 @@ mod tests {
         match line {
             LineAst::Statement { operands, .. } => {
                 assert_eq!(operands.len(), 3);
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_dot_directive_statement() {
+        let mut parser = Parser::from_line("    .byte 1, 2", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, operands, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some(".byte"));
+                assert_eq!(operands.len(), 2);
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_star_org_assignment() {
+        let mut parser = Parser::from_line("* = $1000", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, operands, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some(".org"));
+                assert_eq!(operands.len(), 1);
             }
             _ => panic!("Expected statement"),
         }

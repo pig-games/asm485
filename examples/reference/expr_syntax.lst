@@ -2,72 +2,72 @@ asm485 8085 Assembler v1.0
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; Expression syntax coverage for 64tass-style operators and literals
-----    EQU 0000                    2          org     0000h
+----    EQU 0000                    2          .org     0000h
 ----                                3  
 ----                                4  ; numeric literals: decimal, suffixes, prefixed
-----    EQU 007B                    5  num_dec         equ     123
-----    EQU 00A6                    6  num_hex         equ     0a6h
-----    EQU 001F                    7  num_hex_pref    equ     $1f
-----    EQU 000A                    8  num_bin         equ     1010b
-----                                9  num_bin_pref    equ     %1010
-    9 | num_bin_pref    equ     [31m%[0m1010
+----    EQU 007B                    5  num_dec         .const     123
+----    EQU 00A6                    6  num_hex         .const     0a6h
+----    EQU 001F                    7  num_hex_pref    .const     $1f
+----    EQU 000A                    8  num_bin         .const     1010b
+----                                9  num_bin_pref    .const     %1010
+    9 | num_bin_pref    .const     [31m%[0m1010
 ERROR: Unexpected token in expression
-----    EQU 000F                   10  num_oct         equ     17o
-----    EQU 000F                   11  num_oct_q       equ     17q
+----    EQU 000F                   10  num_oct         .const     17o
+----    EQU 000F                   11  num_oct_q       .const     17q
 ----                               12  
 ----                               13  ; unary operators and bytes
-----    EQU 0012                   14  hi_byte         equ     >1234h
-----    EQU 0034                   15  lo_byte         equ     <1234h
-----    EQU 0001                   16  not_zero        equ     !0
-----    EQU 0000                   17  not_one         equ     !1
-----    EQU FF00                   18  bit_not         equ     ~00ffh
-----    EQU FFFF                   19  neg_one         equ     -1
+----    EQU 0012                   14  hi_byte         .const     >1234h
+----    EQU 0034                   15  lo_byte         .const     <1234h
+----    EQU 0001                   16  not_zero        .const     !0
+----    EQU 0000                   17  not_one         .const     !1
+----    EQU FF00                   18  bit_not         .const     ~00ffh
+----    EQU FFFF                   19  neg_one         .const     -1
 ----                               20  
 ----                               21  ; arithmetic, power, shifts
-----    EQU 0008                   22  pow1            equ     2 ** 3
-----    EQU 0051                   23  pow2            equ     3 ** 2 ** 2
-----    EQU 0010                   24  shift_l         equ     1 << 4
-----    EQU 000F                   25  shift_r         equ     0ffh >> 4
+----    EQU 0008                   22  pow1            .const     2 ** 3
+----    EQU 0051                   23  pow2            .const     3 ** 2 ** 2
+----    EQU 0010                   24  shift_l         .const     1 << 4
+----    EQU 000F                   25  shift_r         .const     0ffh >> 4
 ----                               26  
 ----                               27  ; comparisons
-----    EQU 0001                   28  cmp_eq          equ     (3 == 3)
-----    EQU 0001                   29  cmp_ne          equ     (3 != 4)
-----    EQU 0001                   30  cmp_ne_alt      equ     (3 <> 4)
-----    EQU 0001                   31  cmp_le          equ     (3 <= 4)
-----    EQU 0001                   32  cmp_lt          equ     (3 < 4)
-----    EQU 0001                   33  cmp_ge          equ     (4 >= 3)
-----    EQU 0001                   34  cmp_gt          equ     (4 > 3)
-----    EQU 0001                   35  cmp_eq_alias    equ     (4 = 4)
+----    EQU 0001                   28  cmp_eq          .const     (3 == 3)
+----    EQU 0001                   29  cmp_ne          .const     (3 != 4)
+----    EQU 0001                   30  cmp_ne_alt      .const     (3 <> 4)
+----    EQU 0001                   31  cmp_le          .const     (3 <= 4)
+----    EQU 0001                   32  cmp_lt          .const     (3 < 4)
+----    EQU 0001                   33  cmp_ge          .const     (4 >= 3)
+----    EQU 0001                   34  cmp_gt          .const     (4 > 3)
+----    EQU 0001                   35  cmp_eq_alias    .const     (4 = 4)
 ----                               36  
 ----                               37  ; bitwise and logical
-----    EQU 0000                   38  bit_and         equ     (0f0h & 00fh)
-----    EQU 00FF                   39  bit_or          equ     (0f0h | 00fh)
-----    EQU 00FF                   40  bit_xor         equ     (0f0h ^ 00fh)
-----    EQU 0001                   41  log_and         equ     (2 && 3)
-----    EQU 0001                   42  log_or          equ     (0 || 3)
-----    EQU 0000                   43  log_xor         equ     (2 ^^ 3)
+----    EQU 0000                   38  bit_and         .const     (0f0h & 00fh)
+----    EQU 00FF                   39  bit_or          .const     (0f0h | 00fh)
+----    EQU 00FF                   40  bit_xor         .const     (0f0h ^ 00fh)
+----    EQU 0001                   41  log_and         .const     (2 && 3)
+----    EQU 0001                   42  log_or          .const     (0 || 3)
+----    EQU 0000                   43  log_xor         .const     (2 ^^ 3)
 ----                               44  
 ----                               45  ; ternary
-----    EQU 0002                   46  ternary1        equ     0 ? 1 : 2
-----    EQU 0007                   47  ternary2        equ     5 ? 7 : 9
-----    EQU 0005                   48  ternary3        equ     (0 || 1) ? (2 + 3) : (4 + 5)
+----    EQU 0002                   46  ternary1        .const     0 ? 1 : 2
+----    EQU 0007                   47  ternary2        .const     5 ? 7 : 9
+----    EQU 0005                   48  ternary3        .const     (0 || 1) ? (2 + 3) : (4 + 5)
 ----                               49  
 ----                               50  ; string constants in expressions
-----    EQU 0041                   51  char_a          equ     'A'
-----    EQU 4142                   52  char_ab         equ     'AB'
+----    EQU 0041                   51  char_a          .const     'A'
+----    EQU 4142                   52  char_ab         .const     'AB'
 ----                               53  
 ----                               54  ; data emissions
-0000    7B A6 1F 0A                55          db      num_dec, num_hex, num_hex_pref, num_bin, num_bin_pref
-   55 |         db      num_dec, num_hex, num_hex_pref, num_bin, [31mn[0mum_bin_pref
+0000    7B A6 1F 0A                55          .byte      num_dec, num_hex, num_hex_pref, num_bin, num_bin_pref
+   55 |         .byte      num_dec, num_hex, num_hex_pref, num_bin, [31mn[0mum_bin_pref
 ERROR: Label not found: num_bin_pref
-0004    0F 0F 12 34 01 00          56          db      num_oct, num_oct_q, hi_byte, lo_byte, not_zero, not_one
-000A    00 FF FF FF 08 00 51 00    57          dw      bit_not, neg_one, pow1, pow2
-0012    10 0F                      58          db      shift_l, shift_r
-0014    01 01 01 01 01 01 01 01    59          db      cmp_eq, cmp_ne, cmp_ne_alt, cmp_le, cmp_lt, cmp_ge, cmp_gt, cmp_eq_alias
-001C    00 FF FF 01 01 00          60          db      bit_and, bit_or, bit_xor, log_and, log_or, log_xor
-0022    02 07 05                   61          db      ternary1, ternary2, ternary3
-0025    41                         62          db      char_a
-0026    42 41                      63          dw      char_ab
+0004    0F 0F 12 34 01 00          56          .byte      num_oct, num_oct_q, hi_byte, lo_byte, not_zero, not_one
+000A    00 FF FF FF 08 00 51 00    57          .word      bit_not, neg_one, pow1, pow2
+0012    10 0F                      58          .byte      shift_l, shift_r
+0014    01 01 01 01 01 01 01 01    59          .byte      cmp_eq, cmp_ne, cmp_ne_alt, cmp_le, cmp_lt, cmp_ge, cmp_gt, cmp_eq_alias
+001C    00 FF FF 01 01 00          60          .byte      bit_and, bit_or, bit_xor, log_and, log_or, log_xor
+0022    02 07 05                   61          .byte      ternary1, ternary2, ternary3
+0025    41                         62          .byte      char_a
+0026    42 41                      63          .word      char_ab
 
 Lines: 63  Errors: 2  Warnings: 0
 

@@ -42,7 +42,7 @@ SLASHSTRING:SAVEDE
             MOV     E,C         ; ..in DE.
             POP     B           ; Pop the adjustment value into BC.
             POP     H           ; Pop the length into HL.
-            DB 08H                ; Adjust the length.
+            .byte 08H                ; Adjust the length.
             XTHL                ; Swap the adjusted length with the address.
             DAD     B           ; Adjust the address.
             XTHL                ; Swap the address and length again.

@@ -47,7 +47,7 @@ ATXY:       POP     H           ; Pop the row into L,
             INR     H           ; ..and add one.
             MOV     L,A         ; Move the row into L.
             CALL    STDCALL     ; Call the
-            DW   0427CH      ; ..SETCUR routine.
+            .word   0427CH      ; ..SETCUR routine.
             NEXT
 
 
@@ -65,10 +65,10 @@ ATXY:       POP     H           ; Pop the row into L,
 
             LINKTO(ATXY,0,4,'?',"YEK")
 KEYQ:       CALL    STDCALL     ; Call the
-            DW   013DBH      ; ..CHSNS routine.
+            .word   013DBH      ; ..CHSNS routine.
             JNZ     _keyqTRUE   ; Jump if not zero to where we push true.
             CALL    STDCALL     ; No character, so let the Main ROM
-            DW   013C2H      ; ..flash the cursor if necessary.
+            .word   013C2H      ; ..flash the cursor if necessary.
             LXI     H,0         ; Put false in HL.
             JMP     _keyqDONE   ; ..and jump to where we push the flag.
 _keyqTRUE:  LXI     H,0FFFFH    ; Put true in HL.
@@ -86,5 +86,5 @@ _keyqDONE:  PUSH    H           ; Push the flag to the stack.
             LINKTO(KEYQ,0,4,'E',"GAP")
 LAST_FACILITY:
 PAGE:       CALL    STDCALL     ; Call the
-            DW   04231H      ; ..CLS routine.
+            .word   04231H      ; ..CLS routine.
             NEXT
