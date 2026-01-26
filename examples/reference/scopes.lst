@@ -1,0 +1,36 @@
+asm485 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Scope directives and qualified symbol references
+----                                2  
+----    EQU 1000                    3          .org 1000h
+----                                4  
+----    EQU 0001                    5  GLOBAL  .const 1
+----                                6  
+----                                7  OUTER   .block
+----                                8  INNER   .block
+----    EQU 0005                    9  VAL     .const 5
+----                               10          .endblock
+----                               11          .endblock
+----                               12  
+----                               13  SHADOW  .block
+----    EQU 0002                   14  GLOBAL  .const 2
+1000    02 00                      15          .word GLOBAL         ; resolves to SHADOW.GLOBAL
+----                               16          .endblock
+----                               17  
+1002    01 00                      18          .word GLOBAL         ; resolves to GLOBAL
+1004    05 00                      19          .word OUTER.INNER.VAL
+----                               20          .end
+
+Lines: 20  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+GLOBAL          : 0001 (1)
+OUTER           : 1000 (4096)
+OUTER.INNER     : 1000 (4096)
+OUTER.INNER.VAL : 0005 (5)
+SHADOW          : 1000 (4096)
+SHADOW.GLOBAL   : 0002 (2)
+
+Total memory is 6 bytes

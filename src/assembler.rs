@@ -846,6 +846,7 @@ impl Assembler {
     fn pass1(&mut self, lines: &[String]) -> PassCounts {
         let mut asm_line = AsmLine::new(&mut self.symbols);
         asm_line.clear_conditionals();
+        asm_line.clear_scopes();
         let mut addr: u16 = 0;
         let mut line_num: u32 = 1;
         let mut counts = PassCounts::new();
@@ -894,6 +895,7 @@ impl Assembler {
     ) -> std::io::Result<PassCounts> {
         let mut asm_line = AsmLine::new(&mut self.symbols);
         asm_line.clear_conditionals();
+        asm_line.clear_scopes();
         self.image = ImageStore::new(65536);
 
         let mut addr: u16 = 0;
@@ -1191,6 +1193,82 @@ struct ConditionalStack {
     stack: Vec<ConditionalContext>,
 }
 
+struct ScopeFrame {
+    segment_count: usize,
+}
+
+struct ScopeStack {
+    segments: Vec<String>,
+    frames: Vec<ScopeFrame>,
+    anon_counter: u32,
+}
+
+impl ScopeStack {
+    fn new() -> Self {
+        Self {
+            segments: Vec::new(),
+            frames: Vec::new(),
+            anon_counter: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.segments.clear();
+        self.frames.clear();
+        self.anon_counter = 0;
+    }
+
+    fn depth(&self) -> usize {
+        self.segments.len()
+    }
+
+    fn prefix(&self, depth: usize) -> String {
+        self.segments[..depth].join(".")
+    }
+
+    fn qualify(&self, name: &str) -> String {
+        if self.segments.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}.{}", self.segments.join("."), name)
+        }
+    }
+
+    fn push_named(&mut self, name: &str) -> Result<(), &'static str> {
+        if name.is_empty() {
+            return Err("Scope name cannot be empty");
+        }
+        let parts: Vec<&str> = name.split('.').collect();
+        if parts.iter().any(|part| part.is_empty()) {
+            return Err("Scope name cannot contain empty segments");
+        }
+        for part in &parts {
+            self.segments.push((*part).to_string());
+        }
+        self.frames.push(ScopeFrame {
+            segment_count: parts.len(),
+        });
+        Ok(())
+    }
+
+    fn push_anonymous(&mut self) {
+        self.anon_counter = self.anon_counter.saturating_add(1);
+        let name = format!("__scope{}", self.anon_counter);
+        self.segments.push(name);
+        self.frames.push(ScopeFrame { segment_count: 1 });
+    }
+
+    fn pop(&mut self) -> bool {
+        let Some(frame) = self.frames.pop() else {
+            return false;
+        };
+        for _ in 0..frame.segment_count {
+            self.segments.pop();
+        }
+        true
+    }
+}
+
 impl ConditionalStack {
     fn new() -> Self {
         Self { stack: Vec::new() }
@@ -1228,6 +1306,7 @@ impl ConditionalStack {
 struct AsmLine<'a> {
     symbols: &'a mut SymbolTable,
     cond_stack: ConditionalStack,
+    scope_stack: ScopeStack,
     last_error: Option<AsmError>,
     last_error_column: Option<usize>,
     last_parser_error: Option<ParseError>,
@@ -1251,6 +1330,7 @@ impl<'a> AsmLine<'a> {
         Self {
             symbols,
             cond_stack: ConditionalStack::new(),
+            scope_stack: ScopeStack::new(),
             last_error: None,
             last_error_column: None,
             last_parser_error: None,
@@ -1319,6 +1399,10 @@ impl<'a> AsmLine<'a> {
         self.cond_stack.clear();
     }
 
+    fn clear_scopes(&mut self) {
+        self.scope_stack.clear();
+    }
+
     fn cond_last(&self) -> Option<&ConditionalContext> {
         self.cond_stack.last()
     }
@@ -1335,6 +1419,53 @@ impl<'a> AsmLine<'a> {
     #[cfg(test)]
     fn symbols(&self) -> &SymbolTable {
         &*self.symbols
+    }
+
+    fn scoped_define_name(&self, name: &str) -> String {
+        if name.contains('.') {
+            name.to_string()
+        } else {
+            self.scope_stack.qualify(name)
+        }
+    }
+
+    fn resolve_scoped_name(&self, name: &str) -> Option<String> {
+        if name.contains('.') {
+            return self
+                .symbols
+                .entry(name)
+                .map(|_| name.to_string());
+        }
+        let mut depth = self.scope_stack.depth();
+        while depth > 0 {
+            let prefix = self.scope_stack.prefix(depth);
+            let candidate = format!("{prefix}.{name}");
+            if self.symbols.entry(&candidate).is_some() {
+                return Some(candidate);
+            }
+            depth = depth.saturating_sub(1);
+        }
+        if self.symbols.entry(name).is_some() {
+            Some(name.to_string())
+        } else {
+            None
+        }
+    }
+
+    fn lookup_scoped_value(&self, name: &str) -> Option<u32> {
+        if name.contains('.') {
+            return self.symbols.entry(name).map(|entry| entry.val);
+        }
+        let mut depth = self.scope_stack.depth();
+        while depth > 0 {
+            let prefix = self.scope_stack.prefix(depth);
+            let candidate = format!("{prefix}.{name}");
+            if let Some(entry) = self.symbols.entry(&candidate) {
+                return Some(entry.val);
+            }
+            depth = depth.saturating_sub(1);
+        }
+        self.symbols.entry(name).map(|entry| entry.val)
     }
 
     fn process(
@@ -1398,20 +1529,27 @@ impl<'a> AsmLine<'a> {
                 mnemonic,
                 operands,
             } => {
-                if self.cond_stack.skipping() {
-                    return LineStatus::Skip;
-                }
                 self.label = label.as_ref().map(|l| l.name.clone());
                 self.mnemonic = mnemonic.clone();
+
+                if self.cond_stack.skipping() {
+                    if let Some(name) = mnemonic.as_deref() {
+                        if is_scope_directive(name) {
+                            return self.process_directive_ast(name, &operands);
+                        }
+                    }
+                    return LineStatus::Skip;
+                }
 
                 let mnemonic = match mnemonic {
                     Some(m) => m,
                     None => {
                         if let Some(label) = &label {
+                            let full_name = self.scoped_define_name(&label.name);
                             let res = if self.pass == 1 {
-                                self.symbols.add(&label.name, self.start_addr as u32, false)
+                                self.symbols.add(&full_name, self.start_addr as u32, false)
                             } else {
-                                self.symbols.update(&label.name, self.start_addr as u32)
+                                self.symbols.update(&full_name, self.start_addr as u32)
                             };
                             if res == crate::symbol_table::SymbolTableResult::Duplicate {
                                 return self.failure_at_span(
@@ -1429,10 +1567,11 @@ impl<'a> AsmLine<'a> {
 
                 if let Some(label) = &label {
                     if !is_symbol_assignment_directive(&mnemonic) {
+                        let full_name = self.scoped_define_name(&label.name);
                         let res = if self.pass == 1 {
-                            self.symbols.add(&label.name, self.start_addr as u32, false)
+                            self.symbols.add(&full_name, self.start_addr as u32, false)
                         } else {
-                            self.symbols.update(&label.name, self.start_addr as u32)
+                            self.symbols.update(&full_name, self.start_addr as u32)
                         };
                         if res == crate::symbol_table::SymbolTableResult::Duplicate {
                             return self.failure_at_span(
@@ -1575,6 +1714,48 @@ impl<'a> AsmLine<'a> {
             return LineStatus::NothingDone;
         }
         match directive {
+            "BLOCK" => {
+                if !operands.is_empty() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Unexpected operands for .block",
+                        None,
+                    );
+                }
+                if let Some(label) = self.label.clone() {
+                    if let Err(message) = self.scope_stack.push_named(&label) {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            message,
+                            Some(&label),
+                        );
+                    }
+                } else {
+                    self.scope_stack.push_anonymous();
+                }
+                LineStatus::Ok
+            }
+            "ENDBLOCK" => {
+                if !operands.is_empty() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Unexpected operands for .endblock",
+                        None,
+                    );
+                }
+                if !self.scope_stack.pop() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        ".endblock found without matching .block",
+                        None,
+                    );
+                }
+                LineStatus::Ok
+            }
             "ORG" => {
                 let expr = match operands.first() {
                     Some(expr) => expr,
@@ -1638,10 +1819,11 @@ impl<'a> AsmLine<'a> {
                     }
                 };
                 let label = self.label.clone().unwrap_or_default();
+                let full_name = self.scoped_define_name(&label);
                 let res = if self.pass == 1 {
-                    self.symbols.add(&label, val, is_rw)
+                    self.symbols.add(&full_name, val, is_rw)
                 } else {
-                    self.symbols.update(&label, val)
+                    self.symbols.update(&full_name, val)
                 };
                 if res == crate::symbol_table::SymbolTableResult::Duplicate {
                     return self.failure_at(
@@ -1735,8 +1917,9 @@ impl<'a> AsmLine<'a> {
 
         match op {
             AssignOp::Const | AssignOp::Var | AssignOp::VarIfUndef => {
+                let full_name = self.scoped_define_name(&label.name);
                 if op == AssignOp::VarIfUndef {
-                    if let Some(entry) = self.symbols.entry(&label.name) {
+                    if let Some(entry) = self.symbols.entry(&full_name) {
                         self.aux_value = entry.val as u16;
                         return LineStatus::DirEqu;
                     }
@@ -1755,9 +1938,9 @@ impl<'a> AsmLine<'a> {
                 };
                 let is_rw = op != AssignOp::Const;
                 let res = if self.pass == 1 {
-                    self.symbols.add(&label.name, val, is_rw)
+                    self.symbols.add(&full_name, val, is_rw)
                 } else {
-                    self.symbols.update(&label.name, val)
+                    self.symbols.update(&full_name, val)
                 };
                 if res == crate::symbol_table::SymbolTableResult::Duplicate {
                     return self.failure_at(
@@ -1782,7 +1965,19 @@ impl<'a> AsmLine<'a> {
             _ => {}
         }
 
-        let (left_val, is_rw) = match self.symbols.entry(&label.name) {
+        let target = match self.resolve_scoped_name(&label.name) {
+            Some(name) => name,
+            None => {
+                return self.failure_at(
+                    LineStatus::Error,
+                    AsmErrorKind::Symbol,
+                    "symbol has not been defined",
+                    Some(&label.name),
+                    Some(1),
+                )
+            }
+        };
+        let (left_val, is_rw) = match self.symbols.entry(&target) {
             Some(entry) => (entry.val, entry.rw),
             None => {
                 return self.failure_at(
@@ -1830,7 +2025,7 @@ impl<'a> AsmLine<'a> {
             }
         };
 
-        if let Some(entry) = self.symbols.entry_mut(&label.name) {
+        if let Some(entry) = self.symbols.entry_mut(&target) {
             entry.val = new_val;
             entry.updated = true;
         }
@@ -2145,7 +2340,10 @@ impl<'a> AsmLine<'a> {
             }),
             Expr::Number(text, span) => parse_number_text(text, *span),
             Expr::Identifier(name, span) | Expr::Register(name, span) => {
-                let val = self.symbols.lookup(name);
+                let val = match self.lookup_scoped_value(name) {
+                    Some(value) => value,
+                    None => NO_ENTRY,
+                };
                 if val == NO_ENTRY {
                     if self.pass > 1 {
                         return Err(AstEvalError {
@@ -2326,6 +2524,13 @@ fn is_symbol_assignment_directive(mnemonic: &str) -> bool {
     matches!(
         mnemonic.to_ascii_uppercase().as_str(),
         ".CONST" | ".VAR" | ".SET"
+    )
+}
+
+fn is_scope_directive(mnemonic: &str) -> bool {
+    matches!(
+        mnemonic.to_ascii_uppercase().as_str(),
+        ".BLOCK" | ".ENDBLOCK"
     )
 }
 
@@ -2783,6 +2988,78 @@ mod tests {
         let status = process_line(&mut asm, "    .word VAL+1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[4, 0]);
+    }
+
+    #[test]
+    fn scoped_symbols_resolve_in_current_scope() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "SCOPE .block", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "VAL .const 3", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, "    .word VAL", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[3, 0]);
+        let status = process_line(&mut asm, ".endblock", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.symbols().lookup("SCOPE.VAL"), 3);
+        assert_eq!(asm.symbols().lookup("VAL"), NO_ENTRY);
+    }
+
+    #[test]
+    fn qualified_symbol_resolves_outside_scope() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "SCOPE .block", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "VAL .const 7", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, ".endblock", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+
+        let status = process_line(&mut asm, "    .word SCOPE.VAL", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[7, 0]);
+    }
+
+    #[test]
+    fn scoped_symbol_shadowing_prefers_inner_scope() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "VAL .const 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, "SCOPE .block", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "VAL .const 2", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, "    .word VAL", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[2, 0]);
+        let status = process_line(&mut asm, ".endblock", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "    .word VAL", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[1, 0]);
+    }
+
+    #[test]
+    fn nested_scopes_are_addressable_by_qualified_name() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let status = process_line(&mut asm, "OUTER .block", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "INNER .block", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "VAL .const 5", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, ".endblock", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, ".endblock", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "    .word OUTER.INNER.VAL", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[5, 0]);
     }
 
     #[test]

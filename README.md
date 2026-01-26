@@ -5,9 +5,10 @@ This is an assembler for Intel 8080 and 8085 processors. It is based on a fork o
 
 It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
 
-Important features of this assembler include expression evaluation for constants and string initialization for data. It supports assembler directives .org, .const, .var (with .set as an alias), .byte, .word, .ds, .end, and .cpu. You can also set the program counter with `* = expr`. Preprocessor directives are .DEFINE, .IFDEF, .IFNDEF, .ELSE, .ELSEIF, .ENDIF, and .INCLUDE. Assembler conditionals use `.if/.elseif/.else/.endif` (expression-based). Preprocessor directives also use a leading `.`; `#` is rejected.
+Important features of this assembler include expression evaluation for constants and string initialization for data. It supports assembler directives .org, .const, .var (with .set as an alias), .byte, .word, .ds, .end, .cpu, and scope directives .block/.endblock. You can also set the program counter with `* = expr`. Preprocessor directives are .DEFINE, .IFDEF, .IFNDEF, .ELSE, .ELSEIF, .ENDIF, and .INCLUDE. Assembler conditionals use `.if/.elseif/.else/.endif` (expression-based). Preprocessor directives also use a leading `.`; `#` is rejected.
 
 Expression syntax follows a 64tass-style operator set: `+ - * / % ** << >> == != <> < <= > >= & ^ | && ^^ || ! ~` plus unary `<`/`>` for low/high byte and ternary `?:`. Non-zero values are TRUE; logical operators return `1` or `0`.
+Scopes are introduced with `.block`/`.endblock`. A label before `.block` names the scope, and scoped symbols can be referenced with `scope.symbol`. Unqualified symbols resolve from the innermost scope out to global.
 
 This is a two-pass assembler.  The first pass creates the symbol table and the second produces the output files.
 
