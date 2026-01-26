@@ -81,6 +81,18 @@ impl SymbolTable {
         NO_ENTRY
     }
 
+    pub fn entry(&self, name: &str) -> Option<&SymbolTableEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn entry_mut(&mut self, name: &str) -> Option<&mut SymbolTableEntry> {
+        self.entries
+            .iter_mut()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+    }
+
     pub fn dump<W: Write>(&self, mut out: W) -> io::Result<()> {
         for entry in &self.entries {
             writeln!(

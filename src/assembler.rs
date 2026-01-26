@@ -10,7 +10,7 @@ use clap::{ArgAction, Parser};
 use crate::imagestore::ImageStore;
 use crate::instructions::table::INSTRUCTION_TABLE;
 use crate::instructions::ArgType;
-use crate::parser::{BinaryOp, Expr, LabelKind, LineAst, ParseError, UnaryOp};
+use crate::parser::{AssignOp, BinaryOp, Expr, Label, LabelKind, LineAst, ParseError, UnaryOp};
 use crate::parser as asm_parser;
 use crate::parser_reporter::{format_parse_error, format_parse_error_listing};
 use crate::preprocess::Preprocessor;
@@ -1390,6 +1390,12 @@ impl<'a> AsmLine<'a> {
             LineAst::Conditional { kind, expr, span } => {
                 self.process_conditional_ast(kind, expr.as_ref(), span)
             }
+            LineAst::Assignment { label, op, expr, span } => {
+                if self.cond_stack.skipping() {
+                    return LineStatus::Skip;
+                }
+                self.process_assignment_ast(&label, op, &expr, span)
+            }
             LineAst::Statement {
                 label,
                 mnemonic,
@@ -1739,6 +1745,134 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    fn process_assignment_ast(
+        &mut self,
+        label: &Label,
+        op: AssignOp,
+        expr: &Expr,
+        span: Span,
+    ) -> LineStatus {
+        self.label = Some(label.name.clone());
+        self.label_kind = match label.kind {
+            LabelKind::Label => TokenValue::Label as i32,
+            LabelKind::Name => TokenValue::Name as i32,
+        };
+
+        if label.kind != LabelKind::Name {
+            return self.failure_at(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Assignment name should not end in ':'",
+                None,
+                Some(1),
+            );
+        }
+
+        match op {
+            AssignOp::Const | AssignOp::Var | AssignOp::VarIfUndef => {
+                if op == AssignOp::VarIfUndef {
+                    if let Some(entry) = self.symbols.entry(&label.name) {
+                        self.aux_value = entry.val as u16;
+                        return LineStatus::DirEqu;
+                    }
+                }
+                let val = match self.eval_expr_ast(expr) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            err.error.kind(),
+                            err.error.message(),
+                            None,
+                            err.span,
+                        )
+                    }
+                };
+                let is_rw = op != AssignOp::Const;
+                let res = if self.pass == 1 {
+                    self.symbols.add(&label.name, val, is_rw)
+                } else {
+                    self.symbols.update(&label.name, val)
+                };
+                if res == crate::symbol_table::SymbolTableResult::Duplicate {
+                    return self.failure_at(
+                        LineStatus::Error,
+                        AsmErrorKind::Symbol,
+                        "symbol has already been defined",
+                        Some(&label.name),
+                        Some(1),
+                    );
+                } else if res == crate::symbol_table::SymbolTableResult::TableFull {
+                    return self.failure_at(
+                        LineStatus::Error,
+                        AsmErrorKind::Symbol,
+                        "could not add symbol, table full",
+                        Some(&label.name),
+                        Some(1),
+                    );
+                }
+                self.aux_value = val as u16;
+                return LineStatus::DirEqu;
+            }
+            _ => {}
+        }
+
+        let (left_val, is_rw) = match self.symbols.entry(&label.name) {
+            Some(entry) => (entry.val, entry.rw),
+            None => {
+                return self.failure_at(
+                    LineStatus::Error,
+                    AsmErrorKind::Symbol,
+                    "symbol has not been defined",
+                    Some(&label.name),
+                    Some(1),
+                )
+            }
+        };
+
+        if !is_rw {
+            return self.failure_at(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "symbol is read-only",
+                Some(&label.name),
+                Some(1),
+            );
+        }
+
+        let rhs = match self.eval_expr_ast(expr) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+        let new_val = match self.apply_assignment_op(op, left_val, rhs, span) {
+            Ok(val) => val,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+
+        if let Some(entry) = self.symbols.entry_mut(&label.name) {
+            entry.val = new_val;
+            entry.updated = true;
+        }
+        self.aux_value = new_val as u16;
+        LineStatus::DirEqu
+    }
+
     fn process_instruction_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
         let upper = mnemonic.to_ascii_uppercase();
 
@@ -1981,6 +2115,63 @@ impl<'a> AsmLine<'a> {
         LineStatus::Ok
     }
 
+    fn apply_assignment_op(
+        &self,
+        op: AssignOp,
+        left: u32,
+        right: u32,
+        span: Span,
+    ) -> Result<u32, AstEvalError> {
+        let val = match op {
+            AssignOp::Add => left.wrapping_add(right),
+            AssignOp::Sub => left.wrapping_sub(right),
+            AssignOp::Mul => left.wrapping_mul(right),
+            AssignOp::Div => {
+                if right == 0 {
+                    return Err(AstEvalError {
+                        error: AsmError::new(AsmErrorKind::Expression, "Divide by zero", None),
+                        span,
+                    });
+                }
+                left / right
+            }
+            AssignOp::Mod => {
+                if right == 0 {
+                    return Err(AstEvalError {
+                        error: AsmError::new(AsmErrorKind::Expression, "Divide by zero", None),
+                        span,
+                    });
+                }
+                left % right
+            }
+            AssignOp::Pow => left.wrapping_pow(right),
+            AssignOp::BitOr => left | right,
+            AssignOp::BitXor => left ^ right,
+            AssignOp::BitAnd => left & right,
+            AssignOp::LogicOr => {
+                if left != 0 || right != 0 { 1 } else { 0 }
+            }
+            AssignOp::LogicAnd => {
+                if left != 0 && right != 0 { 1 } else { 0 }
+            }
+            AssignOp::Shl => {
+                let shift = right & 0x1f;
+                left.wrapping_shl(shift)
+            }
+            AssignOp::Shr => {
+                let shift = right & 0x1f;
+                left >> shift
+            }
+            AssignOp::Concat => concat_values(left, right),
+            AssignOp::Min => left.min(right),
+            AssignOp::Max => left.max(right),
+            AssignOp::Repeat => repeat_value(left, right),
+            AssignOp::Member => right,
+            AssignOp::Const | AssignOp::Var | AssignOp::VarIfUndef => right,
+        };
+        Ok(val)
+    }
+
     fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
         match expr {
             Expr::Error(message, span) => Err(AstEvalError {
@@ -2077,13 +2268,13 @@ impl<'a> AsmLine<'a> {
                         }
                         left_val % right_val
                     }
-                    BinaryOp::Power => left_val.wrapping_pow(right_val as u32),
+                    BinaryOp::Power => left_val.wrapping_pow(right_val),
                     BinaryOp::Shl => {
-                        let shift = (right_val & 0x1f) as u32;
+                        let shift = right_val & 0x1f;
                         left_val.wrapping_shl(shift)
                     }
                     BinaryOp::Shr => {
-                        let shift = (right_val & 0x1f) as u32;
+                        let shift = right_val & 0x1f;
                         left_val >> shift
                     }
                     BinaryOp::Add => left_val.wrapping_add(right_val),
@@ -2164,6 +2355,32 @@ impl<'a> AsmLine<'a> {
 
 fn cmp_ignore_ascii_case(a: &str, b: &str) -> std::cmp::Ordering {
     a.to_ascii_uppercase().cmp(&b.to_ascii_uppercase())
+}
+
+fn concat_values(left: u32, right: u32) -> u32 {
+    let width = if right == 0 {
+        1
+    } else {
+        (32 - right.leading_zeros()).div_ceil(8).min(4)
+    };
+    let shift = (width * 8).min(32);
+    let mask = if shift >= 32 {
+        u64::MAX
+    } else {
+        (1u64 << shift) - 1
+    };
+    let combined = ((left as u64) << shift) | ((right as u64) & mask);
+    combined as u32
+}
+
+fn repeat_value(left: u32, right: u32) -> u32 {
+    let count = right.min(4);
+    let byte = left & 0xff;
+    let mut result = 0u32;
+    for _ in 0..count {
+        result = (result << 8) | byte;
+    }
+    result
 }
 
 fn expr_span(expr: &Expr) -> Span {
@@ -2611,6 +2828,62 @@ mod tests {
         let status = process_line(&mut asm, "VAL .set 3", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
         assert_eq!(asm.symbols().lookup("VAL"), 3);
+    }
+
+    #[test]
+    fn assignment_ops_update_symbols() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+
+        let status = process_line(&mut asm, "WIDTH = 40", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("WIDTH"), 40);
+
+        let status = process_line(&mut asm, "var2 := 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var2"), 1);
+
+        let status = process_line(&mut asm, "var2 += 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var2"), 2);
+
+        let status = process_line(&mut asm, "var2 *= 3", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var2"), 6);
+
+        let status = process_line(&mut asm, "var2 <?= 4", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var2"), 4);
+
+        let status = process_line(&mut asm, "var2 >?= 5", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var2"), 5);
+
+        let status = process_line(&mut asm, "var3 :?= 5", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var3"), 5);
+
+        let status = process_line(&mut asm, "var3 :?= 7", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("var3"), 5);
+
+        let status = process_line(&mut asm, "rep := $ab", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, "rep x= 3", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("rep"), 0x00ababab);
+
+        let status = process_line(&mut asm, "cat := $12", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, "cat ..= $3456", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("cat"), 0x00123456);
+
+        let status = process_line(&mut asm, "mem := 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, "mem .= 5", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        assert_eq!(asm.symbols().lookup("mem"), 5);
     }
 
     #[test]

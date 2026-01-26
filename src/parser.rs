@@ -18,6 +18,12 @@ pub enum LineAst {
         expr: Option<Expr>,
         span: Span,
     },
+    Assignment {
+        label: Label,
+        op: AssignOp,
+        expr: Expr,
+        span: Span,
+    },
     Statement {
         label: Option<Label>,
         mnemonic: Option<String>,
@@ -73,6 +79,31 @@ pub enum UnaryOp {
     LogicNot,
     High,
     Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignOp {
+    Const,
+    Var,
+    VarIfUndef,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Pow,
+    BitOr,
+    BitXor,
+    BitAnd,
+    LogicOr,
+    LogicAnd,
+    Shl,
+    Shr,
+    Concat,
+    Min,
+    Max,
+    Repeat,
+    Member,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +266,28 @@ impl Parser {
             }
         }
 
+        if let Some(label) = &label {
+            if let Some((op, span, consumed)) = self.match_assignment_op() {
+                self.index = self.index.saturating_add(consumed);
+                let expr = match self.parse_expr() {
+                    Ok(expr) => expr,
+                    Err(err) => Expr::Error(err.message, err.span),
+                };
+                if self.index < self.tokens.len() {
+                    return Err(ParseError {
+                        message: "Unexpected trailing tokens".to_string(),
+                        span: self.tokens[self.index].span,
+                    });
+                }
+                return Ok(LineAst::Assignment {
+                    label: label.clone(),
+                    op,
+                    expr,
+                    span,
+                });
+            }
+        }
+
         if self.consume_kind(TokenKind::Dot) {
             let (name, span) = match self.next() {
                 Some(Token {
@@ -385,6 +438,106 @@ impl Parser {
             mnemonic,
             operands,
         })
+    }
+
+    fn match_assignment_op(&self) -> Option<(AssignOp, Span, usize)> {
+        let token = self.tokens.get(self.index)?;
+        let next = self.tokens.get(self.index + 1);
+        let next2 = self.tokens.get(self.index + 2);
+        match &token.kind {
+            TokenKind::Operator(OperatorKind::Eq) => {
+                Some((AssignOp::Const, token.span, 1))
+            }
+            TokenKind::Colon => {
+                if matches!(next, Some(Token { kind: TokenKind::Question, .. }))
+                    && matches!(next2, Some(Token { kind: TokenKind::Operator(OperatorKind::Eq), .. }))
+                {
+                    Some((AssignOp::VarIfUndef, token.span, 3))
+                } else if matches!(
+                    next,
+                    Some(Token {
+                        kind: TokenKind::Operator(OperatorKind::Eq),
+                        ..
+                    })
+                ) {
+                    Some((AssignOp::Var, token.span, 2))
+                } else {
+                    None
+                }
+            }
+            TokenKind::Operator(kind) => {
+                let op = match kind {
+                    OperatorKind::Plus => AssignOp::Add,
+                    OperatorKind::Minus => AssignOp::Sub,
+                    OperatorKind::Multiply => AssignOp::Mul,
+                    OperatorKind::Divide => AssignOp::Div,
+                    OperatorKind::Mod => AssignOp::Mod,
+                    OperatorKind::Power => AssignOp::Pow,
+                    OperatorKind::BitOr => AssignOp::BitOr,
+                    OperatorKind::BitXor => AssignOp::BitXor,
+                    OperatorKind::BitAnd => AssignOp::BitAnd,
+                    OperatorKind::LogicOr => AssignOp::LogicOr,
+                    OperatorKind::LogicAnd => AssignOp::LogicAnd,
+                    OperatorKind::Shl => AssignOp::Shl,
+                    OperatorKind::Shr => AssignOp::Shr,
+                    OperatorKind::Lt => {
+                        if matches!(next, Some(Token { kind: TokenKind::Question, .. }))
+                            && matches!(next2, Some(Token { kind: TokenKind::Operator(OperatorKind::Eq), .. }))
+                        {
+                            return Some((AssignOp::Min, token.span, 3));
+                        }
+                        return None;
+                    }
+                    OperatorKind::Gt => {
+                        if matches!(next, Some(Token { kind: TokenKind::Question, .. }))
+                            && matches!(next2, Some(Token { kind: TokenKind::Operator(OperatorKind::Eq), .. }))
+                        {
+                            return Some((AssignOp::Max, token.span, 3));
+                        }
+                        return None;
+                    }
+                    _ => return None,
+                };
+                if matches!(
+                    next,
+                    Some(Token {
+                        kind: TokenKind::Operator(OperatorKind::Eq),
+                        ..
+                    })
+                ) {
+                    Some((op, token.span, 2))
+                } else {
+                    None
+                }
+            }
+            TokenKind::Dot => {
+                if matches!(next, Some(Token { kind: TokenKind::Dot, .. }))
+                    && matches!(next2, Some(Token { kind: TokenKind::Operator(OperatorKind::Eq), .. }))
+                {
+                    Some((AssignOp::Concat, token.span, 3))
+                } else if matches!(
+                    next,
+                    Some(Token {
+                        kind: TokenKind::Operator(OperatorKind::Eq),
+                        ..
+                    })
+                ) {
+                    Some((AssignOp::Member, token.span, 2))
+                } else {
+                    None
+                }
+            }
+            TokenKind::Identifier(name) => {
+                if name.eq_ignore_ascii_case("x")
+                    && matches!(next, Some(Token { kind: TokenKind::Operator(OperatorKind::Eq), .. }))
+                {
+                    Some((AssignOp::Repeat, token.span, 2))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
@@ -811,7 +964,7 @@ fn is_ident_start(c: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConditionalKind, LabelKind, LineAst, Parser};
+    use super::{AssignOp, ConditionalKind, LabelKind, LineAst, Parser};
 
     #[test]
     fn parses_label_and_mnemonic() {
@@ -842,6 +995,34 @@ mod tests {
                 assert_eq!(operands.len(), 1);
             }
             _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_assignment_constant() {
+        let mut parser = Parser::from_line("WIDTH = 40", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Assignment { label, op, .. } => {
+                assert_eq!(label.kind, LabelKind::Name);
+                assert_eq!(label.name, "WIDTH");
+                assert_eq!(op, AssignOp::Const);
+            }
+            _ => panic!("Expected assignment"),
+        }
+    }
+
+    #[test]
+    fn parses_assignment_var() {
+        let mut parser = Parser::from_line("var2 := 1", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Assignment { label, op, .. } => {
+                assert_eq!(label.kind, LabelKind::Name);
+                assert_eq!(label.name, "var2");
+                assert_eq!(op, AssignOp::Var);
+            }
+            _ => panic!("Expected assignment"),
         }
     }
 

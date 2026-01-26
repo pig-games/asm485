@@ -11,6 +11,14 @@ Expression syntax follows a 64tass-style operator set: `+ - * / % ** << >> == !=
 
 This is a two-pass assembler.  The first pass creates the symbol table and the second produces the output files.
 
+Symbol assignment (name-only, no trailing `:`):
+    WIDTH = 40          ; read-only constant (like .const)
+    var1 := 1           ; read/write variable (like .var)
+    var2 :?= 5          ; assign only if undefined
+    var1 += 1           ; compound assignment (add)
+
+Compound assignment operators: `+= -= *= /= %= **= |= ^= &= ||= &&= <<= >>= ..= <?= >?= x= .=`
+
 Build:
 
     make
