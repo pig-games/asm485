@@ -42,12 +42,29 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               39  LABELSE:.else
 ----                               40                  .byte 11
 ----                               41  LABEND: .endif
+----                               42  
+----                               43  ; switch/case/default
+----                               44          .switch 2
+----                               45          .case 1
+----                               46                  .byte 12
+----                               47          .case 2, 3
+2004    0D                         48                  .byte 13
+----                               49          .default
+----                               50                  .byte 14
+----                               51          .endswitch
+----                               52  
+----                               53          .switch 9
+----                               54          .case 1, 2
+----                               55                  .byte 15
+----                               56          .default
+2005    10                         57                  .byte 16
+----                               58          .endswitch
 
-Lines: 41  Errors: 0  Warnings: 0
+Lines: 58  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 TRUE            : 0001 (1)
 FALSE           : 0000 (0)
 
-Total memory is 4 bytes
+Total memory is 6 bytes

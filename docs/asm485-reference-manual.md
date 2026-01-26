@@ -140,6 +140,22 @@ Compound assignment operators:
 .endif
 ```
 
+Switch form:
+
+```
+.switch expr
+.case expr[, expr...]
+    ; body
+.case expr
+    ; body
+.default
+    ; body
+.endswitch
+```
+
+The switch expression is evaluated once; the first matching `.case` wins, and
+`.default` is used if no case matches.
+
 ### 4.6 Scopes
 
 Scopes are introduced by `.block` and closed by `.endblock`:
@@ -301,6 +317,7 @@ additional opcode sets in the future (e.g. Z80).
 .block  .endblock
 .macro  .endmacro  .segment  .endsegment
 .if  .elseif  .else  .endif
+.switch  .case  .default  .endswitch
 .ifdef  .ifndef  .include
 ```
 

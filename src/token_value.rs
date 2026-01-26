@@ -27,4 +27,8 @@ pub enum TokenValue {
     Else = 22,
     ElseIf = 23,
     EndIf = 24,
+    Switch = 25,
+    Case = 26,
+    Default = 27,
+    EndSwitch = 28,
 }

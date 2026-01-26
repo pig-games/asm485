@@ -15,7 +15,7 @@ pub enum LineAst {
     Empty,
     Conditional {
         kind: ConditionalKind,
-        expr: Option<Expr>,
+        exprs: Vec<Expr>,
         span: Span,
     },
     Assignment {
@@ -310,11 +310,15 @@ impl Parser {
                 }
             };
             let upper = name.to_ascii_uppercase();
-            let (kind, needs_expr) = match upper.as_str() {
-                "IF" => (ConditionalKind::If, true),
-                "ELSEIF" => (ConditionalKind::ElseIf, true),
-                "ELSE" => (ConditionalKind::Else, false),
-                "ENDIF" => (ConditionalKind::EndIf, false),
+            let (kind, needs_expr, list_exprs) = match upper.as_str() {
+                "IF" => (ConditionalKind::If, true, false),
+                "ELSEIF" => (ConditionalKind::ElseIf, true, false),
+                "ELSE" => (ConditionalKind::Else, false, false),
+                "ENDIF" => (ConditionalKind::EndIf, false, false),
+                "SWITCH" => (ConditionalKind::Switch, true, false),
+                "CASE" => (ConditionalKind::Case, true, true),
+                "DEFAULT" => (ConditionalKind::Default, false, false),
+                "ENDSWITCH" => (ConditionalKind::EndSwitch, false, false),
                 _ => {
                     let mut operands = Vec::new();
                     if self.index < self.tokens.len() {
@@ -356,21 +360,31 @@ impl Parser {
                     });
                 }
             };
-            let expr = if needs_expr {
+            let mut exprs = Vec::new();
+            if needs_expr {
                 match self.parse_expr() {
-                    Ok(expr) => Some(expr),
-                    Err(err) => Some(Expr::Error(err.message, err.span)),
+                    Ok(expr) => exprs.push(expr),
+                    Err(err) => exprs.push(Expr::Error(err.message, err.span)),
                 }
-            } else {
-                None
-            };
+                if list_exprs {
+                    while self.consume_comma() {
+                        match self.parse_expr() {
+                            Ok(expr) => exprs.push(expr),
+                            Err(err) => {
+                                exprs.push(Expr::Error(err.message, err.span));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             if self.index < self.tokens.len() {
                 return Err(ParseError {
                     message: "Unexpected tokens after conditional".to_string(),
                     span: self.tokens[self.index].span,
                 });
             }
-            return Ok(LineAst::Conditional { kind, expr, span });
+            return Ok(LineAst::Conditional { kind, exprs, span });
         }
 
         let mnemonic = match self.next() {
@@ -995,9 +1009,22 @@ mod tests {
         let mut parser = Parser::from_line(".if 1", 1).unwrap();
         let line = parser.parse_line().unwrap();
         match line {
-            LineAst::Conditional { kind, expr, .. } => {
+            LineAst::Conditional { kind, exprs, .. } => {
                 assert_eq!(kind, ConditionalKind::If);
-                assert!(expr.is_some());
+                assert_eq!(exprs.len(), 1);
+            }
+            _ => panic!("Expected conditional"),
+        }
+    }
+
+    #[test]
+    fn parses_switch_case_list() {
+        let mut parser = Parser::from_line(".case 1, 2, 3", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Conditional { kind, exprs, .. } => {
+                assert_eq!(kind, ConditionalKind::Case);
+                assert_eq!(exprs.len(), 3);
             }
             _ => panic!("Expected conditional"),
         }

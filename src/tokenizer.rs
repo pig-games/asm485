@@ -78,6 +78,10 @@ pub enum ConditionalKind {
     Else,
     ElseIf,
     EndIf,
+    Switch,
+    Case,
+    Default,
+    EndSwitch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

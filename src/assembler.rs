@@ -1180,27 +1180,41 @@ enum LineStatus {
     Pass1Error = 7,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConditionalBlockKind {
+    If,
+    Switch,
+}
+
 #[derive(Debug, Clone)]
 struct ConditionalContext {
+    kind: ConditionalBlockKind,
     nest_level: u8,
     skip_level: u8,
     sub_type: i32,
     matched: bool,
     skipping: bool,
+    switch_value: Option<u32>,
 }
 
 impl ConditionalContext {
-    fn new(prev: Option<&ConditionalContext>) -> Self {
+    fn new(prev: Option<&ConditionalContext>, kind: ConditionalBlockKind) -> Self {
         let nest_level = match prev {
             Some(p) => p.nest_level.saturating_add(1),
             None => 1,
         };
+        let sub_type = match kind {
+            ConditionalBlockKind::If => TokenValue::If as i32,
+            ConditionalBlockKind::Switch => TokenValue::Switch as i32,
+        };
         Self {
+            kind,
             nest_level,
             skip_level: 0,
-            sub_type: TokenValue::If as i32,
+            sub_type,
             matched: false,
             skipping: false,
+            switch_value: None,
         }
     }
 }
@@ -1531,8 +1545,8 @@ impl<'a> AsmLine<'a> {
     fn process_ast(&mut self, ast: LineAst) -> LineStatus {
         match ast {
             LineAst::Empty => LineStatus::NothingDone,
-            LineAst::Conditional { kind, expr, span } => {
-                self.process_conditional_ast(kind, expr.as_ref(), span)
+            LineAst::Conditional { kind, exprs, span } => {
+                self.process_conditional_ast(kind, &exprs, span)
             }
             LineAst::Assignment { label, op, expr, span } => {
                 if self.cond_stack.skipping() {
@@ -1613,14 +1627,17 @@ impl<'a> AsmLine<'a> {
     fn process_conditional_ast(
         &mut self,
         kind: ConditionalKind,
-        expr: Option<&Expr>,
+        exprs: &[Expr],
         span: Span,
     ) -> LineStatus {
         let skipping = self.cond_stack.skipping();
+        let end_span = self.line_end_span.unwrap_or(span);
+        let expr_err_span = exprs.first().map(expr_span).unwrap_or(end_span);
 
         match kind {
             ConditionalKind::If => {
-                let val = expr
+                let val = exprs
+                    .first()
                     .and_then(|expr| self.eval_expr_ast(expr).ok())
                     .unwrap_or(0);
                 if skipping {
@@ -1630,7 +1647,7 @@ impl<'a> AsmLine<'a> {
                     return LineStatus::Skip;
                 }
                 let prev = self.cond_stack.last();
-                let mut ctx = ConditionalContext::new(prev);
+                let mut ctx = ConditionalContext::new(prev, ConditionalBlockKind::If);
                 if val != 0 {
                     ctx.matched = true;
                 } else {
@@ -1638,12 +1655,29 @@ impl<'a> AsmLine<'a> {
                 }
                 self.cond_stack.push(ctx);
             }
+            ConditionalKind::Switch => {
+                let val = exprs
+                    .first()
+                    .and_then(|expr| self.eval_expr_ast(expr).ok())
+                    .unwrap_or(0);
+                if skipping {
+                    if let Some(ctx) = self.cond_stack.last_mut() {
+                        ctx.skip_level = ctx.skip_level.saturating_add(1);
+                    }
+                    return LineStatus::Skip;
+                }
+                let prev = self.cond_stack.last();
+                let mut ctx = ConditionalContext::new(prev, ConditionalBlockKind::Switch);
+                ctx.switch_value = Some(val);
+                ctx.skipping = true;
+                self.cond_stack.push(ctx);
+            }
             ConditionalKind::Else | ConditionalKind::ElseIf => {
                 if self.cond_stack.is_empty() {
                     let err_span = if kind == ConditionalKind::ElseIf {
-                        expr.map(expr_span).unwrap_or(span)
+                        expr_err_span
                     } else {
-                        self.line_end_span.unwrap_or(span)
+                        end_span
                     };
                     return self.failure_at_span(
                         LineStatus::Error,
@@ -1661,18 +1695,34 @@ impl<'a> AsmLine<'a> {
                 if skip_level > 0 {
                     return LineStatus::Skip;
                 }
+                if self.cond_stack.last().map(|ctx| ctx.kind) != Some(ConditionalBlockKind::If) {
+                    let err_span = if kind == ConditionalKind::ElseIf {
+                        expr_err_span
+                    } else {
+                        end_span
+                    };
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".else or .elseif found without matching .if",
+                        None,
+                        err_span,
+                    );
+                }
                 let val = if kind == ConditionalKind::Else {
                     1
                 } else {
-                    expr.and_then(|expr| self.eval_expr_ast(expr).ok())
+                    exprs
+                        .first()
+                        .and_then(|expr| self.eval_expr_ast(expr).ok())
                         .unwrap_or(0)
                 };
                 let ctx = self.cond_stack.last_mut().unwrap();
                 if ctx.sub_type == TokenValue::Else as i32 {
                     let err_span = if kind == ConditionalKind::ElseIf {
-                        expr.map(expr_span).unwrap_or(span)
+                        expr_err_span
                     } else {
-                        self.line_end_span.unwrap_or(span)
+                        end_span
                     };
                     return self.failure_at_span(
                         LineStatus::Error,
@@ -1696,9 +1746,122 @@ impl<'a> AsmLine<'a> {
                     ctx.sub_type = sub_type;
                 }
             }
+            ConditionalKind::Case => {
+                if self.cond_stack.is_empty() {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".case found without matching .switch",
+                        None,
+                        expr_err_span,
+                    );
+                }
+                let skip_level = self
+                    .cond_stack
+                    .last()
+                    .map(|ctx| ctx.skip_level)
+                    .unwrap_or(0);
+                if skip_level > 0 {
+                    return LineStatus::Skip;
+                }
+                let (switch_val, sub_type, kind) = match self.cond_stack.last() {
+                    Some(ctx) => (ctx.switch_value.unwrap_or(0), ctx.sub_type, ctx.kind),
+                    None => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Conditional,
+                            ".case found without matching .switch",
+                            None,
+                            expr_err_span,
+                        );
+                    }
+                };
+                if kind != ConditionalBlockKind::Switch {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".case found without matching .switch",
+                        None,
+                        expr_err_span,
+                    );
+                }
+                if sub_type == TokenValue::Default as i32 {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".case cannot follow .default",
+                        None,
+                        expr_err_span,
+                    );
+                }
+                let case_match = exprs.iter().any(|expr| {
+                    self.eval_expr_ast(expr)
+                        .ok()
+                        .map(|val| val == switch_val)
+                        .unwrap_or(false)
+                });
+                let sub_type = TokenValue::Case as i32;
+                let ctx = self.cond_stack.last_mut().unwrap();
+                if !ctx.skipping {
+                    ctx.skipping = true;
+                    ctx.sub_type = sub_type;
+                } else if !ctx.matched && case_match {
+                    ctx.matched = true;
+                    ctx.skipping = false;
+                    ctx.sub_type = sub_type;
+                } else {
+                    ctx.sub_type = sub_type;
+                }
+            }
+            ConditionalKind::Default => {
+                if self.cond_stack.is_empty() {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".default found without matching .switch",
+                        None,
+                        end_span,
+                    );
+                }
+                let skip_level = self
+                    .cond_stack
+                    .last()
+                    .map(|ctx| ctx.skip_level)
+                    .unwrap_or(0);
+                if skip_level > 0 {
+                    return LineStatus::Skip;
+                }
+                if self.cond_stack.last().map(|ctx| ctx.kind) != Some(ConditionalBlockKind::Switch)
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".default found without matching .switch",
+                        None,
+                        end_span,
+                    );
+                }
+                let ctx = self.cond_stack.last_mut().unwrap();
+                if ctx.sub_type == TokenValue::Default as i32 {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".default cannot follow .default",
+                        None,
+                        end_span,
+                    );
+                }
+                ctx.sub_type = TokenValue::Default as i32;
+                if ctx.matched {
+                    ctx.skipping = true;
+                } else {
+                    ctx.matched = true;
+                    ctx.skipping = false;
+                }
+            }
             ConditionalKind::EndIf => {
                 if self.cond_stack.is_empty() {
-                    let err_span = self.line_end_span.unwrap_or(span);
+                    let err_span = end_span;
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
@@ -1711,6 +1874,47 @@ impl<'a> AsmLine<'a> {
                 if ctx.skip_level > 0 {
                     ctx.skip_level = ctx.skip_level.saturating_sub(1);
                     return LineStatus::Skip;
+                }
+                if ctx.kind != ConditionalBlockKind::If {
+                    let err_span = end_span;
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".endif found without matching .if",
+                        None,
+                        err_span,
+                    );
+                }
+                self.cond_stack.pop();
+                if self.cond_stack.skipping() {
+                    return LineStatus::Skip;
+                }
+            }
+            ConditionalKind::EndSwitch => {
+                if self.cond_stack.is_empty() {
+                    let err_span = end_span;
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".endswitch found without matching .switch",
+                        None,
+                        err_span,
+                    );
+                }
+                let ctx = self.cond_stack.last_mut().unwrap();
+                if ctx.skip_level > 0 {
+                    ctx.skip_level = ctx.skip_level.saturating_sub(1);
+                    return LineStatus::Skip;
+                }
+                if ctx.kind != ConditionalBlockKind::Switch {
+                    let err_span = end_span;
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".endswitch found without matching .switch",
+                        None,
+                        err_span,
+                    );
                 }
                 self.cond_stack.pop();
                 if self.cond_stack.skipping() {
@@ -3485,6 +3689,44 @@ mod tests {
         }
 
         assert_eq!(out, vec![1, 4]);
+    }
+
+    #[test]
+    fn switch_only_emits_matching_case() {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::new(&mut symbols);
+        let mut addr: u16 = 0;
+        let mut out = Vec::new();
+
+        let lines = [
+            "    .switch 2",
+            "    .case 1",
+            "    .byte 1",
+            "    .case 2, 3",
+            "    .byte 2",
+            "    .default",
+            "    .byte 9",
+            "    .endswitch",
+        ];
+
+        for line in lines {
+            let status = asm.process(line, 1, addr, 2);
+            match status {
+                LineStatus::Ok => {
+                    out.extend_from_slice(asm.bytes());
+                    addr = addr.wrapping_add(asm.num_bytes() as u16);
+                }
+                LineStatus::DirDs => {
+                    addr = addr.wrapping_add(asm.aux_value());
+                }
+                LineStatus::DirEqu => {
+                    addr = asm.start_addr();
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(out, vec![2]);
     }
 
     #[test]
