@@ -129,17 +129,20 @@ impl ConditionalState {
         }
 
         let frame = self.stack.last_mut().unwrap();
-        if !name.is_empty() {
-            if !frame.any_true && defined && parent_active {
-                frame.active = true;
-                frame.any_true = true;
-            } else {
-                frame.active = false;
+        match name.is_empty() {
+            false => {
+                if !frame.any_true && defined && parent_active {
+                    frame.active = true;
+                    frame.any_true = true;
+                } else {
+                    frame.active = false;
+                }
             }
-        } else {
-            frame.active = parent_active && !frame.any_true;
-            frame.any_true = true;
-            frame.in_else = true;
+            true => {
+                frame.active = parent_active && !frame.any_true;
+                frame.any_true = true;
+                frame.in_else = true;
+            }
         }
         Ok(())
     }
@@ -175,11 +178,10 @@ impl<'a> MacroExpander<'a> {
         let mut i = 0usize;
         while i < bytes.len() {
             let c = bytes[i] as char;
-            if c == '\'' && !in_double {
-                in_single = !in_single;
-            }
-            if c == '"' && !in_single {
-                in_double = !in_double;
+            match c {
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                _ => {}
             }
             if !in_single && !in_double && is_ident_start(bytes[i]) {
                 let mut j = i + 1;
@@ -231,11 +233,10 @@ impl<'a> MacroExpander<'a> {
         let mut i = 0usize;
         while i < bytes.len() {
             let c = bytes[i] as char;
-            if c == '\'' && !in_double {
-                in_single = !in_single;
-            }
-            if c == '"' && !in_single {
-                in_double = !in_double;
+            match c {
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                _ => {}
             }
             if !in_single && !in_double && is_ident_start(bytes[i]) {
                 let mut j = i + 1;
@@ -258,26 +259,26 @@ impl<'a> MacroExpander<'a> {
                             let mut esc = false;
                             while p < bytes.len() {
                                 let ch = bytes[p] as char;
-                                if esc {
-                                    args_str.push(ch);
-                                    esc = false;
-                                    p += 1;
-                                    continue;
-                                }
-                                if ch == '\\' {
-                                    esc = true;
-                                    args_str.push(ch);
-                                    p += 1;
-                                    continue;
-                                }
-                                if ch == '\'' && !s_in_double {
-                                    s_in_single = !s_in_single;
-                                }
-                                if ch == '"' && !s_in_single {
-                                    s_in_double = !s_in_double;
-                                }
-                                if !s_in_single && !s_in_double {
-                                    if ch == '(' {
+                                match ch {
+                                    _ if esc => {
+                                        args_str.push(ch);
+                                        esc = false;
+                                        p += 1;
+                                        continue;
+                                    }
+                                    '\\' => {
+                                        esc = true;
+                                        args_str.push(ch);
+                                        p += 1;
+                                        continue;
+                                    }
+                                    '\'' if !s_in_double => {
+                                        s_in_single = !s_in_single;
+                                    }
+                                    '"' if !s_in_single => {
+                                        s_in_double = !s_in_double;
+                                    }
+                                    '(' if !s_in_single && !s_in_double => {
                                         if paren > 0 {
                                             args_str.push(ch);
                                         }
@@ -285,12 +286,13 @@ impl<'a> MacroExpander<'a> {
                                         p += 1;
                                         continue;
                                     }
-                                    if ch == ')' {
+                                    ')' if !s_in_single && !s_in_double => {
                                         paren -= 1;
                                         if paren == 0 {
                                             break;
                                         }
                                     }
+                                    _ => {}
                                 }
                                 if paren > 0 {
                                     args_str.push(ch);
@@ -309,27 +311,28 @@ impl<'a> MacroExpander<'a> {
                             let mut a_in_double = false;
                             let mut a_esc = false;
                             for ch in args_str.chars() {
-                                if a_esc {
-                                    cur.push(ch);
-                                    a_esc = false;
-                                    continue;
-                                }
-                                if ch == '\\' {
-                                    a_esc = true;
-                                    cur.push(ch);
-                                    continue;
-                                }
-                                if ch == '\'' && !a_in_double {
-                                    a_in_single = !a_in_single;
-                                }
-                                if ch == '"' && !a_in_single {
-                                    a_in_double = !a_in_double;
-                                }
-                                if ch == ',' && !a_in_single && !a_in_double {
-                                    args.push(trim(&cur).to_string());
-                                    cur.clear();
-                                } else {
-                                    cur.push(ch);
+                                match ch {
+                                    _ if a_esc => {
+                                        cur.push(ch);
+                                        a_esc = false;
+                                    }
+                                    '\\' => {
+                                        a_esc = true;
+                                        cur.push(ch);
+                                    }
+                                    '\'' if !a_in_double => {
+                                        a_in_single = !a_in_single;
+                                        cur.push(ch);
+                                    }
+                                    '"' if !a_in_single => {
+                                        a_in_double = !a_in_double;
+                                        cur.push(ch);
+                                    }
+                                    ',' if !a_in_single && !a_in_double => {
+                                        args.push(trim(&cur).to_string());
+                                        cur.clear();
+                                    }
+                                    _ => cur.push(ch),
                                 }
                             }
                             if !cur.is_empty() {
@@ -378,11 +381,10 @@ impl<'a> MacroExpander<'a> {
         let mut i = 0usize;
         while i < bytes.len() {
             let c = bytes[i] as char;
-            if c == '\'' && !in_double {
-                in_single = !in_single;
-            }
-            if c == '"' && !in_single {
-                in_double = !in_double;
+            match c {
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                _ => {}
             }
             if !in_single && !in_double && is_ident_start(bytes[i]) {
                 let mut j = i + 1;
@@ -394,8 +396,8 @@ impl<'a> MacroExpander<'a> {
                 let mut replaced = false;
                 for (idx, param) in m.params.iter().enumerate() {
                     if up == *param {
-                        if idx < args.len() {
-                            out.push_str(&args[idx]);
+                        if let Some(value) = args.get(idx) {
+                            out.push_str(value);
                         }
                         replaced = true;
                         break;
@@ -474,13 +476,17 @@ impl Preprocessor {
                 break;
             }
             line_num = line_num.saturating_add(1);
-            if line.ends_with('\n') {
-                line.pop();
-                if line.ends_with('\r') {
+            match line.as_bytes().last() {
+                Some(b'\n') => {
+                    line.pop();
+                    if line.as_bytes().last() == Some(&b'\r') {
+                        line.pop();
+                    }
+                }
+                Some(b'\r') => {
                     line.pop();
                 }
-            } else if line.ends_with('\r') {
-                line.pop();
+                _ => {}
             }
             self.process_line(&line, &base_dir, line_num, path)?;
         }
@@ -497,13 +503,11 @@ impl Preprocessor {
         let (code, _comment) = split_comment(line);
         let trimmed = ltrim(&code);
         let asm_macro_directive = parse_asm_macro_directive(&trimmed);
-        let mut next_in_asm_macro = self.in_asm_macro;
-        if let Some(AsmMacroDirective::Start) = asm_macro_directive {
-            next_in_asm_macro = true;
-        }
-        if let Some(AsmMacroDirective::End) = asm_macro_directive {
-            next_in_asm_macro = false;
-        }
+        let next_in_asm_macro = match asm_macro_directive {
+            Some(AsmMacroDirective::Start) => true,
+            Some(AsmMacroDirective::End) => false,
+            None => self.in_asm_macro,
+        };
         let expander = MacroExpander::new(&self.macros);
         if trimmed.is_empty() {
             if self.is_active() {
@@ -518,17 +522,14 @@ impl Preprocessor {
 
         let mut pos = 0usize;
         let bytes = trimmed.as_bytes();
-        if bytes.first() == Some(&b'#') {
-            pos = 1;
-            while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
-                pos += 1;
+        match bytes.first() {
+            Some(b'#') | Some(b'.') => {
+                pos = 1;
+                while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+                    pos += 1;
+                }
             }
-        }
-        if bytes.first() == Some(&b'.') {
-            pos = 1;
-            while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
-                pos += 1;
-            }
+            _ => {}
         }
         let start = pos;
         while pos < bytes.len() && is_ident_char(bytes[pos]) {
@@ -626,51 +627,53 @@ impl Preprocessor {
             body: String::new(),
         };
 
-        if r.starts_with('(') {
-            let end = r.find(')');
-            if end.is_none() {
-                return Err(PreprocessError::new("DEFINE missing ')'"));
-            }
-            let end = end.unwrap();
-            let params_str = &r[1..end];
-            let mut params = Vec::new();
-            let mut cur = String::new();
-            let mut in_single = false;
-            let mut in_double = false;
-            let mut escape = false;
-            for ch in params_str.chars() {
-                if escape {
-                    cur.push(ch);
-                    escape = false;
-                    continue;
+        match r.as_bytes().first() {
+            Some(b'(') => {
+                let end = r
+                    .find(')')
+                    .ok_or_else(|| PreprocessError::new("DEFINE missing ')'"))?;
+                let params_str = &r[1..end];
+                let mut params = Vec::new();
+                let mut cur = String::new();
+                let mut in_single = false;
+                let mut in_double = false;
+                let mut escape = false;
+                for ch in params_str.chars() {
+                    match ch {
+                        _ if escape => {
+                            cur.push(ch);
+                            escape = false;
+                        }
+                        '\\' => {
+                            escape = true;
+                            cur.push(ch);
+                        }
+                        '\'' if !in_double => {
+                            in_single = !in_single;
+                            cur.push(ch);
+                        }
+                        '"' if !in_single => {
+                            in_double = !in_double;
+                            cur.push(ch);
+                        }
+                        ',' if !in_single && !in_double => {
+                            params.push(to_upper(&trim(&cur)));
+                            cur.clear();
+                        }
+                        _ => cur.push(ch),
+                    }
                 }
-                if ch == '\\' {
-                    escape = true;
-                    cur.push(ch);
-                    continue;
-                }
-                if ch == '\'' && !in_double {
-                    in_single = !in_single;
-                }
-                if ch == '"' && !in_single {
-                    in_double = !in_double;
-                }
-                if ch == ',' && !in_single && !in_double {
+                if !cur.is_empty() {
                     params.push(to_upper(&trim(&cur)));
-                    cur.clear();
-                } else {
-                    cur.push(ch);
                 }
+                m.is_function = true;
+                m.params = params;
+                m.body = trim(&r[end + 1..]).to_string();
             }
-            if !cur.is_empty() {
-                params.push(to_upper(&trim(&cur)));
+            _ => {
+                m.is_function = false;
+                m.body = trim(&r).to_string();
             }
-            m.is_function = true;
-            m.params = params;
-            m.body = trim(&r[end + 1..]).to_string();
-        } else {
-            m.is_function = false;
-            m.body = trim(&r).to_string();
         }
         self.macros.insert(to_upper(&name), m);
         Ok(())
@@ -682,17 +685,19 @@ impl Preprocessor {
             return Err(PreprocessError::new("IFDEF/IFNDEF missing name"));
         }
         let defined = self.is_defined(&name);
-        let cond = if negated { !defined } else { defined };
+        let cond = match negated {
+            true => !defined,
+            false => defined,
+        };
         self.cond_state.push_ifdef(cond);
         Ok(())
     }
 
     fn handle_else(&mut self, rest: &str) -> Result<(), PreprocessError> {
         let name = to_upper(&trim(rest));
-        let defined = if !name.is_empty() {
-            self.is_defined(&name)
-        } else {
-            false
+        let defined = match name.is_empty() {
+            false => self.is_defined(&name),
+            true => false,
         };
         self.cond_state.handle_else(&name, defined)?;
         Ok(())
@@ -708,10 +713,11 @@ impl Preprocessor {
             return Ok(());
         }
         let mut r = trim(rest);
-        if ((r.starts_with('"') && r.ends_with('"')) || (r.starts_with('\'') && r.ends_with('\'')))
-            && r.len() >= 2
-        {
-            r = r[1..r.len() - 1].to_string();
+        match (r.as_bytes().first(), r.as_bytes().last()) {
+            (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) if r.len() >= 2 => {
+                r = r[1..r.len() - 1].to_string();
+            }
+            _ => {}
         }
         if r.is_empty() {
             return Err(PreprocessError::new("INCLUDE missing file"));
@@ -737,28 +743,29 @@ fn split_unquoted_backslash(s: &str) -> Vec<String> {
     let mut in_double = false;
     let mut escape = false;
     for ch in s.chars() {
-        if escape {
-            cur.push(ch);
-            escape = false;
-            continue;
-        }
-        if ch == '\\' {
-            if in_single || in_double {
+        match ch {
+            _ if escape => {
+                cur.push(ch);
+                escape = false;
+            }
+            '\\' if in_single || in_double => {
                 cur.push(ch);
                 escape = true;
-            } else {
+            }
+            '\\' => {
                 parts.push(cur);
                 cur = String::new();
             }
-            continue;
+            '\'' if !in_double => {
+                in_single = !in_single;
+                cur.push(ch);
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                cur.push(ch);
+            }
+            _ => cur.push(ch),
         }
-        if ch == '\'' && !in_double {
-            in_single = !in_single;
-        }
-        if ch == '"' && !in_single {
-            in_double = !in_double;
-        }
-        cur.push(ch);
     }
     parts.push(cur);
     parts
@@ -772,28 +779,32 @@ fn split_comment(line: &str) -> (String, String) {
     let mut idx = 0usize;
     while idx < bytes.len() {
         let c = bytes[idx] as char;
-        if escape {
-            escape = false;
-            idx += 1;
-            continue;
+        match c {
+            _ if escape => {
+                escape = false;
+                idx += 1;
+            }
+            '\\' if in_single || in_double => {
+                escape = true;
+                idx += 1;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+                idx += 1;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                idx += 1;
+            }
+            ';' if !in_single && !in_double => {
+                let code = line[..idx].to_string();
+                let comment = line[idx..].to_string();
+                return (code, comment);
+            }
+            _ => {
+                idx += 1;
+            }
         }
-        if c == '\\' && (in_single || in_double) {
-            escape = true;
-            idx += 1;
-            continue;
-        }
-        if c == '\'' && !in_double {
-            in_single = !in_single;
-        }
-        if c == '"' && !in_single {
-            in_double = !in_double;
-        }
-        if c == ';' && !in_single && !in_double {
-            let code = line[..idx].to_string();
-            let comment = line[idx..].to_string();
-            return (code, comment);
-        }
-        idx += 1;
     }
     (line.to_string(), String::new())
 }
@@ -848,14 +859,15 @@ fn parse_asm_macro_directive(trimmed: &str) -> Option<AsmMacroDirective> {
         }
         Some(ch) if is_ident_start(ch) => {
             cursor.take_ident()?;
-            if cursor.peek() == Some(b':') {
+            if let Some(b':') = cursor.peek() {
                 cursor.next();
             }
             cursor.skip_ws();
-            if cursor.peek() == Some(b'.') {
-                cursor.next();
-            } else {
-                return None;
+            match cursor.peek() {
+                Some(b'.') => {
+                    cursor.next();
+                }
+                _ => return None,
             }
         }
         _ => return None,
@@ -921,16 +933,12 @@ fn dirname(path: &str) -> String {
 }
 
 fn join_path(base: &str, rel: &str) -> String {
-    if rel.is_empty() {
-        return base.to_string();
+    match rel {
+        "" => base.to_string(),
+        _ if rel.starts_with('/') || rel.starts_with('\\') => rel.to_string(),
+        _ if base.is_empty() => rel.to_string(),
+        _ => format!("{base}/{rel}"),
     }
-    if rel.starts_with('/') || rel.starts_with('\\') {
-        return rel.to_string();
-    }
-    if base.is_empty() {
-        return rel.to_string();
-    }
-    format!("{base}/{rel}")
 }
 
 #[cfg(test)]
