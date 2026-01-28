@@ -70,6 +70,7 @@ pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
             &config.bin_specs,
             config.go_addr.as_deref(),
             config.fill_byte,
+            config.pp_macro_depth,
         )?;
         reports.push(report);
     }
@@ -84,11 +85,12 @@ fn run_one(
     bin_specs: &[BinOutputSpec],
     go_addr: Option<&str>,
     fill_byte: u8,
+    pp_macro_depth: usize,
 ) -> Result<AsmRunReport, AsmRunError> {
     let list_path = resolve_output_path(out_base, cli.list_name.clone(), "lst");
     let hex_path = resolve_output_path(out_base, cli.hex_name.clone(), "hex");
 
-    let mut pp = Preprocessor::new();
+    let mut pp = Preprocessor::with_max_depth(pp_macro_depth);
     for def in &cli.defines {
         if let Some((name, value)) = def.split_once('=') {
             pp.define(name, value);

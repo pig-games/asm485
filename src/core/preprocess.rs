@@ -160,17 +160,15 @@ impl ConditionalState {
 
 struct MacroExpander<'a> {
     macros: &'a HashMap<String, MacroDef>,
+    max_depth: usize,
 }
 
 impl<'a> MacroExpander<'a> {
-    fn new(macros: &'a HashMap<String, MacroDef>) -> Self {
-        Self { macros }
+    fn new(macros: &'a HashMap<String, MacroDef>, max_depth: usize) -> Self {
+        Self { macros, max_depth }
     }
 
-    fn expand_object_macros(&self, code: &str, depth: i32) -> String {
-        if depth > 64 {
-            return code.to_string();
-        }
+    fn expand_object_macros(&self, code: &str) -> String {
         let mut out = String::new();
         let mut in_single = false;
         let mut in_double = false;
@@ -206,24 +204,27 @@ impl<'a> MacroExpander<'a> {
         out
     }
 
-    fn expand_line(&self, line: &str, depth: i32) -> Vec<String> {
-        if depth > 64 {
-            return vec![line.to_string()];
+    fn expand_line(&self, line: &str, depth: usize) -> Result<Vec<String>, PreprocessError> {
+        if depth > self.max_depth {
+            return Err(PreprocessError::new(format!(
+                "Preprocessor macro expansion exceeded maximum depth ({})",
+                self.max_depth
+            )));
         }
         let (code, comment) = split_comment(line);
-        let expanded = self.expand_object_macros(code, depth);
+        let expanded = self.expand_object_macros(code);
 
         let parts = split_unquoted_backslash(&expanded);
         if parts.len() > 1 {
             let mut out = Vec::new();
             for part in parts {
-                let rec = self.expand_line(&part, depth + 1);
+                let rec = self.expand_line(&part, depth + 1)?;
                 out.extend(rec);
             }
             if !comment.is_empty() && !out.is_empty() {
                 out[0].push_str(comment);
             }
-            return out;
+            return Ok(out);
         }
 
         let mut out_lines = vec![String::new()];
@@ -343,7 +344,7 @@ impl<'a> MacroExpander<'a> {
                             let parts = split_unquoted_backslash(&body);
                             let mut expanded_parts = Vec::new();
                             for part in parts {
-                                let rec = self.expand_line(&part, depth + 1);
+                                let rec = self.expand_line(&part, depth + 1)?;
                                 expanded_parts.extend(rec);
                             }
                             if !expanded_parts.is_empty() {
@@ -370,7 +371,7 @@ impl<'a> MacroExpander<'a> {
         if !comment.is_empty() {
             out_lines[0].push_str(comment);
         }
-        out_lines
+        Ok(out_lines)
     }
 
     fn expand_function(&self, m: &MacroDef, args: &[String]) -> String {
@@ -416,17 +417,28 @@ impl<'a> MacroExpander<'a> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Preprocessor {
     macros: HashMap<String, MacroDef>,
     cond_state: ConditionalState,
     lines: Vec<String>,
     in_asm_macro: bool,
+    max_depth: usize,
 }
 
 impl Preprocessor {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_max_depth(max_depth: usize) -> Self {
+        Self {
+            macros: HashMap::new(),
+            cond_state: ConditionalState::default(),
+            lines: Vec::new(),
+            in_asm_macro: false,
+            max_depth,
+        }
     }
 
     pub fn define(&mut self, name: &str, value: &str) {
@@ -508,7 +520,7 @@ impl Preprocessor {
             Some(AsmMacroDirective::End) => false,
             None => self.in_asm_macro,
         };
-        let expander = MacroExpander::new(&self.macros);
+        let expander = MacroExpander::new(&self.macros, self.max_depth);
         if trimmed.is_empty() {
             if self.is_active() {
                 self.lines.push(line.to_string());
@@ -570,7 +582,9 @@ impl Preprocessor {
             self.in_asm_macro = next_in_asm_macro;
             return Ok(());
         }
-        let expanded = expander.expand_line(line, 0);
+        let expanded = expander
+            .expand_line(line, 0)
+            .map_err(|err| err.with_context(line_num, None, line, Some(file_path)))?;
         self.lines.extend(expanded);
         self.in_asm_macro = next_in_asm_macro;
         Ok(())
@@ -653,6 +667,18 @@ impl Preprocessor {
         self.macros.contains_key(&to_upper(name))
     }
 
+}
+
+impl Default for Preprocessor {
+    fn default() -> Self {
+        Self {
+            macros: HashMap::new(),
+            cond_state: ConditionalState::default(),
+            lines: Vec::new(),
+            in_asm_macro: false,
+            max_depth: 64,
+        }
+    }
 }
 
 fn split_unquoted_backslash(s: &str) -> Vec<String> {
@@ -755,7 +781,8 @@ fn join_path(base: &str, rel: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::Preprocessor;
+    use super::{MacroDef, MacroExpander, Preprocessor};
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -836,5 +863,30 @@ mod tests {
         let mut pp = Preprocessor::new();
         let err = pp.process_file(path.to_str().unwrap()).unwrap_err();
         assert_eq!(err.message(), "Preprocessor directives must use '.'");
+    }
+
+    #[test]
+    fn macro_expansion_depth_errors() {
+        let mut macros = HashMap::new();
+        macros.insert(
+            "F".to_string(),
+            MacroDef {
+                is_function: true,
+                params: vec!["X".to_string()],
+                body: "F(X)".to_string(),
+            },
+        );
+        let expander = MacroExpander::new(&macros, 1);
+        let err = expander.expand_line("F(1)", 0).unwrap_err();
+        assert!(err.message().contains("maximum depth"));
+    }
+
+    #[test]
+    fn preprocessor_macro_depth_errors_with_low_limit() {
+        let path = temp_file("depth.asm", "X\n");
+        let mut pp = Preprocessor::with_max_depth(1);
+        pp.define("X", "X\\X");
+        let err = pp.process_file(path.to_str().unwrap()).unwrap_err();
+        assert!(err.message().contains("maximum depth"));
     }
 }

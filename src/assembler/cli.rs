@@ -100,6 +100,13 @@ pub struct Cli {
         long_help = "Input assembly file (repeatable). Must end with .asm."
     )]
     pub infiles: Vec<PathBuf>,
+    #[arg(
+        long = "pp-macro-depth",
+        value_name = "N",
+        default_value_t = 64,
+        long_help = "Maximum preprocessor macro expansion depth. Defaults to 64."
+    )]
+    pub pp_macro_depth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -443,20 +450,35 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         None
     };
 
+    if cli.pp_macro_depth == 0 {
+        return Err(AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Cli,
+                "--pp-macro-depth must be at least 1",
+                None,
+            ),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
+
     Ok(CliConfig {
         go_addr,
         bin_specs,
         fill_byte,
         out_dir,
+        pp_macro_depth: cli.pp_macro_depth,
     })
 }
 
 /// Validated CLI configuration.
+#[derive(Debug)]
 pub struct CliConfig {
     pub go_addr: Option<String>,
     pub bin_specs: Vec<BinOutputSpec>,
     pub fill_byte: u8,
     pub out_dir: Option<PathBuf>,
+    pub pp_macro_depth: usize,
 }
 
 #[cfg(test)]
@@ -482,6 +504,8 @@ mod tests {
             "out",
             "-f",
             "aa",
+            "--pp-macro-depth",
+            "80",
         ]);
         assert_eq!(cli.infiles, vec![PathBuf::from("prog.asm")]);
         assert_eq!(cli.list_name, Some(String::new()));
@@ -489,6 +513,27 @@ mod tests {
         assert_eq!(cli.outfile, Some("out".to_string()));
         assert_eq!(cli.bin_outputs, vec!["0000:ffff".to_string()]);
         assert_eq!(cli.fill_byte, Some("aa".to_string()));
+        assert_eq!(cli.pp_macro_depth, 80);
+    }
+
+    #[test]
+    fn cli_defaults_pp_macro_depth() {
+        let cli = Cli::parse_from(["asm485", "-i", "prog.asm", "-l"]);
+        assert_eq!(cli.pp_macro_depth, 64);
+    }
+
+    #[test]
+    fn validate_cli_rejects_zero_pp_macro_depth() {
+        let cli = Cli::parse_from([
+            "asm485",
+            "-i",
+            "prog.asm",
+            "-l",
+            "--pp-macro-depth",
+            "0",
+        ]);
+        let err = validate_cli(&cli).unwrap_err();
+        assert_eq!(err.to_string(), "--pp-macro-depth must be at least 1");
     }
 
     #[test]

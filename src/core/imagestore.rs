@@ -3,7 +3,10 @@
 
 // Image store with hex/bin output helpers.
 
-use std::io::{self, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufReader, Read, Write};
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy)]
 struct ImageStoreEntry {
@@ -12,27 +15,49 @@ struct ImageStoreEntry {
 }
 
 pub struct ImageStore {
-    entries: Vec<ImageStoreEntry>,
-    max_entries: usize,
+    path: PathBuf,
+    file: File,
+    entries: usize,
+    write_error: Option<io::Error>,
 }
 
 impl ImageStore {
-    pub fn new(max_entries: usize) -> Self {
+    pub fn new(_max_entries: usize) -> Self {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let pid = std::process::id();
+        path.push(format!("asm485-image-{pid}-{nanos}.bin"));
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .expect("image store temp file");
         Self {
-            entries: Vec::with_capacity(max_entries),
-            max_entries,
+            path,
+            file,
+            entries: 0,
+            write_error: None,
         }
     }
 
     pub fn num_entries(&self) -> usize {
-        self.entries.len()
+        self.entries
     }
 
     pub fn store(&mut self, addr: u16, val: u8) {
-        if self.entries.len() >= self.max_entries {
+        if self.write_error.is_some() {
             return;
         }
-        self.entries.push(ImageStoreEntry { addr, value: val });
+        let buf = [(addr >> 8) as u8, (addr & 0xff) as u8, val];
+        if let Err(err) = self.file.write_all(&buf) {
+            self.write_error = Some(err);
+            return;
+        }
+        self.entries = self.entries.saturating_add(1);
     }
 
     pub fn store_slice(&mut self, addr: u16, values: &[u8]) {
@@ -42,14 +67,44 @@ impl ImageStore {
         }
     }
 
+    fn read_entries(&self) -> io::Result<Vec<ImageStoreEntry>> {
+        let mut reader = BufReader::new(File::open(&self.path)?);
+        let mut entries = Vec::new();
+        loop {
+            let mut buf = [0u8; 3];
+            match reader.read_exact(&mut buf) {
+                Ok(()) => {
+                    let addr = u16::from_be_bytes([buf[0], buf[1]]);
+                    entries.push(ImageStoreEntry {
+                        addr,
+                        value: buf[2],
+                    });
+                }
+                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(entries)
+    }
+
+    fn ensure_ready(&self) -> io::Result<()> {
+        if let Some(err) = &self.write_error {
+            return Err(io::Error::new(err.kind(), err.to_string()));
+        }
+        self.file.sync_all()?;
+        Ok(())
+    }
+
     pub fn write_hex_file<W: Write>(&self, mut out: W, go_addr: Option<&str>) -> io::Result<()> {
+        self.ensure_ready()?;
+        let entries = self.read_entries()?;
         let mut line_addr: u16 = 0;
         let mut line_bytes: u8 = 0;
         let mut checksum: u8 = 0;
         let mut hex_data = String::new();
         const LINE_LIMIT: usize = 32;
 
-        for (ix, entry) in self.entries.iter().enumerate() {
+        for (ix, entry) in entries.iter().enumerate() {
             let val = entry.value;
             if line_bytes == 0 {
                 line_addr = entry.addr;
@@ -61,8 +116,8 @@ impl ImageStore {
             checksum = checksum.wrapping_add(val);
             line_bytes = line_bytes.wrapping_add(1);
 
-            let next_addr = if ix + 1 < self.entries.len() {
-                self.entries[ix + 1].addr
+            let next_addr = if ix + 1 < entries.len() {
+                entries[ix + 1].addr
             } else {
                 entry.addr
             };
@@ -111,8 +166,10 @@ impl ImageStore {
         end_addr: u16,
         fill: u8,
     ) -> io::Result<()> {
+        self.ensure_ready()?;
+        let entries = self.read_entries()?;
         let mut mem = vec![fill; 65536];
-        for entry in &self.entries {
+        for entry in &entries {
             mem[entry.addr as usize] = entry.value;
         }
 
@@ -125,6 +182,12 @@ impl ImageStore {
         let write_size = usize::min(size as usize, max_len);
         out.write_all(&mem[start..start + write_size])?;
         Ok(())
+    }
+}
+
+impl Drop for ImageStore {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
     }
 }
 
