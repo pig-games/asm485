@@ -1,0 +1,15 @@
+asm485 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; grouping.asm - Test generic grouping functionality
+----                                2  ; This ensures that (1+2) is evaluated as math, not indirect addressing
+----    EQU 0100                    3      .org $100
+0100    3E 03                       4      MVI A, (1+2)
+0102    C6 0A                       5      ADI (5*2)
+
+Lines: 5  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 4 bytes

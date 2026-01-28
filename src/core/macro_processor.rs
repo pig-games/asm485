@@ -3,6 +3,7 @@
 
 // Assembler macro processor implementing 64tass-style .macro/.endmacro expansion.
 
+use crate::core::text_utils::{is_ident_char, is_ident_start, is_space, to_upper};
 use std::collections::HashMap;
 
 struct Cursor<'a> {
@@ -25,9 +26,13 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    fn pos(&self) -> usize {
+        self.pos
+    }
+
     fn skip_ws(&mut self) {
         while self.peek().is_some_and(is_space) {
-            self.pos = self.pos.saturating_add(1);
+            self.pos += 1;
         }
     }
 
@@ -37,7 +42,7 @@ impl<'a> Cursor<'a> {
 
     fn next(&mut self) -> Option<u8> {
         let c = self.peek()?;
-        self.pos = self.pos.saturating_add(1);
+        self.pos += 1;
         Some(c)
     }
 
@@ -47,9 +52,9 @@ impl<'a> Cursor<'a> {
         if !is_ident_start(first) {
             return None;
         }
-        self.pos = self.pos.saturating_add(1);
+        self.pos += 1;
         while self.peek().is_some_and(is_ident_char) {
-            self.pos = self.pos.saturating_add(1);
+            self.pos += 1;
         }
         Some(String::from_utf8_lossy(&self.bytes[start..self.pos]).to_string())
     }
@@ -122,6 +127,12 @@ struct MacroArgs {
 pub struct MacroProcessor {
     macros: HashMap<String, MacroDef>,
     max_depth: usize,
+}
+
+impl Default for MacroProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MacroProcessor {
@@ -278,7 +289,7 @@ fn parse_macro_def_line(code: &str) -> Option<(String, String, MacroKind)> {
         "SEGMENT" => MacroKind::Segment,
         _ => return None,
     };
-    let params = code[cursor.pos..].trim().to_string();
+    let params = code[cursor.pos()..].trim().to_string();
     Some((label.unwrap_or_default(), params, kind))
 }
 
@@ -307,13 +318,8 @@ fn parse_macro_invocation(code: &str, macros: &HashMap<String, MacroDef>) -> Opt
     let mut cursor = Cursor::with_pos(code, idx);
     cursor.skip_ws();
     cursor.peek()?;
-    let mut is_hash = false;
     match cursor.peek() {
-        Some(b'#') => {
-            is_hash = true;
-            cursor.next();
-        }
-        Some(b'.') => {
+        Some(b'#') | Some(b'.') => {
             cursor.next();
         }
         _ => return None,
@@ -323,19 +329,13 @@ fn parse_macro_invocation(code: &str, macros: &HashMap<String, MacroDef>) -> Opt
     }
     let name = cursor.take_ident()?;
     if !macros.contains_key(&to_upper(&name)) {
-        if is_hash {
-            return Some(MacroInvocation {
-                label,
-                name,
-                args: Vec::new(),
-                full_list: String::new(),
-                indent,
-            });
-        }
+        // If macro doesn't exist, return None to let the line pass through.
+        // This allows 6502 immediate syntax like `lda #VALUE` to work
+        // when VALUE is not a macro name.
         return None;
     }
 
-    let mut rest = code[cursor.pos..].to_string();
+    let mut rest = code[cursor.pos()..].to_string();
     if rest.starts_with(',') {
         rest = rest[1..].to_string();
     }
@@ -581,35 +581,23 @@ fn split_comment(line: &str) -> (String, String) {
 fn parse_label(line: &str) -> (Option<String>, usize, String) {
     let mut cursor = Cursor::new(line);
     cursor.skip_ws();
-    let indent = line[..cursor.pos].to_string();
+    let indent = line[..cursor.pos()].to_string();
     if cursor.peek().is_none() {
-        return (None, cursor.pos, indent);
+        return (None, cursor.pos(), indent);
     }
     let first = cursor.peek().unwrap();
     match first {
-        b'.' | b'*' | b';' | b'#' => return (None, cursor.pos, indent),
+        b'.' | b'*' | b';' | b'#' => return (None, cursor.pos(), indent),
         _ => {}
     }
     if !is_ident_start(first) {
-        return (None, cursor.pos, indent);
+        return (None, cursor.pos(), indent);
     }
     let name = cursor.take_ident().unwrap_or_default();
     if cursor.peek() == Some(b':') {
         cursor.next();
     }
-    (Some(name), cursor.pos, indent)
-}
-
-fn is_space(c: u8) -> bool {
-    c == b' ' || c == b'\t'
-}
-
-fn is_ident_start(c: u8) -> bool {
-    (c as char).is_ascii_alphabetic() || c == b'_'
-}
-
-fn is_ident_char(c: u8) -> bool {
-    (c as char).is_ascii_alphanumeric() || c == b'_' || c == b'.' || c == b'$'
+    (Some(name), cursor.pos(), indent)
 }
 
 fn is_valid_ident(text: &str) -> bool {
@@ -618,16 +606,7 @@ fn is_valid_ident(text: &str) -> bool {
         Some(c) if is_ident_start(c as u8) => {}
         _ => return false,
     }
-    for c in chars {
-        if !is_ident_char(c as u8) {
-            return false;
-        }
-    }
-    true
-}
-
-fn to_upper(text: &str) -> String {
-    text.to_ascii_uppercase()
+    chars.all(|c| is_ident_char(c as u8))
 }
 
 #[cfg(test)]

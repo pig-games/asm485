@@ -3,7 +3,7 @@
 
 // Reporter for parser errors with source context.
 
-use crate::parser::ParseError;
+use crate::core::parser::ParseError;
 
 pub fn format_parse_error(
     err: &ParseError,
@@ -55,22 +55,6 @@ pub fn format_parse_error_listing(
 }
 
 fn highlight_line(line: &str, column: usize, use_color: bool) -> String {
-    if column == 0 {
-        return line.to_string();
-    }
-    let idx = column.saturating_sub(1);
-    if idx >= line.len() {
-        if use_color {
-            return format!("{line}\x1b[31m^\x1b[0m");
-        }
-        return format!("{line}^");
-    }
-    let (head, tail) = line.split_at(idx);
-    let ch = tail.chars().next().unwrap_or(' ');
-    let rest = &tail[ch.len_utf8()..];
-    if use_color {
-        format!("{head}\x1b[31m{ch}\x1b[0m{rest}")
-    } else {
-        format!("{head}{ch}{rest}")
-    }
+    let col_opt = if column == 0 { None } else { Some(column) };
+    crate::report::highlight_line(line, col_opt, use_color)
 }

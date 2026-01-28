@@ -9,7 +9,9 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-#[derive(Debug, Clone)]
+use crate::core::text_utils::{is_ident_char, is_ident_start, split_comment, to_upper, Cursor};
+
+#[derive(Debug)]
 pub struct PreprocessError {
     message: String,
     line: Option<u32>,
@@ -132,20 +134,15 @@ impl ConditionalState {
         }
 
         let frame = self.stack.last_mut().unwrap();
-        match name.is_empty() {
-            false => {
-                if !frame.any_true && defined && parent_active {
-                    frame.active = true;
-                    frame.any_true = true;
-                } else {
-                    frame.active = false;
-                }
-            }
-            true => {
-                frame.active = parent_active && !frame.any_true;
-                frame.any_true = true;
-                frame.in_else = true;
-            }
+        if name.is_empty() {
+            frame.active = parent_active && !frame.any_true;
+            frame.any_true = true;
+            frame.in_else = true;
+        } else if !frame.any_true && defined && parent_active {
+            frame.active = true;
+            frame.any_true = true;
+        } else {
+            frame.active = false;
         }
         Ok(())
     }
@@ -214,7 +211,7 @@ impl<'a> MacroExpander<'a> {
             return vec![line.to_string()];
         }
         let (code, comment) = split_comment(line);
-        let expanded = self.expand_object_macros(&code, depth);
+        let expanded = self.expand_object_macros(code, depth);
 
         let parts = split_unquoted_backslash(&expanded);
         if parts.len() > 1 {
@@ -224,7 +221,7 @@ impl<'a> MacroExpander<'a> {
                 out.extend(rec);
             }
             if !comment.is_empty() && !out.is_empty() {
-                out[0].push_str(&comment);
+                out[0].push_str(comment);
             }
             return out;
         }
@@ -371,7 +368,7 @@ impl<'a> MacroExpander<'a> {
             }
         }
         if !comment.is_empty() {
-            out_lines[0].push_str(&comment);
+            out_lines[0].push_str(comment);
         }
         out_lines
     }
@@ -504,8 +501,8 @@ impl Preprocessor {
         file_path: &str,
     ) -> Result<(), PreprocessError> {
         let (code, _comment) = split_comment(line);
-        let trimmed = ltrim(&code);
-        let asm_macro_directive = parse_asm_macro_directive(&trimmed);
+        let trimmed = ltrim(code);
+        let asm_macro_directive = parse_asm_macro_directive(trimmed);
         let next_in_asm_macro = match asm_macro_directive {
             Some(AsmMacroDirective::Start) => true,
             Some(AsmMacroDirective::End) => false,
@@ -556,7 +553,7 @@ impl Preprocessor {
                 // Pass through .else/.elseif/.endif for assembler conditionals.
             } else {
                 return self
-                    .handle_directive(&token, &rest, base_dir)
+                    .handle_directive(&token, rest, base_dir)
                     .map_err(|err| err.with_context(line_num, Some(column), line, Some(file_path)));
             }
         }
@@ -601,7 +598,7 @@ impl Preprocessor {
     }
 
     fn handle_ifdef(&mut self, rest: &str, negated: bool) -> Result<(), PreprocessError> {
-        let name = to_upper(&trim(rest));
+        let name = to_upper(trim(rest));
         if name.is_empty() {
             return Err(PreprocessError::new("IFDEF/IFNDEF missing name"));
         }
@@ -615,10 +612,11 @@ impl Preprocessor {
     }
 
     fn handle_else(&mut self, rest: &str) -> Result<(), PreprocessError> {
-        let name = to_upper(&trim(rest));
-        let defined = match name.is_empty() {
-            false => self.is_defined(&name),
-            true => false,
+        let name = to_upper(trim(rest));
+        let defined = if name.is_empty() {
+            false
+        } else {
+            self.is_defined(&name)
         };
         self.cond_state.handle_else(&name, defined)?;
         Ok(())
@@ -633,17 +631,17 @@ impl Preprocessor {
         if !self.is_active() {
             return Ok(());
         }
-        let mut r = trim(rest);
-        match (r.as_bytes().first(), r.as_bytes().last()) {
+        let r = trim(rest);
+        let r = match (r.as_bytes().first(), r.as_bytes().last()) {
             (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) if r.len() >= 2 => {
-                r = r[1..r.len() - 1].to_string();
+                &r[1..r.len() - 1]
             }
-            _ => {}
-        }
+            _ => r,
+        };
         if r.is_empty() {
             return Err(PreprocessError::new("INCLUDE missing file"));
         }
-        let path = join_path(base_dir, &r);
+        let path = join_path(base_dir, r);
         self.process_file_internal(&path)
     }
 
@@ -692,76 +690,12 @@ fn split_unquoted_backslash(s: &str) -> Vec<String> {
     parts
 }
 
-fn split_comment(line: &str) -> (String, String) {
-    let bytes = line.as_bytes();
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escape = false;
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        let c = bytes[idx] as char;
-        match c {
-            _ if escape => {
-                escape = false;
-                idx += 1;
-            }
-            '\\' if in_single || in_double => {
-                escape = true;
-                idx += 1;
-            }
-            '\'' if !in_double => {
-                in_single = !in_single;
-                idx += 1;
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-                idx += 1;
-            }
-            ';' if !in_single && !in_double => {
-                let code = line[..idx].to_string();
-                let comment = line[idx..].to_string();
-                return (code, comment);
-            }
-            _ => {
-                idx += 1;
-            }
-        }
-    }
-    (line.to_string(), String::new())
+fn trim(s: &str) -> &str {
+    s.trim()
 }
 
-fn trim(s: &str) -> String {
-    let mut start = 0usize;
-    let bytes = s.as_bytes();
-    while start < bytes.len() && bytes[start].is_ascii_whitespace() {
-        start += 1;
-    }
-    let mut end = bytes.len();
-    while end > start && bytes[end - 1].is_ascii_whitespace() {
-        end -= 1;
-    }
-    s[start..end].to_string()
-}
-
-fn ltrim(s: &str) -> String {
-    let mut start = 0usize;
-    let bytes = s.as_bytes();
-    while start < bytes.len() && bytes[start].is_ascii_whitespace() {
-        start += 1;
-    }
-    s[start..].to_string()
-}
-
-fn to_upper(s: &str) -> String {
-    s.chars().map(|c| c.to_ascii_uppercase()).collect()
-}
-
-fn is_ident_start(c: u8) -> bool {
-    (c as char).is_ascii_alphabetic() || c == b'_'
-}
-
-fn is_ident_char(c: u8) -> bool {
-    (c as char).is_ascii_alphanumeric() || c == b'_' || c == b'.' || c == b'$'
+fn ltrim(s: &str) -> &str {
+    s.trim_start()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -771,7 +705,7 @@ enum AsmMacroDirective {
 }
 
 fn parse_asm_macro_directive(trimmed: &str) -> Option<AsmMacroDirective> {
-    let mut cursor = PreprocessCursor::new(trimmed);
+    let mut cursor = Cursor::new(trimmed);
     cursor.skip_ws();
     cursor.peek()?;
     match cursor.peek() {
@@ -800,49 +734,6 @@ fn parse_asm_macro_directive(trimmed: &str) -> Option<AsmMacroDirective> {
         "MACRO" | "SEGMENT" => Some(AsmMacroDirective::Start),
         "ENDMACRO" | "ENDM" | "ENDSEGMENT" | "ENDS" => Some(AsmMacroDirective::End),
         _ => None,
-    }
-}
-
-struct PreprocessCursor<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> PreprocessCursor<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            bytes: input.as_bytes(),
-            pos: 0,
-        }
-    }
-
-    fn skip_ws(&mut self) {
-        while self.peek().is_some_and(|c| c.is_ascii_whitespace()) {
-            self.pos = self.pos.saturating_add(1);
-        }
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.pos).copied()
-    }
-
-    fn next(&mut self) -> Option<u8> {
-        let c = self.peek()?;
-        self.pos = self.pos.saturating_add(1);
-        Some(c)
-    }
-
-    fn take_ident(&mut self) -> Option<String> {
-        let start = self.pos;
-        let first = self.peek()?;
-        if !is_ident_start(first) {
-            return None;
-        }
-        self.pos = self.pos.saturating_add(1);
-        while self.peek().is_some_and(is_ident_char) {
-            self.pos = self.pos.saturating_add(1);
-        }
-        Some(String::from_utf8_lossy(&self.bytes[start..self.pos]).to_string())
     }
 }
 

@@ -1,0 +1,48 @@
+asm485 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Simple Z80 CPU test
+----                                2          .cpu z80
+----                                3  
+----                                4  ; Basic data movement
+0000    3E 00                       5          ld a, 0         ; load immediate
+0002    06 55                       6          ld b, 55h
+0004    21 34 12                    7          ld hl, 1234h    ; 16-bit load immediate
+0007    78                          8          ld a, b         ; register to register
+0008    77                          9          ld (hl), a      ; store to memory via HL (z80 syntax)
+0009    77                         10          ld m, a         ; store to memory via HL (8080 syntax)
+----                               11  
+----                               12  ; Arithmetic
+000A    C6 05                      13          add a, 5        ; add immediate
+000C    80                         14          add a, b        ; add register
+000D    D6 10                      15          sub 10h         ; subtract immediate
+000F    3C                         16          inc a
+0010    05                         17          dec b
+----                               18  
+----                               19  ; Logic
+0011    E6 0F                      20          and 0fh         ; mask lower nibble
+0013    F6 80                      21          or 80h
+0015    AF                         22          xor a           ; clear A (same as XOR A,A)
+----                               23  
+----                               24  ; Jumps
+0016    C3 00 10                   25          jp 1000h        ; unconditional jump
+0019    C2 00 20                   26          jp nz, 2000h    ; conditional jump
+001C    18 02                      27          jr skip         ; relative jump
+001E    30 00                      28          jr nc, skip     ; conditional relative
+----                               29  skip:
+0020    00                         30          nop
+----                               31  
+----                               32  ; Z80-specific
+0021    10 FD                      33          djnz skip       ; decrement B and jump if not zero
+0023    ED B0                      34          ldir            ; block transfer
+0025    ED B1                      35          cpir            ; block search
+----                               36          
+----                               37          .end
+
+Lines: 37  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+skip            : 0020 (32)
+
+Total memory is 39 bytes

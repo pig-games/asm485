@@ -1,11 +1,18 @@
 # asm485
 Intel 8085 Assembler with expressions, directives, and preprocessor macros.
 
-This is an assembler for Intel 8080 and 8085 processors. It was originally based on a fork of [**asm85** by Tom Nisbet](https://github.com/eriktier/asm85).
+This is an assembler for 8080 Family processors (currently 8080, 8085 and z80) and MOS 6502 Family
+(currently 6502 and 65c02) processors.
+It was originally based on a fork of [**asm85** by Tom Nisbet](https://github.com/eriktier/asm85).
 It is now more inspired by [64tass](https://tass64.sourceforge.net) in terms of features and notational style.
 It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
 
 For all documentation on features and syntax read: [asm485 Reference Manual](docs/asm485-reference-manual.md).
+
+For detailed information about the multi-cpu architecture of the assembler read:
+- [Multi Cpu Architecture](docs/multi-cpu-architecture.md).
+- [Instruction Table Architecture](docs/instruction-table-architecture.md).
+
 
 Build:
 
@@ -39,13 +46,11 @@ expressions).
 ## Usage
 Syntax is:
 
-    asm485 [OPTIONS]
+    asm485 [ARGUMENTS]
 
 Arguments:
 
     -i, --infile <FILE>          Input assembly file (repeatable). Must end with .asm.
-
-Options:
 
     -l, --list [FILE]            Emit a listing file. FILE is optional; when omitted, the
                                  output base is used and a .lst extension is added.

@@ -184,9 +184,11 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              181  ; Labels that match registers are not permitted in Intel85, but this change was
 ----                              182  ; added to support some code that was developed with a different assembler.
 21B3    00 01                     183  SP:     .word      256             ; define a word at location named SP
-21B5    21 B3 21                  184          LXI     H,SP            ; laod address of "SP" word into HL pair
-21B8    21 B3 21                  185          LXI     H,SP+0
-21BB    21 B3 21                  186          LXI     H,0+SP
+21B5    21                        184          LXI     H,SP            ; laod address of "SP" word into HL pair
+  184 |         LXI     H,[31mS[0mP            ; laod address of "SP" word into HL pair
+ERROR: expected 16-bit immediate, got register SP
+21B6    21 B3 21                  185          LXI     H,SP+0
+21B9    21 B3 21                  186          LXI     H,0+SP
 ----                              187  
 ----                              188  
 ----                              189  ; Conditional directives
@@ -291,7 +293,7 @@ F012    C3 0A 1A                  282                  jmp 6666
 ----                              288  NOLAB4:   .endif
 ----                              289  ENDLAB: .endif                          ; label included
 
-Lines: 289  Errors: 0  Warnings: 0
+Lines: 289  Errors: 1  Warnings: 0
 
 SYMBOL TABLE
 
@@ -339,4 +341,4 @@ EX1AVAR         : 1234 (4660)
 EX1ADATA        : 4000 (16384)
 EX1A            : 4002 (16386)
 
-Total memory is 345 bytes
+Total memory is 343 bytes
