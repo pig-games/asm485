@@ -52,16 +52,16 @@ ERROR: Illegal character in column 1. Must be symbol, '.', '*', comment, or spac
    28 | [31m+[0m                       ; ERR: not symbol
 ERROR: Illegal character in column 1. Must be symbol, '.', '*', comment, or space. Found: +                       ; ERR: not symbol
 ----                               29  mov h,l                 ; ERR: instruction can't start in column zero
-   29 | mov [31mh[0m,l                 ; ERR: instruction can't start in column zero
-ERROR: Expected mnemonic identifier
+   29 | mov h,l                 [31m;[0m ERR: instruction can't start in column zero
+ERROR: No instruction with this name: h
 ----                               30  
 ----                               31  ; extra information on line and extra/incorrect arguments
 ----                               32          nop     SP      ; ERR: extra register argument
-   32 |         nop     [31mS[0mP      ; ERR: extra register argument
-ERROR: Wrong number of register arguments for instruction: nop
+   32 |         nop     SP      [31m;[0m ERR: extra register argument
+ERROR: Wrong arguments for instruction: nop
 ----                               33          nop     d,e     ; ERR: multiple extra registers
-   33 |         nop     d,[31me[0m     ; ERR: multiple extra registers
-ERROR: Wrong number of register arguments for instruction: nop
+   33 |         nop     d,e     [31m;[0m ERR: multiple extra registers
+ERROR: Wrong arguments for instruction: nop
 0005    00                         34          nop     str     ; ERR: extra expression argument
    34 |         nop     [31ms[0mtr     ; ERR: extra expression argument
 ERROR: Additional arguments after instruction: str
@@ -69,20 +69,20 @@ ERROR: Additional arguments after instruction: str
    35 |         nop     [31m1[0m2XX    ; ERR: extra characters
 ERROR: Additional arguments after instruction: 12XX
 ----                               36          MOV     A       ; ERR: missing second register
-   36 |         MOV     [31mA[0m       ; ERR: missing second register
-ERROR: Wrong number of register arguments for instruction: MOV
+   36 |         MOV     A       [31m;[0m ERR: missing second register
+ERROR: Wrong arguments for instruction: MOV
 ----                               37          MOV     A,4     ; ERR: missing second register
-   37 |         MOV     A,[31m4[0m     ; ERR: missing second register
-ERROR: Wrong number of register arguments for instruction: MOV
+   37 |         MOV     A,4     [31m;[0m ERR: missing second register
+ERROR: Wrong arguments for instruction: MOV
 0007    06                         38          MVI     B,A     ; ERR: second arg should be expression
    38 |         MVI     B,[31mA[0m     ; ERR: second arg should be expression
-ERROR: Label not found: A
+ERROR: expected 8-bit immediate, got register A
 0008    C3                         39          JMP     SP      ; ERR: first arg should be expression
    39 |         JMP     [31mS[0mP      ; ERR: first arg should be expression
-ERROR: Label not found: SP
+ERROR: expected 16-bit immediate, got register SP
 0009    CA                         40          JZ              ; ERR: missing arg
    40 |         JZ              [31m;[0m ERR: missing arg
-ERROR: Expected label or numeric constant, found: ;
+ERROR: missing immediate operand
 000A    06                         41          MVI     b,1+2+  ; ERR: extra chars in expression
    41 |         MVI     b,1+2+  [31m;[0m ERR: extra chars in expression
 ERROR: Expected label or numeric constant, found: ;
@@ -209,6 +209,7 @@ special         : 0000 (0)
 LABEL1          : 0004 (4)
 LABEL2          : 0004 (4)
 NAME1           : 0007 (7)
+mov             : 0005 (5)
 RNUM            : 0001 (1)
 var2            : 0017 (23)
 var3            : 0019 (25)

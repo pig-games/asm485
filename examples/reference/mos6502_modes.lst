@@ -1,0 +1,17 @@
+asm485 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; mos6502_modes.asm - Test parser refactoring for 6502 modes
+----                                2      .cpu "6502"
+----    EQU 0200                    3      .org $200
+----                                4      
+0200    A9 10                       5      LDA #$10        ; Immediate
+0202    A1 10                       6      LDA ($10,X)     ; Indexed Indirect X
+0204    B1 10                       7      LDA ($10),Y     ; Indirect Indexed Y
+
+Lines: 7  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 6 bytes

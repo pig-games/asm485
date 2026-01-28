@@ -3,7 +3,8 @@
 
 // Parser for tokenized assembly source.
 
-use crate::tokenizer::{
+use crate::core::text_utils::is_ident_start;
+use crate::core::tokenizer::{
     ConditionalKind, OperatorKind, Span, Token, TokenKind, TokenizeError, Tokenizer,
 };
 
@@ -45,6 +46,14 @@ pub enum Expr {
     Number(String, Span),
     Identifier(String, Span),
     Register(String, Span),
+    /// Indirect/memory reference via register: (HL), (BC), (IX+d), etc.
+    /// For simple cases like (HL), the inner is Register.
+    /// For indexed like (IX+5), the inner is Binary with base register.
+    Indirect(Box<Expr>, Span),
+    /// Immediate value: #expr
+    Immediate(Box<Expr>, Span),
+    /// Tuple/List: (a, b) - used for complex indirects like ($nn, X)
+    Tuple(Vec<Expr>, Span),
     Dollar(Span),
     String(Vec<u8>, Span),
     Error(String, Span),
@@ -135,6 +144,14 @@ pub struct Parser {
 
 impl Parser {
     pub fn from_line(line: &str, line_num: u32) -> Result<Self, ParseError> {
+        Self::from_line_with_registers(line, line_num, crate::core::tokenizer::no_registers)
+    }
+
+    pub fn from_line_with_registers(
+        line: &str,
+        line_num: u32,
+        is_register: crate::core::tokenizer::RegisterChecker,
+    ) -> Result<Self, ParseError> {
         if let Some(first) = line.as_bytes().first().copied() {
             if !first.is_ascii_whitespace()
                 && first != b';'
@@ -155,7 +172,7 @@ impl Parser {
                 });
             }
         }
-        let mut tokenizer = Tokenizer::new(line, line_num);
+        let mut tokenizer = Tokenizer::with_register_checker(line, line_num, is_register);
         let mut tokens = Vec::new();
         let mut end_token_text = None;
         let end_span = loop {
@@ -393,6 +410,12 @@ impl Parser {
         let mnemonic = match self.next() {
             Some(Token {
                 kind: TokenKind::Identifier(name),
+                ..
+            }) => Some(name),
+            // Also accept register tokens as mnemonics since some CPUs have mnemonics
+            // that look like register names (e.g., "IN", "JP" on Z80 where "P" is a flag)
+            Some(Token {
+                kind: TokenKind::Register(name),
                 ..
             }) => Some(name),
             Some(token) => {
@@ -808,6 +831,20 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         match self.next() {
             Some(Token {
+                kind: TokenKind::Hash,
+                span: hash_span,
+            }) => {
+                // Immediate mode: #expr
+                let expr = self.parse_expr()?;
+                let end_span = self.prev_span();
+                let span = Span {
+                    line: hash_span.line,
+                    col_start: hash_span.col_start,
+                    col_end: end_span.col_end,
+                };
+                Ok(Expr::Immediate(Box::new(expr), span))
+            }
+            Some(Token {
                 kind: TokenKind::Number(num),
                 span,
             }) => Ok(Expr::Number(num.text, span)),
@@ -829,16 +866,46 @@ impl Parser {
             }) => Ok(Expr::String(lit.bytes, span)),
             Some(Token {
                 kind: TokenKind::OpenParen,
-                ..
+                span: open_span,
             }) => {
                 let expr = self.parse_expr()?;
-                if !self.consume_kind(TokenKind::CloseParen) {
-                    return Err(ParseError {
-                        message: "Missing ')'".to_string(),
-                        span: self.current_span(),
-                    });
+                
+                if self.consume_comma() {
+                    let mut elements = vec![expr];
+                    elements.push(self.parse_expr()?);
+                    while self.consume_comma() {
+                        elements.push(self.parse_expr()?);
+                    }
+                    
+                    let close_span = self.current_span();
+                    if !self.consume_kind(TokenKind::CloseParen) {
+                        return Err(ParseError {
+                            message: "Missing ')' in tuple".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                    let span = Span {
+                        line: open_span.line,
+                        col_start: open_span.col_start,
+                        col_end: close_span.col_end,
+                    };
+                    // Wrap in Indirect to maintain consistency that (...) is grouping/indirect
+                    // The handler will inspect the inner Expr::Tuple
+                    Ok(Expr::Indirect(Box::new(Expr::Tuple(elements, span)), span))
+                } else {
+                    let close_span = self.current_span();
+                    if !self.consume_kind(TokenKind::CloseParen) {
+                        return Err(ParseError {
+                            message: "Missing ')'".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                    Ok(Expr::Indirect(Box::new(expr), Span {
+                        line: open_span.line,
+                        col_start: open_span.col_start,
+                        col_end: close_span.col_end,
+                    }))
                 }
-                Ok(expr)
             }
             Some(token) => Err(ParseError {
                 message: "Unexpected token in expression".to_string(),
@@ -926,10 +993,6 @@ fn map_tokenize_error(err: TokenizeError) -> ParseError {
         message: err.message,
         span: err.span,
     }
-}
-
-fn is_ident_start(c: u8) -> bool {
-    (c as char).is_ascii_alphabetic() || c == b'_'
 }
 
 #[cfg(test)]
@@ -1066,6 +1129,63 @@ mod tests {
             LineAst::Statement { mnemonic, operands, .. } => {
                 assert_eq!(mnemonic.as_deref(), Some(".org"));
                 assert_eq!(operands.len(), 1);
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_z80_add_with_byte() {
+        use super::Expr;
+        use crate::z80::is_register as is_register_z80;
+        
+        // Note: mnemonic not at column 1 (spaces at start) to avoid being parsed as label
+        let mut parser = Parser::from_line_with_registers("        add a, 5", 1, is_register_z80).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, operands, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some("add"));
+                println!("Operands: {:?}", operands);
+                assert_eq!(operands.len(), 2);
+                assert!(matches!(&operands[0], Expr::Register(name, _) if name == "a"));
+                assert!(matches!(&operands[1], Expr::Number(_, _)));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_z80_condition_codes() {
+        use super::Expr;
+        use crate::z80::is_register as is_register_z80;
+        
+        let mut parser = Parser::from_line_with_registers("        jp nz, 1000h", 1, is_register_z80).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, operands, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some("jp"));
+                println!("Operands: {:?}", operands);
+                // Should have NZ as register and 1000h as number
+                assert_eq!(operands.len(), 2);
+                assert!(matches!(&operands[0], Expr::Register(name, _) if name.to_ascii_uppercase() == "NZ"), "Expected NZ register, got {:?}", operands[0]);
+                assert!(matches!(&operands[1], Expr::Number(_, _)));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_z80_memory_operand() {
+        use crate::z80::is_register as is_register_z80;
+        
+        let mut parser = Parser::from_line_with_registers("        ld (hl), a", 1, is_register_z80).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, operands, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some("ld"));
+                // Note: (HL) syntax currently parses as HL (parentheses are stripped)
+                // This is a limitation - proper Z80 (HL) syntax support would need parser changes
+                assert_eq!(operands.len(), 2);
             }
             _ => panic!("Expected statement"),
         }

@@ -1,0 +1,59 @@
+asm485 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Simple 6502 test program
+----                                2  ; Tests basic instruction encoding
+----                                3  
+----                                4          .cpu 6502       ; Select 6502 CPU
+----                                5  
+----    EQU 1000                    6          .org $1000      ; Start at $1000
+----                                7  
+----                                8  ; Test implied instructions
+1000    EA                          9  start:  nop             ; EA
+1001    18                         10          clc             ; 18
+1002    38                         11          sec             ; 38
+1003    58                         12          cli             ; 58
+1004    78                         13          sei             ; 78
+----                               14          
+----                               15  ; Test accumulator mode
+1005    0A                         16          asl a           ; 0A
+1006    4A                         17          lsr a           ; 4A
+1007    2A                         18          rol a           ; 2A
+1008    6A                         19          ror a           ; 6A
+----                               20  
+----                               21  ; Test immediate mode
+1009    A9 42                      22          lda #$42        ; A9 42
+100B    A2 10                      23          ldx #$10        ; A2 10
+100D    A0 FF                      24          ldy #255        ; A0 FF
+100F    69 01                      25          adc #$01        ; 69 01
+1011    E9 02                      26          sbc #$02        ; E9 02
+1013    C9 00                      27          cmp #$00        ; C9 00
+1015    E0 80                      28          cpx #$80        ; E0 80
+1017    C0 7F                      29          cpy #$7F        ; C0 7F
+1019    29 0F                      30          and #$0F        ; 29 0F
+101B    09 F0                      31          ora #$F0        ; 09 F0
+101D    49 AA                      32          eor #$AA        ; 49 AA
+----                               33  
+----                               34  ; Test zero page
+101F    A5 42                      35          lda $42         ; A5 42
+1021    85 50                      36          sta $50         ; 85 50
+1023    A6 60                      37          ldx $60         ; A6 60
+1025    A4 70                      38          ldy $70         ; A4 70
+----                               39  
+----                               40  ; Test absolute
+1027    AD 34 12                   41          lda $1234       ; AD 34 12
+102A    8D 78 56                   42          sta $5678       ; 8D 78 56
+102D    4C 00 20                   43          jmp $2000       ; 4C 00 20
+----                               44  
+----                               45  ; Test implied again
+1030    60                         46          rts             ; 60
+----                               47  
+----                               48          .end
+
+Lines: 48  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1000 (4096)
+
+Total memory is 49 bytes

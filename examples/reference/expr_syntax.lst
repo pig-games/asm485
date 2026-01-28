@@ -2,83 +2,479 @@ asm485 8085 Assembler v1.0
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; Expression syntax coverage for 64tass-style operators and literals
-----    EQU 0000                    2          .org     0000h
+----                                2  ; Tests expressions and labels in all addressing modes for 8080/8085 and 6502/65C02
 ----                                3  
-----                                4  ; numeric literals: decimal, suffixes, prefixed
-----    EQU 007B                    5  num_dec         .const     123
-----    EQU 00A6                    6  num_hex         .const     0a6h
-----    EQU 001F                    7  num_hex_pref    .const     $1f
-----    EQU 000A                    8  num_bin         .const     1010b
-----                                9  num_bin_pref    .const     %1010
-    9 | num_bin_pref    .const     [31m%[0m1010
-ERROR: Unexpected token in expression
-----    EQU 000F                   10  num_oct         .const     17o
-----    EQU 000F                   11  num_oct_q       .const     17q
-----                               12  
-----                               13  ; unary operators and bytes
-----    EQU 0012                   14  hi_byte         .const     >1234h
-----    EQU 0034                   15  lo_byte         .const     <1234h
-----    EQU 0001                   16  not_zero        .const     !0
-----    EQU 0000                   17  not_one         .const     !1
-----    EQU FF00                   18  bit_not         .const     ~00ffh
-----    EQU FFFF                   19  neg_one         .const     -1
-----                               20  
-----                               21  ; arithmetic, power, shifts
-----    EQU 0008                   22  pow1            .const     2 ** 3
-----    EQU 0051                   23  pow2            .const     3 ** 2 ** 2
-----    EQU 0010                   24  shift_l         .const     1 << 4
-----    EQU 000F                   25  shift_r         .const     0ffh >> 4
+----                                4  ; ============================================================================
+----                                5  ; PART 1: 8080/8085 FAMILY - Expressions in addressing modes
+----                                6  ; ============================================================================
+----                                7          .cpu 8085
+----    EQU 0000                    8          .org 0000h
+----                                9  
+----                               10  ; --- Constants and labels for expression testing ---
+----    EQU 0010                   11  BASE            .const  $10
+----    EQU 0005                   12  OFFSET          .const  $05
+----    EQU 000F                   13  MASK            .const  $0F
+----    EQU 1200                   14  PAGE            .const  $1200
+----    EQU 2000                   15  TABLE           .const  $2000
+----                               16  
+----                               17  ; Numeric literal formats
+----    EQU 007B                   18  num_dec         .const  123
+----    EQU 00A6                   19  num_hex         .const  0a6h
+----    EQU 001F                   20  num_hex_pref    .const  $1f
+----    EQU 000A                   21  num_bin         .const  1010b
+----    EQU 000A                   22  num_bin_pref    .const  %1010       ; % prefix for binary
+----    EQU 00F0                   23  num_bin_long    .const  %11110000   ; longer binary value
+----    EQU 000F                   24  num_oct         .const  17o
+----    EQU 000F                   25  num_oct_q       .const  17q
 ----                               26  
-----                               27  ; comparisons
-----    EQU 0001                   28  cmp_eq          .const     (3 == 3)
-----    EQU 0001                   29  cmp_ne          .const     (3 != 4)
-----    EQU 0001                   30  cmp_ne_alt      .const     (3 <> 4)
-----    EQU 0001                   31  cmp_le          .const     (3 <= 4)
-----    EQU 0001                   32  cmp_lt          .const     (3 < 4)
-----    EQU 0001                   33  cmp_ge          .const     (4 >= 3)
-----    EQU 0001                   34  cmp_gt          .const     (4 > 3)
-----    EQU 0001                   35  cmp_eq_alias    .const     (4 = 4)
-----                               36  
-----                               37  ; bitwise and logical
-----    EQU 0000                   38  bit_and         .const     (0f0h & 00fh)
-----    EQU 00FF                   39  bit_or          .const     (0f0h | 00fh)
-----    EQU 00FF                   40  bit_xor         .const     (0f0h ^ 00fh)
-----    EQU 0001                   41  log_and         .const     (2 && 3)
-----    EQU 0001                   42  log_or          .const     (0 || 3)
-----    EQU 0000                   43  log_xor         .const     (2 ^^ 3)
-----                               44  
-----                               45  ; ternary
-----    EQU 0002                   46  ternary1        .const     0 ? 1 : 2
-----    EQU 0007                   47  ternary2        .const     5 ? 7 : 9
-----    EQU 0005                   48  ternary3        .const     (0 || 1) ? (2 + 3) : (4 + 5)
-----                               49  
-----                               50  ; string constants in expressions
-----    EQU 0041                   51  char_a          .const     'A'
-----    EQU 4142                   52  char_ab         .const     'AB'
-----                               53  
-----                               54  ; data emissions
-0000    7B A6 1F 0A                55          .byte      num_dec, num_hex, num_hex_pref, num_bin, num_bin_pref
-   55 |         .byte      num_dec, num_hex, num_hex_pref, num_bin, [31mn[0mum_bin_pref
-ERROR: Label not found: num_bin_pref
-0004    0F 0F 12 34 01 00          56          .byte      num_oct, num_oct_q, hi_byte, lo_byte, not_zero, not_one
-000A    00 FF FF FF 08 00 51 00    57          .word      bit_not, neg_one, pow1, pow2
-0012    10 0F                      58          .byte      shift_l, shift_r
-0014    01 01 01 01 01 01 01 01    59          .byte      cmp_eq, cmp_ne, cmp_ne_alt, cmp_le, cmp_lt, cmp_ge, cmp_gt, cmp_eq_alias
-001C    00 FF FF 01 01 00          60          .byte      bit_and, bit_or, bit_xor, log_and, log_or, log_xor
-0022    02 07 05                   61          .byte      ternary1, ternary2, ternary3
-0025    41                         62          .byte      char_a
-0026    42 41                      63          .word      char_ab
+----                               27  ; Digit separators with underscore
+----    EQU 4240                   28  num_sep_dec     .const  1_000_000   ; decimal with separators
+----    EQU FF00                   29  num_sep_hex     .const  $FF_00      ; hex with separators
+----    EQU 00F0                   30  num_sep_bin     .const  %1111_0000  ; binary with separators
+----    EQU 00F0                   31  num_sep_suf     .const  1111_0000b  ; suffix binary with separators
+----                               32  
+----                               33  ; Unary operators
+----    EQU 0012                   34  hi_byte         .const  >$1234
+----    EQU 0034                   35  lo_byte         .const  <$1234
+----    EQU 0001                   36  not_zero        .const  !0
+----    EQU 0000                   37  not_one         .const  !1
+----    EQU FF00                   38  bit_not         .const  ~$00ff
+----    EQU FFFF                   39  neg_one         .const  -1
+----                               40  
+----                               41  ; Arithmetic and shifts
+----    EQU 0008                   42  pow1            .const  2 ** 3
+----    EQU 0051                   43  pow2            .const  3 ** 2 ** 2
+----    EQU 0010                   44  shift_l         .const  1 << 4
+----    EQU 000F                   45  shift_r         .const  $ff >> 4
+----                               46  
+----                               47  ; Comparisons
+----    EQU 0001                   48  cmp_eq          .const  (3 == 3)
+----    EQU 0001                   49  cmp_ne          .const  (3 != 4)
+----    EQU 0001                   50  cmp_ne_alt      .const  (3 <> 4)
+----    EQU 0001                   51  cmp_le          .const  (3 <= 4)
+----    EQU 0001                   52  cmp_lt          .const  (3 < 4)
+----    EQU 0001                   53  cmp_ge          .const  (4 >= 3)
+----    EQU 0001                   54  cmp_gt          .const  (4 > 3)
+----                               55  
+----                               56  ; Bitwise and logical
+----    EQU 0000                   57  bit_and         .const  ($f0 & $0f)
+----    EQU 00FF                   58  bit_or          .const  ($f0 | $0f)
+----    EQU 00FF                   59  bit_xor         .const  ($f0 ^ $0f)
+----    EQU 0001                   60  log_and         .const  (2 && 3)
+----    EQU 0001                   61  log_or          .const  (0 || 3)
+----    EQU 0000                   62  log_xor         .const  (2 ^^ 3)
+----                               63  
+----                               64  ; Ternary
+----    EQU 0002                   65  ternary1        .const  0 ? 1 : 2
+----    EQU 0007                   66  ternary2        .const  5 ? 7 : 9
+----    EQU 0005                   67  ternary3        .const  (0 || 1) ? (2 + 3) : (4 + 5)
+----                               68  
+----                               69  ; String constants
+----    EQU 0041                   70  char_a          .const  'A'
+----    EQU 4142                   71  char_ab         .const  'AB'
+----                               72  
+----                               73  ; ============================================================================
+----                               74  ; 8085 IMMEDIATE MODE: MVI reg, imm8  /  LXI rp, imm16
+----                               75  ; ============================================================================
+----                               76  i8085_imm:
+0000    3E 10                      77          mvi a, BASE             ; label
+0002    3E 15                      78          mvi a, BASE + OFFSET    ; expression with labels
+0004    3E 12                      79          mvi a, >PAGE            ; high byte operator
+0006    3E 00                      80          mvi a, <PAGE            ; low byte operator
+0008    3E 07                      81          mvi a, MASK & $07       ; bitwise AND
+000A    3E 1F                      82          mvi a, MASK | $10       ; bitwise OR
+000C    3E 08                      83          mvi a, 1 << 3           ; shift left
+000E    3E 20                      84          mvi a, $80 >> 2         ; shift right
+0010    3E 0F                      85          mvi a, 10 + 5           ; addition
+0012    3E 0C                      86          mvi a, 20 - 8           ; subtraction
+0014    3E 0C                      87          mvi a, 3 * 4            ; multiplication
+0016    3E 14                      88          mvi a, 100 / 5          ; division
+0018    3E 0F                      89          mvi a, ~$f0             ; bitwise NOT (result: $0f)
+001A    3E FF                      90          mvi a, (-1) & $ff       ; negative masked to byte (result: $ff)
+001C    3E AA                      91          mvi a, (5 > 3) ? $aa : $55  ; ternary
+----                               92          
+001E    21 00 20                   93          lxi h, TABLE            ; 16-bit label
+0021    21 34 12                   94          lxi h, PAGE + $34       ; 16-bit expression
+0024    21 0A 20                   95          lxi h, TABLE + (OFFSET * 2)  ; complex expression
+0027    11 34 12                   96          lxi d, $1000 + $234     ; direct arithmetic
+----                               97  
+----                               98  ; Combining hi/lo bytes needs intermediate constants
+----    EQU 0020                   99  TABLE_HI        .const  >TABLE
+----    EQU 0000                  100  TABLE_LO        .const  <TABLE
+----    EQU 2000                  101  TABLE_COMBINED  .const  (TABLE_HI << 8) | TABLE_LO  ; same as TABLE
+----                              102  
+002A    01 00 20                  103          lxi b, TABLE_COMBINED   ; reconstructed from hi/lo
+----                              104  
+----                              105  ; ============================================================================
+----                              106  ; 8085 DIRECT/ABSOLUTE MODE: LDA addr / STA addr / LHLD / SHLD / JMP / CALL
+----                              107  ; ============================================================================
+----                              108  i8085_direct:
+002D    3A 00 20                  109          lda TABLE               ; label
+0030    3A 05 12                  110          lda PAGE + OFFSET       ; expression
+0033    3A 20 20                  111          lda TABLE + (BASE * 2)  ; complex expression
+0036    32 10 20                  112          sta TABLE + $10         ; store with offset
+----                              113          
+0039    2A 00 20                  114          lhld TABLE              ; load HL direct
+003C    2A 80 12                  115          lhld PAGE + $80         ; with expression
+003F    22 00 21                  116          shld TABLE + $100       ; store HL direct
+----                              117          
+0042    C3 51 00                  118          jmp jump_target         ; forward reference
+0045    C3 00 20                  119          jmp TABLE               ; label as address
+0048    C3 50 12                  120          jmp PAGE + $50          ; expression as address
+----                              121          
+004B    CD 52 00                  122          call call_target        ; forward reference
+004E    CD 00 22                  123          call TABLE + $200       ; expression as address
+----                              124  
+----                              125  jump_target:
+0051    00                        126          nop
+----                              127  call_target:
+0052    C9                        128          ret
+----                              129  
+----                              130  ; ============================================================================
+----                              131  ; 8085 RELATIVE EXPRESSIONS (using $ for current address)
+----                              132  ; ============================================================================
+----                              133  i8085_relative:
+0053    C3 56 00                  134          jmp $+3                 ; jump forward 3 bytes (skip next instruction)
+0056    00                        135          nop
+0057    C3 54 00                  136          jmp $-3                 ; jump backward
+----                              137  loop_here:
+005A    C3 5A 00                  138          jmp loop_here           ; label reference
+005D    C3 5D 00                  139          jmp $                   ; infinite loop (jump to self)
+----                              140  
+----                              141  ; ============================================================================
+----                              142  ; 8085 RST VECTORS (RST only takes literal 0-7)
+----                              143  ; ============================================================================
+----                              144  i8085_rst:
+0060    C7                        145          rst 0                   ; RST 0
+0061    CF                        146          rst 1                   ; RST 1
+0062    D7                        147          rst 2                   ; RST 2
+0063    DF                        148          rst 3                   ; RST 3
+0064    E7                        149          rst 4                   ; RST 4
+0065    EF                        150          rst 5                   ; RST 5
+0066    F7                        151          rst 6                   ; RST 6
+0067    FF                        152          rst 7                   ; RST 7
+----                              153  
+----                              154  ; ============================================================================
+----                              155  ; 8085 I/O with expressions
+----                              156  ; ============================================================================
+----    EQU 0010                  157  IO_BASE         .const  $10
+----    EQU 0010                  158  IO_DATA         .const  IO_BASE + 0
+----    EQU 0011                  159  IO_STATUS       .const  IO_BASE + 1
+----    EQU 0012                  160  IO_CONTROL      .const  IO_BASE + 2
+----                              161  
+----                              162  i8085_io:
+0068    DB 10                     163          in IO_DATA              ; input from label
+006A    DB 11                     164          in IO_BASE + 1          ; input from expression
+006C    D3 11                     165          out IO_STATUS           ; output to label
+006E    D3 12                     166          out IO_BASE + 2         ; output to expression
+----                              167  
+----                              168  ; ============================================================================
+----                              169  ; Data directives with expressions
+----                              170  ; ============================================================================
+----                              171  i8085_data:
+0070    7B A6 1F                  172          .byte num_dec, num_hex, num_hex_pref
+0073    0A 0A F0                  173          .byte num_bin, num_bin_pref, num_bin_long  ; binary formats
+0076    0F 0F                     174          .byte num_oct, num_oct_q
+0078    12 34                     175          .byte hi_byte, lo_byte
+007A    01 00                     176          .byte not_zero, not_one
+007C    10 0F                     177          .byte shift_l, shift_r
+007E    01 01 01 01 01 01         178          .byte cmp_eq, cmp_ne, cmp_le, cmp_lt, cmp_ge, cmp_gt
+0084    00 FF FF                  179          .byte bit_and, bit_or, bit_xor
+0087    01 01 00                  180          .byte log_and, log_or, log_xor
+008A    02 07 05                  181          .byte ternary1, ternary2, ternary3
+008D    41                        182          .byte char_a
+008E    15                        183          .byte BASE + OFFSET     ; expression in .byte
+008F    20                        184          .byte (TABLE >> 8)      ; high byte of word
+0090    00                        185          .byte (TABLE & $ff)     ; low byte of word
+0091    F0                        186          .byte num_sep_bin       ; binary with digit separators
+0092    F0                        187          .byte num_sep_suf       ; suffix binary with separators
+----                              188          
+0093    00 FF FF FF 08 00 51 00   189          .word bit_not, neg_one, pow1, pow2
+009B    42 41                     190          .word char_ab
+009D    00 20                     191          .word TABLE             ; label in .word
+009F    00 13                     192          .word PAGE + $100       ; expression in .word
+00A1    0A 20                     193          .word TABLE + (OFFSET << 1)  ; complex expression
+00A3    40 42                     194          .word num_sep_dec       ; decimal with digit separators (truncated)
+00A5    00 FF                     195          .word num_sep_hex       ; hex with digit separators
+----                              196  
+----                              197  ; ============================================================================
+----                              198  ; PART 2: 6502 FAMILY - Expressions in addressing modes
+----                              199  ; ============================================================================
+----                              200          .cpu 6502
+----    EQU 0400                  201          .org $0400
+----                              202  
+----                              203  ; --- 6502-specific constants ---
+----    EQU 0020                  204  ZP_BASE         .const  $20
+----    EQU 0008                  205  ZP_OFFSET       .const  $08
+----    EQU 1000                  206  ABS_BASE        .const  $1000
+----    EQU FFFE                  207  VECTOR          .const  $FFFE
+----                              208  
+----                              209  ; ============================================================================
+----                              210  ; 6502 IMMEDIATE MODE: LDA #imm
+----                              211  ; ============================================================================
+----                              212  m6502_imm:
+0400    A9 10                     213          lda #BASE               ; label
+0402    A9 15                     214          lda #BASE + OFFSET      ; expression
+0404    A9 10                     215          lda #>ABS_BASE          ; high byte
+0406    A9 00                     216          lda #<ABS_BASE          ; low byte
+0408    A9 07                     217          lda #MASK & $07         ; bitwise AND
+040A    A9 1F                     218          lda #MASK | $10         ; bitwise OR
+040C    A9 08                     219          lda #1 << 3             ; shift left
+040E    A9 20                     220          lda #$80 >> 2           ; shift right
+0410    A9 0F                     221          lda #10 + 5             ; addition
+0412    A9 0C                     222          lda #20 - 8             ; subtraction
+0414    A9 0C                     223          lda #3 * 4              ; multiplication
+0416    A9 14                     224          lda #100 / 5            ; division
+0418    A9 0F                     225          lda #(~$f0) & $ff       ; bitwise NOT masked to byte
+041A    A9 FF                     226          lda #(-1) & $ff         ; negative masked to byte ($ff)
+041C    A9 AA                     227          lda #(5 > 3) ? $aa : $55    ; ternary
+----                              228          
+041E    A2 20                     229          ldx #ZP_BASE            ; X immediate
+0420    A0 08                     230          ldy #ZP_OFFSET          ; Y immediate
+0422    A2 20                     231          ldx #(TABLE >> 8) & $ff ; high byte of table
+0424    A0 00                     232          ldy #TABLE & $ff        ; low byte of table
+----                              233  
+----                              234  ; ============================================================================
+----                              235  ; 6502 ZERO PAGE MODE: LDA $nn
+----                              236  ; ============================================================================
+----                              237  m6502_zp:
+0426    A5 20                     238          lda ZP_BASE             ; label (zero page)
+0428    A5 28                     239          lda ZP_BASE + ZP_OFFSET ; expression
+042A    85 21                     240          sta ZP_BASE + 1         ; store with offset
+042C    A6 22                     241          ldx ZP_BASE + 2         ; load X
+042E    A4 23                     242          ldy ZP_BASE + 3         ; load Y
+0430    65 24                     243          adc ZP_BASE + 4         ; add with carry
+0432    E5 25                     244          sbc ZP_BASE + 5         ; subtract with borrow
+0434    25 26                     245          and ZP_BASE + 6         ; AND
+0436    05 27                     246          ora ZP_BASE + 7         ; OR
+0438    45 28                     247          eor ZP_BASE + 8         ; XOR
+043A    E6 29                     248          inc ZP_BASE + 9         ; increment memory
+043C    C6 2A                     249          dec ZP_BASE + 10        ; decrement memory
+043E    24 2B                     250          bit ZP_BASE + 11        ; bit test
+0440    06 2C                     251          asl ZP_BASE + 12        ; arithmetic shift left
+0442    46 2D                     252          lsr ZP_BASE + 13        ; logical shift right
+0444    26 2E                     253          rol ZP_BASE + 14        ; rotate left
+0446    66 2F                     254          ror ZP_BASE + 15        ; rotate right
+----                              255  
+----                              256  ; ============================================================================
+----                              257  ; 6502 ZERO PAGE,X MODE: LDA $nn,X
+----                              258  ; ============================================================================
+----    EQU 0010                  259  ZP_DOUBLED      .const  ZP_OFFSET * 2   ; pre-calculate expression
+----                              260  
+----                              261  m6502_zpx:
+0448    B5 20                     262          lda ZP_BASE,x           ; label
+044A    B5 24                     263          lda ZP_BASE + 4,x       ; expression
+044C    95 28                     264          sta ZP_BASE + 8,x       ; store
+044E    75 2C                     265          adc ZP_BASE + 12,x      ; add
+0450    35 30                     266          and ZP_BASE + $10,x     ; AND with hex offset
+0452    15 10                     267          ora ZP_DOUBLED,x        ; pre-defined expression
+0454    F6 20                     268          inc ZP_BASE,x           ; increment
+0456    D6 21                     269          dec ZP_BASE + 1,x       ; decrement with offset
+0458    16 22                     270          asl ZP_BASE + 2,x       ; shift
+045A    56 23                     271          lsr ZP_BASE + 3,x       ; shift
+----                              272  
+----                              273  ; ============================================================================
+----                              274  ; 6502 ZERO PAGE,Y MODE: LDX $nn,Y
+----                              275  ; ============================================================================
+----                              276  m6502_zpy:
+045C    B6 20                     277          ldx ZP_BASE,y           ; label
+045E    B6 24                     278          ldx ZP_BASE + 4,y       ; expression
+0460    96 28                     279          stx ZP_BASE + 8,y       ; store
+----                              280  
+----                              281  ; ============================================================================
+----                              282  ; 6502 ABSOLUTE MODE: LDA $nnnn
+----                              283  ; ============================================================================
+----                              284  m6502_abs:
+0462    AD 00 10                  285          lda ABS_BASE            ; label
+0465    AD 00 11                  286          lda ABS_BASE + $100     ; expression
+0468    AD 05 12                  287          lda PAGE + OFFSET       ; labels from 8085 section
+046B    8D 00 12                  288          sta ABS_BASE + $200     ; store
+046E    AE 00 20                  289          ldx TABLE               ; load X absolute
+0471    AC 10 20                  290          ldy TABLE + $10         ; load Y with offset
+0474    4C 80 04                  291          jmp abs_target          ; forward reference
+0477    4C 50 10                  292          jmp ABS_BASE + $50      ; expression
+047A    20 81 04                  293          jsr abs_sub             ; subroutine call
+047D    20 00 21                  294          jsr TABLE + $100        ; expression as address
+----                              295  
+----                              296  abs_target:
+0480    EA                        297          nop
+----                              298  abs_sub:
+0481    60                        299          rts
+----                              300  
+----                              301  ; ============================================================================
+----                              302  ; 6502 ABSOLUTE,X MODE: LDA $nnnn,X
+----                              303  ; ============================================================================
+----                              304  m6502_absx:
+0482    BD 00 10                  305          lda ABS_BASE,x          ; label
+0485    BD 00 11                  306          lda ABS_BASE + $100,x   ; expression
+0488    BD 14 20                  307          lda TABLE + (OFFSET * 4),x  ; complex expression
+048B    9D 00 12                  308          sta ABS_BASE + $200,x   ; store
+048E    7D 00 12                  309          adc PAGE,x              ; add
+0491    3D 00 20                  310          and TABLE,x             ; AND
+----                              311  
+----                              312  ; ============================================================================
+----                              313  ; 6502 ABSOLUTE,Y MODE: LDA $nnnn,Y
+----                              314  ; ============================================================================
+----                              315  m6502_absy:
+0494    B9 00 10                  316          lda ABS_BASE,y          ; label
+0497    B9 00 11                  317          lda ABS_BASE + $100,y   ; expression
+049A    99 00 12                  318          sta ABS_BASE + $200,y   ; store
+049D    BE 00 20                  319          ldx TABLE,y             ; load X absolute,Y
+04A0    79 00 12                  320          adc PAGE,y              ; add
+----                              321  
+----                              322  ; ============================================================================
+----                              323  ; 6502 INDIRECT MODE: JMP ($nnnn)
+----                              324  ; ============================================================================
+----                              325  m6502_ind:
+04A3    6C FE FF                  326          jmp (VECTOR)            ; indirect through label
+04A6    6C 10 10                  327          jmp (ABS_BASE + $10)    ; indirect through expression
+04A9    6C 00 20                  328          jmp (TABLE)             ; indirect through table
+----                              329  
+----                              330  ; ============================================================================
+----                              331  ; 6502 INDEXED INDIRECT MODE: LDA ($nn,X)
+----                              332  ; ============================================================================
+----                              333  m6502_indx:
+04AC    A1 20                     334          lda (ZP_BASE,x)         ; label
+04AE    A1 24                     335          lda (ZP_BASE + 4,x)     ; expression
+04B0    81 28                     336          sta (ZP_BASE + 8,x)     ; store
+04B2    61 10                     337          adc (ZP_OFFSET * 2,x)   ; expression as base
+04B4    21 20                     338          and (ZP_BASE,x)         ; AND
+04B6    01 30                     339          ora (ZP_BASE + $10,x)   ; OR
+04B8    41 40                     340          eor (ZP_BASE + $20,x)   ; XOR
+04BA    C1 50                     341          cmp (ZP_BASE + $30,x)   ; compare
+----                              342  
+----                              343  ; ============================================================================
+----                              344  ; 6502 INDIRECT INDEXED MODE: LDA ($nn),Y
+----                              345  ; ============================================================================
+----                              346  m6502_indy:
+04BC    B1 20                     347          lda (ZP_BASE),y         ; label
+04BE    B1 24                     348          lda (ZP_BASE + 4),y     ; expression
+04C0    91 28                     349          sta (ZP_BASE + 8),y     ; store
+04C2    71 10                     350          adc (ZP_OFFSET * 2),y   ; expression as base
+04C4    31 20                     351          and (ZP_BASE),y         ; AND
+04C6    11 30                     352          ora (ZP_BASE + $10),y   ; OR
+04C8    51 40                     353          eor (ZP_BASE + $20),y   ; XOR
+04CA    D1 50                     354          cmp (ZP_BASE + $30),y   ; compare
+----                              355  
+----                              356  ; ============================================================================
+----                              357  ; 6502 RELATIVE MODE: Branches with expressions
+----                              358  ; ============================================================================
+----                              359  m6502_rel:
+----                              360  branch_here:
+04CC    D0 FE                     361          bne branch_here         ; backward branch to label
+04CE    F0 00                     362          beq $+2                 ; skip next (branch offset 0)
+04D0    90 02                     363          bcc $+4                 ; skip 2 bytes forward
+04D2    B0 08                     364          bcs branch_fwd          ; forward reference
+04D4    30 FC                     365          bmi $-2                 ; backward branch
+04D6    10 F4                     366          bpl branch_here         ; backward to label
+04D8    50 04                     367          bvc $+6                 ; longer forward skip
+04DA    70 00                     368          bvs branch_fwd          ; forward reference
+----                              369  branch_fwd:
+04DC    EA                        370          nop
+----                              371  
+----                              372  ; ============================================================================
+----                              373  ; 65C02-ONLY ADDRESSING MODES with expressions
+----                              374  ; ============================================================================
+----                              375          .cpu 65c02
+----                              376  
+----                              377  m65c02_modes:
+----                              378  ; Zero Page Indirect: LDA ($nn)
+04DD    B2 20                     379          lda (ZP_BASE)           ; label
+04DF    B2 24                     380          lda (ZP_BASE + 4)       ; expression
+04E1    92 28                     381          sta (ZP_BASE + 8)       ; store
+04E3    72 10                     382          adc (ZP_OFFSET * 2)     ; expression as base
+----                              383  
+----                              384  ; Absolute Indexed Indirect: JMP ($nnnn,X)
+04E5    7C 00 10                  385          jmp (ABS_BASE,x)        ; label
+04E8    7C 00 21                  386          jmp (TABLE + $100,x)    ; expression
+04EB    7C FE FF                  387          jmp (VECTOR,x)          ; vector table indexed
+----                              388  
+----                              389  ; ============================================================================
+----                              390  ; 6502 Data section with expressions
+----                              391  ; ============================================================================
+----                              392  m6502_data:
+04EE    20                        393          .byte ZP_BASE           ; label
+04EF    28                        394          .byte ZP_BASE + ZP_OFFSET   ; expression
+04F0    10                        395          .byte >ABS_BASE         ; high byte
+04F1    00                        396          .byte <ABS_BASE         ; low byte
+04F2    0F                        397          .byte MASK & $0f        ; masked value
+04F3    10                        398          .byte 1 << 4            ; shifted
+04F4    0F                        399          .byte ~$f0 & $ff        ; NOT masked to byte
+----                              400          
+04F5    00 10                     401          .word ABS_BASE          ; label
+04F7    00 11                     402          .word ABS_BASE + $100   ; expression
+04F9    0A 20                     403          .word TABLE + (OFFSET * 2)  ; complex expression
+04FB    FE FF                     404          .word VECTOR            ; vector address
+----                              405  
+----                              406  ; ============================================================================
+----                              407  ; PART 3: Expression edge cases and complex expressions
+----                              408  ; ============================================================================
+----                              409          .cpu 8085
+----    EQU 0800                  410          .org $0800
+----                              411  
+----                              412  ; Nested expressions
+----    EQU 0015                  413  nested1         .const  ((1 + 2) * (3 + 4))     ; = 21
+----    EQU 000C                  414  nested2         .const  (((1 << 2) | 8) & $0f)  ; = 12
+----    EQU 000A                  415  nested3         .const  (5 > 3) ? ((2 + 3) * 2) : 0  ; = 10
+----                              416  
+----                              417  ; Chained operations
+----    EQU 000F                  418  chain1          .const  1 + 2 + 3 + 4 + 5       ; = 15
+----    EQU 003F                  419  chain2          .const  $ff & $0f | $30         ; = $3f
+----    EQU 0008                  420  chain3          .const  1 << 2 << 1             ; = 8
+----                              421  
+----                              422  ; Labels referencing labels
+----    EQU 0020                  423  derived1        .const  BASE * 2                ; = $20
+----    EQU 0025                  424  derived2        .const  derived1 + OFFSET       ; = $25
+----    EQU 00A5                  425  derived3        .const  derived2 | $80          ; = $a5
+----                              426  
+----                              427  ; Using expressions in instructions
+0800    3E 15                     428          mvi a, nested1
+0802    06 0C                     429          mvi b, nested2
+0804    0E 0A                     430          mvi c, nested3
+0806    16 0F                     431          mvi d, chain1
+0808    1E 3F                     432          mvi e, chain2
+080A    26 20                     433          mvi h, derived1
+080C    2E 25                     434          mvi l, derived2
+----                              435  
+----                              436  ; Address arithmetic with current location
+----                              437  addr_base:
+080E    00                        438          .byte $+0 - addr_base   ; offset 0
+080F    01                        439          .byte $+0 - addr_base   ; offset 1
+0810    02                        440          .byte $+0 - addr_base   ; offset 2
+0811    03                        441          .byte $+0 - addr_base   ; offset 3
+----                              442  
+----                              443  ; Expression results in data
+0812    15 0C 0A                  444          .byte nested1, nested2, nested3
+0815    0F 3F 08                  445          .byte chain1, chain2, chain3
+0818    20 25 A5                  446          .byte derived1, derived2, derived3
+----                              447  
+081B    0E 08                     448          .word addr_base         ; reference to label
+081D    12 08                     449          .word addr_base + 4     ; label + offset
+081F    11 00                     450          .word $ - addr_base     ; current offset from label
+----                              451  
+----                              452          .end
 
-Lines: 63  Errors: 2  Warnings: 0
+Lines: 452  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
+BASE            : 0010 (16)
+OFFSET          : 0005 (5)
+MASK            : 000f (15)
+PAGE            : 1200 (4608)
+TABLE           : 2000 (8192)
 num_dec         : 007b (123)
 num_hex         : 00a6 (166)
 num_hex_pref    : 001f (31)
 num_bin         : 000a (10)
+num_bin_pref    : 000a (10)
+num_bin_long    : 00f0 (240)
 num_oct         : 000f (15)
 num_oct_q       : 000f (15)
+num_sep_dec     : f4240 (1000000)
+num_sep_hex     : ff00 (65280)
+num_sep_bin     : 00f0 (240)
+num_sep_suf     : 00f0 (240)
 hi_byte         : 0012 (18)
 lo_byte         : 0034 (52)
 not_zero        : 0001 (1)
@@ -96,7 +492,6 @@ cmp_le          : 0001 (1)
 cmp_lt          : 0001 (1)
 cmp_ge          : 0001 (1)
 cmp_gt          : 0001 (1)
-cmp_eq_alias    : 0001 (1)
 bit_and         : 0000 (0)
 bit_or          : 00ff (255)
 bit_xor         : 00ff (255)
@@ -108,5 +503,53 @@ ternary2        : 0007 (7)
 ternary3        : 0005 (5)
 char_a          : 0041 (65)
 char_ab         : 4142 (16706)
+i8085_imm       : 0000 (0)
+TABLE_HI        : 0020 (32)
+TABLE_LO        : 0000 (0)
+TABLE_COMBINED  : 2000 (8192)
+i8085_direct    : 002d (45)
+jump_target     : 0051 (81)
+call_target     : 0052 (82)
+i8085_relative  : 0053 (83)
+loop_here       : 005a (90)
+i8085_rst       : 0060 (96)
+IO_BASE         : 0010 (16)
+IO_DATA         : 0010 (16)
+IO_STATUS       : 0011 (17)
+IO_CONTROL      : 0012 (18)
+i8085_io        : 0068 (104)
+i8085_data      : 0070 (112)
+ZP_BASE         : 0020 (32)
+ZP_OFFSET       : 0008 (8)
+ABS_BASE        : 1000 (4096)
+VECTOR          : fffe (65534)
+m6502_imm       : 0400 (1024)
+m6502_zp        : 0426 (1062)
+ZP_DOUBLED      : 0010 (16)
+m6502_zpx       : 0448 (1096)
+m6502_zpy       : 045c (1116)
+m6502_abs       : 0462 (1122)
+abs_target      : 0480 (1152)
+abs_sub         : 0481 (1153)
+m6502_absx      : 0482 (1154)
+m6502_absy      : 0494 (1172)
+m6502_ind       : 04a3 (1187)
+m6502_indx      : 04ac (1196)
+m6502_indy      : 04bc (1212)
+m6502_rel       : 04cc (1228)
+branch_here     : 04cc (1228)
+branch_fwd      : 04dc (1244)
+m65c02_modes    : 04dd (1245)
+m6502_data      : 04ee (1262)
+nested1         : 0015 (21)
+nested2         : 000c (12)
+nested3         : 000a (10)
+chain1          : 000f (15)
+chain2          : 003f (63)
+chain3          : 0008 (8)
+derived1        : 0020 (32)
+derived2        : 0025 (37)
+derived3        : 00a5 (165)
+addr_base       : 080e (2062)
 
-Total memory is 40 bytes
+Total memory is 453 bytes

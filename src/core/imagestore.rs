@@ -82,7 +82,15 @@ impl ImageStore {
         }
 
         if let Some(go) = go_addr {
-            let addr = u16::from_str_radix(go, 16).unwrap_or(0);
+            let addr = match u16::from_str_radix(go, 16) {
+                Ok(v) => v,
+                Err(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Invalid start address",
+                    ))
+                }
+            };
             let mut csum: u8 = 0;
             csum = csum.wrapping_add(4);
             csum = csum.wrapping_add(3);

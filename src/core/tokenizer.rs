@@ -1,9 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-// Tokenizer for assembly source with spans.
+//! Tokenizer for assembly source with spans.
+//!
+//! This tokenizer is CPU-agnostic. Register detection is provided via a
+//! function passed to [`Tokenizer::with_register_checker`].
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use crate::core::text_utils::{is_ident_char, is_ident_start, is_space};
+
+/// Function type for checking if an identifier is a register name.
+pub type RegisterChecker = fn(&str) -> bool;
+
+/// Default register checker that treats no identifiers as registers.
+pub fn no_registers(_ident: &str) -> bool {
+    false
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Span {
     pub line: u32,
     pub col_start: usize,
@@ -30,6 +43,7 @@ pub enum TokenKind {
     Colon,
     Dollar,
     Dot,
+    Hash,
     Question,
     OpenParen,
     CloseParen,
@@ -103,14 +117,24 @@ pub struct Tokenizer<'a> {
     line_num: u32,
     input: &'a [u8],
     cursor: usize,
+    is_register: RegisterChecker,
 }
 
 impl<'a> Tokenizer<'a> {
+    /// Create a new tokenizer with no register detection.
+    #[must_use]
     pub fn new(line: &'a str, line_num: u32) -> Self {
+        Self::with_register_checker(line, line_num, no_registers)
+    }
+
+    /// Create a new tokenizer with a custom register checker.
+    #[must_use]
+    pub fn with_register_checker(line: &'a str, line_num: u32, is_register: RegisterChecker) -> Self {
         Self {
             line_num,
             input: line.as_bytes(),
             cursor: 0,
+            is_register,
         }
     }
 
@@ -120,60 +144,71 @@ impl<'a> Tokenizer<'a> {
         let c = self.current_byte();
         match c {
             0 => {
-                return Ok(Token {
+                Ok(Token {
                     kind: TokenKind::End,
                     span: Span::new(self.line_num, start, start),
-                });
+                })
             }
             b';' => {
                 self.cursor = self.input.len();
-                return Ok(Token {
+                Ok(Token {
                     kind: TokenKind::End,
                     span: Span::new(self.line_num, start, start),
-                });
+                })
             }
-            _ if is_ident_start(c) => return self.scan_identifier(),
-            _ if is_digit(c) => return self.scan_number(),
-            b'"' | b'\'' => return self.scan_string(),
+            _ if is_ident_start(c) => self.scan_identifier(),
+            _ if is_digit(c) => self.scan_number(),
+            b'"' | b'\'' => self.scan_string(),
             b'.' => {
-                self.cursor = self.cursor.saturating_add(1);
-                return Ok(Token {
+                self.cursor += 1;
+                Ok(Token {
                     kind: TokenKind::Dot,
                     span: Span::new(self.line_num, start, self.cursor),
-                });
+                })
             }
             b'?' => {
-                self.cursor = self.cursor.saturating_add(1);
-                return Ok(Token {
+                self.cursor += 1;
+                Ok(Token {
                     kind: TokenKind::Question,
                     span: Span::new(self.line_num, start, self.cursor),
-                });
+                })
             }
             b'$' => {
                 if is_hex_digit(self.peek_raw_byte(1)) || self.peek_raw_byte(1) == b'_' {
-                    return self.scan_prefixed_number(16);
+                    self.scan_prefixed_number(16)
+                } else {
+                    self.cursor += 1;
+                    Ok(Token {
+                        kind: TokenKind::Dollar,
+                        span: Span::new(self.line_num, start, self.cursor),
+                    })
                 }
-                self.cursor = self.cursor.saturating_add(1);
-                return Ok(Token {
-                    kind: TokenKind::Dollar,
-                    span: Span::new(self.line_num, start, self.cursor),
-                });
             }
             b'%' => {
                 let next = self.peek_raw_byte(1);
                 if is_bin_digit(next) && self.is_prefix_context(start) {
-                    return self.scan_prefixed_number(2);
+                    self.scan_prefixed_number(2)
+                } else {
+                    self.cursor += 1;
+                    Ok(Token {
+                        kind: TokenKind::Operator(OperatorKind::Mod),
+                        span: Span::new(self.line_num, start, self.cursor),
+                    })
                 }
-                self.cursor = self.cursor.saturating_add(1);
-                return Ok(Token {
-                    kind: TokenKind::Operator(OperatorKind::Mod),
-                    span: Span::new(self.line_num, start, self.cursor),
-                });
             }
-            _ => {}
+            b'#' => {
+                self.cursor += 1;
+                Ok(Token {
+                    kind: TokenKind::Hash,
+                    span: Span::new(self.line_num, start, self.cursor),
+                })
+            }
+            _ => self.scan_operator(start, c),
         }
+    }
 
-        self.cursor = self.cursor.saturating_add(1);
+    fn scan_operator(&mut self, start: usize, c: u8) -> Result<Token, TokenizeError> {
+        self.cursor += 1;
         let kind = match c {
             b',' => TokenKind::Comma,
             b':' => TokenKind::Colon,
@@ -183,7 +218,7 @@ impl<'a> Tokenizer<'a> {
             b'-' => TokenKind::Operator(OperatorKind::Minus),
             b'*' => {
                 if self.peek_raw_byte(0) == b'*' {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Power)
                 } else {
                     TokenKind::Operator(OperatorKind::Multiply)
@@ -193,13 +228,13 @@ impl<'a> Tokenizer<'a> {
             b'~' => TokenKind::Operator(OperatorKind::BitNot),
             b'=' => {
                 if self.peek_raw_byte(0) == b'=' {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                 }
                 TokenKind::Operator(OperatorKind::Eq)
             }
             b'!' => {
                 if self.peek_raw_byte(0) == b'=' {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Ne)
                 } else {
                     TokenKind::Operator(OperatorKind::LogicNot)
@@ -207,7 +242,7 @@ impl<'a> Tokenizer<'a> {
             }
             b'&' => {
                 if self.peek_raw_byte(0) == b'&' {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::LogicAnd)
                 } else {
                     TokenKind::Operator(OperatorKind::BitAnd)
@@ -215,7 +250,7 @@ impl<'a> Tokenizer<'a> {
             }
             b'|' => {
                 if self.peek_raw_byte(0) == b'|' {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::LogicOr)
                 } else {
                     TokenKind::Operator(OperatorKind::BitOr)
@@ -223,7 +258,7 @@ impl<'a> Tokenizer<'a> {
             }
             b'^' => {
                 if self.peek_raw_byte(0) == b'^' {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::LogicXor)
                 } else {
                     TokenKind::Operator(OperatorKind::BitXor)
@@ -231,26 +266,26 @@ impl<'a> Tokenizer<'a> {
             }
             b'<' => match self.peek_raw_byte(0) {
                 b'<' => {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Shl)
                 }
                 b'=' => {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Le)
                 }
                 b'>' => {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Ne)
                 }
                 _ => TokenKind::Operator(OperatorKind::Lt),
             },
             b'>' => match self.peek_raw_byte(0) {
                 b'>' => {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Shr)
                 }
                 b'=' => {
-                    self.cursor = self.cursor.saturating_add(1);
+                    self.cursor += 1;
                     TokenKind::Operator(OperatorKind::Ge)
                 }
                 _ => TokenKind::Operator(OperatorKind::Gt),
@@ -271,12 +306,12 @@ impl<'a> Tokenizer<'a> {
     fn scan_identifier(&mut self) -> Result<Token, TokenizeError> {
         let start = self.cursor;
         while is_ident_char(self.current_byte()) {
-            self.cursor = self.cursor.saturating_add(1);
+            self.cursor += 1;
         }
         let text = String::from_utf8_lossy(&self.input[start..self.cursor]).to_string();
         let upper = text.to_ascii_uppercase();
 
-        let kind = if is_register(&upper) {
+        let kind = if (self.is_register)(&upper) {
             TokenKind::Register(text)
         } else {
             TokenKind::Identifier(text)
@@ -291,7 +326,7 @@ impl<'a> Tokenizer<'a> {
     fn scan_number(&mut self) -> Result<Token, TokenizeError> {
         let start = self.cursor;
         while is_num_char(self.current_byte()) {
-            self.cursor = self.cursor.saturating_add(1);
+            self.cursor += 1;
         }
         let text = String::from_utf8_lossy(&self.input[start..self.cursor]).to_string();
         let upper = text.to_ascii_uppercase();
@@ -317,7 +352,7 @@ impl<'a> Tokenizer<'a> {
 
     fn scan_prefixed_number(&mut self, base: u32) -> Result<Token, TokenizeError> {
         let start = self.cursor;
-        self.cursor = self.cursor.saturating_add(1);
+        self.cursor += 1;
         let mut saw_digit = false;
         loop {
             let c = self.current_byte();
@@ -332,7 +367,7 @@ impl<'a> Tokenizer<'a> {
             if c != b'_' {
                 saw_digit = true;
             }
-            self.cursor = self.cursor.saturating_add(1);
+            self.cursor += 1;
         }
         if !saw_digit {
             return Err(TokenizeError {
@@ -350,12 +385,12 @@ impl<'a> Tokenizer<'a> {
     fn scan_string(&mut self) -> Result<Token, TokenizeError> {
         let start = self.cursor;
         let quote = self.current_byte();
-        self.cursor = self.cursor.saturating_add(1);
+        self.cursor += 1;
         let mut out = Vec::new();
         while self.current_byte() != 0 && self.current_byte() != quote {
             let c = self.current_byte();
             if c == b'\\' {
-                self.cursor = self.cursor.saturating_add(1);
+                self.cursor += 1;
                 let esc = self.current_byte();
                 let val = match esc {
                     b'n' => b'\n',
@@ -374,7 +409,7 @@ impl<'a> Tokenizer<'a> {
                                 span: Span::new(self.line_num, start, self.cursor),
                             });
                         }
-                        self.cursor = self.cursor.saturating_add(2);
+                        self.cursor += 2;
                         (hex_digit(hi) << 4) | hex_digit(lo)
                     }
                     _ => esc,
@@ -383,7 +418,7 @@ impl<'a> Tokenizer<'a> {
             } else {
                 out.push(c);
             }
-            self.cursor = self.cursor.saturating_add(1);
+            self.cursor += 1;
         }
 
         if self.current_byte() != quote {
@@ -395,7 +430,7 @@ impl<'a> Tokenizer<'a> {
                 span: Span::new(self.line_num, start, self.cursor),
             });
         }
-        self.cursor = self.cursor.saturating_add(1);
+        self.cursor += 1;
         let raw = String::from_utf8_lossy(&self.input[start..self.cursor]).to_string();
         Ok(Token {
             kind: TokenKind::String(StringLiteral { raw, bytes: out }),
@@ -405,73 +440,56 @@ impl<'a> Tokenizer<'a> {
 
     fn skip_white(&mut self) {
         while is_space(self.current_byte()) {
-            self.cursor = self.cursor.saturating_add(1);
+            self.cursor += 1;
         }
     }
 
     fn current_byte(&self) -> u8 {
-        if self.cursor >= self.input.len() {
-            0
-        } else {
-            self.input[self.cursor]
-        }
+        self.input.get(self.cursor).copied().unwrap_or(0)
     }
 
     fn peek_raw_byte(&self, offset: usize) -> u8 {
-        let idx = self.cursor.saturating_add(offset);
-        if idx >= self.input.len() {
-            0
-        } else {
-            self.input[idx]
-        }
+        self.input.get(self.cursor + offset).copied().unwrap_or(0)
     }
 
+    /// Check if the current position is a valid context for a prefix operator
+    /// like `%` for binary numbers. This is true when:
+    /// - At the start of the line (no previous non-space char)
+    /// - After an operator or punctuation that starts an expression
+    /// - After whitespace following an identifier (e.g., `.const %1010`)
     fn is_prefix_context(&self, start: usize) -> bool {
+        // Check if there's whitespace immediately before this position
+        let has_leading_space = start > 0 && is_space(self.input[start - 1]);
+        
         match self.prev_non_space(start) {
-            None => true,
-            Some(ch) => matches!(
-                ch,
+            None => true, // Start of line
+            Some(
                 b'(' | b',' | b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'~'
                     | b'!' | b'<' | b'>' | b'=' | b'?' | b':'
-            ),
+            ) => true, // After operator
+            Some(ch) if has_leading_space && is_ident_char(ch) => true, // After identifier + whitespace
+            _ => false,
         }
     }
 
     fn prev_non_space(&self, start: usize) -> Option<u8> {
-        let mut idx = start;
-        while idx > 0 {
-            idx = idx.saturating_sub(1);
-            let c = self.input[idx];
-            if !is_space(c) {
-                return Some(c);
-            }
-        }
-        None
+        (0..start)
+            .rev()
+            .map(|i| self.input[i])
+            .find(|&c| !is_space(c))
     }
 }
 
-fn is_space(c: u8) -> bool {
-    c == b' ' || c == b'\t'
-}
-
-fn is_ident_start(c: u8) -> bool {
-    (c as char).is_ascii_alphabetic() || c == b'_'
-}
-
 fn is_digit(c: u8) -> bool {
-    (c as char).is_ascii_digit()
+    c.is_ascii_digit()
 }
 
 fn is_alnum(c: u8) -> bool {
-    (c as char).is_ascii_alphanumeric()
+    c.is_ascii_alphanumeric()
 }
 
 fn is_num_char(c: u8) -> bool {
     is_alnum(c) || c == b'_'
-}
-
-fn is_ident_char(c: u8) -> bool {
-    is_alnum(c) || c == b'_' || c == b'.' || c == b'$'
 }
 
 fn is_bin_digit(c: u8) -> bool {
@@ -479,14 +497,7 @@ fn is_bin_digit(c: u8) -> bool {
 }
 
 fn is_hex_digit(c: u8) -> bool {
-    (c as char).is_ascii_hexdigit()
-}
-
-fn is_register(ident: &str) -> bool {
-    matches!(
-        ident,
-        "A" | "B" | "C" | "D" | "E" | "H" | "L" | "M" | "SP" | "PSW"
-    )
+    c.is_ascii_hexdigit()
 }
 
 fn hex_digit(c: u8) -> u8 {
@@ -501,9 +512,13 @@ fn hex_digit(c: u8) -> u8 {
 mod tests {
     use super::{OperatorKind, TokenKind, Tokenizer};
 
+    fn test_registers(ident: &str) -> bool {
+        matches!(ident, "A" | "B")
+    }
+
     #[test]
     fn tokenizes_identifier_and_register() {
-        let mut tok = Tokenizer::new("MOV A,B", 1);
+        let mut tok = Tokenizer::with_register_checker("MOV A,B", 1, test_registers);
         assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Identifier(_)));
         assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Register(_)));
         assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Comma));

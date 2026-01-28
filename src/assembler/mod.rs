@@ -1,287 +1,64 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-// Assembler core pipeline and listing/output generation.
+//! Multi-CPU Assembler - main entry point.
+//!
+//! This module ties together the CPU-agnostic core with CPU-specific
+//! instruction encoding (8085, Z80).
 
-use std::fmt;
+pub mod cli;
+
 use std::fs::{self, File};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
 
-use clap::{ArgAction, Parser};
+use clap::Parser;
 
-use crate::imagestore::ImageStore;
-use crate::instructions::table::INSTRUCTION_TABLE;
-use crate::instructions::ArgType;
-use crate::macro_processor::MacroProcessor;
-use crate::parser::{AssignOp, BinaryOp, Expr, Label, LineAst, ParseError, UnaryOp};
-use crate::parser as asm_parser;
-use crate::parser_reporter::{format_parse_error, format_parse_error_listing};
-use crate::preprocess::Preprocessor;
-use crate::token_value::TokenValue;
-use crate::symbol_table::{SymbolTable, NO_ENTRY};
-use crate::tokenizer::{ConditionalKind, Span};
+use crate::core::cpu::CpuType;
+use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler};
+use crate::core::imagestore::ImageStore;
+use crate::core::macro_processor::MacroProcessor;
+use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
+use crate::core::parser as asm_parser;
+use crate::core::preprocess::Preprocessor;
+use crate::core::symbol_table::SymbolTable;
+use crate::core::tokenizer::{ConditionalKind, Span};
+use crate::core::token_value::TokenValue;
+use crate::core::assembler::conditional::{ConditionalBlockKind, ConditionalContext, ConditionalStack};
+use crate::core::assembler::error::{
+    AsmError, AsmErrorKind, AsmRunError, AsmRunReport, Diagnostic, LineStatus, PassCounts, Severity,
+};
+use crate::core::assembler::expression::{
+    apply_assignment_op, binary_op_text, eval_binary_op, eval_unary_op, expr_span, expr_text,
+    parse_number_text, AstEvalError,
+};
+use crate::core::assembler::listing::{ListingLine, ListingWriter};
+use crate::core::assembler::scope::ScopeStack;
 
-const VERSION: &str = "1.0";
-const LONG_ABOUT: &str = "Intel 8085 Assembler with expressions, directives and basic macro support.
+use crate::families::intel8080::{
+    ArgType, FamilyOperand, InstructionEntry, Intel8080FamilyHandler, Prefix,
+    FAMILY_INSTRUCTION_TABLE, map_zilog_to_canonical,
+};
+use crate::families::intel8080::table::has_mnemonic as intel_has_mnemonic;
+use crate::i8085::I8085CpuHandler;
+use crate::z80::Z80CpuHandler;
 
-Outputs are opt-in: specify at least one of -l/--list, -x/--hex, or -b/--bin.
-Use -o/--outfile to set the output base name when filenames are omitted.
-For -b, ranges are required: ssss:eeee (4 hex digits each).
-With multiple -b ranges and no filenames, outputs are named <base>-ssss.bin.
-With multiple inputs, -o must be a directory and explicit output filenames are not allowed.";
+use cli::{
+    input_base_from_path, resolve_bin_path, resolve_output_path, validate_cli, BinOutputSpec, Cli,
+};
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "asm485",
-    version = VERSION,
-    about = "Intel 8085 Assembler with expressions, directives and basic macro support",
-    long_about = LONG_ABOUT
-)]
-struct Cli {
-    #[arg(
-        short = 'l',
-        long = "list",
-        value_name = "FILE",
-        num_args = 0..=1,
-        default_missing_value = "",
-        long_help = "Emit a listing file. FILE is optional; when omitted, the output base is used and a .lst extension is added."
-    )]
-    list_name: Option<String>,
-    #[arg(
-        short = 'x',
-        long = "hex",
-        value_name = "FILE",
-        num_args = 0..=1,
-        default_missing_value = "",
-        long_help = "Emit an Intel Hex file. FILE is optional; when omitted, the output base is used and a .hex extension is added."
-    )]
-    hex_name: Option<String>,
-    #[arg(
-        short = 'o',
-        long = "outfile",
-        value_name = "BASE",
-        long_help = "Output filename base when -l/-x omit filenames, and for -b when a filename is omitted. Defaults to the input base. With multiple inputs, BASE must be a directory."
-    )]
-    outfile: Option<String>,
-    #[arg(
-        short = 'b',
-        long = "bin",
-        value_name = "FILE:ssss:eeee|ssss:eeee",
-        num_args = 0..=1,
-        default_missing_value = "",
-        action = ArgAction::Append,
-        long_help = "Emit a binary image file (repeatable). A range is required: ssss:eeee (4 hex digits each). Use ssss:eeee to use the output base, or FILE:ssss:eeee to override the filename. If FILE has no extension, .bin is added. If multiple -b ranges are provided without filenames, outputs are named <base>-ssss.bin."
-    )]
-    bin_outputs: Vec<String>,
-    #[arg(
-        short = 'f',
-        long = "fill",
-        value_name = "hh",
-        long_help = "Fill byte for -b output (2 hex digits). Defaults to FF."
-    )]
-    fill_byte: Option<String>,
-    #[arg(
-        short = 'g',
-        long = "go",
-        value_name = "aaaa",
-        long_help = "Set execution start address (4 hex digits). Adds a Start Segment Address record to hex output. Requires -x/--hex."
-    )]
-    go_addr: Option<String>,
-    #[arg(
-        short = 'c',
-        long = "cond-debug",
-        action = ArgAction::SetTrue,
-        long_help = "Append conditional assembly state to listing lines."
-    )]
-    debug_conditionals: bool,
-    #[arg(
-        short = 'D',
-        long = "define",
-        value_name = "NAME[=VAL]",
-        action = ArgAction::Append,
-        long_help = "Predefine a macro (repeatable). If VAL is omitted, defaults to 1."
-    )]
-    defines: Vec<String>,
-    #[arg(
-        short = 'i',
-        long = "infile",
-        value_name = "FILE",
-        action = ArgAction::Append,
-        long_help = "Input assembly file (repeatable). Must end with .asm."
-    )]
-    infiles: Vec<PathBuf>,
-}
+// Re-export public types
+pub use cli::VERSION;
+pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as RunReport};
 
+/// Run the assembler with command-line arguments.
 pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
     let cli = Cli::parse();
-    if cli.infiles.is_empty() {
-        return Err(AsmRunError::new(
-            AsmError::new(
-                AsmErrorKind::Cli,
-                "No input files specified. Use -i/--infile",
-                None,
-            ),
-            Vec::new(),
-            Vec::new(),
-        ));
-    }
-
-    let list_requested = cli.list_name.is_some();
-    let hex_requested = cli.hex_name.is_some();
-    let bin_requested = !cli.bin_outputs.is_empty();
-
-    if !list_requested && !hex_requested && !bin_requested {
-        return Err(AsmRunError::new(
-            AsmError::new(
-                AsmErrorKind::Cli,
-                "No outputs selected. Specify at least one of -l/--list, -x/--hex, or -b/--bin",
-                None,
-            ),
-            Vec::new(),
-            Vec::new(),
-        ));
-    }
-
-    if cli.infiles.len() > 1 {
-        if let Some(list_name) = cli.list_name.as_deref() {
-            if !list_name.is_empty() {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "Explicit -l/--list filenames are not allowed with multiple inputs",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-        }
-        if let Some(hex_name) = cli.hex_name.as_deref() {
-            if !hex_name.is_empty() {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "Explicit -x/--hex filenames are not allowed with multiple inputs",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-        }
-    }
-
-    let go_addr = match cli.go_addr.as_deref() {
-        Some(go) => {
-            if !hex_requested {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "-g/--go requires hex output (-x/--hex)",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-            if !is_valid_hex_4(go) {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "Invalid -g/--go address; must be 4 hex digits",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-            Some(go.to_string())
-        }
-        None => None,
-    };
-
-    let mut bin_specs = Vec::new();
-    for arg in &cli.bin_outputs {
-        let spec = parse_bin_output_arg(arg).map_err(|msg| {
-            AsmRunError::new(AsmError::new(AsmErrorKind::Cli, msg, None), Vec::new(), Vec::new())
-        })?;
-        bin_specs.push(spec);
-    }
-    if cli.infiles.len() > 1 && bin_specs.iter().any(|spec| spec.name.is_some()) {
-        return Err(AsmRunError::new(
-            AsmError::new(
-                AsmErrorKind::Cli,
-                "Explicit -b/--bin filenames are not allowed with multiple inputs",
-                None,
-            ),
-            Vec::new(),
-            Vec::new(),
-        ));
-    }
-
-    let fill_byte = match cli.fill_byte.as_deref() {
-        Some(fill) => {
-            if !bin_requested {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "-f/--fill requires binary output (-b/--bin)",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-            if !is_valid_hex_2(fill) {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "Invalid -f/--fill byte; must be 2 hex digits",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-            u8::from_str_radix(fill, 16).unwrap_or(0xff)
-        }
-        None => 0xff,
-    };
-
-    let out_dir = if cli.infiles.len() > 1 {
-        if let Some(out) = cli.outfile.as_deref() {
-            let out_path = PathBuf::from(out);
-            if out_path.exists() && !out_path.is_dir() {
-                return Err(AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        "-o/--outfile must be a directory when multiple inputs are provided",
-                        None,
-                    ),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-            if let Err(err) = fs::create_dir_all(&out_path) {
-                return Err(AsmRunError::new(
-                    AsmError::new(AsmErrorKind::Io, &err.to_string(), Some(out)),
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-            Some(out_path)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let config = validate_cli(&cli)?;
 
     let mut reports = Vec::new();
     for asm_path in &cli.infiles {
         let (asm_name, input_base) = input_base_from_path(asm_path)?;
-        let out_base = if let Some(dir) = &out_dir {
+        let out_base = if let Some(dir) = &config.out_dir {
             dir.join(&input_base).to_string_lossy().to_string()
         } else {
             cli.outfile.as_deref().unwrap_or(&input_base).to_string()
@@ -290,9 +67,9 @@ pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
             &cli,
             &asm_name,
             &out_base,
-            &bin_specs,
-            go_addr.as_deref(),
-            fill_byte,
+            &config.bin_specs,
+            config.go_addr.as_deref(),
+            config.fill_byte,
         )?;
         reports.push(report);
     }
@@ -385,7 +162,9 @@ fn run_one(
         Box::new(io::sink())
     };
     let mut listing = ListingWriter::new(&mut *list_output, cli.debug_conditionals);
-    if let Err(err) = listing.header() {
+    let cpu_name = assembler.cpu().name();
+    let header_title = format!("asm485 {cpu_name} Assembler v{VERSION}");
+    if let Err(err) = listing.header(&header_title) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
             assembler.take_diagnostics(),
@@ -468,373 +247,12 @@ fn run_one(
     ))
 }
 
-fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError> {
-    let asm_name = path.to_string_lossy().to_string();
-    let file_name = match path.file_name().and_then(|s| s.to_str()) {
-        Some(name) => name,
-        None => {
-            return Err(AsmRunError::new(
-                AsmError::new(AsmErrorKind::Cli, "Invalid input file name", None),
-                Vec::new(),
-                Vec::new(),
-            ))
-        }
-    };
-    if !file_name.ends_with(".asm") {
-        return Err(AsmRunError::new(
-            AsmError::new(AsmErrorKind::Cli, "Input file must end with .asm", None),
-            Vec::new(),
-            Vec::new(),
-        ));
-    }
-    let base = file_name.strip_suffix(".asm").unwrap_or(file_name);
-    Ok((asm_name, base.to_string()))
-}
-fn is_valid_hex_4(s: &str) -> bool {
-    s.len() == 4 && s.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn is_valid_hex_2(s: &str) -> bool {
-    s.len() == 2 && s.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn is_valid_bin_range(s: &str) -> bool {
-    if s.len() != 9 {
-        return false;
-    }
-    if !s.as_bytes()[4].eq(&b':') {
-        return false;
-    }
-    s.chars()
-        .enumerate()
-        .all(|(i, c)| (i == 4 && c == ':') || (i != 4 && c.is_ascii_hexdigit()))
-}
-
-#[derive(Debug, Clone)]
-struct BinRange {
-    start_str: String,
-    start: u16,
-    end: u16,
-}
-
-#[derive(Debug, Clone)]
-struct BinOutputSpec {
-    name: Option<String>,
-    range: BinRange,
-}
-
-fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
-    if arg.is_empty() {
-        return Err("Missing -b/--bin argument; use ssss:eeee or name:ssss:eeee");
-    }
-
-    if let Some(range) = parse_bin_range_str(arg) {
-        return Ok(BinOutputSpec { name: None, range });
-    }
-
-    if let Some((name_part, start, end)) = split_range_suffix(arg) {
-        let range = parse_bin_range_parts(start, end)
-            .ok_or("Invalid -b/--bin range; must be ssss:eeee (hex)")?;
-        let name = if name_part.is_empty() {
-            None
-        } else {
-            Some(name_part.to_string())
-        };
-        return Ok(BinOutputSpec { name, range });
-    }
-
-    Err("Binary output requires a range; use ssss:eeee or name:ssss:eeee")
-}
-
-fn split_range_suffix(s: &str) -> Option<(&str, &str, &str)> {
-    let mut parts = s.rsplitn(3, ':');
-    let end = parts.next()?;
-    let start = parts.next()?;
-    let name = parts.next()?;
-    if is_valid_hex_4(start) && is_valid_hex_4(end) {
-        Some((name, start, end))
-    } else {
-        None
-    }
-}
-
-fn parse_bin_range_parts(start: &str, end: &str) -> Option<BinRange> {
-    if !is_valid_hex_4(start) || !is_valid_hex_4(end) {
-        return None;
-    }
-    let start_str = start.to_string();
-    let end_str = end.to_string();
-    let start = u16::from_str_radix(&start_str, 16).unwrap_or(0);
-    let end = u16::from_str_radix(&end_str, 16).unwrap_or(0);
-    Some(BinRange {
-        start_str,
-        start,
-        end,
-    })
-}
-
-fn parse_bin_range_str(s: &str) -> Option<BinRange> {
-    if !is_valid_bin_range(s) {
-        return None;
-    }
-    let start_str = s[..4].to_string();
-    let end_str = s[5..].to_string();
-    let start = u16::from_str_radix(&start_str, 16).unwrap_or(0);
-    let end = u16::from_str_radix(&end_str, 16).unwrap_or(0);
-    Some(BinRange {
-        start_str,
-        start,
-        end,
-    })
-}
-
-fn resolve_output_path(base: &str, name: Option<String>, extension: &str) -> Option<String> {
-    let name = name?;
-    if name.is_empty() {
-        return Some(format!("{base}.{extension}"));
-    }
-    let mut path = PathBuf::from(&name);
-    if path.extension().is_none() {
-        path = PathBuf::from(format!("{name}.{extension}"));
-    }
-    Some(path.to_string_lossy().to_string())
-}
-
-fn resolve_bin_path(base: &str, name: Option<&str>, range: &BinRange, bin_count: usize) -> String {
-    let name = match name {
-        Some(name) if !name.is_empty() => name.to_string(),
-        _ => {
-            if bin_count == 1 {
-                base.to_string()
-            } else {
-                format!("{base}-{}", range.start_str)
-            }
-        }
-    };
-    let path = PathBuf::from(&name);
-    if path.extension().is_none() {
-        return format!("{name}.bin");
-    }
-    name
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct PassCounts {
-    lines: u32,
-    errors: u32,
-    warnings: u32,
-}
-
-impl PassCounts {
-    fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AsmErrorKind {
-    Assembler,
-    Cli,
-    Conditional,
-    Directive,
-    Expression,
-    Instruction,
-    Io,
-    Parser,
-    Preprocess,
-    Symbol,
-}
-
-#[derive(Debug, Clone)]
-struct AsmError {
-    #[allow(dead_code)]
-    kind: AsmErrorKind,
-    message: String,
-}
-
-impl AsmError {
-    fn new(kind: AsmErrorKind, msg: &str, param: Option<&str>) -> Self {
-        Self {
-            kind,
-            message: format_error(msg, param),
-        }
-    }
-
-    fn message(&self) -> &str {
-        &self.message
-    }
-
-    fn kind(&self) -> AsmErrorKind {
-        self.kind
-    }
-}
-
-impl fmt::Display for AsmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for AsmError {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Severity {
-    Warning,
-    Error,
-}
-
-#[derive(Debug, Clone)]
-pub struct Diagnostic {
-    line: u32,
-    column: Option<usize>,
-    severity: Severity,
-    error: AsmError,
-    file: Option<String>,
-    source: Option<String>,
-    parser_error: Option<ParseError>,
-}
-
-impl Diagnostic {
-    fn new(line: u32, severity: Severity, error: AsmError) -> Self {
-        Self {
-            line,
-            column: None,
-            severity,
-            error,
-            file: None,
-            source: None,
-            parser_error: None,
-        }
-    }
-
-    fn with_column(mut self, column: Option<usize>) -> Self {
-        self.column = column;
-        self
-    }
-
-    fn with_file(mut self, file: Option<String>) -> Self {
-        self.file = file;
-        self
-    }
-
-    fn with_source(mut self, source: Option<String>) -> Self {
-        self.source = source;
-        self
-    }
-
-    fn with_parser_error(mut self, parser_error: Option<ParseError>) -> Self {
-        self.parser_error = parser_error;
-        self
-    }
-
-    pub fn format(&self) -> String {
-        let sev = match self.severity {
-            Severity::Warning => "WARNING",
-            Severity::Error => "ERROR",
-        };
-        format!("{}: {} - {}", self.line, sev, self.error.message())
-    }
-
-    pub fn format_with_context(&self, lines: Option<&[String]>, use_color: bool) -> String {
-        if let Some(parser_error) = &self.parser_error {
-            return format_parse_error(parser_error, self.file.as_deref(), lines, use_color);
-        }
-        let sev = match self.severity {
-            Severity::Warning => "WARNING",
-            Severity::Error => "ERROR",
-        };
-        let header = match &self.file {
-            Some(file) => format!("{file}:{}: {sev}", self.line),
-            None => format!("{}: {sev}", self.line),
-        };
-
-        let mut out = String::new();
-        out.push_str(&header);
-        out.push('\n');
-
-        let context = build_context_lines(self.line, self.column, lines, self.source.as_deref(), use_color);
-        for line in context {
-            out.push_str(&line);
-            out.push('\n');
-        }
-        out.push_str(&format!("{sev}: {}", self.error.message()));
-        out
-    }
-}
-
-pub struct AsmRunReport {
-    diagnostics: Vec<Diagnostic>,
-    source_lines: Vec<String>,
-}
-
-impl AsmRunReport {
-    fn new(diagnostics: Vec<Diagnostic>, source_lines: Vec<String>) -> Self {
-        Self {
-            diagnostics,
-            source_lines,
-        }
-    }
-
-    pub fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
-    }
-
-    pub fn source_lines(&self) -> &[String] {
-        &self.source_lines
-    }
-
-    pub fn error_count(&self) -> usize {
-        self.diagnostics
-            .iter()
-            .filter(|d| d.severity == Severity::Error)
-            .count()
-    }
-
-    pub fn warning_count(&self) -> usize {
-        self.diagnostics
-            .iter()
-            .filter(|d| d.severity == Severity::Warning)
-            .count()
-    }
-}
-
-#[derive(Debug)]
-pub struct AsmRunError {
-    error: AsmError,
-    diagnostics: Vec<Diagnostic>,
-    source_lines: Vec<String>,
-}
-
-impl AsmRunError {
-    fn new(error: AsmError, diagnostics: Vec<Diagnostic>, source_lines: Vec<String>) -> Self {
-        Self {
-            error,
-            diagnostics,
-            source_lines,
-        }
-    }
-
-    pub fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
-    }
-
-    pub fn source_lines(&self) -> &[String] {
-        &self.source_lines
-    }
-}
-
-impl fmt::Display for AsmRunError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.error)
-    }
-}
-
-impl std::error::Error for AsmRunError {}
-
+/// Core assembler state.
 struct Assembler {
     symbols: SymbolTable,
     image: ImageStore,
     diagnostics: Vec<Diagnostic>,
+    cpu: CpuType,
 }
 
 impl Assembler {
@@ -843,7 +261,12 @@ impl Assembler {
             symbols: SymbolTable::new(),
             image: ImageStore::new(65536),
             diagnostics: Vec::new(),
+            cpu: CpuType::default(),
         }
+    }
+
+    fn cpu(&self) -> CpuType {
+        self.cpu
     }
 
     fn symbols(&self) -> &SymbolTable {
@@ -863,7 +286,7 @@ impl Assembler {
     }
 
     fn pass1(&mut self, lines: &[String]) -> PassCounts {
-        let mut asm_line = AsmLine::new(&mut self.symbols);
+        let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu);
         asm_line.clear_conditionals();
         asm_line.clear_scopes();
         let mut addr: u16 = 0;
@@ -912,7 +335,7 @@ impl Assembler {
         lines: &[String],
         listing: &mut ListingWriter<W>,
     ) -> std::io::Result<PassCounts> {
-        let mut asm_line = AsmLine::new(&mut self.symbols);
+        let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu);
         asm_line.clear_conditionals();
         asm_line.clear_scopes();
         self.image = ImageStore::new(65536);
@@ -1002,340 +425,7 @@ impl Assembler {
     }
 }
 
-struct ListingLine<'a> {
-    addr: u16,
-    bytes: &'a [u8],
-    status: LineStatus,
-    aux: u16,
-    line_num: u32,
-    source: &'a str,
-    cond: Option<&'a ConditionalContext>,
-}
-
-struct ListingWriter<W: Write> {
-    out: W,
-    show_cond: bool,
-}
-
-impl<W: Write> ListingWriter<W> {
-    fn new(out: W, show_cond: bool) -> Self {
-        Self { out, show_cond }
-    }
-
-    fn header(&mut self) -> std::io::Result<()> {
-        writeln!(self.out, "asm485 8085 Assembler v{VERSION}")?;
-        writeln!(self.out, "ADDR    BYTES                    LINE  SOURCE")?;
-        writeln!(self.out, "------  -----------------------  ----  ------")?;
-        Ok(())
-    }
-
-    fn write_line(&mut self, line: ListingLine<'_>) -> std::io::Result<()> {
-        let (loc, bytes_col) = match line.status {
-            LineStatus::DirEqu => (String::new(), format!("EQU {:04X}", line.aux)),
-            LineStatus::DirDs => (format!("{:04X}", line.addr), format!("+{:04X}", line.aux)),
-            _ => {
-                if line.bytes.is_empty() {
-                    ("".to_string(), String::new())
-                } else {
-                    (format!("{:04X}", line.addr), format_bytes(line.bytes))
-                }
-            }
-        };
-
-        let loc = if loc.is_empty() { "----".to_string() } else { loc };
-        let cond_str = if self.show_cond {
-            line.cond.map(format_cond).unwrap_or_default()
-        } else {
-            String::new()
-        };
-
-        writeln!(
-            self.out,
-            "{:<6}  {:<23}  {:>4}  {}{}",
-            loc, bytes_col, line.line_num, line.source, cond_str
-        )
-    }
-
-    fn write_diagnostic(
-        &mut self,
-        kind: &str,
-        msg: &str,
-        line_num: u32,
-        column: Option<usize>,
-        source_lines: &[String],
-        parser_error: Option<&ParseError>,
-    ) -> std::io::Result<()> {
-        if let Some(parser_error) = parser_error {
-            let formatted = format_parse_error_listing(parser_error, Some(source_lines), true);
-            for line in formatted.lines() {
-                writeln!(self.out, "{line}")?;
-            }
-            return Ok(());
-        }
-
-        let context = build_context_lines(line_num, column, Some(source_lines), None, true);
-        for line in context {
-            writeln!(self.out, "{line}")?;
-        }
-        writeln!(self.out, "{kind}: {msg}")
-    }
-
-    fn footer(
-        &mut self,
-        counts: &PassCounts,
-        symbols: &SymbolTable,
-        total_mem: usize,
-    ) -> std::io::Result<()> {
-        writeln!(
-            self.out,
-            "\nLines: {}  Errors: {}  Warnings: {}",
-            counts.lines, counts.errors, counts.warnings
-        )?;
-        writeln!(self.out, "\nSYMBOL TABLE\n")?;
-        symbols.dump(&mut self.out)?;
-        writeln!(self.out, "\nTotal memory is {} bytes", total_mem)?;
-        Ok(())
-    }
-}
-
-fn format_bytes(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|b| format!("{:02X}", b))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn build_context_lines(
-    line_num: u32,
-    column: Option<usize>,
-    lines: Option<&[String]>,
-    source_override: Option<&str>,
-    use_color: bool,
-) -> Vec<String> {
-    let mut out = Vec::new();
-    let line_idx = line_num.saturating_sub(1) as usize;
-
-    if let Some(source) = source_override {
-        let highlighted = highlight_line(source, column, use_color);
-        out.push(format!("{:>5} | {}", line_num, highlighted));
-        return out;
-    }
-
-    let lines = match lines {
-        Some(lines) if !lines.is_empty() => lines,
-        _ => {
-            out.push(format!("{:>5} | <source unavailable>", line_num));
-            return out;
-        }
-    };
-
-    if line_idx >= lines.len() {
-        out.push(format!("{:>5} | <source unavailable>", line_num));
-        return out;
-    }
-
-    let line = &lines[line_idx];
-    let display = highlight_line(line, column, use_color);
-    out.push(format!("{:>5} | {}", line_num, display));
-
-    out
-}
-
-fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> String {
-    let col = match column {
-        Some(c) if c > 0 => c,
-        _ => return line.to_string(),
-    };
-    let idx = col - 1;
-    if idx >= line.len() {
-        if use_color {
-            return format!("{line}\x1b[31m^\x1b[0m");
-        }
-        return format!("{line}^");
-    }
-    let (head, tail) = line.split_at(idx);
-    let ch = tail.chars().next().unwrap_or(' ');
-    let rest = &tail[ch.len_utf8()..];
-    if use_color {
-        format!("{head}\x1b[31m{ch}\x1b[0m{rest}")
-    } else {
-        format!("{head}{ch}{rest}")
-    }
-}
-
-fn format_cond(ctx: &ConditionalContext) -> String {
-    let matched = if ctx.matched { '+' } else { ' ' };
-    let skipping = if ctx.skipping { '-' } else { ' ' };
-    format!("  [{}{}{}{}]", matched, ctx.nest_level, ctx.skip_level, skipping)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum LineStatus {
-    Ok = 0,
-    DirEqu = 1,
-    DirDs = 2,
-    NothingDone = 3,
-    Skip = 4,
-    #[allow(dead_code)]
-    Warning = 5,
-    Error = 6,
-    Pass1Error = 7,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConditionalBlockKind {
-    If,
-    Switch,
-}
-
-#[derive(Debug, Clone)]
-struct ConditionalContext {
-    kind: ConditionalBlockKind,
-    nest_level: u8,
-    skip_level: u8,
-    sub_type: i32,
-    matched: bool,
-    skipping: bool,
-    switch_value: Option<u32>,
-}
-
-impl ConditionalContext {
-    fn new(prev: Option<&ConditionalContext>, kind: ConditionalBlockKind) -> Self {
-        let nest_level = match prev {
-            Some(p) => p.nest_level.saturating_add(1),
-            None => 1,
-        };
-        let sub_type = match kind {
-            ConditionalBlockKind::If => TokenValue::If as i32,
-            ConditionalBlockKind::Switch => TokenValue::Switch as i32,
-        };
-        Self {
-            kind,
-            nest_level,
-            skip_level: 0,
-            sub_type,
-            matched: false,
-            skipping: false,
-            switch_value: None,
-        }
-    }
-}
-
-struct ConditionalStack {
-    stack: Vec<ConditionalContext>,
-}
-
-struct ScopeFrame {
-    segment_count: usize,
-}
-
-struct ScopeStack {
-    segments: Vec<String>,
-    frames: Vec<ScopeFrame>,
-    anon_counter: u32,
-}
-
-impl ScopeStack {
-    fn new() -> Self {
-        Self {
-            segments: Vec::new(),
-            frames: Vec::new(),
-            anon_counter: 0,
-        }
-    }
-
-    fn clear(&mut self) {
-        self.segments.clear();
-        self.frames.clear();
-        self.anon_counter = 0;
-    }
-
-    fn depth(&self) -> usize {
-        self.segments.len()
-    }
-
-    fn prefix(&self, depth: usize) -> String {
-        self.segments[..depth].join(".")
-    }
-
-    fn qualify(&self, name: &str) -> String {
-        if self.segments.is_empty() {
-            name.to_string()
-        } else {
-            format!("{}.{}", self.segments.join("."), name)
-        }
-    }
-
-    fn push_named(&mut self, name: &str) -> Result<(), &'static str> {
-        if name.is_empty() {
-            return Err("Scope name cannot be empty");
-        }
-        let parts: Vec<&str> = name.split('.').collect();
-        if parts.iter().any(|part| part.is_empty()) {
-            return Err("Scope name cannot contain empty segments");
-        }
-        for part in &parts {
-            self.segments.push((*part).to_string());
-        }
-        self.frames.push(ScopeFrame {
-            segment_count: parts.len(),
-        });
-        Ok(())
-    }
-
-    fn push_anonymous(&mut self) {
-        self.anon_counter = self.anon_counter.saturating_add(1);
-        let name = format!("__scope{}", self.anon_counter);
-        self.segments.push(name);
-        self.frames.push(ScopeFrame { segment_count: 1 });
-    }
-
-    fn pop(&mut self) -> bool {
-        let Some(frame) = self.frames.pop() else {
-            return false;
-        };
-        for _ in 0..frame.segment_count {
-            self.segments.pop();
-        }
-        true
-    }
-}
-
-impl ConditionalStack {
-    fn new() -> Self {
-        Self { stack: Vec::new() }
-    }
-
-    fn clear(&mut self) {
-        self.stack.clear();
-    }
-
-    fn is_empty(&self) -> bool {
-        self.stack.is_empty()
-    }
-
-    fn last(&self) -> Option<&ConditionalContext> {
-        self.stack.last()
-    }
-
-    fn last_mut(&mut self) -> Option<&mut ConditionalContext> {
-        self.stack.last_mut()
-    }
-
-    fn push(&mut self, ctx: ConditionalContext) {
-        self.stack.push(ctx);
-    }
-
-    fn pop(&mut self) -> Option<ConditionalContext> {
-        self.stack.pop()
-    }
-
-    fn skipping(&self) -> bool {
-        self.stack.last().map(|c| c.skipping).unwrap_or(false)
-    }
-}
-
+/// Per-line assembler state.
 struct AsmLine<'a> {
     symbols: &'a mut SymbolTable,
     cond_stack: ConditionalStack,
@@ -1351,15 +441,16 @@ struct AsmLine<'a> {
     pass: u8,
     label: Option<String>,
     mnemonic: Option<String>,
-}
-
-struct AstEvalError {
-    error: AsmError,
-    span: Span,
+    cpu: CpuType,
 }
 
 impl<'a> AsmLine<'a> {
+    #[cfg(test)]
     fn new(symbols: &'a mut SymbolTable) -> Self {
+        Self::with_cpu(symbols, CpuType::default())
+    }
+
+    fn with_cpu(symbols: &'a mut SymbolTable, cpu: CpuType) -> Self {
         Self {
             symbols,
             cond_stack: ConditionalStack::new(),
@@ -1375,6 +466,7 @@ impl<'a> AsmLine<'a> {
             pass: 1,
             label: None,
             mnemonic: None,
+            cpu,
         }
     }
 
@@ -1392,16 +484,6 @@ impl<'a> AsmLine<'a> {
 
     fn parser_error_ref(&self) -> Option<&ParseError> {
         self.last_parser_error.as_ref()
-    }
-
-    fn missing_expr_info(&self) -> (Span, Option<String>) {
-        let span = self.line_end_span.unwrap_or(Span {
-            line: 0,
-            col_start: 1,
-            col_end: 1,
-        });
-        let token = self.line_end_token.clone();
-        (span, token)
     }
 
     #[cfg(test)]
@@ -1521,7 +603,10 @@ impl<'a> AsmLine<'a> {
         self.label = None;
         self.mnemonic = None;
 
-        match asm_parser::Parser::from_line(line, line_num) {
+        // Get register checker from CPU type
+        let is_register_fn = self.cpu.is_register_fn();
+
+        match asm_parser::Parser::from_line_with_registers(line, line_num, is_register_fn) {
             Ok(mut parser) => {
                 self.line_end_span = Some(parser.end_span());
                 self.line_end_token = parser.end_token_text().map(|s| s.to_string());
@@ -1639,10 +724,21 @@ impl<'a> AsmLine<'a> {
 
         match kind {
             ConditionalKind::If => {
-                let val = exprs
-                    .first()
-                    .and_then(|expr| self.eval_expr_ast(expr).ok())
-                    .unwrap_or(0);
+                let val = match exprs.first() {
+                    Some(expr) => match self.eval_expr_ast(expr) {
+                        Ok(v) => v,
+                        Err(err) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                err.error.kind(),
+                                err.error.message(),
+                                None,
+                                err.span,
+                            );
+                        }
+                    },
+                    None => 0,
+                };
                 if skipping {
                     if let Some(ctx) = self.cond_stack.last_mut() {
                         ctx.skip_level = ctx.skip_level.saturating_add(1);
@@ -1659,10 +755,21 @@ impl<'a> AsmLine<'a> {
                 self.cond_stack.push(ctx);
             }
             ConditionalKind::Switch => {
-                let val = exprs
-                    .first()
-                    .and_then(|expr| self.eval_expr_ast(expr).ok())
-                    .unwrap_or(0);
+                let val = match exprs.first() {
+                    Some(expr) => match self.eval_expr_ast(expr) {
+                        Ok(v) => v,
+                        Err(err) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                err.error.kind(),
+                                err.error.message(),
+                                None,
+                                err.span,
+                            );
+                        }
+                    },
+                    None => 0,
+                };
                 if skipping {
                     if let Some(ctx) = self.cond_stack.last_mut() {
                         ctx.skip_level = ctx.skip_level.saturating_add(1);
@@ -1690,11 +797,23 @@ impl<'a> AsmLine<'a> {
                         err_span,
                     );
                 }
-                let skip_level = self
-                    .cond_stack
-                    .last()
-                    .map(|ctx| ctx.skip_level)
-                    .unwrap_or(0);
+                let skip_level = match self.cond_stack.last() {
+                    Some(ctx) => ctx.skip_level,
+                    None => {
+                        let err_span = if kind == ConditionalKind::ElseIf {
+                            expr_err_span
+                        } else {
+                            end_span
+                        };
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Conditional,
+                            ".else or .elseif found without matching .if",
+                            None,
+                            err_span,
+                        );
+                    }
+                };
                 if skip_level > 0 {
                     return LineStatus::Skip;
                 }
@@ -1715,10 +834,21 @@ impl<'a> AsmLine<'a> {
                 let val = if kind == ConditionalKind::Else {
                     1
                 } else {
-                    exprs
-                        .first()
-                        .and_then(|expr| self.eval_expr_ast(expr).ok())
-                        .unwrap_or(0)
+                    match exprs.first() {
+                        Some(expr) => match self.eval_expr_ast(expr) {
+                            Ok(v) => v,
+                            Err(err) => {
+                                return self.failure_at_span(
+                                    LineStatus::Error,
+                                    err.error.kind(),
+                                    err.error.message(),
+                                    None,
+                                    err.span,
+                                );
+                            }
+                        },
+                        None => 0,
+                    }
                 };
                 let ctx = self.cond_stack.last_mut().unwrap();
                 if ctx.sub_type == TokenValue::Else as i32 {
@@ -1759,16 +889,37 @@ impl<'a> AsmLine<'a> {
                         expr_err_span,
                     );
                 }
-                let skip_level = self
-                    .cond_stack
-                    .last()
-                    .map(|ctx| ctx.skip_level)
-                    .unwrap_or(0);
+                let skip_level = match self.cond_stack.last() {
+                    Some(ctx) => ctx.skip_level,
+                    None => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Conditional,
+                            ".case found without matching .switch",
+                            None,
+                            expr_err_span,
+                        );
+                    }
+                };
                 if skip_level > 0 {
                     return LineStatus::Skip;
                 }
                 let (switch_val, sub_type, kind) = match self.cond_stack.last() {
-                    Some(ctx) => (ctx.switch_value.unwrap_or(0), ctx.sub_type, ctx.kind),
+                    Some(ctx) => {
+                        let sv = match ctx.switch_value {
+                            Some(v) => v,
+                            None => {
+                                return self.failure_at_span(
+                                    LineStatus::Error,
+                                    AsmErrorKind::Conditional,
+                                    ".case found without matching .switch",
+                                    None,
+                                    expr_err_span,
+                                );
+                            }
+                        };
+                        (sv, ctx.sub_type, ctx.kind)
+                    }
                     None => {
                         return self.failure_at_span(
                             LineStatus::Error,
@@ -1797,12 +948,26 @@ impl<'a> AsmLine<'a> {
                         expr_err_span,
                     );
                 }
-                let case_match = exprs.iter().any(|expr| {
-                    self.eval_expr_ast(expr)
-                        .ok()
-                        .map(|val| val == switch_val)
-                        .unwrap_or(false)
-                });
+                let mut case_match = false;
+                for expr in exprs.iter() {
+                    match self.eval_expr_ast(expr) {
+                        Ok(val) => {
+                            if val == switch_val {
+                                case_match = true;
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                err.error.kind(),
+                                err.error.message(),
+                                None,
+                                err.span,
+                            );
+                        }
+                    }
+                }
                 let sub_type = TokenValue::Case as i32;
                 let ctx = self.cond_stack.last_mut().unwrap();
                 if !ctx.skipping {
@@ -1826,11 +991,18 @@ impl<'a> AsmLine<'a> {
                         end_span,
                     );
                 }
-                let skip_level = self
-                    .cond_stack
-                    .last()
-                    .map(|ctx| ctx.skip_level)
-                    .unwrap_or(0);
+                let skip_level = match self.cond_stack.last() {
+                    Some(ctx) => ctx.skip_level,
+                    None => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Conditional,
+                            ".default found without matching .switch",
+                            None,
+                            end_span,
+                        );
+                    }
+                };
                 if skip_level > 0 {
                     return LineStatus::Skip;
                 }
@@ -2068,6 +1240,35 @@ impl<'a> AsmLine<'a> {
                 self.aux_value = val as u16;
                 LineStatus::DirEqu
             }
+            "CPU" => {
+                // .cpu directive to switch target CPU
+                let cpu_name = match operands.first() {
+                    Some(Expr::Identifier(name, _)) => name.clone(),
+                    Some(Expr::Register(name, _)) => name.clone(), // In case Z80 is parsed as register
+                    Some(Expr::Number(name, _)) => name.clone(), // For bare "8085" without quotes
+                    Some(Expr::String(bytes, _)) => String::from_utf8_lossy(bytes).to_string(),
+                    _ => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            ".cpu requires CPU type: 8085, z80, 6502",
+                            None,
+                        )
+                    }
+                };
+                match CpuType::parse(&cpu_name) {
+                    Some(cpu) => {
+                        self.cpu = cpu;
+                        LineStatus::Ok
+                    }
+                    None => self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Unknown CPU type. Use: 8085, z80, 6502",
+                        Some(&cpu_name),
+                    ),
+                }
+            }
             "BYTE" => self.store_arg_list_ast(operands, 1),
             "WORD" => self.store_arg_list_ast(operands, 2),
             "DS" => {
@@ -2098,33 +1299,6 @@ impl<'a> AsmLine<'a> {
                 LineStatus::DirDs
             }
             "END" => LineStatus::Ok,
-            "CPU" => {
-                let expr = match operands.first() {
-                    Some(expr) => expr,
-                    None => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Unsupported CPU type, must be 8085 or 8080",
-                            None,
-                        )
-                    }
-                };
-                let cpu = match expr {
-                    Expr::Number(text, _) => text.clone(),
-                    Expr::Identifier(name, _) => name.clone(),
-                    _ => String::new(),
-                };
-                if cpu != "8085" && cpu != "8080" {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unsupported CPU type, must be 8085 or 8080",
-                        Some(&cpu),
-                    );
-                }
-                LineStatus::Ok
-            }
             _ => LineStatus::NothingDone,
         }
     }
@@ -2235,7 +1409,7 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let new_val = match self.apply_assignment_op(op, left_val, rhs, span) {
+        let new_val = match apply_assignment_op(op, left_val, rhs, span) {
             Ok(val) => val,
             Err(err) => {
                 return self.failure_at_span(
@@ -2259,194 +1433,684 @@ impl<'a> AsmLine<'a> {
     fn process_instruction_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
         let upper = mnemonic.to_ascii_uppercase();
 
-        if upper == "RST" {
-            let arg = match operands.first() {
-                Some(expr) => expr,
-                None => {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Instruction,
-                        "RST instruction argument must be 0-7",
-                        None,
-                    )
-                }
-            };
-            let arg_text = expr_text(arg).unwrap_or_default();
-            let is_number = matches!(arg, Expr::Number(_, _));
-            if let Expr::Binary { op, left, span, .. } = arg {
-                if let Expr::Number(text, _) = &**left {
-                    if text.len() == 1 && matches!(text.as_bytes().first(), Some(b'0'..=b'7')) {
-                        let val = text.as_bytes()[0] - b'0';
-                        self.bytes.push(0xc7 | (val << 3));
-                        let op_text = binary_op_text(*op);
-                        return self.failure_at_span(
+        // Family-level shared instructions
+        if self.cpu.family().has_rst() && upper == "RST" {
+            return self.process_rst(operands);
+        }
+
+        match self.cpu {
+            CpuType::I8085 | CpuType::Z80 => self.process_instruction_intel8080(mnemonic, operands),
+            CpuType::M6502 | CpuType::M65C02 => self.process_instruction_6502(mnemonic, &upper, operands),
+        }
+    }
+
+    /// Process 6502/65C02 instruction using the family handler pipeline.
+    fn process_instruction_6502(
+        &mut self,
+        mnemonic: &str,
+        _upper: &str,
+        operands: &[Expr],
+    ) -> LineStatus {
+        use crate::families::mos6502::{M6502CpuHandler, MOS6502FamilyHandler};
+        use crate::m65c02::M65C02CpuHandler;
+
+        // Step 1: Parse operands at the family level
+        let family_handler = MOS6502FamilyHandler::new();
+        let family_operands = match family_handler.parse_operands(mnemonic, operands) {
+            Ok(ops) => ops,
+            Err(e) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &e.message,
+                    None,
+                    e.span,
+                );
+            }
+        };
+
+        // Step 2: Resolve operands at the CPU level (evaluates expressions, disambiguates modes)
+        let resolved_operands = match self.cpu {
+            CpuType::M6502 => {
+                let cpu_handler = M6502CpuHandler::new();
+                match cpu_handler.resolve_operands(mnemonic, &family_operands, self) {
+                    Ok(ops) => ops,
+                    Err(e) => {
+                        return self.failure(
                             LineStatus::Error,
                             AsmErrorKind::Instruction,
-                            "Found extra arguments after RST instruction",
-                            Some(op_text),
-                            *span,
+                            &e,
+                            None,
                         );
                     }
                 }
             }
-            if !is_number
-                || arg_text.len() != 1
-                || !matches!(arg_text.as_bytes().first(), Some(b'0'..=b'7'))
-            {
-                return self.failure_at_span(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    "RST instruction argument must be 0-7",
-                    Some(&arg_text),
-                    expr_span(arg),
-                );
+            CpuType::M65C02 => {
+                let cpu_handler = M65C02CpuHandler::new();
+                match cpu_handler.resolve_operands(mnemonic, &family_operands, self) {
+                    Ok(ops) => ops,
+                    Err(e) => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &e,
+                            None,
+                        );
+                    }
+                }
             }
-            let val = arg_text.as_bytes()[0] - b'0';
-            self.bytes.push(0xc7 | (val << 3));
-            if operands.len() > 1 {
-                let extra = operands.get(1).unwrap();
-                let span = expr_span(extra);
-                let extra_text = expr_text(extra).unwrap_or_default();
-                return self.failure_at_span(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    "Found extra arguments after RST instruction",
-                    Some(&extra_text),
-                    span,
-                );
-            }
-            return LineStatus::Ok;
-        }
+            _ => unreachable!(),
+        };
 
-        let mut regs = Vec::new();
-        let mut reg_spans = Vec::new();
-        for expr in operands.iter().take(2) {
-            if let Expr::Register(name, span) = expr {
-                regs.push(name.clone());
-                reg_spans.push(*span);
-            } else {
-                break;
+        // Step 3: Try to encode at the family level first
+        match family_handler.encode_instruction(mnemonic, &resolved_operands, self) {
+            EncodeResult::Ok(bytes) => {
+                self.bytes.extend_from_slice(&bytes);
+                return LineStatus::Ok;
             }
-        }
-        let num_regs = regs.len();
-
-        let mut mnemonic_found = false;
-        for inst in INSTRUCTION_TABLE {
-            let cmp = cmp_ignore_ascii_case(inst.mnemonic, mnemonic);
-            if cmp == std::cmp::Ordering::Equal {
-                mnemonic_found = true;
-                let mut effective_num_regs = num_regs as i32;
-                let mut expr_index = num_regs;
-                if inst.arg_type != ArgType::None && inst.num_regs as i32 == num_regs as i32 - 1 {
-                    effective_num_regs -= 1;
-                    expr_index = effective_num_regs as usize;
-                } else if inst.num_regs as i32 != num_regs as i32 {
-                    let span = operands
-                        .get(num_regs)
-                        .map(expr_span)
-                        .or_else(|| reg_spans.last().copied())
-                        .unwrap_or(Span {
-                            line: 0,
-                            col_start: 1,
-                            col_end: 1,
-                        });
-                    return self.failure_at_span(
+            EncodeResult::Error(msg, span_opt) => {
+                return if let Some(span) = span_opt {
+                    self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Instruction,
-                        "Wrong number of register arguments for instruction",
-                        Some(mnemonic),
+                        &msg,
+                        None,
                         span,
+                    )
+                } else {
+                    self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &msg,
+                        None,
+                    )
+                };
+            }
+            EncodeResult::NotFound => {
+                // Fall through to CPU-specific encoding
+            }
+        }
+
+        // Step 4: Try CPU-specific encoding
+        let encode_result = match self.cpu {
+            CpuType::M6502 => {
+                let cpu_handler = M6502CpuHandler::new();
+                cpu_handler.encode_instruction(mnemonic, &resolved_operands, self)
+            }
+            CpuType::M65C02 => {
+                let cpu_handler = M65C02CpuHandler::new();
+                cpu_handler.encode_instruction(mnemonic, &resolved_operands, self)
+            }
+            _ => unreachable!(),
+        };
+
+        match encode_result {
+            EncodeResult::Ok(bytes) => {
+                self.bytes.extend_from_slice(&bytes);
+                LineStatus::Ok
+            }
+            EncodeResult::Error(msg, span_opt) => {
+                if let Some(span) = span_opt {
+                    self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &msg,
+                        None,
+                        span,
+                    )
+                } else {
+                    self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &msg,
+                        None,
+                    )
+                }
+            }
+            EncodeResult::NotFound => {
+                self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &format!("No 6502 instruction found for {} with mode {:?}", 
+                            mnemonic.to_ascii_uppercase(),
+                            if resolved_operands.is_empty() { 
+                                "Implied".to_string() 
+                            } else { 
+                                format!("{:?}", resolved_operands[0].mode()) 
+                            }),
+                    None,
+                )
+            }
+        }
+    }
+
+    /// Process Intel 8080 family instruction (8085 or Z80).
+    ///
+    /// This function uses the family handler for parsing and then routes
+    /// to the CPU handler for resolution/encoding.
+    fn process_instruction_intel8080(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
+        let family_handler = Intel8080FamilyHandler;
+        match self.cpu {
+            CpuType::I8085 => {
+                let cpu_handler = I8085CpuHandler::new();
+                let has_family = intel_has_mnemonic(mnemonic);
+                let has_cpu = cpu_handler.supports_mnemonic(mnemonic);
+
+                if !has_family && !has_cpu {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        "No instruction with this name",
+                        Some(mnemonic),
                     );
                 }
 
-                let mut effective_regs = regs.clone();
-                effective_regs.truncate(effective_num_regs.max(0) as usize);
+                let family_operands = match family_handler.parse_operands(mnemonic, operands) {
+                    Ok(ops) => ops,
+                    Err(err) => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err.message,
+                            None,
+                            err.span,
+                        );
+                    }
+                };
 
-                if inst.num_regs >= 1
-                    && effective_regs
-                        .first()
-                        .map(|r| !inst.reg1.eq_ignore_ascii_case(r))
-                        .unwrap_or(true)
-                {
-                    continue;
-                }
-                if inst.num_regs == 2
-                    && effective_regs
-                        .get(1)
-                        .map(|r| !inst.reg2.eq_ignore_ascii_case(r))
-                        .unwrap_or(true)
-                {
-                    continue;
+                if has_family {
+                    return self.encode_intel8080_family_instruction(
+                        mnemonic,
+                        mnemonic,
+                        &family_operands,
+                    );
                 }
 
-                self.bytes.push(inst.opcode);
-                if inst.arg_type != ArgType::None {
-                    let expr = match operands.get(expr_index) {
-                        Some(expr) => expr,
-                        None => {
-                            let (span, token) = self.missing_expr_info();
-                            return self.failure_at_span(
+                let resolved = match cpu_handler.resolve_operands(mnemonic, &family_operands, self) {
+                    Ok(ops) => ops,
+                    Err(err) => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err,
+                            None,
+                        );
+                    }
+                };
+
+                match cpu_handler.encode_instruction(mnemonic, &resolved, self) {
+                    EncodeResult::Ok(bytes) => {
+                        self.bytes.extend_from_slice(&bytes);
+                        LineStatus::Ok
+                    }
+                    EncodeResult::Error(msg, span_opt) => {
+                        if let Some(span) = span_opt {
+                            self.failure_at_span(
                                 LineStatus::Error,
-                                AsmErrorKind::Expression,
-                                "Expected label or numeric constant, found",
-                                token.as_deref(),
-                                span,
-                            );
-                        }
-                    };
-                    let val = match self.eval_expr_ast(expr) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                err.error.kind(),
-                                err.error.message(),
+                                AsmErrorKind::Instruction,
+                                &msg,
                                 None,
-                                err.span,
+                                span,
+                            )
+                        } else {
+                            self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &msg,
+                                None,
                             )
                         }
-                    };
-                    self.bytes.push((val & 0xff) as u8);
-                    if inst.arg_type == ArgType::Word {
-                        self.bytes.push((val >> 8) as u8);
+                    }
+                    EncodeResult::NotFound => self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        "No instruction with this name",
+                        Some(mnemonic),
+                    ),
+                }
+            }
+            CpuType::Z80 => {
+                let cpu_handler = Z80CpuHandler::new();
+                let family_operands = match family_handler.parse_operands(mnemonic, operands) {
+                    Ok(ops) => ops,
+                    Err(err) => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err.message,
+                            None,
+                            err.span,
+                        );
+                    }
+                };
+                if let Some((canonical_mnemonic, canonical_operands)) =
+                    map_zilog_to_canonical(mnemonic, &family_operands)
+                {
+                    if let Some(status) = self.try_encode_intel8080_family_instruction(
+                        &canonical_mnemonic,
+                        mnemonic,
+                        &canonical_operands,
+                    ) {
+                        return status;
                     }
                 }
 
-                let expected = effective_num_regs as usize
-                    + if inst.arg_type == ArgType::None { 0 } else { 1 };
-                if operands.len() > expected {
-                    let extra = operands.get(expected).unwrap();
-                    let span = expr_span(extra);
-                    let extra_text = expr_text(extra).unwrap_or_default();
+                if intel_has_mnemonic(mnemonic) && !mnemonic.eq_ignore_ascii_case("JP") {
+                    if let Some(status) = self.try_encode_intel8080_family_instruction(
+                        mnemonic,
+                        mnemonic,
+                        &family_operands,
+                    ) {
+                        return status;
+                    }
+                }
+
+                let resolved = match cpu_handler.resolve_operands(mnemonic, &family_operands, self) {
+                    Ok(ops) => ops,
+                    Err(err) => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err,
+                            None,
+                        );
+                    }
+                };
+
+                match cpu_handler.encode_instruction(mnemonic, &resolved, self) {
+                    EncodeResult::Ok(bytes) => {
+                        self.bytes.extend_from_slice(&bytes);
+                        LineStatus::Ok
+                    }
+                    EncodeResult::Error(msg, span_opt) => {
+                        if let Some(span) = span_opt {
+                            self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &msg,
+                                None,
+                                span,
+                            )
+                        } else {
+                            self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &msg,
+                                None,
+                            )
+                        }
+                    }
+                    EncodeResult::NotFound => self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        "No Z80 instruction found for mnemonic",
+                        Some(mnemonic),
+                    ),
+                }
+            }
+            _ => unreachable!("Unexpected CPU type for Intel8080 family"),
+        }
+    }
+
+    fn encode_intel8080_family_instruction(
+        &mut self,
+        canonical_mnemonic: &str,
+        display_mnemonic: &str,
+        operands: &[FamilyOperand],
+    ) -> LineStatus {
+        let entry = match self.find_intel8080_family_entry(canonical_mnemonic, operands) {
+            Some(entry) => entry,
+            None => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    "Wrong arguments for instruction",
+                    Some(display_mnemonic),
+                );
+            }
+        };
+
+        let mut bytes = Vec::new();
+        self.emit_intel8080_prefix(&mut bytes, entry.prefix);
+        bytes.push(entry.opcode);
+
+        match entry.arg_type {
+            ArgType::None => {
+                let expected_regs = entry.num_regs as usize;
+                if operands.len() < expected_regs {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        "Wrong arguments for instruction",
+                        Some(display_mnemonic),
+                    );
+                }
+
+                if operands.len() > expected_regs {
+                    if expected_regs == 0 {
+                        if let Some(extra) = operands.first() {
+                            if Self::family_operand_is_register_like(extra) {
+                                return self.failure(
+                                    LineStatus::Error,
+                                    AsmErrorKind::Instruction,
+                                    "Wrong arguments for instruction",
+                                    Some(display_mnemonic),
+                                );
+                            }
+
+                            let param = Self::family_operand_text(extra);
+                            self.bytes.extend_from_slice(&bytes);
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                "Additional arguments after instruction",
+                                param.as_deref(),
+                                extra.span(),
+                            );
+                        }
+                    }
+
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        "Wrong arguments for instruction",
+                        Some(display_mnemonic),
+                    );
+                }
+
+                self.bytes.extend_from_slice(&bytes);
+                LineStatus::Ok
+            }
+            ArgType::Byte | ArgType::Word => {
+                let imm_index = entry.num_regs as usize;
+                let expected_count = imm_index + 1;
+                let expected_bits = if entry.arg_type == ArgType::Word { 16 } else { 8 };
+
+                let imm_operand = match operands.get(imm_index) {
+                    Some(op) => op,
+                    None => {
+                        let msg = "missing immediate operand".to_string();
+                        self.bytes.extend_from_slice(&bytes);
+                        return if let Some(span) = self.line_end_span {
+                            self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &msg,
+                                None,
+                                span,
+                            )
+                        } else {
+                            self.failure(LineStatus::Error, AsmErrorKind::Instruction, &msg, None)
+                        };
+                    }
+                };
+
+                if let Some(kind) = Self::family_operand_kind(imm_operand) {
+                    self.bytes.extend_from_slice(&bytes);
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &format!("expected {expected_bits}-bit immediate, got {kind}"),
+                        None,
+                        imm_operand.span(),
+                    );
+                }
+
+                let expr = match Self::family_operand_expr_for_immediate(imm_operand) {
+                    Some(expr) => expr,
+                    None => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            "Wrong arguments for instruction",
+                            Some(display_mnemonic),
+                        );
+                    }
+                };
+
+                let value = match self.eval_expr(&expr) {
+                    Ok(value) => value,
+                    Err(msg) => {
+                        self.bytes.extend_from_slice(&bytes);
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &msg,
+                            None,
+                            expr_span(&expr),
+                        );
+                    }
+                };
+
+                match entry.arg_type {
+                    ArgType::Byte => bytes.push(value as u8),
+                    ArgType::Word => {
+                        bytes.push(value as u8);
+                        bytes.push((value >> 8) as u8);
+                    }
+                    _ => {}
+                }
+
+                if operands.len() > expected_count {
+                    let extra = &operands[expected_count];
+                    let param = Self::family_operand_text(extra);
+                    self.bytes.extend_from_slice(&bytes);
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Instruction,
                         "Additional arguments after instruction",
-                        Some(&extra_text),
-                        span,
+                        param.as_deref(),
+                        extra.span(),
                     );
                 }
-                return LineStatus::Ok;
-            } else if cmp == std::cmp::Ordering::Greater {
-                break;
-            }
-        }
 
-        if mnemonic_found {
-            return self.failure(
+                self.bytes.extend_from_slice(&bytes);
+                LineStatus::Ok
+            }
+            ArgType::Relative | ArgType::Im => self.failure(
                 LineStatus::Error,
                 AsmErrorKind::Instruction,
                 "Wrong arguments for instruction",
-                Some(mnemonic),
-            );
+                Some(display_mnemonic),
+            ),
+        }
+    }
+
+    fn try_encode_intel8080_family_instruction(
+        &mut self,
+        canonical_mnemonic: &str,
+        display_mnemonic: &str,
+        operands: &[FamilyOperand],
+    ) -> Option<LineStatus> {
+        self
+            .find_intel8080_family_entry(canonical_mnemonic, operands)?;
+
+        Some(self.encode_intel8080_family_instruction(
+            canonical_mnemonic,
+            display_mnemonic,
+            operands,
+        ))
+    }
+
+    fn find_intel8080_family_entry(
+        &self,
+        mnemonic: &str,
+        operands: &[FamilyOperand],
+    ) -> Option<&'static InstructionEntry> {
+        let upper = mnemonic.to_ascii_uppercase();
+        for entry in FAMILY_INSTRUCTION_TABLE {
+            if !entry.mnemonic.eq_ignore_ascii_case(&upper) {
+                continue;
+            }
+
+            match entry.num_regs {
+                0 => return Some(entry),
+                1 => {
+                    let reg1 = operands.first().and_then(Self::family_operand_register);
+                    if let Some(reg) = reg1 {
+                        if entry.reg1.eq_ignore_ascii_case(reg) {
+                            return Some(entry);
+                        }
+                    }
+                }
+                2 => {
+                    let reg1 = operands.first().and_then(Self::family_operand_register);
+                    let reg2 = operands.get(1).and_then(Self::family_operand_register);
+                    if let (Some(reg1), Some(reg2)) = (reg1, reg2) {
+                        if entry.reg1.eq_ignore_ascii_case(reg1)
+                            && entry.reg2.eq_ignore_ascii_case(reg2)
+                        {
+                            return Some(entry);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
 
-        self.failure(
-            LineStatus::Error,
-            AsmErrorKind::Instruction,
-            "No instruction with this name",
-            Some(mnemonic),
+        None
+    }
+
+    fn emit_intel8080_prefix(&self, bytes: &mut Vec<u8>, prefix: Prefix) {
+        match prefix {
+            Prefix::None => {}
+            Prefix::Cb => bytes.push(0xCB),
+            Prefix::Dd => bytes.push(0xDD),
+            Prefix::Ed => bytes.push(0xED),
+            Prefix::Fd => bytes.push(0xFD),
+            Prefix::DdCb => {
+                bytes.push(0xDD);
+                bytes.push(0xCB);
+            }
+            Prefix::FdCb => {
+                bytes.push(0xFD);
+                bytes.push(0xCB);
+            }
+        }
+    }
+
+    fn family_operand_register(operand: &FamilyOperand) -> Option<&str> {
+        match operand {
+            FamilyOperand::Register(name, _) => Some(name.as_str()),
+            _ => None,
+        }
+    }
+
+    fn family_operand_is_register_like(operand: &FamilyOperand) -> bool {
+        matches!(
+            operand,
+            FamilyOperand::Register(_, _)
+                | FamilyOperand::Condition(_, _)
+                | FamilyOperand::Indirect(_, _)
+                | FamilyOperand::Indexed { .. }
         )
+    }
+
+    fn family_operand_text(operand: &FamilyOperand) -> Option<String> {
+        match operand {
+            FamilyOperand::Register(name, _) | FamilyOperand::Condition(name, _) => {
+                Some(name.clone())
+            }
+            FamilyOperand::Indirect(name, _) => Some(format!("({})", name)),
+            FamilyOperand::Immediate(expr)
+            | FamilyOperand::RstVector(expr)
+            | FamilyOperand::InterruptMode(expr)
+            | FamilyOperand::BitNumber(expr)
+            | FamilyOperand::Port(expr) => expr_text(expr),
+            FamilyOperand::Indexed { base, offset, .. } => {
+                expr_text(offset).map(|off| format!("({}+{off})", base))
+            }
+        }
+    }
+
+    fn family_operand_expr_for_immediate(operand: &FamilyOperand) -> Option<Expr> {
+        match operand {
+            FamilyOperand::Immediate(expr)
+            | FamilyOperand::RstVector(expr)
+            | FamilyOperand::InterruptMode(expr)
+            | FamilyOperand::BitNumber(expr)
+            | FamilyOperand::Port(expr) => Some(expr.clone()),
+            FamilyOperand::Register(name, span)
+            | FamilyOperand::Condition(name, span)
+            | FamilyOperand::Indirect(name, span) => {
+                Some(Expr::Identifier(name.clone(), *span))
+            }
+            FamilyOperand::Indexed { .. } => None,
+        }
+    }
+
+    fn family_operand_kind(operand: &FamilyOperand) -> Option<String> {
+        match operand {
+            FamilyOperand::Register(name, _) => Some(format!("register {name}")),
+            FamilyOperand::Condition(name, _) => Some(format!("condition {name}")),
+            FamilyOperand::Indirect(name, _) => Some(format!("indirect ({name})")),
+            FamilyOperand::Indexed { base, .. } => Some(format!("indexed ({base})")),
+            _ => None,
+        }
+    }
+
+    /// Process RST instruction (common for Intel 8080 family: 8085, Z80)
+    fn process_rst(&mut self, operands: &[Expr]) -> LineStatus {
+        let arg = match operands.first() {
+            Some(expr) => expr,
+            None => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    "RST instruction argument must be 0-7",
+                    None,
+                )
+            }
+        };
+        let arg_text = expr_text(arg).unwrap_or_default();
+        let is_number = matches!(arg, Expr::Number(_, _));
+
+        // Check for binary expressions like RST 0+1 (error: extra arguments)
+        if let Expr::Binary { op, left, span, .. } = arg {
+            if let Expr::Number(text, _) = &**left {
+                if text.len() == 1 && matches!(text.as_bytes().first(), Some(b'0'..=b'7')) {
+                    let val = text.as_bytes()[0] - b'0';
+                    self.bytes.push(0xc7 | (val << 3));
+                    let op_text = binary_op_text(*op);
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        "Found extra arguments after RST instruction",
+                        Some(op_text),
+                        *span,
+                    );
+                }
+            }
+        }
+
+        if !is_number
+            || arg_text.len() != 1
+            || !matches!(arg_text.as_bytes().first(), Some(b'0'..=b'7'))
+        {
+            return self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                "RST instruction argument must be 0-7",
+                Some(&arg_text),
+                expr_span(arg),
+            );
+        }
+        let val = arg_text.as_bytes()[0] - b'0';
+        self.bytes.push(0xc7 | (val << 3));
+
+        if operands.len() > 1 {
+            let extra = operands.get(1).unwrap();
+            let span = expr_span(extra);
+            let extra_text = expr_text(extra).unwrap_or_default();
+            return self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                "Found extra arguments after RST instruction",
+                Some(&extra_text),
+                span,
+            );
+        }
+        LineStatus::Ok
     }
 
     fn store_arg_list_ast(&mut self, operands: &[Expr], size: usize) -> LineStatus {
@@ -2498,63 +2162,6 @@ impl<'a> AsmLine<'a> {
         LineStatus::Ok
     }
 
-    fn apply_assignment_op(
-        &self,
-        op: AssignOp,
-        left: u32,
-        right: u32,
-        span: Span,
-    ) -> Result<u32, AstEvalError> {
-        let val = match op {
-            AssignOp::Add => left.wrapping_add(right),
-            AssignOp::Sub => left.wrapping_sub(right),
-            AssignOp::Mul => left.wrapping_mul(right),
-            AssignOp::Div => {
-                if right == 0 {
-                    return Err(AstEvalError {
-                        error: AsmError::new(AsmErrorKind::Expression, "Divide by zero", None),
-                        span,
-                    });
-                }
-                left / right
-            }
-            AssignOp::Mod => {
-                if right == 0 {
-                    return Err(AstEvalError {
-                        error: AsmError::new(AsmErrorKind::Expression, "Divide by zero", None),
-                        span,
-                    });
-                }
-                left % right
-            }
-            AssignOp::Pow => left.wrapping_pow(right),
-            AssignOp::BitOr => left | right,
-            AssignOp::BitXor => left ^ right,
-            AssignOp::BitAnd => left & right,
-            AssignOp::LogicOr => {
-                if left != 0 || right != 0 { 1 } else { 0 }
-            }
-            AssignOp::LogicAnd => {
-                if left != 0 && right != 0 { 1 } else { 0 }
-            }
-            AssignOp::Shl => {
-                let shift = right & 0x1f;
-                left.wrapping_shl(shift)
-            }
-            AssignOp::Shr => {
-                let shift = right & 0x1f;
-                left >> shift
-            }
-            AssignOp::Concat => concat_values(left, right),
-            AssignOp::Min => left.min(right),
-            AssignOp::Max => left.max(right),
-            AssignOp::Repeat => repeat_value(left, right),
-            AssignOp::Member => right,
-            AssignOp::Const | AssignOp::Var | AssignOp::VarIfUndef => right,
-        };
-        Ok(val)
-    }
-
     fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
         match expr {
             Expr::Error(message, span) => Err(AstEvalError {
@@ -2563,21 +2170,32 @@ impl<'a> AsmLine<'a> {
             }),
             Expr::Number(text, span) => parse_number_text(text, *span),
             Expr::Identifier(name, span) | Expr::Register(name, span) => {
-                let val = match self.lookup_scoped_value(name) {
-                    Some(value) => value,
-                    None => NO_ENTRY,
-                };
-                if val == NO_ENTRY {
-                    if self.pass > 1 {
-                        return Err(AstEvalError {
-                            error: AsmError::new(AsmErrorKind::Expression, "Label not found", Some(name)),
-                            span: *span,
-                        });
+                match self.lookup_scoped_value(name) {
+                    Some(value) => Ok(value),
+                    None => {
+                        if self.pass > 1 {
+                            Err(AstEvalError {
+                                error: AsmError::new(AsmErrorKind::Expression, "Label not found", Some(name)),
+                                span: *span,
+                            })
+                        } else {
+                            Ok(0)
+                        }
                     }
-                    return Ok(0);
                 }
-                Ok(val)
             }
+            Expr::Indirect(inner, _span) => {
+                // For 6502-style indirect like ($20), evaluate the inner address expression
+                self.eval_expr_ast(inner)
+            }
+            Expr::Immediate(inner, _span) => {
+                // Immediate expressions like #$FF - evaluate the inner expression
+                self.eval_expr_ast(inner)
+            }
+            Expr::Tuple(_, span) => Err(AstEvalError {
+                error: AsmError::new(AsmErrorKind::Expression, "Tuple cannot be evaluated as expression", None),
+                span: *span,
+            }),
             Expr::Dollar(_span) => Ok(self.start_addr as u32),
             Expr::String(bytes, span) => {
                 if bytes.len() == 1 {
@@ -2612,17 +2230,7 @@ impl<'a> AsmLine<'a> {
             }
             Expr::Unary { op, expr, span: _ } => {
                 let inner = self.eval_expr_ast(expr)?;
-                let val = match op {
-                    UnaryOp::Plus => inner,
-                    UnaryOp::Minus => 0u32.wrapping_sub(inner),
-                    UnaryOp::BitNot => !inner,
-                    UnaryOp::LogicNot => {
-                        if inner != 0 { 0 } else { 1 }
-                    }
-                    UnaryOp::High => (inner >> 8) & 0xff,
-                    UnaryOp::Low => inner & 0xff,
-                };
-                Ok(val)
+                Ok(eval_unary_op(*op, inner))
             }
             Expr::Binary {
                 op,
@@ -2632,72 +2240,7 @@ impl<'a> AsmLine<'a> {
             } => {
                 let left_val = self.eval_expr_ast(left)?;
                 let right_val = self.eval_expr_ast(right)?;
-                let val = match op {
-                    BinaryOp::Multiply => left_val.wrapping_mul(right_val),
-                    BinaryOp::Divide => {
-                        if right_val == 0 {
-                            let span = self.line_end_span.unwrap_or(*span);
-                            return Err(AstEvalError {
-                                error: AsmError::new(AsmErrorKind::Expression, "Divide by zero", None),
-                                span,
-                            });
-                        }
-                        left_val / right_val
-                    }
-                    BinaryOp::Mod => {
-                        if right_val == 0 {
-                            let span = self.line_end_span.unwrap_or(*span);
-                            return Err(AstEvalError {
-                                error: AsmError::new(AsmErrorKind::Expression, "Divide by zero", None),
-                                span,
-                            });
-                        }
-                        left_val % right_val
-                    }
-                    BinaryOp::Power => left_val.wrapping_pow(right_val),
-                    BinaryOp::Shl => {
-                        let shift = right_val & 0x1f;
-                        left_val.wrapping_shl(shift)
-                    }
-                    BinaryOp::Shr => {
-                        let shift = right_val & 0x1f;
-                        left_val >> shift
-                    }
-                    BinaryOp::Add => left_val.wrapping_add(right_val),
-                    BinaryOp::Subtract => left_val.wrapping_sub(right_val),
-                    BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Ge
-                    | BinaryOp::Gt
-                    | BinaryOp::Le
-                    | BinaryOp::Lt => {
-                        let result = match op {
-                            BinaryOp::Eq => left_val == right_val,
-                            BinaryOp::Ne => left_val != right_val,
-                            BinaryOp::Ge => left_val >= right_val,
-                            BinaryOp::Gt => left_val > right_val,
-                            BinaryOp::Le => left_val <= right_val,
-                            BinaryOp::Lt => left_val < right_val,
-                            _ => false,
-                        };
-                        if result { 1 } else { 0 }
-                    }
-                    BinaryOp::BitAnd => left_val & right_val,
-                    BinaryOp::BitOr => left_val | right_val,
-                    BinaryOp::BitXor => left_val ^ right_val,
-                    BinaryOp::LogicAnd => {
-                        if left_val != 0 && right_val != 0 { 1 } else { 0 }
-                    }
-                    BinaryOp::LogicOr => {
-                        if left_val != 0 || right_val != 0 { 1 } else { 0 }
-                    }
-                    BinaryOp::LogicXor => {
-                        let left_true = left_val != 0;
-                        let right_true = right_val != 0;
-                        if left_true ^ right_true { 1 } else { 0 }
-                    }
-                };
-                Ok(val)
+                eval_binary_op(*op, left_val, right_val, *span, self.line_end_span)
             }
         }
     }
@@ -2736,11 +2279,28 @@ impl<'a> AsmLine<'a> {
         self.last_error_column = column;
         status
     }
-
 }
 
-fn cmp_ignore_ascii_case(a: &str, b: &str) -> std::cmp::Ordering {
-    a.to_ascii_uppercase().cmp(&b.to_ascii_uppercase())
+/// Implement AssemblerContext for AsmLine to provide expression evaluation
+/// and symbol lookup to family and CPU handlers.
+impl<'a> AssemblerContext for AsmLine<'a> {
+    fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+        self.eval_expr_ast(expr)
+            .map(|v| v as i64)
+            .map_err(|e| e.error.message().to_string())
+    }
+
+    fn symbols(&self) -> &SymbolTable {
+        self.symbols
+    }
+
+    fn current_address(&self) -> u16 {
+        self.start_addr
+    }
+
+    fn pass(&self) -> u8 {
+        self.pass
+    }
 }
 
 fn is_symbol_assignment_directive(mnemonic: &str) -> bool {
@@ -2757,159 +2317,15 @@ fn is_scope_directive(mnemonic: &str) -> bool {
     )
 }
 
-fn concat_values(left: u32, right: u32) -> u32 {
-    let width = if right == 0 {
-        1
-    } else {
-        (32 - right.leading_zeros()).div_ceil(8).min(4)
-    };
-    let shift = (width * 8).min(32);
-    let mask = if shift >= 32 {
-        u64::MAX
-    } else {
-        (1u64 << shift) - 1
-    };
-    let combined = ((left as u64) << shift) | ((right as u64) & mask);
-    combined as u32
-}
-
-fn repeat_value(left: u32, right: u32) -> u32 {
-    let count = right.min(4);
-    let byte = left & 0xff;
-    let mut result = 0u32;
-    for _ in 0..count {
-        result = (result << 8) | byte;
-    }
-    result
-}
-
-fn expr_span(expr: &Expr) -> Span {
-    match expr {
-        Expr::Number(_, span)
-        | Expr::Identifier(_, span)
-        | Expr::Register(_, span)
-        | Expr::Dollar(span)
-        | Expr::String(_, span)
-        | Expr::Error(_, span) => *span,
-        Expr::Unary { span, .. } | Expr::Binary { span, .. } | Expr::Ternary { span, .. } => *span,
-    }
-}
-
-fn expr_text(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Number(text, _) => Some(text.clone()),
-        Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.clone()),
-        Expr::Dollar(_) => Some("$".to_string()),
-        Expr::String(_, _) => Some("<string>".to_string()),
-        Expr::Error(_, _) => None,
-        Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => None,
-    }
-}
-
-fn binary_op_text(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Add => "+",
-        BinaryOp::Subtract => "-",
-        BinaryOp::Multiply => "*",
-        BinaryOp::Power => "**",
-        BinaryOp::Divide => "/",
-        BinaryOp::Mod => "%",
-        BinaryOp::Shl => "<<",
-        BinaryOp::Shr => ">>",
-        BinaryOp::Eq => "==",
-        BinaryOp::Ne => "!=",
-        BinaryOp::Ge => ">=",
-        BinaryOp::Gt => ">",
-        BinaryOp::Le => "<=",
-        BinaryOp::Lt => "<",
-        BinaryOp::BitAnd => "&",
-        BinaryOp::BitOr => "|",
-        BinaryOp::BitXor => "^",
-        BinaryOp::LogicAnd => "&&",
-        BinaryOp::LogicOr => "||",
-        BinaryOp::LogicXor => "^^",
-    }
-}
-
-fn parse_number_text(text: &str, span: Span) -> Result<u32, AstEvalError> {
-    let upper = text.to_ascii_uppercase();
-    let cleaned = upper.replace('_', "");
-    let (digits, base) = if let Some(rest) = cleaned.strip_prefix('$') {
-        (rest.to_string(), 16)
-    } else if let Some(rest) = cleaned.strip_prefix('%') {
-        (rest.to_string(), 2)
-    } else {
-        match cleaned.chars().last() {
-            Some('H') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 16),
-            Some('B') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 2),
-            Some('O') | Some('Q') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 8),
-            Some('D') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 10),
-            _ => (cleaned, 10),
-        }
-    };
-
-    if digits.is_empty() {
-        return Err(AstEvalError {
-            error: AsmError::new(
-                AsmErrorKind::Expression,
-                "Illegal character in constant",
-                Some(text),
-            ),
-            span,
-        });
-    }
-
-    let valid = match base {
-        2 => digits.chars().all(|c| c == '0' || c == '1'),
-        8 => digits.chars().all(|c| matches!(c, '0'..='7')),
-        10 => digits.chars().all(|c| c.is_ascii_digit()),
-        16 => digits.chars().all(|c| c.is_ascii_hexdigit()),
-        _ => false,
-    };
-
-    if !valid {
-        let msg = match base {
-            10 => "Illegal character in decimal constant",
-            2 => "Illegal character in binary constant",
-            8 => "Illegal character in octal constant",
-            16 => "Illegal character in hex constant",
-            _ => "Illegal character in constant",
-        };
-        return Err(AstEvalError {
-            error: AsmError::new(AsmErrorKind::Expression, msg, Some(text)),
-            span,
-        });
-    }
-
-    let value = u32::from_str_radix(&digits, base).map_err(|_| AstEvalError {
-        error: AsmError::new(
-            AsmErrorKind::Expression,
-            "Illegal character in constant",
-            Some(text),
-        ),
-        span,
-    })?;
-
-    Ok(value)
-}
-
-fn format_error(msg: &str, param: Option<&str>) -> String {
-    match param {
-        Some(p) => format!("{msg}: {p}"),
-        None => msg.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        input_base_from_path, parse_bin_output_arg, parse_bin_range_str, resolve_bin_path,
-        resolve_output_path, AsmError, AsmErrorKind, AsmLine, Assembler, BinRange, Cli, Diagnostic,
-        LineStatus, ListingWriter, MacroProcessor, Severity,
+        AsmErrorKind, AsmLine, Assembler, LineStatus, ListingWriter,
     };
-    use crate::preprocess::Preprocessor;
-    use clap::Parser;
-    use crate::symbol_table::{SymbolTable, NO_ENTRY};
+    use crate::core::cpu::CpuType;
+    use crate::core::macro_processor::MacroProcessor;
+    use crate::core::preprocess::Preprocessor;
+    use crate::core::symbol_table::SymbolTable;
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
     use std::process;
@@ -2922,6 +2338,16 @@ mod tests {
         pass: u8,
     ) -> LineStatus {
         asm.process(line, 1, addr, pass)
+    }
+
+    fn assemble_bytes(cpu: CpuType, line: &str) -> Vec<u8> {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::with_cpu(&mut symbols, cpu);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        let status = asm.process(line, 1, 0, 2);
+        assert_eq!(status, LineStatus::Ok);
+        asm.bytes().to_vec()
     }
 
     fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<(), String> {
@@ -2954,7 +2380,7 @@ mod tests {
 
         let mut listing = ListingWriter::new(&mut list_file, false);
         listing
-            .header()
+            .header("asm485 8085 Assembler v1.0")
             .map_err(|err| format!("Write listing header: {err}"))?;
         let pass2 = assembler
             .pass2(&expanded_lines, &mut listing)
@@ -2997,99 +2423,6 @@ mod tests {
         }
 
         out
-    }
-
-    fn range_0000_ffff() -> BinRange {
-        parse_bin_range_str("0000:ffff").expect("valid range")
-    }
-
-    #[test]
-    fn cli_parses_outputs_and_inputs() {
-        let cli = Cli::parse_from([
-            "asm485",
-            "-i",
-            "prog.asm",
-            "-l",
-            "-x",
-            "-b",
-            "0000:ffff",
-            "-o",
-            "out",
-            "-f",
-            "aa",
-        ]);
-        assert_eq!(cli.infiles, vec![PathBuf::from("prog.asm")]);
-        assert_eq!(cli.list_name, Some(String::new()));
-        assert_eq!(cli.hex_name, Some(String::new()));
-        assert_eq!(cli.outfile, Some("out".to_string()));
-        assert_eq!(cli.bin_outputs, vec!["0000:ffff".to_string()]);
-        assert_eq!(cli.fill_byte, Some("aa".to_string()));
-    }
-
-    #[test]
-    fn parse_bin_requires_range() {
-        assert!(parse_bin_output_arg("out.bin").is_err());
-    }
-
-    #[test]
-    fn parse_bin_range_only() {
-        let spec = parse_bin_output_arg("0100:01ff").expect("range only");
-        assert!(spec.name.is_none());
-        assert_eq!(spec.range.start, 0x0100);
-        assert_eq!(spec.range.end, 0x01ff);
-    }
-
-    #[test]
-    fn parse_bin_named_range() {
-        let spec = parse_bin_output_arg("out.bin:1000:10ff").expect("name + range");
-        assert_eq!(spec.name.as_deref(), Some("out.bin"));
-        assert_eq!(spec.range.start, 0x1000);
-        assert_eq!(spec.range.end, 0x10ff);
-    }
-
-    #[test]
-    fn resolve_output_path_uses_base_on_empty_name() {
-        assert_eq!(
-            resolve_output_path("prog", Some(String::new()), "lst"),
-            Some("prog.lst".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_output_path_preserves_extension() {
-        assert_eq!(
-            resolve_output_path("prog", Some("out.hex".to_string()), "hex"),
-            Some("out.hex".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_output_path_appends_extension() {
-        assert_eq!(
-            resolve_output_path("prog", Some("out".to_string()), "hex"),
-            Some("out.hex".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_bin_path_single_range_uses_base() {
-        let range = range_0000_ffff();
-        assert_eq!(resolve_bin_path("forth", None, &range, 1), "forth.bin");
-    }
-
-    #[test]
-    fn resolve_bin_path_multiple_ranges_adds_suffix() {
-        let range = range_0000_ffff();
-        assert_eq!(
-            resolve_bin_path("forth", None, &range, 2),
-            "forth-0000.bin"
-        );
-    }
-
-    #[test]
-    fn input_base_from_path_requires_asm_extension() {
-        let err = input_base_from_path(&PathBuf::from("prog.txt")).unwrap_err();
-        assert_eq!(err.to_string(), "Input file must end with .asm");
     }
 
     #[test]
@@ -3168,6 +2501,29 @@ mod tests {
     }
 
     #[test]
+    fn zilog_dialect_encodes_like_intel() {
+        let intel = assemble_bytes(CpuType::I8085, "    MVI A,55h");
+        let zilog = assemble_bytes(CpuType::Z80, "    LD A,55h");
+        assert_eq!(intel, zilog);
+
+        let intel = assemble_bytes(CpuType::I8085, "    MOV A,B");
+        let zilog = assemble_bytes(CpuType::Z80, "    LD A,B");
+        assert_eq!(intel, zilog);
+
+        let intel = assemble_bytes(CpuType::I8085, "    JMP 1000h");
+        let zilog = assemble_bytes(CpuType::Z80, "    JP 1000h");
+        assert_eq!(intel, zilog);
+
+        let intel = assemble_bytes(CpuType::I8085, "    JZ 1000h");
+        let zilog = assemble_bytes(CpuType::Z80, "    JP Z,1000h");
+        assert_eq!(intel, zilog);
+
+        let intel = assemble_bytes(CpuType::I8085, "    ADI 10h");
+        let zilog = assemble_bytes(CpuType::Z80, "    ADD A,10h");
+        assert_eq!(intel, zilog);
+    }
+
+    #[test]
     fn org_sets_address() {
         let mut symbols = SymbolTable::new();
         let mut asm = AsmLine::new(&mut symbols);
@@ -3188,7 +2544,7 @@ mod tests {
         let status = process_line(&mut asm, "BUFFER: .ds 4", 0x0200, 1);
         assert_eq!(status, LineStatus::DirDs);
         assert_eq!(asm.aux_value(), 4);
-        assert_eq!(asm.symbols().lookup("BUFFER"), 0x0200);
+        assert_eq!(asm.symbols().lookup("BUFFER"), Some(0x0200));
     }
 
     #[test]
@@ -3210,7 +2566,7 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(&mut asm, "VAL .const 3", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), 3);
+        assert_eq!(asm.symbols().lookup("VAL"), Some(3));
 
         let status = process_line(&mut asm, "    .word VAL+1", 0, 2);
         assert_eq!(status, LineStatus::Ok);
@@ -3230,8 +2586,8 @@ mod tests {
         assert_eq!(asm.bytes(), &[3, 0]);
         let status = process_line(&mut asm, ".endblock", 0, 1);
         assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.symbols().lookup("SCOPE.VAL"), 3);
-        assert_eq!(asm.symbols().lookup("VAL"), NO_ENTRY);
+        assert_eq!(asm.symbols().lookup("SCOPE.VAL"), Some(3));
+        assert_eq!(asm.symbols().lookup("VAL"), None);
     }
 
     #[test]
@@ -3295,15 +2651,15 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(&mut asm, "VAL .var 1", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), 1);
+        assert_eq!(asm.symbols().lookup("VAL"), Some(1));
 
         let status = process_line(&mut asm, "VAL .var 2", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), 2);
+        assert_eq!(asm.symbols().lookup("VAL"), Some(2));
 
         let status = process_line(&mut asm, "VAL .set 3", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), 3);
+        assert_eq!(asm.symbols().lookup("VAL"), Some(3));
     }
 
     #[test]
@@ -3313,53 +2669,53 @@ mod tests {
 
         let status = process_line(&mut asm, "WIDTH = 40", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("WIDTH"), 40);
+        assert_eq!(asm.symbols().lookup("WIDTH"), Some(40));
 
         let status = process_line(&mut asm, "var2 := 1", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), 1);
+        assert_eq!(asm.symbols().lookup("var2"), Some(1));
 
         let status = process_line(&mut asm, "var2 += 1", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), 2);
+        assert_eq!(asm.symbols().lookup("var2"), Some(2));
 
         let status = process_line(&mut asm, "var2 *= 3", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), 6);
+        assert_eq!(asm.symbols().lookup("var2"), Some(6));
 
         let status = process_line(&mut asm, "var2 <?= 4", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), 4);
+        assert_eq!(asm.symbols().lookup("var2"), Some(4));
 
         let status = process_line(&mut asm, "var2 >?= 5", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), 5);
+        assert_eq!(asm.symbols().lookup("var2"), Some(5));
 
         let status = process_line(&mut asm, "var3 :?= 5", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var3"), 5);
+        assert_eq!(asm.symbols().lookup("var3"), Some(5));
 
         let status = process_line(&mut asm, "var3 :?= 7", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var3"), 5);
+        assert_eq!(asm.symbols().lookup("var3"), Some(5));
 
         let status = process_line(&mut asm, "rep := $ab", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
         let status = process_line(&mut asm, "rep x= 3", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("rep"), 0x00ababab);
+        assert_eq!(asm.symbols().lookup("rep"), Some(0x00ababab));
 
         let status = process_line(&mut asm, "cat := $12", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
         let status = process_line(&mut asm, "cat ..= $3456", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("cat"), 0x00123456);
+        assert_eq!(asm.symbols().lookup("cat"), Some(0x00123456));
 
         let status = process_line(&mut asm, "mem := 1", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
         let status = process_line(&mut asm, "mem .= 5", 0, 1);
         assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("mem"), 5);
+        assert_eq!(asm.symbols().lookup("mem"), Some(5));
     }
 
     #[test]
@@ -3368,7 +2724,7 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(&mut asm, "LABEL NOP", 0x1000, 1);
         assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.symbols().lookup("LABEL"), 0x1000);
+        assert_eq!(asm.symbols().lookup("LABEL"), Some(0x1000));
     }
 
     #[test]
@@ -3417,7 +2773,7 @@ mod tests {
         let mut asm = AsmLine::new(&mut symbols);
         let status = process_line(&mut asm, "    .word MISSING", 0, 2);
         assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.symbols().lookup("MISSING"), NO_ENTRY);
+        assert_eq!(asm.symbols().lookup("MISSING"), None);
     }
 
     #[test]
@@ -3824,12 +3180,5 @@ mod tests {
         let status = process_line(&mut asm, "LABEL: NOP", 1, 1);
         assert_eq!(status, LineStatus::Error);
         assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Symbol);
-    }
-
-    #[test]
-    fn diagnostic_format_includes_line_and_severity() {
-        let err = AsmError::new(AsmErrorKind::Assembler, "Bad thing", None);
-        let diag = Diagnostic::new(12, Severity::Error, err);
-        assert_eq!(diag.format(), "12: ERROR - Bad thing");
     }
 }

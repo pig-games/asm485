@@ -1,0 +1,66 @@
+asm485 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65C02 test program
+----                                2  ; Tests 65C02-specific instructions
+----                                3  
+----                                4          .cpu 65c02      ; Select 65C02 CPU
+----                                5  
+----    EQU 2000                    6          .org $2000      ; Start at $2000
+----                                7  
+----                                8  ; Test 65C02-only instructions
+2000    64 20                       9  start:  stz $20         ; 64 20 - Store Zero (zero page)
+2002    9C 34 12                   10          stz $1234       ; 9C 34 12 - Store Zero (absolute)
+----                               11          
+2005    80 02                      12          bra skip        ; 80 02 - Branch Always (skip 2 bytes)
+2007    EA                         13          nop             ; EA
+2008    EA                         14          nop             ; EA
+----                               15  skip:   
+2009    DA                         16          phx             ; DA - Push X
+200A    5A                         17          phy             ; 5A - Push Y
+200B    FA                         18          plx             ; FA - Pull X
+200C    7A                         19          ply             ; 7A - Pull Y
+----                               20          
+200D    1A                         21          inc a           ; 1A - Increment Accumulator
+200E    3A                         22          dec a           ; 3A - Decrement Accumulator
+----                               23          
+200F    14 30                      24          trb $30         ; 14 30 - Test and Reset Bits (zero page)
+2011    04 40                      25          tsb $40         ; 04 40 - Test and Set Bits (zero page)
+----                               26  
+----                               27  ; Test other branch instructions
+2013    90 0E                      28          bcc nobranch    ; 90 xx - Branch if Carry Clear
+2015    B0 0C                      29          bcs nobranch    ; B0 xx - Branch if Carry Set
+2017    F0 0A                      30          beq nobranch    ; F0 xx - Branch if Equal
+2019    D0 08                      31          bne nobranch    ; D0 xx - Branch if Not Equal
+201B    30 06                      32          bmi nobranch    ; 30 xx - Branch if Minus
+201D    10 04                      33          bpl nobranch    ; 10 xx - Branch if Plus
+201F    50 02                      34          bvc nobranch    ; 50 xx - Branch if Overflow Clear
+2021    70 00                      35          bvs nobranch    ; 70 xx - Branch if Overflow Set
+----                               36  
+----                               37  nobranch:
+----                               38  ; Test immediate mode (including 65C02-only BIT #imm)
+2023    A9 42                      39          lda #$42        ; A9 42 - Load immediate
+2025    A2 10                      40          ldx #$10        ; A2 10
+2027    A0 20                      41          ldy #$20        ; A0 20
+2029    89 55                      42          bit #$55        ; 89 55 - BIT immediate (65C02 only)
+202B    69 01                      43          adc #$01        ; 69 01
+202D    29 0F                      44          and #$0F        ; 29 0F
+202F    09 F0                      45          ora #$F0        ; 09 F0
+2031    49 AA                      46          eor #$AA        ; 49 AA
+----                               47  
+----                               48  ; Common 6502 instructions still work
+2033    A5 50                      49          lda $50         ; A5 50
+2035    85 60                      50          sta $60         ; 85 60
+2037    60                         51          rts             ; 60
+----                               52  
+----                               53          .end
+
+Lines: 53  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2000 (8192)
+skip            : 2009 (8201)
+nobranch        : 2023 (8227)
+
+Total memory is 56 bytes

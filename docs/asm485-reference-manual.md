@@ -1,9 +1,8 @@
 # asm485 Reference Manual
 
 This document describes the asm485 assembler language, directives, and tooling.
-It follows a chapter layout similar to 64tass, but the content is specific to
-asm485 and 8080/8085 assembly. Sections marked **Planned** describe features
-that are not implemented yet.
+It follows a chapter layout similar to 64tass. Sections marked **Planned** describe 
+features that are not implemented yet.
 
 ## 1. Introduction
 
@@ -177,9 +176,12 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 ```
 .cpu 8080
 .cpu 8085
+.cpu z80
+.cpu 6502
+.cpu 65c02
 ```
 
-Planned: `.cpu z80` and other related CPUs.
+Candidates: `65816`, `45gs02`, `68000` and other related CPUs.
 
 ### 4.8 End of assembly
 
