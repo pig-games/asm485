@@ -3,50 +3,37 @@
 
 //! Module registry for CPU families, CPUs, and syntax dialects.
 //!
-//! This registry provides a standardized interface for selecting the family,
-//! CPU, and dialect modules used during assembly. The interfaces intentionally
-//! do not expose instruction tables; they expose only parsing, resolution, and
-//! encoding functions.
+//! The registry is intentionally generic and has no knowledge of concrete
+//! families or CPUs. Family and CPU modules provide type-erased handlers and
+//! operand containers that keep instruction tables and concrete operand types
+//! private to their modules.
 
+use std::any::Any;
 use std::collections::HashMap;
 
 use crate::core::cpu::{CpuFamily, CpuType};
-use crate::core::family::{AssemblerContext, EncodeResult, FamilyHandler, FamilyParseError};
+use crate::core::family::{AssemblerContext, EncodeResult, FamilyParseError};
 use crate::core::parser::Expr;
 
-use crate::families::intel8080 as intel8080;
-use crate::families::mos6502 as mos6502;
-use crate::i8085::I8085CpuHandler;
-use crate::m65c02::M65C02CpuHandler;
-use crate::z80::Z80CpuHandler;
-
-#[derive(Clone, Debug)]
-pub enum FamilyOperandAny {
-    Intel8080(intel8080::FamilyOperand),
-    MOS6502(mos6502::FamilyOperand),
+pub trait FamilyOperandSet: Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn clone_box(&self) -> Box<dyn FamilyOperandSet>;
 }
 
-impl FamilyOperandAny {
-    pub fn family_id(&self) -> CpuFamily {
-        match self {
-            FamilyOperandAny::Intel8080(_) => CpuFamily::Intel8080,
-            FamilyOperandAny::MOS6502(_) => CpuFamily::MOS6502,
-        }
+impl Clone for Box<dyn FamilyOperandSet> {
+    fn clone(&self) -> Self {
+        self.clone_box()
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum OperandAny {
-    Intel8080(intel8080::Operand),
-    MOS6502(mos6502::Operand),
+pub trait OperandSet: Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn clone_box(&self) -> Box<dyn OperandSet>;
 }
 
-impl OperandAny {
-    pub fn family_id(&self) -> CpuFamily {
-        match self {
-            OperandAny::Intel8080(_) => CpuFamily::Intel8080,
-            OperandAny::MOS6502(_) => CpuFamily::MOS6502,
-        }
+impl Clone for Box<dyn OperandSet> {
+    fn clone(&self) -> Self {
+        self.clone_box()
     }
 }
 
@@ -56,11 +43,11 @@ pub trait FamilyHandlerDyn: Send + Sync {
         &self,
         mnemonic: &str,
         exprs: &[Expr],
-    ) -> Result<Vec<FamilyOperandAny>, FamilyParseError>;
+    ) -> Result<Box<dyn FamilyOperandSet>, FamilyParseError>;
     fn encode_instruction(
         &self,
         mnemonic: &str,
-        operands: &[OperandAny],
+        operands: &dyn OperandSet,
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>>;
     fn is_register(&self, name: &str) -> bool;
@@ -73,13 +60,13 @@ pub trait CpuHandlerDyn: Send + Sync {
     fn resolve_operands(
         &self,
         mnemonic: &str,
-        family_operands: &[FamilyOperandAny],
+        family_operands: &dyn FamilyOperandSet,
         ctx: &dyn AssemblerContext,
-    ) -> Result<Vec<OperandAny>, String>;
+    ) -> Result<Box<dyn OperandSet>, String>;
     fn encode_instruction(
         &self,
         mnemonic: &str,
-        operands: &[OperandAny],
+        operands: &dyn OperandSet,
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>>;
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
@@ -91,15 +78,15 @@ pub trait DialectModule: Send + Sync {
     fn map_mnemonic(
         &self,
         mnemonic: &str,
-        operands: &[FamilyOperandAny],
-    ) -> Option<(String, Vec<FamilyOperandAny>)>;
+        operands: &dyn FamilyOperandSet,
+    ) -> Option<(String, Box<dyn FamilyOperandSet>)>;
 }
 
 pub trait CpuValidator: Send + Sync {
     fn validate_instruction(
         &self,
         _mnemonic: &str,
-        _operands: &[OperandAny],
+        _operands: &dyn OperandSet,
         _ctx: &dyn AssemblerContext,
     ) -> Result<(), String> {
         Ok(())
@@ -156,24 +143,6 @@ impl ModuleRegistry {
             cpus: HashMap::new(),
             dialects: HashMap::new(),
         }
-    }
-
-    pub fn with_defaults() -> Self {
-        let mut registry = Self::new();
-        registry.register_family(Box::new(
-            crate::families::intel8080::registry::Intel8080FamilyModule,
-        ));
-        registry.register_family(Box::new(
-            crate::families::mos6502::registry::MOS6502FamilyModule,
-        ));
-
-        registry.register_cpu(Box::new(crate::i8085::registry::I8085CpuModule));
-        registry.register_cpu(Box::new(crate::z80::registry::Z80CpuModule));
-        registry.register_cpu(Box::new(
-            crate::families::mos6502::registry::M6502CpuModule,
-        ));
-        registry.register_cpu(Box::new(crate::m65c02::registry::M65C02CpuModule));
-        registry
     }
 
     pub fn register_family(&mut self, module: Box<dyn FamilyModule>) {
@@ -243,272 +212,4 @@ impl ModuleRegistry {
 
 fn normalize_dialect(dialect: &str) -> String {
     dialect.to_ascii_lowercase()
-}
-
-fn expect_intel_family_operands(
-    operands: &[FamilyOperandAny],
-) -> Result<Vec<intel8080::FamilyOperand>, String> {
-    operands
-        .iter()
-        .map(|operand| match operand {
-            FamilyOperandAny::Intel8080(inner) => Ok(inner.clone()),
-            _ => Err("expected Intel 8080 family operands".to_string()),
-        })
-        .collect()
-}
-
-fn expect_mos6502_family_operands(
-    operands: &[FamilyOperandAny],
-) -> Result<Vec<mos6502::FamilyOperand>, String> {
-    operands
-        .iter()
-        .map(|operand| match operand {
-            FamilyOperandAny::MOS6502(inner) => Ok(inner.clone()),
-            _ => Err("expected MOS 6502 family operands".to_string()),
-        })
-        .collect()
-}
-
-fn expect_intel_operands(operands: &[OperandAny]) -> Result<Vec<intel8080::Operand>, String> {
-    operands
-        .iter()
-        .map(|operand| match operand {
-            OperandAny::Intel8080(inner) => Ok(inner.clone()),
-            _ => Err("expected Intel 8080 operands".to_string()),
-        })
-        .collect()
-}
-
-fn expect_mos6502_operands(operands: &[OperandAny]) -> Result<Vec<mos6502::Operand>, String> {
-    operands
-        .iter()
-        .map(|operand| match operand {
-            OperandAny::MOS6502(inner) => Ok(inner.clone()),
-            _ => Err("expected MOS 6502 operands".to_string()),
-        })
-        .collect()
-}
-
-impl FamilyHandlerDyn for intel8080::Intel8080FamilyHandler {
-    fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
-    }
-
-    fn parse_operands(
-        &self,
-        mnemonic: &str,
-        exprs: &[Expr],
-    ) -> Result<Vec<FamilyOperandAny>, FamilyParseError> {
-        <Self as FamilyHandler>::parse_operands(self, mnemonic, exprs)
-            .map(|ops| ops.into_iter().map(FamilyOperandAny::Intel8080).collect())
-    }
-
-    fn encode_instruction(
-        &self,
-        mnemonic: &str,
-        operands: &[OperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> EncodeResult<Vec<u8>> {
-        let converted = match expect_intel_operands(operands) {
-            Ok(ops) => ops,
-            Err(msg) => return EncodeResult::error(msg),
-        };
-        <Self as FamilyHandler>::encode_instruction(self, mnemonic, &converted, ctx)
-    }
-
-    fn is_register(&self, name: &str) -> bool {
-        <Self as FamilyHandler>::is_register(self, name)
-    }
-
-    fn is_condition(&self, name: &str) -> bool {
-        <Self as FamilyHandler>::is_condition(self, name)
-    }
-}
-
-impl FamilyHandlerDyn for mos6502::MOS6502FamilyHandler {
-    fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
-    }
-
-    fn parse_operands(
-        &self,
-        mnemonic: &str,
-        exprs: &[Expr],
-    ) -> Result<Vec<FamilyOperandAny>, FamilyParseError> {
-        <Self as FamilyHandler>::parse_operands(self, mnemonic, exprs)
-            .map(|ops| ops.into_iter().map(FamilyOperandAny::MOS6502).collect())
-    }
-
-    fn encode_instruction(
-        &self,
-        mnemonic: &str,
-        operands: &[OperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> EncodeResult<Vec<u8>> {
-        let converted = match expect_mos6502_operands(operands) {
-            Ok(ops) => ops,
-            Err(msg) => return EncodeResult::error(msg),
-        };
-        <Self as FamilyHandler>::encode_instruction(self, mnemonic, &converted, ctx)
-    }
-
-    fn is_register(&self, name: &str) -> bool {
-        <Self as FamilyHandler>::is_register(self, name)
-    }
-
-    fn is_condition(&self, name: &str) -> bool {
-        <Self as FamilyHandler>::is_condition(self, name)
-    }
-}
-
-impl CpuHandlerDyn for I8085CpuHandler {
-    fn cpu_id(&self) -> CpuType {
-        CpuType::I8085
-    }
-
-    fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
-    }
-
-    fn resolve_operands(
-        &self,
-        mnemonic: &str,
-        family_operands: &[FamilyOperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> Result<Vec<OperandAny>, String> {
-        let converted = expect_intel_family_operands(family_operands)?;
-        <Self as crate::core::family::CpuHandler>::resolve_operands(self, mnemonic, &converted, ctx)
-            .map(|ops| ops.into_iter().map(OperandAny::Intel8080).collect())
-    }
-
-    fn encode_instruction(
-        &self,
-        mnemonic: &str,
-        operands: &[OperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> EncodeResult<Vec<u8>> {
-        let converted = match expect_intel_operands(operands) {
-            Ok(ops) => ops,
-            Err(msg) => return EncodeResult::error(msg),
-        };
-        <Self as crate::core::family::CpuHandler>::encode_instruction(self, mnemonic, &converted, ctx)
-    }
-
-    fn supports_mnemonic(&self, mnemonic: &str) -> bool {
-        <Self as crate::core::family::CpuHandler>::supports_mnemonic(self, mnemonic)
-    }
-}
-
-impl CpuHandlerDyn for Z80CpuHandler {
-    fn cpu_id(&self) -> CpuType {
-        CpuType::Z80
-    }
-
-    fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
-    }
-
-    fn resolve_operands(
-        &self,
-        mnemonic: &str,
-        family_operands: &[FamilyOperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> Result<Vec<OperandAny>, String> {
-        let converted = expect_intel_family_operands(family_operands)?;
-        <Self as crate::core::family::CpuHandler>::resolve_operands(self, mnemonic, &converted, ctx)
-            .map(|ops| ops.into_iter().map(OperandAny::Intel8080).collect())
-    }
-
-    fn encode_instruction(
-        &self,
-        mnemonic: &str,
-        operands: &[OperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> EncodeResult<Vec<u8>> {
-        let converted = match expect_intel_operands(operands) {
-            Ok(ops) => ops,
-            Err(msg) => return EncodeResult::error(msg),
-        };
-        <Self as crate::core::family::CpuHandler>::encode_instruction(self, mnemonic, &converted, ctx)
-    }
-
-    fn supports_mnemonic(&self, mnemonic: &str) -> bool {
-        <Self as crate::core::family::CpuHandler>::supports_mnemonic(self, mnemonic)
-    }
-}
-
-impl CpuHandlerDyn for mos6502::M6502CpuHandler {
-    fn cpu_id(&self) -> CpuType {
-        CpuType::M6502
-    }
-
-    fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
-    }
-
-    fn resolve_operands(
-        &self,
-        mnemonic: &str,
-        family_operands: &[FamilyOperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> Result<Vec<OperandAny>, String> {
-        let converted = expect_mos6502_family_operands(family_operands)?;
-        <Self as crate::core::family::CpuHandler>::resolve_operands(self, mnemonic, &converted, ctx)
-            .map(|ops| ops.into_iter().map(OperandAny::MOS6502).collect())
-    }
-
-    fn encode_instruction(
-        &self,
-        mnemonic: &str,
-        operands: &[OperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> EncodeResult<Vec<u8>> {
-        let converted = match expect_mos6502_operands(operands) {
-            Ok(ops) => ops,
-            Err(msg) => return EncodeResult::error(msg),
-        };
-        <Self as crate::core::family::CpuHandler>::encode_instruction(self, mnemonic, &converted, ctx)
-    }
-
-    fn supports_mnemonic(&self, mnemonic: &str) -> bool {
-        <Self as crate::core::family::CpuHandler>::supports_mnemonic(self, mnemonic)
-    }
-}
-
-impl CpuHandlerDyn for M65C02CpuHandler {
-    fn cpu_id(&self) -> CpuType {
-        CpuType::M65C02
-    }
-
-    fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
-    }
-
-    fn resolve_operands(
-        &self,
-        mnemonic: &str,
-        family_operands: &[FamilyOperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> Result<Vec<OperandAny>, String> {
-        let converted = expect_mos6502_family_operands(family_operands)?;
-        <Self as crate::core::family::CpuHandler>::resolve_operands(self, mnemonic, &converted, ctx)
-            .map(|ops| ops.into_iter().map(OperandAny::MOS6502).collect())
-    }
-
-    fn encode_instruction(
-        &self,
-        mnemonic: &str,
-        operands: &[OperandAny],
-        ctx: &dyn AssemblerContext,
-    ) -> EncodeResult<Vec<u8>> {
-        let converted = match expect_mos6502_operands(operands) {
-            Ok(ops) => ops,
-            Err(msg) => return EncodeResult::error(msg),
-        };
-        <Self as crate::core::family::CpuHandler>::encode_instruction(self, mnemonic, &converted, ctx)
-    }
-
-    fn supports_mnemonic(&self, mnemonic: &str) -> bool {
-        <Self as crate::core::family::CpuHandler>::supports_mnemonic(self, mnemonic)
-    }
 }
