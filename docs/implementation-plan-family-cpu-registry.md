@@ -85,7 +85,6 @@ Define these in a new registry module (e.g., [src/core/registry.rs](src/core/reg
 - [x] Replace the hard-coded branching in `process_instruction_ast` with a registry-driven flow:
   - Fetch `ResolvedPipeline` based on `self.cpu` and optional dialect override.
   - Family parse → dialect mapping → CPU resolve → family encode → CPU encode.
-- [ ] Replace `CpuType::is_register_fn()` usage in parsing with the family handler’s `is_register()` (or a registry-provided register checker).
 - [x] Replace `CpuType::is_register_fn()` usage in parsing with the family handler’s `is_register()` (or a registry-provided register checker).
 - [x] Remove `process_instruction_intel8080` and `process_instruction_6502` once the generic pipeline covers both paths.
 
