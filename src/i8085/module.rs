@@ -6,20 +6,29 @@
 use crate::core::cpu::{CpuFamily, CpuType};
 use crate::core::family::AssemblerContext;
 use crate::core::registry::{CpuHandlerDyn, CpuModule, FamilyOperandSet, OperandSet};
-use crate::families::intel8080::module::DIALECT_INTEL8080;
-use crate::families::intel8080::module::{Intel8080FamilyOperands, Intel8080Operands};
+use crate::families::intel8080::module::{
+    DIALECT_INTEL8080, FAMILY_ID as INTEL8080_FAMILY_ID, Intel8080FamilyOperands,
+    Intel8080Operands,
+};
 
 use super::I8085CpuHandler;
 
 pub struct I8085CpuModule;
 
+pub const CPU_ID: CpuType = CpuType::new("i8085");
+pub const CPU_NAMES: &[&str] = &["8085", "i8085", "8080", "i8080"];
+
 impl CpuModule for I8085CpuModule {
     fn cpu_id(&self) -> CpuType {
-        CpuType::I8085
+        CPU_ID
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
+        INTEL8080_FAMILY_ID
+    }
+
+    fn cpu_names(&self) -> &'static [&'static str] {
+        CPU_NAMES
     }
 
     fn default_dialect(&self) -> &'static str {
@@ -33,11 +42,11 @@ impl CpuModule for I8085CpuModule {
 
 impl CpuHandlerDyn for I8085CpuHandler {
     fn cpu_id(&self) -> CpuType {
-        CpuType::I8085
+        CPU_ID
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
+        INTEL8080_FAMILY_ID
     }
 
     fn resolve_operands(

@@ -6,20 +6,29 @@
 use crate::core::cpu::{CpuFamily, CpuType};
 use crate::core::family::AssemblerContext;
 use crate::core::registry::{CpuHandlerDyn, CpuModule, FamilyOperandSet, OperandSet};
-use crate::families::mos6502::module::DIALECT_TRANSPARENT;
-use crate::families::mos6502::module::{MOS6502FamilyOperands, MOS6502Operands};
+use crate::families::mos6502::module::{
+    DIALECT_TRANSPARENT, FAMILY_ID as MOS6502_FAMILY_ID, MOS6502FamilyOperands,
+    MOS6502Operands,
+};
 
 use super::M65C02CpuHandler;
 
 pub struct M65C02CpuModule;
 
+pub const CPU_ID: CpuType = CpuType::new("m65c02");
+pub const CPU_NAMES: &[&str] = &["65c02", "m65c02", "w65c02", "wdc65c02"];
+
 impl CpuModule for M65C02CpuModule {
     fn cpu_id(&self) -> CpuType {
-        CpuType::M65C02
+        CPU_ID
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        MOS6502_FAMILY_ID
+    }
+
+    fn cpu_names(&self) -> &'static [&'static str] {
+        CPU_NAMES
     }
 
     fn default_dialect(&self) -> &'static str {
@@ -33,11 +42,11 @@ impl CpuModule for M65C02CpuModule {
 
 impl CpuHandlerDyn for M65C02CpuHandler {
     fn cpu_id(&self) -> CpuType {
-        CpuType::M65C02
+        CPU_ID
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        MOS6502_FAMILY_ID
     }
 
     fn resolve_operands(

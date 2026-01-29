@@ -52,6 +52,8 @@ use cli::{
 pub use cli::VERSION;
 pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as RunReport};
 
+const DEFAULT_CPU: CpuType = crate::i8085::module::CPU_ID;
+
 /// Run the assembler with command-line arguments.
 pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
     let cli = Cli::parse();
@@ -166,7 +168,10 @@ fn run_one(
         Box::new(io::sink())
     };
     let mut listing = ListingWriter::new(&mut *list_output, cli.debug_conditionals);
-    let cpu_name = assembler.cpu().name();
+    let cpu_name = assembler
+        .registry
+        .cpu_display_name(assembler.cpu())
+        .unwrap_or_else(|| assembler.cpu().as_str());
     let header_title = format!("asm485 {cpu_name} Assembler v{VERSION}");
     if let Err(err) = listing.header(&header_title) {
         return Err(AsmRunError::new(
@@ -274,7 +279,7 @@ impl Assembler {
             symbols: SymbolTable::new(),
             image: ImageStore::new(65536),
             diagnostics: Vec::new(),
-            cpu: CpuType::default(),
+            cpu: DEFAULT_CPU,
             registry,
         }
     }
@@ -462,7 +467,7 @@ struct AsmLine<'a> {
 impl<'a> AsmLine<'a> {
     #[cfg(test)]
     fn new(symbols: &'a mut SymbolTable, registry: &'a ModuleRegistry) -> Self {
-        Self::with_cpu(symbols, CpuType::default(), registry)
+        Self::with_cpu(symbols, DEFAULT_CPU, registry)
     }
 
     fn with_cpu(symbols: &'a mut SymbolTable, cpu: CpuType, registry: &'a ModuleRegistry) -> Self {
@@ -1272,25 +1277,40 @@ impl<'a> AsmLine<'a> {
                     Some(Expr::Number(name, _)) => name.clone(), // For bare "8085" without quotes
                     Some(Expr::String(bytes, _)) => String::from_utf8_lossy(bytes).to_string(),
                     _ => {
+                        let known = self.registry.cpu_name_list();
+                        let hint = known.join(", ");
+                        let message = if hint.is_empty() {
+                            ".cpu requires a CPU type".to_string()
+                        } else {
+                            format!(".cpu requires a CPU type: {hint}")
+                        };
                         return self.failure(
                             LineStatus::Error,
                             AsmErrorKind::Directive,
-                            ".cpu requires CPU type: 8085, z80, 6502",
+                            &message,
                             None,
                         )
                     }
                 };
-                match CpuType::parse(&cpu_name) {
+                match self.registry.resolve_cpu_name(&cpu_name) {
                     Some(cpu) => {
                         self.cpu = cpu;
                         LineStatus::Ok
                     }
-                    None => self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unknown CPU type. Use: 8085, z80, 6502",
-                        Some(&cpu_name),
-                    ),
+                    None => {
+                        let known = self.registry.cpu_name_list();
+                        let message = if known.is_empty() {
+                            "Unknown CPU type.".to_string()
+                        } else {
+                            format!("Unknown CPU type. Use: {}", known.join(", "))
+                        };
+                        self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            &message,
+                            Some(&cpu_name),
+                        )
+                    }
                 }
             }
             "BYTE" => self.store_arg_list_ast(operands, 1),
@@ -1457,11 +1477,6 @@ impl<'a> AsmLine<'a> {
     fn process_instruction_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
         let upper = mnemonic.to_ascii_uppercase();
 
-        // Family-level shared instructions
-        if self.cpu.family().has_rst() && upper == "RST" {
-            return self.process_rst(operands);
-        }
-
         let pipeline = match self.registry.resolve_pipeline(self.cpu, None) {
             Ok(pipeline) => pipeline,
             Err(err) => {
@@ -1473,6 +1488,11 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
+
+        // Family-level shared instructions
+        if pipeline.family.supports_rst() && upper == "RST" {
+            return self.process_rst(operands);
+        }
 
         let family_operands = match pipeline.family.parse_operands(mnemonic, operands) {
             Ok(ops) => ops,
@@ -1492,19 +1512,17 @@ impl<'a> AsmLine<'a> {
             .map_mnemonic(mnemonic, family_operands.as_ref())
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
 
-        if self.cpu.family() == crate::core::cpu::CpuFamily::Intel8080 {
-            if let Some(intel_operands) = mapped_operands
-                .as_ref()
-                .as_any()
-                .downcast_ref::<crate::families::intel8080::module::Intel8080FamilyOperands>()
-            {
-                if let Some(status) = self.try_encode_intel8080_family_instruction(
-                    &mapped_mnemonic,
-                    mnemonic,
-                    &intel_operands.0,
-                ) {
-                    return status;
-                }
+        if let Some(intel_operands) = mapped_operands
+            .as_ref()
+            .as_any()
+            .downcast_ref::<crate::families::intel8080::module::Intel8080FamilyOperands>()
+        {
+            if let Some(status) = self.try_encode_intel8080_family_instruction(
+                &mapped_mnemonic,
+                mnemonic,
+                &intel_operands.0,
+            ) {
+                return status;
             }
         }
 
@@ -2191,9 +2209,9 @@ mod tests {
     use crate::core::registry::ModuleRegistry;
     use crate::families::intel8080::module::Intel8080FamilyModule;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
-    use crate::i8085::module::I8085CpuModule;
+    use crate::i8085::module::{CPU_ID as I8085_CPU_ID, I8085CpuModule};
     use crate::m65c02::module::M65C02CpuModule;
-    use crate::z80::module::Z80CpuModule;
+    use crate::z80::module::{CPU_ID as Z80_CPU_ID, Z80CpuModule};
     use crate::core::macro_processor::MacroProcessor;
     use crate::core::preprocess::Preprocessor;
     use crate::core::symbol_table::SymbolTable;
@@ -2392,24 +2410,24 @@ mod tests {
 
     #[test]
     fn zilog_dialect_encodes_like_intel() {
-        let intel = assemble_bytes(CpuType::I8085, "    MVI A,55h");
-        let zilog = assemble_bytes(CpuType::Z80, "    LD A,55h");
+        let intel = assemble_bytes(I8085_CPU_ID, "    MVI A,55h");
+        let zilog = assemble_bytes(Z80_CPU_ID, "    LD A,55h");
         assert_eq!(intel, zilog);
 
-        let intel = assemble_bytes(CpuType::I8085, "    MOV A,B");
-        let zilog = assemble_bytes(CpuType::Z80, "    LD A,B");
+        let intel = assemble_bytes(I8085_CPU_ID, "    MOV A,B");
+        let zilog = assemble_bytes(Z80_CPU_ID, "    LD A,B");
         assert_eq!(intel, zilog);
 
-        let intel = assemble_bytes(CpuType::I8085, "    JMP 1000h");
-        let zilog = assemble_bytes(CpuType::Z80, "    JP 1000h");
+        let intel = assemble_bytes(I8085_CPU_ID, "    JMP 1000h");
+        let zilog = assemble_bytes(Z80_CPU_ID, "    JP 1000h");
         assert_eq!(intel, zilog);
 
-        let intel = assemble_bytes(CpuType::I8085, "    JZ 1000h");
-        let zilog = assemble_bytes(CpuType::Z80, "    JP Z,1000h");
+        let intel = assemble_bytes(I8085_CPU_ID, "    JZ 1000h");
+        let zilog = assemble_bytes(Z80_CPU_ID, "    JP Z,1000h");
         assert_eq!(intel, zilog);
 
-        let intel = assemble_bytes(CpuType::I8085, "    ADI 10h");
-        let zilog = assemble_bytes(CpuType::Z80, "    ADD A,10h");
+        let intel = assemble_bytes(I8085_CPU_ID, "    ADI 10h");
+        let zilog = assemble_bytes(Z80_CPU_ID, "    ADD A,10h");
         assert_eq!(intel, zilog);
     }
 

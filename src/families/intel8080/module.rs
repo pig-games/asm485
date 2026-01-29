@@ -17,12 +17,13 @@ use super::{FamilyOperand, Intel8080FamilyHandler, Operand};
 
 pub const DIALECT_INTEL8080: &str = "intel8080";
 pub const DIALECT_ZILOG: &str = "zilog";
+pub const FAMILY_ID: CpuFamily = CpuFamily::new("intel8080");
 
 pub struct Intel8080FamilyModule;
 
 impl FamilyModule for Intel8080FamilyModule {
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
+        FAMILY_ID
     }
 
     fn canonical_dialect(&self) -> &'static str {
@@ -72,7 +73,7 @@ impl DialectModule for Intel8080Dialect {
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
+        FAMILY_ID
     }
 
     fn map_mnemonic(
@@ -98,7 +99,7 @@ impl DialectModule for ZilogDialect {
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
+        FAMILY_ID
     }
 
     fn map_mnemonic(
@@ -121,7 +122,7 @@ impl DialectModule for ZilogDialect {
 
 impl FamilyHandlerDyn for Intel8080FamilyHandler {
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::Intel8080
+        FAMILY_ID
     }
 
     fn parse_operands(
@@ -152,5 +153,9 @@ impl FamilyHandlerDyn for Intel8080FamilyHandler {
 
     fn is_condition(&self, name: &str) -> bool {
         <Self as FamilyHandler>::is_condition(self, name)
+    }
+
+    fn supports_rst(&self) -> bool {
+        true
     }
 }

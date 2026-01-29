@@ -52,6 +52,9 @@ pub trait FamilyHandlerDyn: Send + Sync {
     ) -> EncodeResult<Vec<u8>>;
     fn is_register(&self, name: &str) -> bool;
     fn is_condition(&self, name: &str) -> bool;
+    fn supports_rst(&self) -> bool {
+        false
+    }
 }
 
 pub trait CpuHandlerDyn: Send + Sync {
@@ -103,6 +106,13 @@ pub trait FamilyModule: Send + Sync {
 pub trait CpuModule: Send + Sync {
     fn cpu_id(&self) -> CpuType;
     fn family_id(&self) -> CpuFamily;
+    fn cpu_names(&self) -> &'static [&'static str];
+    fn cpu_display_name(&self) -> &'static str {
+        self.cpu_names()
+            .first()
+            .copied()
+            .unwrap_or_else(|| self.cpu_id().as_str())
+    }
     fn default_dialect(&self) -> &'static str;
     fn handler(&self) -> Box<dyn CpuHandlerDyn>;
     fn validator(&self) -> Option<Box<dyn CpuValidator>> {
@@ -128,6 +138,7 @@ pub struct ModuleRegistry {
     families: HashMap<CpuFamily, Box<dyn FamilyModule>>,
     cpus: HashMap<CpuType, Box<dyn CpuModule>>,
     dialects: HashMap<(CpuFamily, String), Box<dyn DialectModule>>,
+    cpu_names: HashMap<String, CpuType>,
 }
 
 impl Default for ModuleRegistry {
@@ -142,6 +153,7 @@ impl ModuleRegistry {
             families: HashMap::new(),
             cpus: HashMap::new(),
             dialects: HashMap::new(),
+            cpu_names: HashMap::new(),
         }
     }
 
@@ -156,7 +168,27 @@ impl ModuleRegistry {
 
     pub fn register_cpu(&mut self, module: Box<dyn CpuModule>) {
         let cpu_id = module.cpu_id();
+        for name in module.cpu_names() {
+            self.cpu_names
+                .insert(normalize_cpu_name(name), cpu_id);
+        }
         self.cpus.insert(cpu_id, module);
+    }
+
+    pub fn resolve_cpu_name(&self, name: &str) -> Option<CpuType> {
+        self.cpu_names
+            .get(&normalize_cpu_name(name))
+            .copied()
+    }
+
+    pub fn cpu_display_name(&self, cpu: CpuType) -> Option<&'static str> {
+        self.cpus.get(&cpu).map(|module| module.cpu_display_name())
+    }
+
+    pub fn cpu_name_list(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.cpu_names.keys().cloned().collect();
+        names.sort();
+        names
     }
 
     pub fn resolve_pipeline(
@@ -212,4 +244,8 @@ impl ModuleRegistry {
 
 fn normalize_dialect(dialect: &str) -> String {
     dialect.to_ascii_lowercase()
+}
+
+fn normalize_cpu_name(name: &str) -> String {
+    name.to_ascii_lowercase()
 }

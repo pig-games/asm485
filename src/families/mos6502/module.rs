@@ -16,12 +16,15 @@ use crate::core::registry::{
 use super::{FamilyOperand, M6502CpuHandler, MOS6502FamilyHandler, Operand};
 
 pub const DIALECT_TRANSPARENT: &str = "transparent";
+pub const FAMILY_ID: CpuFamily = CpuFamily::new("mos6502");
+pub const CPU_ID: CpuType = CpuType::new("m6502");
+pub const CPU_NAMES: &[&str] = &["6502", "m6502", "mos6502"];
 
 pub struct MOS6502FamilyModule;
 
 impl FamilyModule for MOS6502FamilyModule {
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        FAMILY_ID
     }
 
     fn canonical_dialect(&self) -> &'static str {
@@ -67,11 +70,15 @@ pub struct M6502CpuModule;
 
 impl CpuModule for M6502CpuModule {
     fn cpu_id(&self) -> CpuType {
-        CpuType::M6502
+        CPU_ID
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        FAMILY_ID
+    }
+
+    fn cpu_names(&self) -> &'static [&'static str] {
+        CPU_NAMES
     }
 
     fn default_dialect(&self) -> &'static str {
@@ -91,7 +98,7 @@ impl DialectModule for TransparentDialect {
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        FAMILY_ID
     }
 
     fn map_mnemonic(
@@ -111,7 +118,7 @@ impl DialectModule for TransparentDialect {
 
 impl FamilyHandlerDyn for MOS6502FamilyHandler {
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        FAMILY_ID
     }
 
     fn parse_operands(
@@ -147,11 +154,11 @@ impl FamilyHandlerDyn for MOS6502FamilyHandler {
 
 impl CpuHandlerDyn for M6502CpuHandler {
     fn cpu_id(&self) -> CpuType {
-        CpuType::M6502
+        CPU_ID
     }
 
     fn family_id(&self) -> CpuFamily {
-        CpuFamily::MOS6502
+        FAMILY_ID
     }
 
     fn resolve_operands(
