@@ -228,6 +228,8 @@ If no in-scope definition exists and the id is not registered, activation fails 
 `.use` imports target pack symbols (definitions and helper segments/macros). It never emits content.
 Any boilerplate or generated text is injected explicitly by invoking segments/macros, with `[{ ... }]` used only for boundary control.
 
+For the consolidated grammar, visibility rules, and diagnostics for `.module`, `.use`, `.pub`, and `.priv`, see the **Module Identity, Imports, and Visibility** section in [docs/NextSteps/core/opforge_core_spec_v0_3b.md](docs/NextSteps/core/opforge_core_spec_v0_3b.md).
+
 ## Summary
 
 -   Families, CPUs, and dialects are data-driven

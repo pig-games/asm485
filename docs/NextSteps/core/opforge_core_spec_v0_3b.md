@@ -136,6 +136,143 @@ Scopes control visibility and resolution, not packaging.
 
 ------------------------------------------------------------------------
 
+## Module Identity, Imports, and Visibility (Consolidated Spec)
+
+### Grammar (informal)
+
+- **Identifiers** are alphanumeric with `_`, starting with a letter or `_`.
+- **Module ids** are dotted paths of identifiers (e.g. `std.math`, `app.core.io`).
+- **`.module <module-id>`** starts a module block; **`.endmodule`** ends it.
+- **`.use <module-id>`** may include:
+  - **Alias**: `as <ident>` (tiny+)
+  - **Selective list**: `(item [, item]...)` where each item is `name` or `name as alias` (small+)
+  - **Parameters**: `with (k=v [, k=v]...)` (small+), where values are expressions.
+- **`.pub`** and **`.priv`** are standalone directives that change the default visibility for subsequent declarations in the current scope.
+
+Notes:
+- `expr` is any core expression (see Expressions section).
+
+### Module Identity and File Rules
+
+- A **module** is a root scope with identity and export surface.
+- A **source file** may contain either:
+  - **one implicit module** (no `.module` directives present), or
+  - **one or more explicit modules** delimited by `.module`/`.endmodule`.
+- If any explicit `.module` appears, **all** top‑level content must be inside an explicit module.
+
+**Implicit module id**:
+- The assembler assigns a module id from the source unit name (default: file basename without extension).
+- Build tooling may override or prefix the implicit id.
+
+**Explicit module id**:
+- The id is defined by `.module <module-id>` and must be unique in the compilation unit.
+- Nested modules are illegal.
+
+### Scope Rules
+
+- `.module` establishes the **root lexical scope** for the module.
+- `.namespace` and `.block` are lexical scopes inside a module.
+- `.macro` and `.segment` introduce named symbols that live in the module namespace.
+
+### Name Resolution Order
+
+For an **unqualified** reference `name` in a module:
+1. **Local lexical scopes** from innermost to module root.
+2. **Selective imports** that introduce `name` into the current module scope.
+
+For a **qualified** reference `Mod.name` or `Alias.name`:
+1. Resolve `Mod` as either a module id or an import alias.
+2. Lookup `name` in the target module’s **export table**.
+
+**Shadowing and conflicts**:
+- A local definition **may not** reuse a name introduced by selective import in the same scope (diagnostic).
+- Import aliases must be unique in the module.
+- Duplicate selective imports of the same local name are diagnostics.
+
+### Visibility Rules (`.pub` / `.priv`)
+
+- **Default** visibility is **private**.
+- `.pub` and `.priv` change the **current default visibility** for subsequent declarations in the **current scope**.
+- Visibility state is **lexically scoped**: entering a scope inherits the parent’s default and changes do not leak outward.
+- The visibility at the **point of declaration** is stored on the symbol.
+
+**Exportable symbol kinds**:
+- Runtime symbols (labels, constants, variables, data labels).
+- Macros (`.macro`) and segments (`.segment`).
+- Types (`.type`).
+
+**Non‑exportable** (by default): anonymous/local labels and unnamed scopes.
+
+### Import Forms
+
+- **Basic (qualified)**: `.use std.math`
+  - Use as `std.math.add16`.
+- **Alias**: `.use std.math as M` (tiny+)
+  - Use as `M.add16`.
+- **Selective**: `.use std.math (add16, sub16 as sub)` (small+)
+  - Introduces `add16` and `sub` as unqualified names.
+- **Parameters**: `.use foo with (FEATURE=1, MODE="fast")` (small+)
+  - Parameters are visible to the imported module’s profile gates.
+
+### Diagnostics (non‑exhaustive)
+
+- **E‑MOD‑001**: nested `.module`.
+- **E‑MOD‑002**: duplicate module id.
+- **E‑MOD‑003**: `.endmodule` without matching `.module`.
+- **E‑MOD‑004**: top‑level content outside explicit module when explicit modules exist.
+- **E‑USE‑001**: missing module id.
+- **E‑USE‑002**: import alias collision.
+- **E‑USE‑003**: selective import collision.
+- **E‑USE‑004**: missing imported symbol.
+- **E‑USE‑005**: import cycle detected.
+- **E‑VIS‑001**: access to non‑exported symbol.
+- **E‑VIS‑002**: selective import of non‑exported symbol.
+
+### Examples
+
+**Basic module + exports**
+
+```
+.module math.core
+.pub
+add16   .macro (a, b)
+    ; ...
+.endmacro
+.priv
+tmp     .const 0
+.endmodule
+```
+
+**Use with alias + selective**
+
+```
+.module app.main
+.use math.core as M
+.use math.core (add16 as add)
+
+    add16  .word 0      ; ok: selective import
+    M.add16            ; ok: qualified via alias
+.endmodule
+```
+
+**Negative cases (illustrative)**
+
+```
+.module a
+.module b      ; error: nested module (E‑MOD‑001)
+.endmodule
+
+.module c
+.use missing.mod      ; error: missing module (E‑USE‑001)
+.endmodule
+
+.module d
+.use math.core (tmp)  ; error: tmp is private (E‑VIS‑002)
+.endmodule
+```
+
+------------------------------------------------------------------------
+
 ## Directives (Core Set)
 
 ### `.module <id>` / `.endmodule`
