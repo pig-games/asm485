@@ -2157,6 +2157,25 @@ mod tests {
     }
 
     #[test]
+    fn segment_symbols_visible_outside_definition() {
+        let lines = vec![
+            "MYSEG .segment".to_string(),
+            "VAL .const 3".to_string(),
+            ".endsegment".to_string(),
+            ".MYSEG".to_string(),
+            ".word VAL".to_string(),
+        ];
+        let mut mp = MacroProcessor::new();
+        let expanded_lines = mp.expand(&lines).expect("expand");
+
+        let mut assembler = Assembler::new();
+        assembler.clear_diagnostics();
+        let pass1 = assembler.pass1(&expanded_lines);
+        assert_eq!(pass1.errors, 0);
+        assert_eq!(assembler.symbols().lookup("VAL"), Some(3));
+    }
+
+    #[test]
     fn qualified_symbol_resolves_outside_scope() {
         let mut symbols = SymbolTable::new();
         let registry = default_registry();

@@ -34,4 +34,5 @@ pub enum TokenValue {
     Case = 26,
     Default = 27,
     EndSwitch = 28,
+    Literal = 29,
 }

@@ -334,6 +334,17 @@ impl Parser {
                 }
             };
             let upper = name.to_ascii_uppercase();
+            if matches!(
+                upper.as_str(),
+                "MACRO" | "SEGMENT" | "ENDMACRO" | "ENDSEGMENT" | "ENDM" | "ENDS"
+            ) {
+                self.index = self.tokens.len();
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic: Some(format!(".{name}")),
+                    operands: Vec::new(),
+                });
+            }
             let (kind, needs_expr, list_exprs) = match upper.as_str() {
                 "IF" => (ConditionalKind::If, true, false),
                 "ELSEIF" => (ConditionalKind::ElseIf, true, false),
@@ -1114,6 +1125,43 @@ mod tests {
             LineAst::Statement { mnemonic, operands, .. } => {
                 assert_eq!(mnemonic.as_deref(), Some(".byte"));
                 assert_eq!(operands.len(), 2);
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_macro_directive_line_without_error() {
+        let mut parser = Parser::from_line(".macro COPY(src, dst)", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some(".macro"));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_name_first_macro_definition_without_error() {
+        let mut parser = Parser::from_line("COPY .macro src, dst", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { label, mnemonic, .. } => {
+                assert_eq!(label.map(|l| l.name), Some("COPY".to_string()));
+                assert_eq!(mnemonic.as_deref(), Some(".macro"));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_segment_directive_line_without_error() {
+        let mut parser = Parser::from_line(".segment INLINE(val)", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some(".segment"));
             }
             _ => panic!("Expected statement"),
         }

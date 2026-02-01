@@ -141,7 +141,7 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 
 ### Documentation
 - [ ] Update core spec + patterned signature doc with final decisions.
-- [ ] Add syntax examples for `.segment` and macro surface forms.
+- [x] Add syntax examples for `.segment` and macro surface forms.
 
 ---
 
@@ -149,12 +149,12 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 
 ### Stage 1 — Macro/segment surface syntax (fast feedback)
 - [x] Add token support for quoted literal tokens and escapes in [src/core/tokenizer.rs](src/core/tokenizer.rs).
-- [ ] Extend token kinds/values for literal-token nodes in [src/core/token_value.rs](src/core/token_value.rs).
-- [ ] Parse name-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
-- [ ] Parse directive-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
-- [ ] Parse `.segment` definitions using macro-like surface syntax in [src/core/parser.rs](src/core/parser.rs).
+- [x] Extend token kinds/values for literal-token nodes in [src/core/token_value.rs](src/core/token_value.rs).
+- [x] Parse name-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
+- [x] Parse directive-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
+- [x] Parse `.segment` definitions using macro-like surface syntax in [src/core/parser.rs](src/core/parser.rs).
 - [x] Normalize macro/segment definitions and calls in [src/core/macro_processor.rs](src/core/macro_processor.rs).
-- [ ] Enforce “no nested `.macro`/`.segment`” in [src/core/parser.rs](src/core/parser.rs).
+- [x] Enforce “no nested `.macro`/`.segment`” in [src/core/parser.rs](src/core/parser.rs).
 
 ### Stage 2 — `.statement` signature parsing
 - [ ] Define `StatementSignature` atoms (literal/capture/boundary span) in [src/core/parser.rs](src/core/parser.rs).
