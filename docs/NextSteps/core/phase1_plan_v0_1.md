@@ -155,6 +155,9 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - [x] Parse `.segment` definitions using macro-like surface syntax in [src/core/parser.rs](src/core/parser.rs).
 - [x] Normalize macro/segment definitions and calls in [src/core/macro_processor.rs](src/core/macro_processor.rs).
 - [x] Enforce “no nested `.macro`/`.segment`” in [src/core/parser.rs](src/core/parser.rs).
+- [ ] Add `.statement` expansion support to the macro/segment expansion pipeline in [src/core/macro_processor.rs](src/core/macro_processor.rs).
+- [ ] Emit `.statement` bodies at the call site with capture substitution in [src/assembler/mod.rs](src/assembler/mod.rs).
+- [ ] Add example + reference outputs demonstrating `.statement` expansion in [examples/*.asm](examples) and [examples/reference/*](examples/reference).
 
 ### Stage 2 — `.statement` signature parsing
 - [x] Define `StatementSignature` atoms (literal/capture/boundary span) in [src/core/parser.rs](src/core/parser.rs).

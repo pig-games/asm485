@@ -719,9 +719,28 @@ impl Parser {
                     atoms.push(SignatureAtom::Literal(vec![b'.'], token.span));
                 }
                 TokenKind::Comma => {
-                    atoms.push(SignatureAtom::Literal(vec![b','], token.span));
+                    return Err(ParseError {
+                        message: "Commas must be quoted in statement signatures".to_string(),
+                        span: token.span,
+                    });
                 }
                 TokenKind::Identifier(type_name) | TokenKind::Register(type_name) => {
+                    if !is_valid_capture_type(&type_name) {
+                        return Err(ParseError {
+                            message: format!("Unknown statement capture type: {type_name}"),
+                            span: token.span,
+                        });
+                    }
+                    let colon = self.next().ok_or(ParseError {
+                        message: "Expected ':' after capture type".to_string(),
+                        span: self.end_span,
+                    })?;
+                    if !matches!(colon.kind, TokenKind::Colon) {
+                        return Err(ParseError {
+                            message: "Expected ':' after capture type".to_string(),
+                            span: colon.span,
+                        });
+                    }
                     let next = self.next().ok_or(ParseError {
                         message: "Expected capture name after type".to_string(),
                         span: self.end_span,
@@ -1369,6 +1388,13 @@ fn token_matches_capture_type(type_name: &str, token: &Token) -> bool {
     }
 }
 
+fn is_valid_capture_type(type_name: &str) -> bool {
+    matches!(
+        type_name.to_ascii_lowercase().as_str(),
+        "byte" | "word" | "char" | "str"
+    )
+}
+
 fn matches_any_capture_token(token: &Token) -> bool {
     matches!(
         token.kind,
@@ -1661,18 +1687,18 @@ mod tests {
     #[test]
     fn parses_statement_definition_with_signature() {
         let mut parser = Parser::from_line(
-            ".statement move.[{char size}] reg dst, reg src",
+            ".statement move.b char:dst \",\" char:src",
             1,
         )
         .unwrap();
         let line = parser.parse_line().unwrap();
         match line {
             LineAst::StatementDef { keyword, signature, .. } => {
-                assert_eq!(keyword, "move.");
-                assert_eq!(signature.atoms.len(), 4);
-                assert!(matches!(signature.atoms[0], SignatureAtom::Boundary { .. }));
-                assert!(matches!(signature.atoms[1], SignatureAtom::Capture { .. }));
-                assert!(matches!(signature.atoms[2], SignatureAtom::Literal(_, _)));
+                assert_eq!(keyword, "move.b");
+                assert_eq!(signature.atoms.len(), 3);
+                assert!(matches!(signature.atoms[0], SignatureAtom::Capture { .. }));
+                assert!(matches!(signature.atoms[1], SignatureAtom::Literal(_, _)));
+                assert!(matches!(signature.atoms[2], SignatureAtom::Capture { .. }));
             }
             _ => panic!("Expected statement definition"),
         }
@@ -1681,7 +1707,7 @@ mod tests {
     #[test]
     fn parses_statement_boundary_span() {
         let mut parser = Parser::from_line(
-            ".statement sta \"[\" byte a \",\"[{char reg}]",
+            ".statement sta \"[\" byte:a \",\"[{char:reg}]",
             1,
         )
         .unwrap();
@@ -1732,7 +1758,7 @@ mod tests {
     #[test]
     fn statement_signature_precedence_prefers_more_literals() {
         let mut parser1 = Parser::from_line(
-            ".statement foo \"x\" byte a",
+            ".statement foo \"x\" byte:a",
             1,
         )
         .unwrap();
@@ -1745,7 +1771,7 @@ mod tests {
         assert!(matches!(sig1.atoms[1], SignatureAtom::Capture { .. }));
 
         let mut parser2 = Parser::from_line(
-            ".statement foo byte a",
+            ".statement foo byte:a",
             1,
         )
         .unwrap();
@@ -1775,7 +1801,7 @@ mod tests {
     #[test]
     fn statement_signature_byte_capture_rejects_out_of_range() {
         let mut parser = Parser::from_line(
-            ".statement foo byte a",
+            ".statement foo byte:a",
             1,
         )
         .unwrap();
@@ -1797,7 +1823,7 @@ mod tests {
     #[test]
     fn statement_signature_word_capture_rejects_out_of_range() {
         let mut parser = Parser::from_line(
-            ".statement foo word a",
+            ".statement foo word:a",
             1,
         )
         .unwrap();
@@ -1819,7 +1845,7 @@ mod tests {
     #[test]
     fn statement_signature_char_capture_requires_single_char() {
         let mut parser = Parser::from_line(
-            ".statement foo char c",
+            ".statement foo char:c",
             1,
         )
         .unwrap();
@@ -1844,7 +1870,7 @@ mod tests {
     #[test]
     fn statement_signature_str_capture_requires_string_literal() {
         let mut parser = Parser::from_line(
-            ".statement foo str s",
+            ".statement foo str:s",
             1,
         )
         .unwrap();
@@ -1861,9 +1887,33 @@ mod tests {
     }
 
     #[test]
+    fn statement_signature_rejects_unknown_capture_type() {
+        let mut parser = Parser::from_line(
+            ".statement move reg:dst",
+            1,
+        )
+        .unwrap();
+        let err = parser.parse_line().expect_err("expected error");
+        assert!(err.message.contains("Unknown statement capture type"));
+    }
+
+    #[test]
+    fn statement_signature_rejects_unquoted_commas() {
+        let mut parser = Parser::from_line(
+            ".statement move.b char:dst, char:src",
+            1,
+        )
+        .unwrap();
+        let err = parser.parse_line().expect_err("expected error");
+        assert!(err
+            .message
+            .contains("Commas must be quoted in statement signatures"));
+    }
+
+    #[test]
     fn statement_signature_selection_reports_ambiguity() {
         let mut parser1 = Parser::from_line(
-            ".statement foo byte a",
+            ".statement foo byte:a",
             1,
         )
         .unwrap();
@@ -1873,7 +1923,7 @@ mod tests {
         };
 
         let mut parser2 = Parser::from_line(
-            ".statement foo word b",
+            ".statement foo word:b",
             1,
         )
         .unwrap();

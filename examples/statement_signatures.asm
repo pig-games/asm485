@@ -1,10 +1,10 @@
 ; Demonstrate statement signature syntax.
 
-.statement move.[{char size}] reg dst, reg src
+.statement move.b char:dst "," char:src
     nop
 .endstatement
 
-.statement sta "[" byte a ","[{char reg}]
+.statement sta "[" byte:a ","[{char:reg}]
 .endstatement
 
 start:

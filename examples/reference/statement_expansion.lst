@@ -1,0 +1,29 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Demonstrate .statement expansion.
+----                                2  
+----                                3  
+----                                4  
+----                                5  
+----                                6  
+----                                7  start:
+0000    07                          8      .byte 7
+0001    05                          9      .byte 5
+0002    3A                         10      lda [5],x
+   10 |     lda [31m[[0m5],x
+ERROR: Unexpected token in expression
+0003    62                         11      .byte 'b'
+0004    64 00                      12      .byte 'd', 0
+0006    64 02                      13      .byte 'd', 2
+0008    6C                         14      .byte 'l'
+0009    64 00                      15      .byte 'd', 0
+000B    64 02                      16      .byte 'd', 2
+
+Lines: 16  Errors: 1  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0000 (0)
+
+Total memory is 13 bytes

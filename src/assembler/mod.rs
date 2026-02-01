@@ -2217,7 +2217,7 @@ mod tests {
     #[test]
     fn statement_definitions_skip_body_lines() {
         let lines = vec![
-            ".statement foo byte a".to_string(),
+            ".statement foo byte:a".to_string(),
             "BADTOKEN".to_string(),
             ".endstatement".to_string(),
             ".byte 1".to_string(),
@@ -2231,6 +2231,22 @@ mod tests {
         let mut listing = ListingWriter::new(&mut output, false);
         let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
         assert_eq!(pass2.errors, 0);
+    }
+
+    #[test]
+    fn statement_definition_rejects_unquoted_commas() {
+        let lines = vec![
+            ".statement move.b char:dst, char:src".to_string(),
+            ".endstatement".to_string(),
+        ];
+        let mut assembler = Assembler::new();
+        assembler.clear_diagnostics();
+        let _ = assembler.pass1(&lines);
+
+        let mut output = Vec::new();
+        let mut listing = ListingWriter::new(&mut output, false);
+        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
+        assert!(pass2.errors > 0);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 ; Statement signature error scenario.
 
-.statement sta "[" byte a ","[{char reg}
+.statement sta "[" byte:a ","[{char:reg}
 
 start:
     nop
