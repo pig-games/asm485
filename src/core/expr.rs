@@ -228,6 +228,8 @@ pub fn parse_number(text: &str) -> Option<i64> {
         i64::from_str_radix(bin, 2).ok()?
     } else if let Some(oct) = text.strip_prefix("0o").or_else(|| text.strip_prefix("0O")) {
         i64::from_str_radix(oct, 8).ok()?
+    } else if let Some(bin) = text.strip_prefix('%') {
+        i64::from_str_radix(bin, 2).ok()?
     } else if text.ends_with('h') || text.ends_with('H') {
         i64::from_str_radix(&text[..text.len() - 1], 16).ok()?
     } else if text.ends_with('b') || text.ends_with('B') {
@@ -363,6 +365,7 @@ mod tests {
         assert_eq!(parse_number("0b101010"), Some(42));
         assert_eq!(parse_number("0B101010"), Some(42));
         assert_eq!(parse_number("101010b"), Some(42));
+        assert_eq!(parse_number("%101010"), Some(42));
     }
 
     #[test]

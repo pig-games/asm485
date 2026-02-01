@@ -9,21 +9,24 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                6  
 ----                                7  start:
 0000    07                          8      .byte 7
-0001    05                          9      .byte 5
-0002    3A                         10      lda [5],x
-   10 |     lda [31m[[0m5],x
+0001    FF                          9      .byte $ff
+0002    0A                         10      .byte %1010
+0003    FF                         11      .byte 0ffh
+0004    05                         12      .byte $05
+0005    3A                         13      lda [5],x
+   13 |     lda [31m[[0m5],x
 ERROR: Unexpected token in expression
-0003    62                         11      .byte 'b'
-0004    64 00                      12      .byte 'd', 0
-0006    64 02                      13      .byte 'd', 2
-0008    6C                         14      .byte 'l'
-0009    64 00                      15      .byte 'd', 0
-000B    64 02                      16      .byte 'd', 2
+0006    62                         14      .byte 'b'
+0007    64 00                      15      .byte 'd', 0
+0009    64 02                      16      .byte 'd', 2
+000B    6C                         17      .byte 'l'
+000C    64 00                      18      .byte 'd', 0
+000E    64 02                      19      .byte 'd', 2
 
-Lines: 16  Errors: 1  Warnings: 0
+Lines: 19  Errors: 1  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 0000 (0)
 
-Total memory is 13 bytes
+Total memory is 16 bytes

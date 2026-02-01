@@ -1319,4 +1319,21 @@ mod tests {
         assert!(out.contains(&"    .byte 3 + 1".to_string()));
         assert!(!out.contains(&"    .byte 3".to_string()));
     }
+
+    #[test]
+    fn statement_numeric_literal_spelling_is_preserved() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            ".statement LOAD byte:val".to_string(),
+            "    .byte .val".to_string(),
+            ".endstatement".to_string(),
+            "    LOAD 0ffh".to_string(),
+            "    LOAD %1010".to_string(),
+            "    LOAD $ff".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.contains(&"    .byte 0ffh".to_string()));
+        assert!(out.contains(&"    .byte %1010".to_string()));
+        assert!(out.contains(&"    .byte $ff".to_string()));
+    }
 }

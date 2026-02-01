@@ -22,7 +22,10 @@
 
 start:
     LOAD 7
-    lda [5],y
+    LOAD $ff
+    LOAD %1010
+    LOAD 0ffh
+    lda [$05],y
     lda [5],x
     move.b d0,d2
     move.l d0, d2
