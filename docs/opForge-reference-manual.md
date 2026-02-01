@@ -6,15 +6,14 @@ features that are not implemented yet.
 
 ## 1. Introduction
 
-opForge is a two-pass assembler for Intel 8080/8085 code. It supports:
+opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, and WDC 65C02 code. It supports:
 - Dot-prefixed directives and conditionals.
 - A 64tass-inspired expression syntax (operators, precedence, ternary).
 - Preprocessor directives for includes and conditional compilation.
 - Macro expansion with `.macro` and `.segment`.
 - Optional listing, Intel HEX, and binary outputs.
 
-The `.cpu` directive currently accepts `8080` and `8085`. Support for Z80 and
-related CPUs is planned.
+The `.cpu` directive currently accepts `8080` (alias), `8085`, `z80`, `6502`, and `65c02`.
 
 ## 2. Usage tips
 
@@ -174,7 +173,7 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 ### 4.7 Target CPU
 
 ```
-.cpu 8080
+.cpu 8080    ; alias for 8085
 .cpu 8085
 .cpu z80
 .cpu 6502
@@ -217,10 +216,20 @@ NAME .macro a, b=2
 .endmacro
 ```
 
-Invoke with `#NAME` or `.NAME`:
+Alternate directive-first form:
 
 ```
-#NAME 1
+.macro NAME(a, b=2)
+    .byte \a, \b
+.endmacro
+```
+
+Invoke with `.NAME`:
+
+Parenthesized call form:
+
+```
+.NAME(1)
 ```
 
 ### 5.2 Macro parameters
@@ -243,14 +252,42 @@ INLINE .segment v
 .INLINE 7
 ```
 
+Alternate directive-first form:
+
+```
+.segment INLINE(v)
+    .byte \v
+.endsegment
+```
+
 ### 5.4 Repetition
 
 Planned (not implemented yet): repeat/loop-style directives.
 
+### 5.5 Statement patterns (`.statement`)
+
+`.statement` defines a patterned statement signature that is matched when the
+statement label appears without a leading dot:
+
+```
+.statement move.b char:dst "," char:src
+    .byte 'b'
+    .byte '\dst', 0
+    .byte '\src', 0
+.endstatement
+
+move.b d0, d2
+```
+
+Rules:
+- Typed captures use the explicit `type:name` form (e.g. `byte:val`, `char:reg`).
+- Literal commas must be quoted as `","` inside signatures.
+- Statement labels may include dots (e.g. `move.b`, `move.l`).
+- Boundary spans `[{ ... }]` enforce adjacency rules within the span.
+
 ## 6. Compatibility
 
 - Dot-prefixed directives are required (for `.org`, `.set`, `.if`, etc.).
-- `#` is reserved for macro invocation.
 - Labels may omit the trailing `:`.
 
 ## 7. Command line options
@@ -261,7 +298,7 @@ Syntax:
 opForge [OPTIONS]
 ```
 
-Inputs:
+Inputs (required):
 - `-i, --infile <FILE>`: input `.asm` file (repeatable).
 
 Outputs (at least one required):
@@ -271,10 +308,11 @@ Outputs (at least one required):
 
 Other options:
 - `-o, --outfile <BASE>`: output base name if output filename omitted.
-- `-f, --fill <hh>`: fill byte for binary output (hex).
-- `-g, --go <aaaa>`: execution start address in HEX output.
+- `-f, --fill <hh>`: fill byte for binary output (hex). Requires `-b`.
+- `-g, --go <aaaa>`: execution start address in HEX output. Requires `-x`.
 - `-D, --define <NAME[=VAL]>`: predefine macro (repeatable).
 - `-c, --cond-debug`: include conditional state in listing.
+- `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default 64).
 
 Notes:
 - If multiple inputs are provided, `-o` must be a directory and explicit output
@@ -307,8 +345,10 @@ Any other escape sequence inserts the escaped character as-is.
 
 ## 12. Opcodes
 
-Instruction mnemonics are 8080/8085 compatible. `.cpu` is intended to select
-additional opcode sets in the future (e.g. Z80).
+Instruction mnemonics are selected by `.cpu`:
+- Intel dialect for 8080/8085 (`MOV`, `MVI`, `JMP`, ...)
+- Zilog dialect for Z80 (`LD`, `JP`, `JR`, ...)
+- Standard MOS 6502/65C02 mnemonics (`LDA`, `JMP`, `BRA`, ...)
 
 ## 13. Appendix: quick reference
 
