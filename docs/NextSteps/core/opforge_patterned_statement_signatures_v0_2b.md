@@ -5,10 +5,10 @@
 
 - **Core spec** (directives, modules, injection): [opforge_core_spec_v0_3b.md](opforge_core_spec_v0_3b.md)
 - **Executable mental model** (matching walkthrough): [opforge_executable_mental_model_v0_2b.md](opforge_executable_mental_model_v0_2b.md)
-- **45GS02 worked example** (real patterns): [opforge_45gs02_statement_dialect_example_v0_2b.md](opforge_45gs02_statement_dialect_example_v0_2b.md)
+- **45GS02 worked example** (real patterns): [opforge_45gs02_statement_dialect_example_v0_2.md](opforge_45gs02_statement_dialect_example_v0_2.md)
 
 ---
-*\10.2b*
+*v0.2b*
 
 ## Purpose
 
@@ -74,21 +74,24 @@ Typed captures bind values from the input stream to named parameters.
 Syntax:
 
 ``` asm
-<Type> <name>
+<Type>:<name>
 ```
 
 Examples:
 
 ``` asm
-byte a
-word addr
-char reg
-str label
+byte:a
+word:addr
+char:reg
+str:label
 ```
 
 Semantics: - the capture consumes input according to its type - the
 captured value is bound to `<name>` - failure to capture means the
-signature does not match
+signature does not match.
+
+Literal commas **must be quoted** in signatures (use `","`). Unquoted
+commas are rejected.
 
 ------------------------------------------------------------------------
 
@@ -102,7 +105,7 @@ literal token adjacency
 Example:
 
 ``` asm
-.statement sta "[" int a "],"[{char reg}]
+.statement sta "[" byte:a ","[{char:reg}]
 ```
 
 Matches:
@@ -124,7 +127,7 @@ Inside `[{ ... }]`, whitespace is literal.
 ### Basic Addressing Mode
 
 ``` asm
-.statement sta "[" int a "]"
+.statement sta "[" byte:a "]"
   encode STA_PTR32 a
 .endstatement
 ```
@@ -138,7 +141,7 @@ Matches:
 ### Addressing Mode with Register Suffix
 
 ``` asm
-.statement sta "[" int a "],"[{char reg}]
+.statement sta "[" byte:a ","[{char:reg}]
   .match reg
     'x' => { encode STA_PTR32_X a }
     'y' => { encode STA_PTR32_Y a }
@@ -153,23 +156,20 @@ Matches:
 
 ------------------------------------------------------------------------
 
-## Keyword Parameterization
+## Statement Labels With Dots
 
-The statement keyword itself may be parameterized.
+The statement label may include dots (e.g. `move.b`, `move.l`).
 
 Example:
 
 ``` asm
-.statement move.[{char size}] reg dst, reg src
+.statement move.b char:dst[{byte:dstnum}] "," char:src[{byte:srcnum}]
 ```
-
 Matches:
 
-    move.b d0, d1
-    move.w d0, d1
-    move.l d0, d1
+  move.b d0, d1
 
-The captured `size` parameter is available inside the body.
+The captured parameters are available inside the body.
 
 ------------------------------------------------------------------------
 
@@ -180,7 +180,7 @@ ADT variants automatically act as capture types (later phase).
 ``` asm
 .type Size = | b | w | l
 
-.statement move.[{Size size}] reg dst, reg src
+.statement move.b char:dst "," char:src
 ```
 
 Semantics: - only `b`, `w`, or `l` will match - invalid sizes fail
@@ -282,8 +282,8 @@ It allows opForge users to define *new statements that feel native*.
 
 In typical usage, `.statement` patterns defined by a **dialect** map syntax to **CPU-defined tokens**:
 
-```asm
-.statement sta "[" int zp "],y"
+``` asm
+.statement sta "["[{byte:zp}]"],y"
   emit TOK_STA_ZP_PTR32_Y(zp)
 .endstatement
 ```

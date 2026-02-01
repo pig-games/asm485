@@ -167,7 +167,7 @@ Encoding is expressed by lowering CPU-defined tokens to bytes (and relocations) 
 ### Syntax statements call encoders
 
 ``` asm
-.statement sta "[" int zp "]"
+.statement sta "[" byte:zp "]"
   emit TOK_STA_ZP_PTR32(zp)
 .endstatement
 ```

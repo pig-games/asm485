@@ -65,7 +65,7 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 **Spec targets**
 - `.statement <keyword> <signature...>` / `.endstatement`
 - Statements invoked without leading dot (keyword in statement position).
-- Keyword parameterization (e.g. `move.[{char size}] ...`).
+- Statement labels may include dots (e.g. `move.b`, `move.l`).
 
 **Decisions**
 - Local `.statement` definitions override built-in instructions and less-local `.statement` definitions.
@@ -77,7 +77,7 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 ### B2. Signature atoms
 **Spec targets**
 - Literal tokens (quoted strings) match exactly.
-- Typed captures: `<Type> <name>`
+- Typed captures: `<Type>:<name>`
 - Boundary-controlled spans: `[{ ... }]` enforce adjacency/whitespace rules.
 
 **Decisions**
@@ -85,6 +85,7 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - Literal token matching is case-insensitive by default.
   - Optional future extension: a prefix to force case-sensitive matching (regex-style prefix).
 - Boundary spans `[{ ... }]` cannot be nested in v0.2.
+- Literal commas must be quoted in signatures (use `","`).
 
 **Acceptance criteria**
 - Matching succeeds/fails strictly per literals/typed captures/boundary spans.
@@ -155,9 +156,9 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - [x] Parse `.segment` definitions using macro-like surface syntax in [src/core/parser.rs](src/core/parser.rs).
 - [x] Normalize macro/segment definitions and calls in [src/core/macro_processor.rs](src/core/macro_processor.rs).
 - [x] Enforce “no nested `.macro`/`.segment`” in [src/core/parser.rs](src/core/parser.rs).
-- [ ] Add `.statement` expansion support to the macro/segment expansion pipeline in [src/core/macro_processor.rs](src/core/macro_processor.rs).
-- [ ] Emit `.statement` bodies at the call site with capture substitution in [src/assembler/mod.rs](src/assembler/mod.rs).
-- [ ] Add example + reference outputs demonstrating `.statement` expansion in [examples/*.asm](examples) and [examples/reference/*](examples/reference).
+- [x] Add `.statement` expansion support to the macro/segment expansion pipeline in [src/core/macro_processor.rs](src/core/macro_processor.rs).
+- [x] Emit `.statement` bodies at the call site with capture substitution in [src/assembler/mod.rs](src/assembler/mod.rs).
+- [x] Add example + reference outputs demonstrating `.statement` expansion in [examples/*.asm](examples) and [examples/reference/*](examples/reference).
 
 ### Stage 2 — `.statement` signature parsing
 - [x] Define `StatementSignature` atoms (literal/capture/boundary span) in [src/core/parser.rs](src/core/parser.rs).

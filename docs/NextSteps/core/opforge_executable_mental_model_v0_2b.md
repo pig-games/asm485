@@ -111,7 +111,7 @@ Signature atoms may be:
 ### Example signature
 
 ``` asm
-.statement sta "[" int a "],"[{char reg}]
+.statement sta "[" byte:a ","[{char:reg}]
 ```
 
 Matching proceeds atom-by-atom:
@@ -120,10 +120,10 @@ Matching proceeds atom-by-atom:
   ---------------- -------------- ---------------------
   `sta`            `sta`          match
   `"["`            `[`            match
-  `int a`          `0x30`         capture `a = 0x30`
+  `byte:a`         `0x30`         capture `a = 0x30`
   `"]"`            `]`            match
   `","`            `,`            match
-  `[{char reg}]`   `y`            capture `reg = 'y'`
+  `[{char:reg}]`   `y`            capture `reg = 'y'`
 
 If all atoms match and the input is fully consumed → **signature
 matches**.
