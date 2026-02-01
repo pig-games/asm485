@@ -162,8 +162,8 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - [x] Represent boundary spans `[{ ... }]` in [src/core/parser.rs](src/core/parser.rs).
 
 ### Stage 3 — Signature matching + precedence
-- [ ] Implement signature matching and precedence rules in [src/core/parser.rs](src/core/parser.rs).
-- [ ] Bind typed captures into `.statement` scope in [src/core/parser.rs](src/core/parser.rs).
+- [x] Implement signature matching and precedence rules in [src/core/parser.rs](src/core/parser.rs).
+- [x] Bind typed captures into `.statement` scope in [src/core/parser.rs](src/core/parser.rs).
 - [ ] Add diagnostics for ambiguous/non-matching signatures in [src/core/parser_reporter.rs](src/core/parser_reporter.rs).
 
 ### Stage 4 — Capture type handling (phase 1 subset)
