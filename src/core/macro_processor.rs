@@ -93,6 +93,8 @@ impl MacroError {
 struct MacroParam {
     name: Option<String>,
     default: Option<String>,
+    #[allow(dead_code)]
+    type_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -163,10 +165,10 @@ impl MacroProcessor {
             let line_num = idx as u32 + 1;
             let (code, _) = split_comment(line);
 
-            if let Some((name, params, kind)) = parse_macro_def_line(&code) {
+            if let Some((name, params, kind)) = parse_macro_def_line(&code, line_num)? {
                 if current.is_some() {
                     return Err(MacroError::new(
-                        "Nested .macro definitions are not supported",
+                        "Nested .macro/.segment definitions are not supported",
                         Some(line_num),
                         Some(1),
                     ));
@@ -224,7 +226,7 @@ impl MacroProcessor {
                 continue;
             }
 
-            if let Some(inv) = parse_macro_invocation(&code, &self.macros) {
+            if let Some(inv) = parse_macro_invocation(&code, &self.macros, line_num)? {
                 let def = self
                     .macros
                     .get(&to_upper(&inv.name))
@@ -274,23 +276,56 @@ impl MacroProcessor {
     }
 }
 
-fn parse_macro_def_line(code: &str) -> Option<(String, String, MacroKind)> {
+fn parse_macro_def_line(code: &str, line_num: u32) -> Result<Option<(String, String, MacroKind)>, MacroError> {
     let (label, idx, _) = parse_label(code);
     let mut cursor = Cursor::with_pos(code, idx);
     cursor.skip_ws();
     if cursor.peek() != Some(b'.') {
-        return None;
+        return Ok(None);
     }
     cursor.next();
     cursor.skip_ws();
-    let directive = cursor.take_ident()?.to_ascii_uppercase();
+    let directive = match cursor.take_ident() {
+        Some(name) => name.to_ascii_uppercase(),
+        None => return Ok(None),
+    };
     let kind = match directive.as_str() {
         "MACRO" => MacroKind::Macro,
         "SEGMENT" => MacroKind::Segment,
-        _ => return None,
+        _ => return Ok(None),
     };
-    let params = code[cursor.pos()..].trim().to_string();
-    Some((label.unwrap_or_default(), params, kind))
+    cursor.skip_ws();
+
+    if let Some(name) = label {
+        let params = code[cursor.pos()..].trim().to_string();
+        return Ok(Some((name, params, kind)));
+    }
+
+    let name = cursor.take_ident().ok_or_else(|| {
+        MacroError::new(
+            "Macro name is required after directive",
+            Some(line_num),
+            Some(cursor.pos() + 1),
+        )
+    })?;
+    cursor.skip_ws();
+
+    let params = if cursor.peek() == Some(b'(') {
+        let (inside, end_pos) = extract_paren_list(code, cursor.pos(), line_num)?;
+        let rest = code[end_pos..].trim();
+        if !rest.is_empty() {
+            return Err(MacroError::new(
+                "Unexpected tokens after macro parameter list",
+                Some(line_num),
+                Some(end_pos + 1),
+            ));
+        }
+        inside
+    } else {
+        code[cursor.pos()..].trim().to_string()
+    };
+
+    Ok(Some((name, params, kind)))
 }
 
 fn parse_macro_end_line(code: &str) -> Option<MacroKind> {
@@ -313,39 +348,73 @@ fn parse_macro_end_line(code: &str) -> Option<MacroKind> {
     }
 }
 
-fn parse_macro_invocation(code: &str, macros: &HashMap<String, MacroDef>) -> Option<MacroInvocation> {
+fn parse_macro_invocation(
+    code: &str,
+    macros: &HashMap<String, MacroDef>,
+    line_num: u32,
+) -> Result<Option<MacroInvocation>, MacroError> {
     let (label, idx, indent) = parse_label(code);
     let mut cursor = Cursor::with_pos(code, idx);
     cursor.skip_ws();
-    cursor.peek()?;
+    if cursor.peek().is_none() {
+        return Ok(None);
+    }
     match cursor.peek() {
         Some(b'.') => {
             cursor.next();
         }
-        _ => return None,
+        _ => return Ok(None),
     }
     if cursor.peek().is_none() || !is_ident_start(cursor.peek().unwrap()) {
-        return None;
+        return Ok(None);
     }
-    let name = cursor.take_ident()?;
+    let Some(name) = cursor.take_ident() else {
+        return Ok(None);
+    };
     if !macros.contains_key(&to_upper(&name)) {
         // If macro doesn't exist, return None to let the line pass through.
-        return None;
+        return Ok(None);
     }
 
-    let mut rest = code[cursor.pos()..].to_string();
-    if rest.starts_with(',') {
-        rest = rest[1..].to_string();
+    let mut pos = cursor.pos();
+    while code.as_bytes().get(pos).is_some_and(|c| is_space(*c)) {
+        pos += 1;
     }
-    let full_list = rest.trim_start().to_string();
-    let args = parse_macro_args(&full_list);
-    Some(MacroInvocation {
+
+    let (full_list, end_pos) = if code.as_bytes().get(pos) == Some(&b'(') {
+        let (inside, end_pos) = extract_paren_list(code, pos, line_num)?;
+        (inside, end_pos)
+    } else {
+        let mut rest = code[pos..].trim_start().to_string();
+        if rest.starts_with(',') {
+            rest = rest[1..].trim_start().to_string();
+            if rest.is_empty() {
+                return Err(MacroError::new(
+                    "Empty macro argument list",
+                    Some(line_num),
+                    Some(pos + 1),
+                ));
+            }
+        }
+        (rest, code.len())
+    };
+
+    if end_pos < code.len() && !code[end_pos..].trim().is_empty() {
+        return Err(MacroError::new(
+            "Unexpected tokens after macro argument list",
+            Some(line_num),
+            Some(end_pos + 1),
+        ));
+    }
+
+    let args = parse_macro_args(&full_list, line_num)?;
+    Ok(Some(MacroInvocation {
         label,
         name,
         args,
         full_list,
         indent,
-    })
+    }))
 }
 
 fn build_macro_args(def: &MacroDef, inv: &MacroInvocation) -> MacroArgs {
@@ -397,8 +466,11 @@ fn parse_macro_params(text: &str, line_num: u32) -> Result<Vec<MacroParam>, Macr
     for part in parts {
         let spec = part.trim();
         if spec.is_empty() {
-            params.push(MacroParam { name: None, default: None });
-            continue;
+            return Err(MacroError::new(
+                "Macro parameter cannot be empty",
+                Some(line_num),
+                None,
+            ));
         }
         let (name, default) = if let Some((left, right)) = spec.split_once('=') {
             (left.trim(), Some(right.trim().to_string()))
@@ -412,7 +484,28 @@ fn parse_macro_params(text: &str, line_num: u32) -> Result<Vec<MacroParam>, Macr
                 None,
             ));
         }
-        if !is_valid_ident(name) {
+        let mut parts = name.split_whitespace().collect::<Vec<_>>();
+        let (type_name, param_name) = match parts.len() {
+            1 => (None, parts.remove(0)),
+            2 => (Some(parts.remove(0)), parts.remove(0)),
+            _ => {
+                return Err(MacroError::new(
+                    "Invalid macro parameter format",
+                    Some(line_num),
+                    None,
+                ))
+            }
+        };
+        if let Some(t) = type_name {
+            if !is_valid_ident(t) {
+                return Err(MacroError::new(
+                    "Invalid macro parameter type",
+                    Some(line_num),
+                    None,
+                ));
+            }
+        }
+        if !is_valid_ident(param_name) {
             return Err(MacroError::new(
                 "Invalid macro parameter name",
                 Some(line_num),
@@ -420,19 +513,32 @@ fn parse_macro_params(text: &str, line_num: u32) -> Result<Vec<MacroParam>, Macr
             ));
         }
         params.push(MacroParam {
-            name: Some(name.to_string()),
+            name: Some(param_name.to_string()),
             default,
+            type_name: type_name.map(|value| value.to_string()),
         });
     }
     Ok(params)
 }
 
-fn parse_macro_args(text: &str) -> Vec<String> {
+fn parse_macro_args(text: &str, line_num: u32) -> Result<Vec<String>, MacroError> {
     if text.trim().is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let parts = split_params(text);
-    parts.into_iter().map(|s| s.trim().to_string()).collect()
+    let mut out = Vec::new();
+    for part in parts {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            return Err(MacroError::new(
+                "Macro argument cannot be empty",
+                Some(line_num),
+                None,
+            ));
+        }
+        out.push(trimmed.to_string());
+    }
+    Ok(out)
 }
 
 fn split_params(text: &str) -> Vec<String> {
@@ -440,9 +546,11 @@ fn split_params(text: &str) -> Vec<String> {
     let mut current = String::new();
     let mut in_single = false;
     let mut in_double = false;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut brace_depth = 0usize;
     let bytes = text.as_bytes();
     let mut i = 0usize;
-    let mut saw_sep = false;
     while i < bytes.len() {
         let c = bytes[i] as char;
         match c {
@@ -459,10 +567,27 @@ fn split_params(text: &str) -> Vec<String> {
             '"' if !in_single => {
                 in_double = !in_double;
             }
-            ',' if !in_single && !in_double => {
+            '(' if !in_single && !in_double => {
+                paren_depth += 1;
+            }
+            ')' if !in_single && !in_double => {
+                paren_depth = paren_depth.saturating_sub(1);
+            }
+            '[' if !in_single && !in_double => {
+                bracket_depth += 1;
+            }
+            ']' if !in_single && !in_double => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+            }
+            '{' if !in_single && !in_double => {
+                brace_depth += 1;
+            }
+            '}' if !in_single && !in_double => {
+                brace_depth = brace_depth.saturating_sub(1);
+            }
+            ',' if !in_single && !in_double && paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
                 out.push(current.clone());
                 current.clear();
-                saw_sep = true;
                 i += 1;
                 continue;
             }
@@ -471,10 +596,55 @@ fn split_params(text: &str) -> Vec<String> {
         current.push(c);
         i += 1;
     }
-    if !current.is_empty() || saw_sep {
-        out.push(current);
-    }
+    out.push(current);
     out
+}
+
+fn extract_paren_list(code: &str, start: usize, line_num: u32) -> Result<(String, usize), MacroError> {
+    let bytes = code.as_bytes();
+    if bytes.get(start) != Some(&b'(') {
+        return Err(MacroError::new(
+            "Expected '(' to start argument list",
+            Some(line_num),
+            Some(start + 1),
+        ));
+    }
+    let mut i = start + 1;
+    let mut depth = 1usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        match c {
+            '\\' if (in_single || in_double) && i + 1 < bytes.len() => {
+                i += 2;
+                continue;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+            }
+            '(' if !in_single && !in_double => {
+                depth += 1;
+            }
+            ')' if !in_single && !in_double => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let inner = code[start + 1..i].to_string();
+                    return Ok((inner, i + 1));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Err(MacroError::new(
+        "Unterminated argument list",
+        Some(line_num),
+        Some(start + 1),
+    ))
 }
 
 fn substitute_line(line: &str, args: &MacroArgs) -> String {
@@ -669,5 +839,37 @@ mod tests {
         assert!(out.contains(&"    .byte 7".to_string()));
         assert!(!out.iter().any(|line| line.trim() == ".block"));
         assert!(!out.iter().any(|line| line.trim() == ".endblock"));
+    }
+
+    #[test]
+    fn expands_directive_first_macro_with_paren_call() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            ".macro COPY(src, dst)".to_string(),
+            "    lda \\src".to_string(),
+            "    sta \\dst".to_string(),
+            ".endmacro".to_string(),
+            "    .COPY($12, $34)".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.iter().any(|line| line.trim() == ".block"));
+        assert!(out.contains(&"    lda $12".to_string()));
+        assert!(out.contains(&"    sta $34".to_string()));
+        assert!(out.iter().any(|line| line.trim() == ".endblock"));
+    }
+
+    #[test]
+    fn expands_zero_arg_macro_with_and_without_parens() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            "PING .macro".to_string(),
+            "    .byte 1".to_string(),
+            ".endmacro".to_string(),
+            "    .PING".to_string(),
+            "    .PING()".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.iter().any(|line| line.trim() == ".block"));
+        assert!(out.iter().filter(|line| line.trim() == ".byte 1").count() >= 2);
     }
 }

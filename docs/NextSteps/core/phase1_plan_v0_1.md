@@ -125,9 +125,9 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - [ ] Allow macro and segment definition/call alternate syntax forms.
 
 ### Macro Processor
-- [ ] Normalize macro definition forms to a single internal representation.
-- [ ] Normalize macro call forms to a single internal representation.
-- [ ] Ensure `.segment` participates in the same expansion pipeline as `.macro`.
+- [x] Normalize macro definition forms to a single internal representation.
+- [x] Normalize macro call forms to a single internal representation.
+- [x] Ensure `.segment` participates in the same expansion pipeline as `.macro`.
 
 ### AST / Core Structures
 - [ ] Add `StatementSignature` node with atoms (literal/capture/boundary span).
@@ -153,7 +153,7 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - [ ] Parse name-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
 - [ ] Parse directive-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
 - [ ] Parse `.segment` definitions using macro-like surface syntax in [src/core/parser.rs](src/core/parser.rs).
-- [ ] Normalize macro/segment definitions and calls in [src/core/macro_processor.rs](src/core/macro_processor.rs).
+- [x] Normalize macro/segment definitions and calls in [src/core/macro_processor.rs](src/core/macro_processor.rs).
 - [ ] Enforce “no nested `.macro`/`.segment`” in [src/core/parser.rs](src/core/parser.rs).
 
 ### Stage 2 — `.statement` signature parsing
