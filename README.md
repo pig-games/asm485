@@ -7,6 +7,9 @@ It was originally based on a fork of [**asm85** by Tom Nisbet](https://github.co
 It is now more inspired by [64tass](https://tass64.sourceforge.net) in terms of features and notational style.
 It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
 
+It also supports patterned `.statement` definitions for custom statement syntax, with typed captures using
+`type:name` and quoted literal commas (use `","`). Statement labels may include dots (e.g. `move.b`).
+
 For all documentation on features and syntax read: [opForge Reference Manual](docs/opForge-reference-manual.md).
 
 For detailed information about the multi-cpu architecture of the assembler read:

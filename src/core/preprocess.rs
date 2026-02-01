@@ -757,8 +757,10 @@ fn parse_asm_macro_directive(trimmed: &str) -> Option<AsmMacroDirective> {
     cursor.skip_ws();
     let directive = cursor.take_ident()?.to_ascii_uppercase();
     match directive.as_str() {
-        "MACRO" | "SEGMENT" => Some(AsmMacroDirective::Start),
-        "ENDMACRO" | "ENDM" | "ENDSEGMENT" | "ENDS" => Some(AsmMacroDirective::End),
+        "MACRO" | "SEGMENT" | "STATEMENT" => Some(AsmMacroDirective::Start),
+        "ENDMACRO" | "ENDM" | "ENDSEGMENT" | "ENDS" | "ENDSTATEMENT" => {
+            Some(AsmMacroDirective::End)
+        }
         _ => None,
     }
 }

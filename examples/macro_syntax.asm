@@ -3,17 +3,17 @@
         .org 2000h
 
 COPY .macro src, dst
-        lda \src
-        sta \dst
+        lda .src
+        sta .dst
 .endmacro
 
 PAIR .macro a, b=2
-        .byte \a, \b
+        .byte .a, .b
 .endmacro
 
 TEXT .macro msg
         .byte @1
-        .word \@
+        .word .@
 .endmacro
 
 LOCAL .macro
@@ -21,7 +21,7 @@ local   .const 9
 .endmacro
 
 INLINE .segment val
-        .byte \val
+        .byte .val
 .endsegment
 
         .COPY $12, $34

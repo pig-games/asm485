@@ -40,19 +40,19 @@ LABELSE:.else
                 .byte 11
 LABEND: .endif
 
-; switch/case/default
-        .switch 2
+; match/case/default
+        .match 2
         .case 1
                 .byte 12
         .case 2, 3
                 .byte 13
         .default
                 .byte 14
-        .endswitch
+        .endmatch
 
-        .switch 9
+        .match 9
         .case 1, 2
                 .byte 15
         .default
                 .byte 16
-        .endswitch
+        .endmatch

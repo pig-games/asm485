@@ -1,0 +1,32 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Macro and segment syntax example
+----                                2  ; Demonstrates directive-first and name-first macro forms,
+----                                3  ; parenthesized macro calls, and segment symbol visibility.
+----                                4  
+----                                5          .cpu 8085
+----    EQU 2000                    6          .org $2000
+----                                7  
+----                                8  
+----                                9  
+----                               10  
+----                               11          .block
+2000    01 02                      12          .byte 1, 2
+----                               13          .endblock
+----                               14          .block
+2002    03                         15          .byte 3
+----                               16          .endblock
+----    EQU 0007                   17  VAL     .const 7
+2003    07                         18          .byte 7
+2004    07 00                      19          .word VAL
+----                               20  
+----                               21          .end
+
+Lines: 21  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+VAL             : 0007 (7)
+
+Total memory is 6 bytes

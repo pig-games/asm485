@@ -1,0 +1,19 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Demonstrate statement capture types.
+----                                2  
+----                                3  
+----                                4  
+----                                5  
+----                                6  
+----                                7  start:
+0000    00                          8      nop
+
+Lines: 8  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0000 (0)
+
+Total memory is 1 bytes

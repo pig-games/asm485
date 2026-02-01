@@ -54,6 +54,10 @@ pub enum TokenKind {
     Dot,
     Hash,
     Question,
+    OpenBracket,
+    CloseBracket,
+    OpenBrace,
+    CloseBrace,
     OpenParen,
     CloseParen,
     Operator(OperatorKind),
@@ -179,6 +183,34 @@ impl<'a> Tokenizer<'a> {
                 self.cursor += 1;
                 Ok(Token {
                     kind: TokenKind::Question,
+                    span: Span::new(self.line_num, start, self.cursor),
+                })
+            }
+            b'[' => {
+                self.cursor += 1;
+                Ok(Token {
+                    kind: TokenKind::OpenBracket,
+                    span: Span::new(self.line_num, start, self.cursor),
+                })
+            }
+            b']' => {
+                self.cursor += 1;
+                Ok(Token {
+                    kind: TokenKind::CloseBracket,
+                    span: Span::new(self.line_num, start, self.cursor),
+                })
+            }
+            b'{' => {
+                self.cursor += 1;
+                Ok(Token {
+                    kind: TokenKind::OpenBrace,
+                    span: Span::new(self.line_num, start, self.cursor),
+                })
+            }
+            b'}' => {
+                self.cursor += 1;
+                Ok(Token {
+                    kind: TokenKind::CloseBrace,
                     span: Span::new(self.line_num, start, self.cursor),
                 })
             }
@@ -559,6 +591,18 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_string_literal_with_escaped_quote() {
+        let mut tok = Tokenizer::new("DB \"A\\\"B\"", 1);
+        let _ = tok.next_token().unwrap();
+        let lit = tok.next_token().unwrap();
+        if let TokenKind::String(lit) = lit.kind {
+            assert_eq!(lit.bytes, vec![b'A', b'\"', b'B']);
+        } else {
+            panic!("Expected string literal token");
+        }
+    }
+
+    #[test]
     fn tokenizes_conditionals() {
         let mut tok = Tokenizer::new(".if 1", 1);
         let t = tok.next_token().unwrap();
@@ -583,5 +627,14 @@ mod tests {
         let _ = tok.next_token().unwrap();
         let t = tok.next_token().unwrap();
         assert!(matches!(t.kind, TokenKind::Number(_)));
+    }
+
+    #[test]
+    fn tokenizes_brackets_and_braces() {
+        let mut tok = Tokenizer::new("[{ } ]", 1);
+        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::OpenBracket));
+        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::OpenBrace));
+        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::CloseBrace));
+        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::CloseBracket));
     }
 }

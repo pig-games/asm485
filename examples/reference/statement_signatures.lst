@@ -1,0 +1,17 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Demonstrate statement signature syntax.
+----                                2  
+----                                3  
+----                                4  
+----                                5  start:
+0000    00                          6      nop
+
+Lines: 6  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0000 (0)
+
+Total memory is 1 bytes

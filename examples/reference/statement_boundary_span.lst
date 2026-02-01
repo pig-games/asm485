@@ -1,0 +1,18 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Boundary span example for .statement signatures
+----                                2  
+----                                3          .cpu 8085
+----    EQU 2000                    4          .org $2000
+----                                5  
+----                                6  
+2000    01                          7          .byte 1
+----                                8          .end
+
+Lines: 8  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 1 bytes

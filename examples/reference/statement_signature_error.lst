@@ -1,0 +1,15 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Statement signature error scenario.
+----                                2  
+----                                3  .statement sta "[" byte:a ","[{char:reg}
+    3 | .statement sta "[" byte:a ","[{char:reg[31m}[0m
+ERROR: Missing closing }]
+
+Lines: 3  Errors: 1  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 0 bytes

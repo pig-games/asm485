@@ -461,6 +461,7 @@ struct AsmLine<'a> {
     label: Option<String>,
     mnemonic: Option<String>,
     cpu: CpuType,
+    statement_depth: usize,
 }
 
 impl<'a> AsmLine<'a> {
@@ -487,6 +488,7 @@ impl<'a> AsmLine<'a> {
             label: None,
             mnemonic: None,
             cpu,
+            statement_depth: 0,
         }
     }
 
@@ -659,10 +661,47 @@ impl<'a> AsmLine<'a> {
     }
 
     fn process_ast(&mut self, ast: LineAst) -> LineStatus {
+        if self.statement_depth > 0 {
+            return match ast {
+                LineAst::StatementEnd { .. } => {
+                    self.statement_depth = self.statement_depth.saturating_sub(1);
+                    LineStatus::Skip
+                }
+                LineAst::StatementDef { span, .. } => {
+                    self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Parser,
+                        "Nested .statement definitions are not supported",
+                        None,
+                        span,
+                    )
+                }
+                _ => LineStatus::Skip,
+            };
+        }
         match ast {
             LineAst::Empty => LineStatus::NothingDone,
             LineAst::Conditional { kind, exprs, span } => {
                 self.process_conditional_ast(kind, &exprs, span)
+            }
+            LineAst::StatementDef { .. } => {
+                if self.cond_stack.skipping() {
+                    return LineStatus::Skip;
+                }
+                self.statement_depth = self.statement_depth.saturating_add(1);
+                LineStatus::Skip
+            }
+            LineAst::StatementEnd { span } => {
+                if self.cond_stack.skipping() {
+                    return LineStatus::Skip;
+                }
+                self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Parser,
+                    "Found .endstatement without matching .statement",
+                    None,
+                    span,
+                )
             }
             LineAst::Assignment { label, op, expr, span } => {
                 if self.cond_stack.skipping() {
@@ -912,7 +951,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
-                        ".case found without matching .switch",
+                        ".case found without matching .match",
                         None,
                         expr_err_span,
                     );
@@ -923,7 +962,7 @@ impl<'a> AsmLine<'a> {
                         return self.failure_at_span(
                             LineStatus::Error,
                             AsmErrorKind::Conditional,
-                            ".case found without matching .switch",
+                            ".case found without matching .match",
                             None,
                             expr_err_span,
                         );
@@ -940,7 +979,7 @@ impl<'a> AsmLine<'a> {
                                 return self.failure_at_span(
                                     LineStatus::Error,
                                     AsmErrorKind::Conditional,
-                                    ".case found without matching .switch",
+                                    ".case found without matching .match",
                                     None,
                                     expr_err_span,
                                 );
@@ -952,7 +991,7 @@ impl<'a> AsmLine<'a> {
                         return self.failure_at_span(
                             LineStatus::Error,
                             AsmErrorKind::Conditional,
-                            ".case found without matching .switch",
+                            ".case found without matching .match",
                             None,
                             expr_err_span,
                         );
@@ -962,7 +1001,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
-                        ".case found without matching .switch",
+                        ".case found without matching .match",
                         None,
                         expr_err_span,
                     );
@@ -1014,7 +1053,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
-                        ".default found without matching .switch",
+                        ".default found without matching .match",
                         None,
                         end_span,
                     );
@@ -1025,7 +1064,7 @@ impl<'a> AsmLine<'a> {
                         return self.failure_at_span(
                             LineStatus::Error,
                             AsmErrorKind::Conditional,
-                            ".default found without matching .switch",
+                            ".default found without matching .match",
                             None,
                             end_span,
                         );
@@ -1039,7 +1078,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
-                        ".default found without matching .switch",
+                        ".default found without matching .match",
                         None,
                         end_span,
                     );
@@ -1099,7 +1138,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
-                        ".endswitch found without matching .switch",
+                        ".endmatch found without matching .match",
                         None,
                         err_span,
                     );
@@ -1114,7 +1153,7 @@ impl<'a> AsmLine<'a> {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
-                        ".endswitch found without matching .switch",
+                        ".endmatch found without matching .match",
                         None,
                         err_span,
                     );
@@ -2157,6 +2196,60 @@ mod tests {
     }
 
     #[test]
+    fn segment_symbols_visible_outside_definition() {
+        let lines = vec![
+            "MYSEG .segment".to_string(),
+            "VAL .const 3".to_string(),
+            ".endsegment".to_string(),
+            ".MYSEG".to_string(),
+            ".word VAL".to_string(),
+        ];
+        let mut mp = MacroProcessor::new();
+        let expanded_lines = mp.expand(&lines).expect("expand");
+
+        let mut assembler = Assembler::new();
+        assembler.clear_diagnostics();
+        let pass1 = assembler.pass1(&expanded_lines);
+        assert_eq!(pass1.errors, 0);
+        assert_eq!(assembler.symbols().lookup("VAL"), Some(3));
+    }
+
+    #[test]
+    fn statement_definitions_skip_body_lines() {
+        let lines = vec![
+            ".statement foo byte:a".to_string(),
+            "BADTOKEN".to_string(),
+            ".endstatement".to_string(),
+            ".byte 1".to_string(),
+        ];
+        let mut assembler = Assembler::new();
+        assembler.clear_diagnostics();
+        let pass1 = assembler.pass1(&lines);
+        assert_eq!(pass1.errors, 0);
+
+        let mut output = Vec::new();
+        let mut listing = ListingWriter::new(&mut output, false);
+        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
+        assert_eq!(pass2.errors, 0);
+    }
+
+    #[test]
+    fn statement_definition_rejects_unquoted_commas() {
+        let lines = vec![
+            ".statement move.b char:dst, char:src".to_string(),
+            ".endstatement".to_string(),
+        ];
+        let mut assembler = Assembler::new();
+        assembler.clear_diagnostics();
+        let _ = assembler.pass1(&lines);
+
+        let mut output = Vec::new();
+        let mut listing = ListingWriter::new(&mut output, false);
+        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
+        assert!(pass2.errors > 0);
+    }
+
+    #[test]
     fn qualified_symbol_resolves_outside_scope() {
         let mut symbols = SymbolTable::new();
         let registry = default_registry();
@@ -2643,7 +2736,7 @@ mod tests {
     }
 
     #[test]
-    fn switch_only_emits_matching_case() {
+    fn match_only_emits_matching_case() {
         let mut symbols = SymbolTable::new();
         let registry = default_registry();
         let mut asm = make_asm_line(&mut symbols, &registry);
@@ -2651,14 +2744,14 @@ mod tests {
         let mut out = Vec::new();
 
         let lines = [
-            "    .switch 2",
+            "    .match 2",
             "    .case 1",
             "    .byte 1",
             "    .case 2, 3",
             "    .byte 2",
             "    .default",
             "    .byte 9",
-            "    .endswitch",
+            "    .endmatch",
         ];
 
         for line in lines {

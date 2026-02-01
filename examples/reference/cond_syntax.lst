@@ -43,22 +43,22 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               40                  .byte 11
 ----                               41  LABEND: .endif
 ----                               42  
-----                               43  ; switch/case/default
-----                               44          .switch 2
+----                               43  ; match/case/default
+----                               44          .match 2
 ----                               45          .case 1
 ----                               46                  .byte 12
 ----                               47          .case 2, 3
 2004    0D                         48                  .byte 13
 ----                               49          .default
 ----                               50                  .byte 14
-----                               51          .endswitch
+----                               51          .endmatch
 ----                               52  
-----                               53          .switch 9
+----                               53          .match 9
 ----                               54          .case 1, 2
 ----                               55                  .byte 15
 ----                               56          .default
 2005    10                         57                  .byte 16
-----                               58          .endswitch
+----                               58          .endmatch
 
 Lines: 58  Errors: 0  Warnings: 0
 

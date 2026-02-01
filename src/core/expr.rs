@@ -251,6 +251,16 @@ pub fn parse_number(text: &str) -> Option<i64> {
     Some(if is_neg { -val } else { val })
 }
 
+/// Returns true if the value fits in an unsigned 8-bit byte.
+pub fn value_fits_byte(value: i64) -> bool {
+    (0..=0xff).contains(&value)
+}
+
+/// Returns true if the value fits in an unsigned 16-bit word.
+pub fn value_fits_word(value: i64) -> bool {
+    (0..=0xffff).contains(&value)
+}
+
 /// Simple evaluation context that wraps a symbol table lookup function.
 pub struct SimpleEvalContext<F>
 where
@@ -365,6 +375,22 @@ mod tests {
         assert_eq!(parse_number("1_000"), Some(1000));
         assert_eq!(parse_number("0xFF_FF"), Some(0xFFFF));
         assert_eq!(parse_number("0b1010_1010"), Some(0xAA));
+    }
+
+    #[test]
+    fn value_fits_byte_range() {
+        assert!(value_fits_byte(0));
+        assert!(value_fits_byte(255));
+        assert!(!value_fits_byte(256));
+        assert!(!value_fits_byte(-1));
+    }
+
+    #[test]
+    fn value_fits_word_range() {
+        assert!(value_fits_word(0));
+        assert!(value_fits_word(65535));
+        assert!(!value_fits_word(65536));
+        assert!(!value_fits_word(-1));
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 // Parser for tokenized assembly source.
 
+use crate::core::expr::{parse_number, value_fits_byte, value_fits_word};
 use crate::core::text_utils::is_ident_start;
 use crate::core::tokenizer::{
     ConditionalKind, OperatorKind, Span, Token, TokenKind, TokenizeError, Tokenizer,
@@ -20,6 +21,14 @@ pub enum LineAst {
     Conditional {
         kind: ConditionalKind,
         exprs: Vec<Expr>,
+        span: Span,
+    },
+    StatementDef {
+        keyword: String,
+        signature: StatementSignature,
+        span: Span,
+    },
+    StatementEnd {
         span: Span,
     },
     Assignment {
@@ -74,6 +83,36 @@ pub enum Expr {
         right: Box<Expr>,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct StatementSignature {
+    pub atoms: Vec<SignatureAtom>,
+}
+
+#[derive(Debug, Clone)]
+pub enum SignatureAtom {
+    Literal(Vec<u8>, Span),
+    Capture {
+        type_name: String,
+        name: String,
+        span: Span,
+    },
+    Boundary {
+        atoms: Vec<SignatureAtom>,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct StatementCapture {
+    pub name: String,
+    pub tokens: Vec<Token>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StatementMatch {
+    pub captures: Vec<StatementCapture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,15 +373,76 @@ impl Parser {
                 }
             };
             let upper = name.to_ascii_uppercase();
+            if upper.as_str() == "STATEMENT" {
+                let start_span = span;
+                let keyword = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        ..
+                    }) => name,
+                    Some(Token {
+                        kind: TokenKind::Register(name),
+                        ..
+                    }) => name,
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected statement keyword".to_string(),
+                            span: token.span,
+                        });
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected statement keyword".to_string(),
+                            span: self.end_span,
+                        });
+                    }
+                };
+                let signature = self.parse_statement_signature(false)?;
+                let end_span = if self.index == 0 {
+                    self.end_span
+                } else {
+                    self.prev_span()
+                };
+                let span = Span {
+                    line: start_span.line,
+                    col_start: start_span.col_start,
+                    col_end: end_span.col_end,
+                };
+                return Ok(LineAst::StatementDef {
+                    keyword,
+                    signature,
+                    span,
+                });
+            }
+            if upper.as_str() == "ENDSTATEMENT" {
+                if self.index < self.tokens.len() {
+                    return Err(ParseError {
+                        message: "Unexpected tokens after .endstatement".to_string(),
+                        span: self.tokens[self.index].span,
+                    });
+                }
+                return Ok(LineAst::StatementEnd { span });
+            }
+            if matches!(
+                upper.as_str(),
+                "MACRO" | "SEGMENT" | "ENDMACRO" | "ENDSEGMENT" | "ENDM" | "ENDS"
+            ) {
+                self.index = self.tokens.len();
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic: Some(format!(".{name}")),
+                    operands: Vec::new(),
+                });
+            }
             let (kind, needs_expr, list_exprs) = match upper.as_str() {
                 "IF" => (ConditionalKind::If, true, false),
                 "ELSEIF" => (ConditionalKind::ElseIf, true, false),
                 "ELSE" => (ConditionalKind::Else, false, false),
                 "ENDIF" => (ConditionalKind::EndIf, false, false),
-                "SWITCH" => (ConditionalKind::Switch, true, false),
+                "MATCH" => (ConditionalKind::Switch, true, false),
                 "CASE" => (ConditionalKind::Case, true, true),
                 "DEFAULT" => (ConditionalKind::Default, false, false),
-                "ENDSWITCH" => (ConditionalKind::EndSwitch, false, false),
+                "ENDMATCH" => (ConditionalKind::EndSwitch, false, false),
                 _ => {
                     let mut operands = Vec::new();
                     if self.index < self.tokens.len() {
@@ -565,6 +665,129 @@ impl Parser {
             }
             _ => None,
         }
+    }
+
+    fn parse_statement_signature(&mut self, in_boundary: bool) -> Result<StatementSignature, ParseError> {
+        let mut atoms = Vec::new();
+        let mut closed = !in_boundary;
+        while self.index < self.tokens.len() {
+            if in_boundary
+                && self.peek_kind(TokenKind::CloseBrace)
+                && self.peek_kind_next(TokenKind::CloseBracket)
+            {
+                self.index += 2;
+                closed = true;
+                break;
+            }
+
+            if in_boundary && self.peek_kind(TokenKind::CloseBrace) {
+                let token = self.next().expect("token");
+                return Err(ParseError {
+                    message: "Missing closing }]".to_string(),
+                    span: token.span,
+                });
+            }
+
+            if self.peek_kind(TokenKind::OpenBracket)
+                && self.peek_kind_next(TokenKind::OpenBrace)
+            {
+                let open_span = self.tokens[self.index].span;
+                self.index += 2;
+                let inner = self.parse_statement_signature(true)?;
+                let close_span = self.prev_span();
+                let span = Span {
+                    line: open_span.line,
+                    col_start: open_span.col_start,
+                    col_end: close_span.col_end,
+                };
+                atoms.push(SignatureAtom::Boundary {
+                    atoms: inner.atoms,
+                    span,
+                });
+                continue;
+            }
+
+            let token = self.next().ok_or(ParseError {
+                message: "Unexpected end of statement signature".to_string(),
+                span: self.end_span,
+            })?;
+            match token.kind {
+                TokenKind::String(lit) => {
+                    atoms.push(SignatureAtom::Literal(lit.bytes, token.span));
+                }
+                TokenKind::Dot => {
+                    atoms.push(SignatureAtom::Literal(vec![b'.'], token.span));
+                }
+                TokenKind::Comma => {
+                    return Err(ParseError {
+                        message: "Commas must be quoted in statement signatures".to_string(),
+                        span: token.span,
+                    });
+                }
+                TokenKind::Identifier(type_name) | TokenKind::Register(type_name) => {
+                    if !is_valid_capture_type(&type_name) {
+                        return Err(ParseError {
+                            message: format!("Unknown statement capture type: {type_name}"),
+                            span: token.span,
+                        });
+                    }
+                    let colon = self.next().ok_or(ParseError {
+                        message: "Expected ':' after capture type".to_string(),
+                        span: self.end_span,
+                    })?;
+                    if !matches!(colon.kind, TokenKind::Colon) {
+                        return Err(ParseError {
+                            message: "Expected ':' after capture type".to_string(),
+                            span: colon.span,
+                        });
+                    }
+                    let next = self.next().ok_or(ParseError {
+                        message: "Expected capture name after type".to_string(),
+                        span: self.end_span,
+                    })?;
+                    let name = match next.kind {
+                        TokenKind::Identifier(name) | TokenKind::Register(name) => name,
+                        _ => {
+                            return Err(ParseError {
+                                message: "Expected capture name after type".to_string(),
+                                span: next.span,
+                            });
+                        }
+                    };
+                    let span = Span {
+                        line: token.span.line,
+                        col_start: token.span.col_start,
+                        col_end: next.span.col_end,
+                    };
+                    atoms.push(SignatureAtom::Capture {
+                        type_name,
+                        name,
+                        span,
+                    });
+                }
+                _ => {
+                    return Err(ParseError {
+                        message: "Unexpected token in statement signature".to_string(),
+                        span: token.span,
+                    });
+                }
+            }
+        }
+        if !closed {
+            return Err(ParseError {
+                message: "Missing closing }]".to_string(),
+                span: self.end_span,
+            });
+        }
+        Ok(StatementSignature { atoms })
+    }
+
+    fn peek_kind(&self, kind: TokenKind) -> bool {
+        matches!(self.peek(), Some(Token { kind: k, .. }) if *k == kind)
+    }
+
+    fn peek_kind_next(&self, kind: TokenKind) -> bool {
+        matches!(self.tokens.get(self.index + 1), Some(Token { kind: k, .. }) if *k == kind)
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
@@ -993,9 +1216,314 @@ fn map_tokenize_error(err: TokenizeError) -> ParseError {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SignatureScore {
+    literal_atoms: usize,
+    atom_count: usize,
+}
+
+impl SignatureScore {
+    fn better_than(self, other: Self) -> bool {
+        if self.literal_atoms != other.literal_atoms {
+            return self.literal_atoms > other.literal_atoms;
+        }
+        self.atom_count > other.atom_count
+    }
+}
+
+fn signature_score(signature: &StatementSignature) -> SignatureScore {
+    let mut literal_atoms = 0usize;
+    for atom in &signature.atoms {
+        if matches!(atom, SignatureAtom::Literal(_, _)) {
+            literal_atoms += 1;
+        }
+    }
+    SignatureScore {
+        literal_atoms,
+        atom_count: signature.atoms.len(),
+    }
+}
+
+fn token_text(token: &Token) -> String {
+    match &token.kind {
+        TokenKind::Identifier(name) | TokenKind::Register(name) => name.clone(),
+        TokenKind::Number(num) => num.text.clone(),
+        TokenKind::String(lit) => String::from_utf8_lossy(&lit.bytes).to_string(),
+        TokenKind::Comma => ",".to_string(),
+        TokenKind::Dot => ".".to_string(),
+        TokenKind::Dollar => "$".to_string(),
+        TokenKind::Hash => "#".to_string(),
+        TokenKind::Question => "?".to_string(),
+        TokenKind::Colon => ":".to_string(),
+        TokenKind::OpenParen => "(".to_string(),
+        TokenKind::CloseParen => ")".to_string(),
+        TokenKind::OpenBracket => "[".to_string(),
+        TokenKind::CloseBracket => "]".to_string(),
+        TokenKind::OpenBrace => "{".to_string(),
+        TokenKind::CloseBrace => "}".to_string(),
+        TokenKind::Operator(op) => match op {
+            OperatorKind::Plus => "+",
+            OperatorKind::Minus => "-",
+            OperatorKind::Multiply => "*",
+            OperatorKind::Power => "**",
+            OperatorKind::Divide => "/",
+            OperatorKind::Mod => "%",
+            OperatorKind::Shl => "<<",
+            OperatorKind::Shr => ">>",
+            OperatorKind::BitNot => "~",
+            OperatorKind::LogicNot => "!",
+            OperatorKind::BitAnd => "&",
+            OperatorKind::BitOr => "|",
+            OperatorKind::BitXor => "^",
+            OperatorKind::LogicAnd => "&&",
+            OperatorKind::LogicOr => "||",
+            OperatorKind::LogicXor => "^^",
+            OperatorKind::Eq => "==",
+            OperatorKind::Ne => "!=",
+            OperatorKind::Ge => ">=",
+            OperatorKind::Gt => ">",
+            OperatorKind::Le => "<=",
+            OperatorKind::Lt => "<",
+        }
+        .to_string(),
+        TokenKind::End => "".to_string(),
+    }
+}
+
+fn matches_literal(tokens: &[Token], start: usize, literal: &str) -> Option<(usize, Span)> {
+    let mut acc = String::new();
+    let mut idx = start;
+    let mut last_span: Option<Span> = None;
+    while idx < tokens.len() && acc.len() < literal.len() {
+        let token = &tokens[idx];
+        if let Some(prev) = last_span {
+            if token.span.col_start != prev.col_end {
+                return None;
+            }
+        }
+        acc.push_str(&token_text(token));
+        last_span = Some(token.span);
+        if !literal.starts_with(&acc) {
+            return None;
+        }
+        if acc == literal {
+            return Some((idx + 1, token.span));
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn match_signature_atoms(
+    atoms: &[SignatureAtom],
+    tokens: &[Token],
+    start: usize,
+    require_adjacent: bool,
+    prev_span: Option<Span>,
+    captures: &mut Vec<StatementCapture>,
+) -> Option<(usize, Option<Span>)> {
+    let mut idx = start;
+    let mut last_span = prev_span;
+    for atom in atoms {
+        match atom {
+            SignatureAtom::Literal(bytes, _) => {
+                let literal = String::from_utf8_lossy(bytes).to_string();
+                let (next_idx, span) = matches_literal(tokens, idx, &literal)?;
+                if require_adjacent {
+                    if let Some(prev) = last_span {
+                        let first_span = tokens[idx].span;
+                        if first_span.col_start != prev.col_end {
+                            return None;
+                        }
+                    }
+                }
+                idx = next_idx;
+                last_span = Some(span);
+            }
+            SignatureAtom::Capture { name, type_name, .. } => {
+                let token = tokens.get(idx)?;
+                if require_adjacent {
+                    if let Some(prev) = last_span {
+                        if token.span.col_start != prev.col_end {
+                            return None;
+                        }
+                    }
+                }
+                if !token_matches_capture_type(type_name, token) {
+                    return None;
+                }
+                captures.push(StatementCapture {
+                    name: name.clone(),
+                    tokens: vec![token.clone()],
+                });
+                last_span = Some(token.span);
+                idx += 1;
+            }
+            SignatureAtom::Boundary { atoms: inner, .. } => {
+                let (next_idx, inner_span) = match_signature_atoms(
+                    inner,
+                    tokens,
+                    idx,
+                    true,
+                    last_span,
+                    captures,
+                )?;
+                idx = next_idx;
+                if let Some(span) = inner_span {
+                    last_span = Some(span);
+                }
+            }
+        }
+    }
+    Some((idx, last_span))
+}
+
+fn token_matches_capture_type(type_name: &str, token: &Token) -> bool {
+    match type_name.to_ascii_lowercase().as_str() {
+        "byte" => token_matches_byte(token),
+        "word" => token_matches_word(token),
+        "char" => token_matches_char(token),
+        "str" => token_matches_str(token),
+        _ => matches_any_capture_token(token),
+    }
+}
+
+fn is_valid_capture_type(type_name: &str) -> bool {
+    matches!(
+        type_name.to_ascii_lowercase().as_str(),
+        "byte" | "word" | "char" | "str"
+    )
+}
+
+fn matches_any_capture_token(token: &Token) -> bool {
+    matches!(
+        token.kind,
+        TokenKind::Identifier(_)
+            | TokenKind::Register(_)
+            | TokenKind::Number(_)
+            | TokenKind::String(_)
+    )
+}
+
+fn token_matches_byte(token: &Token) -> bool {
+    match &token.kind {
+        TokenKind::Number(lit) => parse_number(&lit.text)
+            .is_some_and(value_fits_byte),
+        TokenKind::Identifier(_) | TokenKind::Register(_) => true,
+        TokenKind::String(lit) => lit.bytes.len() == 1,
+        _ => false,
+    }
+}
+
+fn token_matches_word(token: &Token) -> bool {
+    match &token.kind {
+        TokenKind::Number(lit) => parse_number(&lit.text)
+            .is_some_and(value_fits_word),
+        TokenKind::Identifier(_) | TokenKind::Register(_) => true,
+        TokenKind::String(lit) => lit.bytes.len() == 1 || lit.bytes.len() == 2,
+        _ => false,
+    }
+}
+
+fn token_matches_char(token: &Token) -> bool {
+    match &token.kind {
+        TokenKind::Identifier(text) | TokenKind::Register(text) => text.len() == 1,
+        TokenKind::String(lit) => lit.bytes.len() == 1,
+        _ => false,
+    }
+}
+
+fn token_matches_str(token: &Token) -> bool {
+    matches!(token.kind, TokenKind::String(_))
+}
+
+pub fn match_statement_signature(
+    signature: &StatementSignature,
+    tokens: &[Token],
+) -> Option<StatementMatch> {
+    let mut captures = Vec::new();
+    let (next_idx, _) = match_signature_atoms(
+        &signature.atoms,
+        tokens,
+        0,
+        false,
+        None,
+        &mut captures,
+    )?;
+    if next_idx == tokens.len() {
+        Some(StatementMatch { captures })
+    } else {
+        None
+    }
+}
+
+pub fn select_statement_signature(
+    signatures: &[StatementSignature],
+    tokens: &[Token],
+) -> Result<Option<usize>, ParseError> {
+    let mut best_idx = None;
+    let mut best_score = SignatureScore {
+        literal_atoms: 0,
+        atom_count: 0,
+    };
+    let mut tied = false;
+
+    for (idx, signature) in signatures.iter().enumerate() {
+        if match_statement_signature(signature, tokens).is_none() {
+            continue;
+        }
+        let score = signature_score(signature);
+        if best_idx.is_none() || score.better_than(best_score) {
+            best_idx = Some(idx);
+            best_score = score;
+            tied = false;
+        } else if score == best_score {
+            tied = true;
+        }
+    }
+
+    if tied {
+        let span = tokens
+            .first()
+            .map(|t| t.span)
+            .unwrap_or(Span {
+                line: 0,
+                col_start: 0,
+                col_end: 0,
+            });
+        return Err(ParseError {
+            message: "Ambiguous statement signature".to_string(),
+            span,
+        });
+    }
+    Ok(best_idx)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AssignOp, ConditionalKind, LineAst, Parser};
+    use super::{
+        match_statement_signature,
+        select_statement_signature,
+        AssignOp,
+        ConditionalKind,
+        LineAst,
+        Parser,
+        SignatureAtom,
+    };
+    use crate::core::tokenizer::Tokenizer;
+
+    fn tokenize_line(line: &str) -> Vec<crate::core::tokenizer::Token> {
+        let mut tokenizer = Tokenizer::new(line, 1);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().unwrap();
+            if matches!(token.kind, crate::core::tokenizer::TokenKind::End) {
+                break;
+            }
+            tokens.push(token);
+        }
+        tokens
+    }
 
     #[test]
     fn parses_label_and_mnemonic() {
@@ -1116,6 +1644,318 @@ mod tests {
                 assert_eq!(operands.len(), 2);
             }
             _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_macro_directive_line_without_error() {
+        let mut parser = Parser::from_line(".macro COPY(src, dst)", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some(".macro"));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_name_first_macro_definition_without_error() {
+        let mut parser = Parser::from_line("COPY .macro src, dst", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { label, mnemonic, .. } => {
+                assert_eq!(label.map(|l| l.name), Some("COPY".to_string()));
+                assert_eq!(mnemonic.as_deref(), Some(".macro"));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_segment_directive_line_without_error() {
+        let mut parser = Parser::from_line(".segment INLINE(val)", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement { mnemonic, .. } => {
+                assert_eq!(mnemonic.as_deref(), Some(".segment"));
+            }
+            _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_statement_definition_with_signature() {
+        let mut parser = Parser::from_line(
+            ".statement move.b char:dst \",\" char:src",
+            1,
+        )
+        .unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::StatementDef { keyword, signature, .. } => {
+                assert_eq!(keyword, "move.b");
+                assert_eq!(signature.atoms.len(), 3);
+                assert!(matches!(signature.atoms[0], SignatureAtom::Capture { .. }));
+                assert!(matches!(signature.atoms[1], SignatureAtom::Literal(_, _)));
+                assert!(matches!(signature.atoms[2], SignatureAtom::Capture { .. }));
+            }
+            _ => panic!("Expected statement definition"),
+        }
+    }
+
+    #[test]
+    fn parses_statement_boundary_span() {
+        let mut parser = Parser::from_line(
+            ".statement sta \"[\" byte:a \",\"[{char:reg}]",
+            1,
+        )
+        .unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::StatementDef { signature, .. } => {
+                assert_eq!(signature.atoms.len(), 4);
+                assert!(matches!(signature.atoms[0], SignatureAtom::Literal(_, _)));
+                assert!(matches!(signature.atoms[1], SignatureAtom::Capture { .. }));
+                assert!(matches!(signature.atoms[2], SignatureAtom::Literal(_, _)));
+                assert!(matches!(signature.atoms[3], SignatureAtom::Boundary { .. }));
+            }
+            _ => panic!("Expected statement definition"),
+        }
+    }
+
+    #[test]
+    fn matches_statement_signature_literal_sequence() {
+        let mut sig_parser = Parser::from_line(
+            ".statement sta \"],y\"",
+            1,
+        )
+        .unwrap();
+        let signature = match sig_parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+        assert_eq!(signature.atoms.len(), 1);
+        match &signature.atoms[0] {
+            SignatureAtom::Literal(bytes, _) => {
+                assert_eq!(String::from_utf8_lossy(bytes), "],y");
+            }
+            _ => panic!("Expected literal atom"),
+        }
+
+        let mut tokenizer = Tokenizer::new("],y", 1);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().unwrap();
+            if matches!(token.kind, crate::core::tokenizer::TokenKind::End) {
+                break;
+            }
+            tokens.push(token);
+        }
+        assert!(match_statement_signature(&signature, &tokens).is_some());
+    }
+
+    #[test]
+    fn statement_signature_precedence_prefers_more_literals() {
+        let mut parser1 = Parser::from_line(
+            ".statement foo \"x\" byte:a",
+            1,
+        )
+        .unwrap();
+        let sig1 = match parser1.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+        assert_eq!(sig1.atoms.len(), 2);
+        assert!(matches!(sig1.atoms[0], SignatureAtom::Literal(_, _)));
+        assert!(matches!(sig1.atoms[1], SignatureAtom::Capture { .. }));
+
+        let mut parser2 = Parser::from_line(
+            ".statement foo byte:a",
+            1,
+        )
+        .unwrap();
+        let sig2 = match parser2.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+        assert_eq!(sig2.atoms.len(), 1);
+        assert!(matches!(sig2.atoms[0], SignatureAtom::Capture { .. }));
+
+        let mut tokenizer = Tokenizer::new("x 10", 1);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().unwrap();
+            if matches!(token.kind, crate::core::tokenizer::TokenKind::End) {
+                break;
+            }
+            tokens.push(token);
+        }
+
+        let idx = select_statement_signature(&[sig1, sig2], &tokens)
+            .expect("select")
+            .expect("match");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn statement_signature_byte_capture_rejects_out_of_range() {
+        let mut parser = Parser::from_line(
+            ".statement foo byte:a",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("255");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("256");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+
+        let label_tokens = tokenize_line("LABEL");
+        assert!(match_statement_signature(&signature, &label_tokens).is_some());
+    }
+
+    #[test]
+    fn statement_signature_word_capture_rejects_out_of_range() {
+        let mut parser = Parser::from_line(
+            ".statement foo word:a",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("65535");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("65536");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+
+        let str_tokens = tokenize_line("\"AB\"");
+        assert!(match_statement_signature(&signature, &str_tokens).is_some());
+    }
+
+    #[test]
+    fn statement_signature_char_capture_requires_single_char() {
+        let mut parser = Parser::from_line(
+            ".statement foo char:c",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("y");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("yy");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+
+        let str_tokens = tokenize_line("\"A\"");
+        assert!(match_statement_signature(&signature, &str_tokens).is_some());
+
+        let long_str_tokens = tokenize_line("\"AB\"");
+        assert!(match_statement_signature(&signature, &long_str_tokens).is_none());
+    }
+
+    #[test]
+    fn statement_signature_str_capture_requires_string_literal() {
+        let mut parser = Parser::from_line(
+            ".statement foo str:s",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("\"hello\"");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("hello");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+    }
+
+    #[test]
+    fn statement_signature_rejects_unknown_capture_type() {
+        let mut parser = Parser::from_line(
+            ".statement move reg:dst",
+            1,
+        )
+        .unwrap();
+        let err = parser.parse_line().expect_err("expected error");
+        assert!(err.message.contains("Unknown statement capture type"));
+    }
+
+    #[test]
+    fn statement_signature_rejects_unquoted_commas() {
+        let mut parser = Parser::from_line(
+            ".statement move.b char:dst, char:src",
+            1,
+        )
+        .unwrap();
+        let err = parser.parse_line().expect_err("expected error");
+        assert!(err
+            .message
+            .contains("Commas must be quoted in statement signatures"));
+    }
+
+    #[test]
+    fn statement_signature_selection_reports_ambiguity() {
+        let mut parser1 = Parser::from_line(
+            ".statement foo byte:a",
+            1,
+        )
+        .unwrap();
+        let sig1 = match parser1.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let mut parser2 = Parser::from_line(
+            ".statement foo word:b",
+            1,
+        )
+        .unwrap();
+        let sig2 = match parser2.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let mut tokenizer = Tokenizer::new("10", 1);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().unwrap();
+            if matches!(token.kind, crate::core::tokenizer::TokenKind::End) {
+                break;
+            }
+            tokens.push(token);
+        }
+
+        let err = select_statement_signature(&[sig1, sig2], &tokens)
+            .expect_err("expected ambiguity error");
+        assert_eq!(err.message, "Ambiguous statement signature");
+        assert_eq!(err.span.line, 1);
+        assert_eq!(err.span.col_start, 1);
+    }
+
+    #[test]
+    fn parses_endstatement_line() {
+        let mut parser = Parser::from_line(".endstatement", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::StatementEnd { .. } => {}
+            _ => panic!("Expected statement end"),
         }
     }
 
