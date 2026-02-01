@@ -559,6 +559,18 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_string_literal_with_escaped_quote() {
+        let mut tok = Tokenizer::new("DB \"A\\\"B\"", 1);
+        let _ = tok.next_token().unwrap();
+        let lit = tok.next_token().unwrap();
+        if let TokenKind::String(lit) = lit.kind {
+            assert_eq!(lit.bytes, vec![b'A', b'\"', b'B']);
+        } else {
+            panic!("Expected string literal token");
+        }
+    }
+
+    #[test]
     fn tokenizes_conditionals() {
         let mut tok = Tokenizer::new(".if 1", 1);
         let t = tok.next_token().unwrap();

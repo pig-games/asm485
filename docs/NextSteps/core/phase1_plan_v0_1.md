@@ -148,7 +148,7 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 ## Phase 1 Task Breakdown (Per-Module, Staged)
 
 ### Stage 1 — Macro/segment surface syntax (fast feedback)
-- [ ] Add token support for quoted literal tokens and escapes in [src/core/tokenizer.rs](src/core/tokenizer.rs).
+- [x] Add token support for quoted literal tokens and escapes in [src/core/tokenizer.rs](src/core/tokenizer.rs).
 - [ ] Extend token kinds/values for literal-token nodes in [src/core/token_value.rs](src/core/token_value.rs).
 - [ ] Parse name-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
 - [ ] Parse directive-first `.macro` definitions in [src/core/parser.rs](src/core/parser.rs).
