@@ -3,6 +3,7 @@
 
 // Parser for tokenized assembly source.
 
+use crate::core::expr::{parse_number, value_fits_byte, value_fits_word};
 use crate::core::text_utils::is_ident_start;
 use crate::core::tokenizer::{
     ConditionalKind, OperatorKind, Span, Token, TokenKind, TokenizeError, Tokenizer,
@@ -1320,7 +1321,7 @@ fn match_signature_atoms(
                 idx = next_idx;
                 last_span = Some(span);
             }
-            SignatureAtom::Capture { name, .. } => {
+            SignatureAtom::Capture { name, type_name, .. } => {
                 let token = tokens.get(idx)?;
                 if require_adjacent {
                     if let Some(prev) = last_span {
@@ -1329,12 +1330,8 @@ fn match_signature_atoms(
                         }
                     }
                 }
-                match token.kind {
-                    TokenKind::Identifier(_)
-                    | TokenKind::Register(_)
-                    | TokenKind::Number(_)
-                    | TokenKind::String(_) => {}
-                    _ => return None,
+                if !token_matches_capture_type(type_name, token) {
+                    return None;
                 }
                 captures.push(StatementCapture {
                     name: name.clone(),
@@ -1360,6 +1357,58 @@ fn match_signature_atoms(
         }
     }
     Some((idx, last_span))
+}
+
+fn token_matches_capture_type(type_name: &str, token: &Token) -> bool {
+    match type_name.to_ascii_lowercase().as_str() {
+        "byte" => token_matches_byte(token),
+        "word" => token_matches_word(token),
+        "char" => token_matches_char(token),
+        "str" => token_matches_str(token),
+        _ => matches_any_capture_token(token),
+    }
+}
+
+fn matches_any_capture_token(token: &Token) -> bool {
+    matches!(
+        token.kind,
+        TokenKind::Identifier(_)
+            | TokenKind::Register(_)
+            | TokenKind::Number(_)
+            | TokenKind::String(_)
+    )
+}
+
+fn token_matches_byte(token: &Token) -> bool {
+    match &token.kind {
+        TokenKind::Number(lit) => parse_number(&lit.text)
+            .is_some_and(value_fits_byte),
+        TokenKind::Identifier(_) | TokenKind::Register(_) => true,
+        TokenKind::String(lit) => lit.bytes.len() == 1,
+        _ => false,
+    }
+}
+
+fn token_matches_word(token: &Token) -> bool {
+    match &token.kind {
+        TokenKind::Number(lit) => parse_number(&lit.text)
+            .is_some_and(value_fits_word),
+        TokenKind::Identifier(_) | TokenKind::Register(_) => true,
+        TokenKind::String(lit) => lit.bytes.len() == 1 || lit.bytes.len() == 2,
+        _ => false,
+    }
+}
+
+fn token_matches_char(token: &Token) -> bool {
+    match &token.kind {
+        TokenKind::Identifier(text) | TokenKind::Register(text) => text.len() == 1,
+        TokenKind::String(lit) => lit.bytes.len() == 1,
+        _ => false,
+    }
+}
+
+fn token_matches_str(token: &Token) -> bool {
+    matches!(token.kind, TokenKind::String(_))
 }
 
 pub fn match_statement_signature(
@@ -1436,6 +1485,19 @@ mod tests {
         SignatureAtom,
     };
     use crate::core::tokenizer::Tokenizer;
+
+    fn tokenize_line(line: &str) -> Vec<crate::core::tokenizer::Token> {
+        let mut tokenizer = Tokenizer::new(line, 1);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().unwrap();
+            if matches!(token.kind, crate::core::tokenizer::TokenKind::End) {
+                break;
+            }
+            tokens.push(token);
+        }
+        tokens
+    }
 
     #[test]
     fn parses_label_and_mnemonic() {
@@ -1708,6 +1770,94 @@ mod tests {
             .expect("select")
             .expect("match");
         assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn statement_signature_byte_capture_rejects_out_of_range() {
+        let mut parser = Parser::from_line(
+            ".statement foo byte a",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("255");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("256");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+
+        let label_tokens = tokenize_line("LABEL");
+        assert!(match_statement_signature(&signature, &label_tokens).is_some());
+    }
+
+    #[test]
+    fn statement_signature_word_capture_rejects_out_of_range() {
+        let mut parser = Parser::from_line(
+            ".statement foo word a",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("65535");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("65536");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+
+        let str_tokens = tokenize_line("\"AB\"");
+        assert!(match_statement_signature(&signature, &str_tokens).is_some());
+    }
+
+    #[test]
+    fn statement_signature_char_capture_requires_single_char() {
+        let mut parser = Parser::from_line(
+            ".statement foo char c",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("y");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("yy");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
+
+        let str_tokens = tokenize_line("\"A\"");
+        assert!(match_statement_signature(&signature, &str_tokens).is_some());
+
+        let long_str_tokens = tokenize_line("\"AB\"");
+        assert!(match_statement_signature(&signature, &long_str_tokens).is_none());
+    }
+
+    #[test]
+    fn statement_signature_str_capture_requires_string_literal() {
+        let mut parser = Parser::from_line(
+            ".statement foo str s",
+            1,
+        )
+        .unwrap();
+        let signature = match parser.parse_line().unwrap() {
+            LineAst::StatementDef { signature, .. } => signature,
+            _ => panic!("Expected statement definition"),
+        };
+
+        let ok_tokens = tokenize_line("\"hello\"");
+        assert!(match_statement_signature(&signature, &ok_tokens).is_some());
+
+        let bad_tokens = tokenize_line("hello");
+        assert!(match_statement_signature(&signature, &bad_tokens).is_none());
     }
 
     #[test]

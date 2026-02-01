@@ -1,0 +1,27 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Demonstrate statement capture types.
+----                                2  
+----                                3  .statement imm8 byte val
+----                                4  .endstatement
+----                                5  
+----                                6  .statement imm16 word val
+----                                7  .endstatement
+----                                8  
+----                                9  .statement reg8 char reg
+----                               10  .endstatement
+----                               11  
+----                               12  .statement text str msg
+----                               13  .endstatement
+----                               14  
+----                               15  start:
+0000    00                         16      nop
+
+Lines: 16  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0000 (0)
+
+Total memory is 1 bytes

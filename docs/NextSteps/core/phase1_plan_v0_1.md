@@ -167,8 +167,8 @@ Phase 1 focuses on **macro syntax updates**, **adding `.segment`**, and **`.stat
 - [x] Add diagnostics for ambiguous/non-matching signatures in [src/core/parser_reporter.rs](src/core/parser_reporter.rs).
 
 ### Stage 4 — Capture type handling (phase 1 subset)
-- [ ] Implement built-in capture types (`byte`, `word`, `char`, `str`) in [src/core/parser.rs](src/core/parser.rs).
-- [ ] Add type-checking for captured values in [src/core/expr.rs](src/core/expr.rs).
+- [x] Implement built-in capture types (`byte`, `word`, `char`, `str`) in [src/core/parser.rs](src/core/parser.rs).
+- [x] Add type-checking for captured values in [src/core/expr.rs](src/core/expr.rs).
 
 ### Stage 5 — Documentation updates
 - [ ] Apply decisions to [docs/NextSteps/core/opforge_core_spec_v0_3b.md](docs/NextSteps/core/opforge_core_spec_v0_3b.md).
