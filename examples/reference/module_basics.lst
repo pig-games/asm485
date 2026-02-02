@@ -1,0 +1,27 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Module basics
+----                                2  
+----                                3  .module alpha
+----    EQU 1000                    4      .org 1000h
+----    EQU 0001                    5  VALUE .const 1
+1000    01                          6      .byte VALUE
+----                                7  .endmodule
+----                                8  
+----                                9  .module beta
+----    EQU 2000                   10      .org 2000h
+----    EQU 0002                   11  VALUE .const 2
+2000    02                         12      .byte VALUE
+----                               13  .endmodule
+----                               14  
+----                               15  .end
+
+Lines: 15  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+alpha.VALUE     : 0001 (1)
+beta.VALUE      : 0002 (2)
+
+Total memory is 2 bytes

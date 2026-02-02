@@ -27,6 +27,7 @@ pub const MAX_ENTRIES: usize = 66000;
 #[derive(Debug, Default)]
 pub struct SymbolTable {
     entries: Vec<SymbolTableEntry>,
+    modules: Vec<String>,
 }
 
 impl SymbolTable {
@@ -34,7 +35,27 @@ impl SymbolTable {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            modules: Vec::new(),
         }
+    }
+
+    pub fn register_module(&mut self, name: &str) -> SymbolTableResult {
+        if self
+            .modules
+            .iter()
+            .any(|module| module.eq_ignore_ascii_case(name))
+        {
+            return SymbolTableResult::Duplicate;
+        }
+        self.modules.push(name.to_string());
+        SymbolTableResult::Ok
+    }
+
+    #[must_use]
+    pub fn has_module(&self, name: &str) -> bool {
+        self.modules
+            .iter()
+            .any(|module| module.eq_ignore_ascii_case(name))
     }
 
     pub fn add(&mut self, name: &str, val: u32, rw: bool) -> SymbolTableResult {
@@ -132,5 +153,16 @@ mod tests {
         assert_eq!(table.lookup("once"), Some(2));
 
         assert_eq!(table.lookup("nope"), None);
+    }
+
+    #[test]
+    fn registers_modules_case_insensitively() {
+        let mut table = SymbolTable::new();
+        assert_eq!(table.register_module("Core.Utils"), SymbolTableResult::Ok);
+        assert!(table.has_module("core.utils"));
+        assert_eq!(
+            table.register_module("CORE.UTILS"),
+            SymbolTableResult::Duplicate
+        );
     }
 }

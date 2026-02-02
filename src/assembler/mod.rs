@@ -455,6 +455,10 @@ struct AsmLine<'a> {
     registry: &'a ModuleRegistry,
     cond_stack: ConditionalStack,
     scope_stack: ScopeStack,
+    module_active: Option<String>,
+    module_scope_depth: usize,
+    saw_explicit_module: bool,
+    top_level_content_seen: bool,
     last_error: Option<AsmError>,
     last_error_column: Option<usize>,
     last_parser_error: Option<ParseError>,
@@ -482,6 +486,10 @@ impl<'a> AsmLine<'a> {
             registry,
             cond_stack: ConditionalStack::new(),
             scope_stack: ScopeStack::new(),
+            module_active: None,
+            module_scope_depth: 0,
+            saw_explicit_module: false,
+            top_level_content_seen: false,
             last_error: None,
             last_error_column: None,
             last_parser_error: None,
@@ -544,6 +552,10 @@ impl<'a> AsmLine<'a> {
 
     fn clear_scopes(&mut self) {
         self.scope_stack.clear();
+        self.module_active = None;
+        self.module_scope_depth = 0;
+        self.saw_explicit_module = false;
+        self.top_level_content_seen = false;
     }
 
     fn cond_last(&self) -> Option<&ConditionalContext> {
@@ -557,6 +569,20 @@ impl<'a> AsmLine<'a> {
 
     fn cond_is_empty(&self) -> bool {
         self.cond_stack.is_empty()
+    }
+
+    fn in_module(&self) -> bool {
+        self.module_active.is_some()
+    }
+
+    fn ast_is_toplevel_directive(ast: &LineAst) -> bool {
+        match ast {
+            LineAst::Statement {
+                mnemonic: Some(mnemonic),
+                ..
+            } => is_toplevel_directive(mnemonic),
+            _ => false,
+        }
     }
 
     #[cfg(test)]
@@ -671,6 +697,21 @@ impl<'a> AsmLine<'a> {
                 ),
                 _ => LineStatus::Skip,
             };
+        }
+
+        if !self.in_module() {
+            if self.saw_explicit_module {
+                if !matches!(ast, LineAst::Empty) && !Self::ast_is_toplevel_directive(&ast) {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Top-level content must be inside a .module block",
+                        None,
+                    );
+                }
+            } else if !matches!(ast, LineAst::Empty) && !Self::ast_is_toplevel_directive(&ast) {
+                self.top_level_content_seen = true;
+            }
         }
         match ast {
             LineAst::Empty => LineStatus::NothingDone,
@@ -1174,6 +1215,113 @@ impl<'a> AsmLine<'a> {
             return LineStatus::NothingDone;
         }
         match directive {
+            "MODULE" => {
+                if operands.len() != 1 {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Missing module id for .module",
+                        None,
+                    );
+                }
+                if self.in_module() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Nested .module is not allowed",
+                        None,
+                    );
+                }
+                if self.scope_stack.depth() > 0 {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        ".module must appear at top level",
+                        None,
+                    );
+                }
+                if self.top_level_content_seen {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Top-level content must be inside a .module block",
+                        None,
+                    );
+                }
+                let module_id = match operands.first() {
+                    Some(Expr::Identifier(name, _)) => name.clone(),
+                    _ => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            "Invalid module id for .module",
+                            None,
+                        );
+                    }
+                };
+                self.saw_explicit_module = true;
+                if self.pass == 1 {
+                    let res = self.symbols.register_module(&module_id);
+                    if res == crate::symbol_table::SymbolTableResult::Duplicate {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            "Duplicate module id",
+                            Some(&module_id),
+                        );
+                    }
+                } else if !self.symbols.has_module(&module_id) {
+                    let _ = self.symbols.register_module(&module_id);
+                }
+                if let Err(message) = self.scope_stack.push_named(&module_id) {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        message,
+                        Some(&module_id),
+                    );
+                }
+                self.module_active = Some(module_id);
+                self.module_scope_depth = self.scope_stack.depth();
+                LineStatus::Ok
+            }
+            "ENDMODULE" => {
+                if !operands.is_empty() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Unexpected operands for .endmodule",
+                        None,
+                    );
+                }
+                if !self.in_module() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        ".endmodule found without matching .module",
+                        None,
+                    );
+                }
+                if self.scope_stack.depth() != self.module_scope_depth {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Cannot close module with open scopes",
+                        None,
+                    );
+                }
+                if !self.scope_stack.pop() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        ".endmodule found without matching .module",
+                        None,
+                    );
+                }
+                self.module_active = None;
+                self.module_scope_depth = 0;
+                LineStatus::Ok
+            }
             "BLOCK" => {
                 if !operands.is_empty() {
                     return self.failure(
@@ -1869,7 +2017,14 @@ fn is_symbol_assignment_directive(mnemonic: &str) -> bool {
 fn is_scope_directive(mnemonic: &str) -> bool {
     matches!(
         mnemonic.to_ascii_uppercase().as_str(),
-        ".BLOCK" | ".ENDBLOCK"
+        ".BLOCK" | ".ENDBLOCK" | ".MODULE" | ".ENDMODULE"
+    )
+}
+
+fn is_toplevel_directive(mnemonic: &str) -> bool {
+    matches!(
+        mnemonic.to_ascii_uppercase().as_str(),
+        ".MODULE" | ".ENDMODULE" | ".END"
     )
 }
 
@@ -2306,6 +2461,46 @@ mod tests {
         let status = process_line(&mut asm, "    .word OUTER.INNER.VAL", 0, 1);
         assert_eq!(status, LineStatus::Ok);
         assert_eq!(asm.bytes(), &[5, 0]);
+    }
+
+    #[test]
+    fn module_scopes_qualify_symbols() {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = make_asm_line(&mut symbols, &registry);
+        let status = process_line(&mut asm, ".module alpha", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, "VAL .const 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, ".endmodule", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        assert_eq!(asm.symbols().lookup("alpha.VAL"), Some(1));
+    }
+
+    #[test]
+    fn module_duplicate_ids_error() {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = make_asm_line(&mut symbols, &registry);
+        let status = process_line(&mut asm, ".module alpha", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, ".endmodule", 0, 1);
+        assert_eq!(status, LineStatus::Ok);
+        let status = process_line(&mut asm, ".module alpha", 0, 1);
+        assert_eq!(status, LineStatus::Error);
+        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    }
+
+    #[test]
+    fn module_rejects_top_level_content_before_explicit_modules() {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = make_asm_line(&mut symbols, &registry);
+        let status = process_line(&mut asm, "VAL .const 1", 0, 1);
+        assert_eq!(status, LineStatus::DirEqu);
+        let status = process_line(&mut asm, ".module alpha", 0, 1);
+        assert_eq!(status, LineStatus::Error);
+        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
     }
 
     #[test]
