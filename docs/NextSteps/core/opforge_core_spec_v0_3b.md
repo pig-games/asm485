@@ -454,7 +454,13 @@ Compile‑time conditional evaluation.
 
 Output placement control (backend mapping).
 
-`.dsection` declares a section and constraints; `.section` selects the current output target. Relocations and linking are section-driven: relocation records belong to sections and are resolved when sections are placed.
+Current implementation:
+- `.dsection <name>` declares the section and **injects** the section bytes at the current address.
+- `.section <name>` selects the current emission target (pushes the previous section).
+- `.endsection` restores the previous section (pops the stack).
+- `.org` and `.align` apply to the current emission target, including injected `.dsection` output.
+
+Relocations and linking remain section-driven: relocation records belong to sections and are resolved when sections are placed.
 
 **Profile:** nano+
 

@@ -4538,6 +4538,48 @@ mod tests {
     }
 
     #[test]
+    fn align_inserts_padding_bytes() {
+        let lines = vec![
+            ".module main".to_string(),
+            ".org 1000h".to_string(),
+            ".byte 1".to_string(),
+            ".align 4".to_string(),
+            ".byte 2".to_string(),
+            ".endmodule".to_string(),
+        ];
+        let mut assembler = Assembler::new();
+        assembler.root_metadata.root_module_id = Some("main".to_string());
+        assembler.clear_diagnostics();
+        let pass1 = assembler.pass1(&lines);
+        assert_eq!(pass1.errors, 0);
+
+        let mut output = Vec::new();
+        let mut listing = ListingWriter::new(&mut output, false);
+        listing
+            .header("opForge 8085 Assembler v1.0")
+            .expect("listing header");
+        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
+        listing
+            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
+            .expect("listing footer");
+
+        let mut hex = Vec::new();
+        assembler
+            .image()
+            .write_hex_file(&mut hex, None)
+            .expect("hex output");
+        let hex_text = String::from_utf8_lossy(&hex);
+        assert!(
+            hex_text.contains(":0110000001EE"),
+            "unexpected hex output: {hex_text}"
+        );
+        assert!(
+            hex_text.contains(":0110040002E9"),
+            "unexpected hex output: {hex_text}"
+        );
+    }
+
+    #[test]
     fn module_rejects_top_level_content_before_explicit_modules() {
         let mut symbols = SymbolTable::new();
         let registry = default_registry();

@@ -63,8 +63,8 @@ Date: 2026-02-03
 - [x] Example(s) and reference outputs in `examples/` and `examples/reference/`.
 
 ## Phase 7 — Documentation updates
-- [ ] Update [docs/NextSteps/core/opforge_core_spec_v0_3b.md](docs/NextSteps/core/opforge_core_spec_v0_3b.md) with concrete `.dsection/.section/.endsection` syntax and current limitations.
-- [ ] Add a short section in [docs/opForge-reference-manual.md](docs/opForge-reference-manual.md) describing the new directives and constraints.
+- [x] Update [docs/NextSteps/core/opforge_core_spec_v0_3b.md](docs/NextSteps/core/opforge_core_spec_v0_3b.md) with concrete `.dsection/.section/.endsection` syntax and current limitations.
+- [x] Add a short section in [docs/opForge-reference-manual.md](docs/opForge-reference-manual.md) describing the new directives and constraints.
 
 ## Out of scope (future)
 - Relocation records and link-time placement.

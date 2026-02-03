@@ -110,6 +110,20 @@ Notes:
 * = $2000
 ```
 
+Section placement and emission:
+
+```
+.dsection data
+.section data
+.endsection
+.align 16
+```
+
+Notes:
+- `.section` selects a named emission target; `.endsection` restores the previous target.
+- `.dsection` injects the section’s bytes at the current address.
+- `.org` and `.align` apply to the current emission target.
+
 ### 4.3 Data directives
 
 ```
@@ -495,7 +509,7 @@ Instruction mnemonics are selected by `.cpu`:
 ### 13.1 Directives
 
 ```
-.org  .const  .var  .set  .byte  .word  .ds  .end  .cpu
+.org  .align  .dsection  .section  .endsection  .const  .var  .set  .byte  .word  .ds  .end  .cpu
 .block  .endblock
 .macro  .endmacro  .segment  .endsegment
 .if  .elseif  .else  .endif
