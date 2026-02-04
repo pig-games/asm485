@@ -55,9 +55,9 @@ Date: 2026-02-03
 - [x] Ensure listing addresses reflect section-local PCs or absolute placement (document behavior).
 
 ## Phase 6 — Tests & examples
-- [ ] Unit tests (in [src/assembler/mod.rs](src/assembler/mod.rs)):
-  - `.dsection` declares without emission.
-  - `.section` selects, `.endsection` restores.
+- [x] Unit tests (in [src/assembler/mod.rs](src/assembler/mod.rs)):
+  - [x] `.dsection` declares without emission.
+  - [x] `.section` selects, `.endsection` restores.
   - [x] missing `.endsection` errors.
   - `.section` unknown name errors.
 - [x] Example(s) and reference outputs in `examples/` and `examples/reference/`.
