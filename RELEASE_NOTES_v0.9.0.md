@@ -36,6 +36,20 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - missing 65C02 bit-branch instruction support
 - New linker-region examples and generated reference outputs, including
   diagnostics fixtures for invalid placement and region scenarios.
+- 65816 MVP support (phase-1 scope):
+  - `.cpu 65816` plus aliases `.cpu 65c816` and `.cpu w65c816`
+  - initial 65816 instruction support:
+    - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+    - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
+    - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
+    - block move: `MVN`, `MVP`
+  - initial 65816 addressing-form support in MOS-family parsing:
+    - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`)
+    - bracketed indirect forms (`[...]`, `[...,Y]`) for implemented instructions
+- New 65816 examples and golden references:
+  - `examples/65816_simple.asm`
+  - `examples/65816_allmodes.asm`
+  - matching `examples/reference/65816_*.hex` and `examples/reference/65816_*.lst`
 
 ## Changed
 
@@ -91,3 +105,10 @@ Or grouped placement:
 ```asm
 .pack in rom : code, data, vectors
 ```
+
+## Notes on 65816 scope
+
+The current 65816 implementation is MVP/phase-1:
+- core assembler address/layout flow remains 16-bit
+- full 24-bit architecture/output behavior is still planned
+- width-sensitive immediate sizing via M/X state tracking is still planned

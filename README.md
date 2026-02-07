@@ -4,7 +4,7 @@ plain old #include (it has that also) but true modules, with visibility control.
 includes needed :).
 
 This is an multi-target assembler for 8080 Family processors (currently 8080, 8085 and z80) and MOS 6502 Family
-(currently 6502 and 65c02) processors.
+(currently 6502, 65c02, and 65816) processors.
 
 It is partly inspired by [64tass](https://tass64.sourceforge.net) in terms of features and notational style.
 It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
@@ -13,6 +13,29 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 `type:name` and quoted literal commas (use `","`). Statement labels may include dots (e.g. `move.b`).
 
 For all documentation on features and syntax read: [opForge Reference Manual](documentation/opForge-reference-manual.md).
+
+## 65816 Status (MVP)
+
+Current 65816 support is phase-1/MVP and uses the existing 16-bit core address model.
+
+- CPU names: `65816` (canonical), `65c816`, `w65c816`
+- Includes 65816 instruction support currently implemented in this branch:
+  - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+  - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
+  - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
+  - block move: `MVN`, `MVP`
+- Implemented 65816-only operand forms currently include:
+  - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`)
+  - bracketed long-indirect forms (`[...]` / `[...,Y]`) used by implemented instructions
+  - long absolute operands for implemented long-control instructions
+
+Current limits:
+- Full 24-bit core address-model behavior is not implemented yet.
+- Width-sensitive immediate sizing state (M/X state tracking) is not implemented yet.
+
+New 65816 examples:
+- `examples/65816_simple.asm`
+- `examples/65816_allmodes.asm`
 
 
 Build:
@@ -150,4 +173,3 @@ Grouped placement flow:
 Examples:
 - `examples/linker_regions_minimal.asm`
 - `examples/linker_regions_full.asm`
-

@@ -8,7 +8,7 @@ feature-series labels (for example `v3.1` for the linker-region milestone).
 
 ## 1. Introduction
 
-opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, and WDC 65C02 code. It supports:
+opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, WDC 65C02, and WDC 65816 code. It supports:
 - Dot-prefixed directives and conditionals.
 - A 64tass-inspired expression syntax (operators, precedence, ternary).
 - Preprocessor directives for includes and conditional compilation.
@@ -16,7 +16,7 @@ opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, a
 - Optional listing, Intel HEX, and binary outputs.
 
 The `.cpu` directive currently accepts `8080` (alias for `8085`), `8085`, `z80`,
-`6502`, `m6502`, and `65c02`.
+`6502`, `m6502`, `65c02`, `65816`, `65c816`, and `w65c816`.
 
 There is no `.dialect` directive; dialect selection follows the CPU default.
 
@@ -331,9 +331,18 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 .cpu 6502
 .cpu m6502
 .cpu 65c02
+.cpu 65816
+.cpu 65c816
+.cpu w65c816
 ```
 
-Planned (not currently supported): `65816`, `45gs02`, `68000` and related CPUs.
+Planned (not currently supported): `45gs02`, `68000` and related CPUs.
+
+65816 support is currently MVP/phase-1 scope:
+- Uses the current 16-bit assembler core address model.
+- Implements selected 65816 mnemonics and operand forms.
+- Does not yet implement full 24-bit core output/layout behavior.
+- Does not yet implement M/X width-state tracking for width-sensitive immediate sizing.
 
 ### 4.8 End of assembly
 
@@ -556,6 +565,12 @@ Instruction mnemonics are selected by `.cpu`:
 - Standard MOS 6502/65C02 mnemonics (`LDA`, `JMP`, `BRA`, ...), including 65C02
   additions such as `STP`, `WAI`, `DEC A`/`INC A` (`DEA`/`INA` aliases), and
   extended `BIT` modes.
+- 65816 MVP additions currently implemented include:
+  - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+  - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
+  - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
+  - block move: `MVN`, `MVP`
+  - stack-relative addressing forms used by implemented opcodes (`d,S`, `(d,S),Y`)
 
 ## 13. Appendix: quick reference
 
@@ -583,7 +598,7 @@ Instruction mnemonics are selected by `.cpu`:
 ## 14. Appendix: multi-CPU architecture
 
 This appendix describes the modular architecture that allows opForge to support
-multiple CPU targets (8085, Z80, 6502, 65C02) through a common framework.
+multiple CPU targets (8085, Z80, 6502, 65C02, 65816) through a common framework.
 
 ### Overview
 
@@ -637,10 +652,10 @@ The assembler is organized into layers with hierarchical parsing and encoding:
        │                               │
     ┌─────┴─────┐                   ┌─────┴─────┐
     ▼           ▼                   ▼           ▼
-┌───────┐  ┌───────┐           ┌───────┐  ┌───────┐
-│ 8085  │  │  Z80  │           │ 6502  │  │ 65C02 │
-│ CPU   │  │ CPU   │           │ CPU   │  │ CPU   │
-└───────┘  └───────┘           └───────┘  └───────┘
+┌───────┐  ┌───────┐           ┌───────┐  ┌───────┐  ┌───────┐
+│ 8085  │  │  Z80  │           │ 6502  │  │ 65C02 │  │ 65816 │
+│ CPU   │  │ CPU   │           │ CPU   │  │ CPU   │  │ CPU   │
+└───────┘  └───────┘           └───────┘  └───────┘  └───────┘
 ```
 
 ### Layer responsibilities
@@ -710,6 +725,20 @@ Instruction extensions:
 | `BBSn`, `BBRn` | ✗ | ✓ Branch on Bit Set/Reset |
 | `RMBn`, `SMBn` | ✗ | ✓ Reset/Set Memory Bit |
 
+**MOS 6502 Family (65816 MVP additions)**
+
+Currently implemented 65816-specific additions in this branch:
+- `BRL`, `JML`, `JSL`, `RTL`
+- `REP`, `SEP`, `XCE`, `XBA`
+- `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
+- `PEA`, `PEI`, `PER`, `COP`, `WDM`
+- `MVN`, `MVP`
+- operand forms: `d,S`, `(d,S),Y`, bracketed indirect (`[...]`, `[...,Y]`) for supported instructions
+
+Current 65816 limits:
+- core assembler address/layout flow is still 16-bit
+- no M/X width-state tracking for width-sensitive immediate sizing
+
 **Intel 8080 Family**
 
 Operand syntax extensions:
@@ -744,7 +773,7 @@ and `IYL`.
 
 ### Core abstractions
 
-- **CpuType**: concrete processor (I8085, Z80, M6502, M65C02)
+- **CpuType**: concrete processor (I8085, Z80, M6502, M65C02, M65816)
 - **CpuFamily**: processor family (Intel8080, MOS6502)
 
 ### Handler traits (summary)
