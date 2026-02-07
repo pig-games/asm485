@@ -221,6 +221,86 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "ORA",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0x07,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ORA",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0x17,
+    },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0x27,
+    },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0x37,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0x47,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0x57,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0x67,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0x77,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0x87,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0x97,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0xA7,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0xB7,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0xC7,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0xD7,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::DirectPageIndirectLong,
+        opcode: 0xE7,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::DirectPageIndirectLongY,
+        opcode: 0xF7,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ORA",
         mode: AddressMode::StackRelative,
         opcode: 0x03,
     },
@@ -260,6 +340,7 @@ mod tests {
         assert!(lookup_instruction("BRL", AddressMode::RelativeLong).is_some());
         assert!(lookup_instruction("JML", AddressMode::AbsoluteLong).is_some());
         assert!(lookup_instruction("LDA", AddressMode::AbsoluteLongX).is_some());
+        assert!(lookup_instruction("LDA", AddressMode::DirectPageIndirectLongY).is_some());
         assert!(lookup_instruction("MVN", AddressMode::BlockMove).is_some());
     }
 }

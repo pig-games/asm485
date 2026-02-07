@@ -1720,6 +1720,42 @@ fn m65816_long_memory_forms_encode() {
 }
 
 #[test]
+fn m65816_direct_page_indirect_long_forms_encode() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA [$10]"),
+        vec![0x07, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA [$10],Y"),
+        vec![0x17, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA [$20]"),
+        vec![0xA7, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA [$20],Y"),
+        vec![0xB7, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA [$30]"),
+        vec![0x87, 0x30]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA [$30],Y"),
+        vec![0x97, 0x30]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ADC [$40],Y"),
+        vec![0x77, 0x40]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    SBC [$50]"),
+        vec![0xE7, 0x50]
+    );
+}
+
+#[test]
 fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     let (status, message) = assemble_line_status(m6502_cpu_id, "    BRL $0005");
     assert_eq!(status, LineStatus::Error);
