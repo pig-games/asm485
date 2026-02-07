@@ -42,3 +42,4 @@ Icon?
 # Local AI agent guidance (environment-specific, keep unversioned)
 AGENTS.md
 /scripts/route_workflow.sh
+/.tmp_yaml/
