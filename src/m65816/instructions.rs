@@ -309,6 +309,76 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mode: AddressMode::StackRelativeIndirectIndexedY,
         opcode: 0x13,
     },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::StackRelative,
+        opcode: 0x23,
+    },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0x33,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::StackRelative,
+        opcode: 0x43,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0x53,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::StackRelative,
+        opcode: 0x63,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0x73,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::StackRelative,
+        opcode: 0x83,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0x93,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::StackRelative,
+        opcode: 0xA3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0xB3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::StackRelative,
+        opcode: 0xC3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0xD3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::StackRelative,
+        opcode: 0xE3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0xF3,
+    },
 ];
 
 /// Look up an instruction in the CPU extension table.
@@ -341,6 +411,7 @@ mod tests {
         assert!(lookup_instruction("JML", AddressMode::AbsoluteLong).is_some());
         assert!(lookup_instruction("LDA", AddressMode::AbsoluteLongX).is_some());
         assert!(lookup_instruction("LDA", AddressMode::DirectPageIndirectLongY).is_some());
+        assert!(lookup_instruction("LDA", AddressMode::StackRelative).is_some());
         assert!(lookup_instruction("MVN", AddressMode::BlockMove).is_some());
     }
 }

@@ -1681,6 +1681,30 @@ fn m65816_stack_relative_forms_encode() {
         assemble_bytes(m65816_cpu_id, "    ORA ($20,S),Y"),
         vec![0x13, 0x20]
     );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA $11,S"),
+        vec![0xA3, 0x11]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA ($21,S),Y"),
+        vec![0xB3, 0x21]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA $12,S"),
+        vec![0x83, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA ($22,S),Y"),
+        vec![0x93, 0x22]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ADC $13,S"),
+        vec![0x63, 0x13]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    SBC ($23,S),Y"),
+        vec![0xF3, 0x23]
+    );
 }
 
 #[test]
