@@ -44,7 +44,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               41  ; ========================================
 081F    F4 67 45                   42          pea $4567           ; F4 67 45
 0822    D4 44                      43          pei ($44)           ; D4 44
-0824    62 13 00                   44          per rel_target      ; 62 xx xx
+0824    62 2B 00                   44          per rel_target      ; 62 xx xx
 0827    02 99                      45          cop #$99            ; 02 99
 0829    42 55                      46          wdm #$55            ; 42 55
 ----                               47  
@@ -60,23 +60,39 @@ ADDR    BYTES                    LINE  SOURCE
 0831    03 20                      57          ora $20,s           ; 03 20
 0833    13 21                      58          ora ($21,s),y       ; 13 21
 ----                               59  
-----                               60  ; Shared family instructions still valid on 65816
-0835    A9 12                      61          lda #$12
-0837    8D 00 20                   62          sta $2000
-----                               63  
-----                               64  rel_target:
-083A    60                         65          rts
-----                               66  
-----                               67          .end
+----                               60  ; ========================================
+----                               61  ; 65816 LONG MEMORY FORMS
+----                               62  ; ========================================
+0835    AF 56 34 12                63          lda $123456         ; AF 56 34 12
+0839    BF 56 34 12                64          lda $123456,x       ; BF 56 34 12
+083D    8F 5A 34 12                65          sta $12345A         ; 8F 5A 34 12
+0841    9F 5A 34 12                66          sta $12345A,x       ; 9F 5A 34 12
+----                               67  
+----                               68  ; ========================================
+----                               69  ; 65816 BRACKETED LONG-INDIRECT FORMS
+----                               70  ; ========================================
+0845    A7 30                      71          lda [$30]           ; A7 30
+0847    B7 30                      72          lda [$30],y         ; B7 30
+0849    87 31                      73          sta [$31]           ; 87 31
+084B    97 31                      74          sta [$31],y         ; 97 31
+----                               75  
+----                               76  ; Shared family instructions still valid on 65816
+084D    A9 12                      77          lda #$12
+084F    8D 00 20                   78          sta $2000
+----                               79  
+----                               80  rel_target:
+0852    60                         81          rts
+----                               82  
+----                               83          .end
 
-Lines: 67  Errors: 0  Warnings: 0
+Lines: 83  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 long_target     : 0804 (2052)
-rel_target      : 083a (2106)
+rel_target      : 0852 (2130)
 
-Total memory is 59 bytes
+Total memory is 83 bytes
 
 GENERATED OUTPUT
 
@@ -84,5 +100,7 @@ ADDR    BYTES
 ------  -----------------------
 0800    82 01 00 EA 5C EE FF C0 22 CD AB 00 DC 56 34 6B
 0810    C2 30 E2 10 FB EB 8B AB 0B 2B 4B 5B 7B 1B 3B F4
-0820    67 45 D4 44 62 13 00 02 99 42 55 54 01 02 44 03
-0830    04 03 20 13 21 A9 12 8D 00 20 60
+0820    67 45 D4 44 62 2B 00 02 99 42 55 54 01 02 44 03
+0830    04 03 20 13 21 AF 56 34 12 BF 56 34 12 8F 5A 34
+0840    12 9F 5A 34 12 A7 30 B7 30 87 31 97 31 A9 12 8D
+0850    00 20 60
