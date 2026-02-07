@@ -184,7 +184,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                if start > u16::MAX as u32 || end > u16::MAX as u32 || start > end {
+                if start > end {
                     return self.failure(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
@@ -279,7 +279,9 @@ impl<'a> AsmLine<'a> {
                         })
                     {
                         let msg = format!(
-                            "Region range overlaps existing region '{other_name}' at ${overlap_start:04X}..${overlap_end:04X}"
+                            "Region range overlaps existing region '{other_name}' at ${}..${}",
+                            super::format_addr(overlap_start),
+                            super::format_addr(overlap_end)
                         );
                         return self.failure(
                             LineStatus::Error,
@@ -713,7 +715,7 @@ impl<'a> AsmLine<'a> {
                 };
                 if let Some(section_name) = self.current_section.as_deref() {
                     if let Some(section) = self.sections.get(section_name) {
-                        let current_abs = section.start_pc as u32 + section.pc as u32;
+                        let current_abs = section.start_pc + section.pc;
                         if val < current_abs {
                             return self.failure(
                                 LineStatus::Error,
@@ -724,8 +726,8 @@ impl<'a> AsmLine<'a> {
                         }
                     }
                 }
-                self.start_addr = val as u16;
-                self.aux_value = val as u16;
+                self.start_addr = val;
+                self.aux_value = val;
                 LineStatus::DirEqu
             }
             "ALIGN" => {
@@ -752,7 +754,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let align = val as u16;
+                let align = val;
                 if align == 0 {
                     return self.failure(
                         LineStatus::Error,
@@ -839,7 +841,7 @@ impl<'a> AsmLine<'a> {
                         Some(1),
                     );
                 }
-                self.aux_value = val as u16;
+                self.aux_value = val;
                 LineStatus::DirEqu
             }
             "CPU" => {
@@ -917,7 +919,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                self.aux_value = val as u16;
+                self.aux_value = val;
                 LineStatus::DirDs
             }
             _ if self.in_meta_block && directive.starts_with("OUTPUT.") => {
@@ -2279,7 +2281,7 @@ impl<'a> AsmLine<'a> {
             .max(region_align)
             .max(section_align) as u32;
         let base = Self::align_up(region_cursor, align);
-        let size = section_size as u32;
+        let size = section_size;
         let last_addr = if size == 0 {
             base
         } else {
@@ -2305,18 +2307,17 @@ impl<'a> AsmLine<'a> {
             );
         }
 
-        let base_u16 = base as u16;
         if let Some(region) = self.regions.get_mut(region_name) {
             region.cursor = new_cursor;
             region.placed.push(PlacedSectionInfo {
                 name: section_name.to_string(),
-                base: base_u16,
+                base,
                 size: section_size,
             });
         }
         if let Some(section) = self.sections.get_mut(section_name) {
-            section.start_pc = base_u16;
-            section.base_addr = Some(base_u16);
+            section.start_pc = base;
+            section.base_addr = Some(base);
             section.layout_placed = true;
         }
         LineStatus::Ok

@@ -83,9 +83,9 @@ pub(crate) enum SectionKind {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SectionState {
-    pub(crate) start_pc: u16,
-    pub(crate) pc: u16,
-    pub(crate) max_pc: u16,
+    pub(crate) start_pc: u32,
+    pub(crate) pc: u32,
+    pub(crate) max_pc: u32,
     pub(crate) bytes: Vec<u8>,
     pub(crate) emitted: bool,
     pub(crate) layout_placed: bool,
@@ -93,11 +93,11 @@ pub(crate) struct SectionState {
     pub(crate) kind: SectionKind,
     pub(crate) default_region: Option<String>,
     #[allow(dead_code)]
-    pub(crate) base_addr: Option<u16>,
+    pub(crate) base_addr: Option<u32>,
 }
 
 impl SectionState {
-    pub(crate) fn size_bytes(&self) -> u16 {
+    pub(crate) fn size_bytes(&self) -> u32 {
         // `pc`/`max_pc` track section-local offsets, while `start_pc` can be
         // rebased during placement. Size must stay section-local.
         self.max_pc
@@ -142,8 +142,8 @@ impl PlacementDirective {
 #[derive(Debug, Clone)]
 pub(crate) struct PlacedSectionInfo {
     pub(crate) name: String,
-    pub(crate) base: u16,
-    pub(crate) size: u16,
+    pub(crate) base: u32,
+    pub(crate) size: u32,
 }
 
 #[allow(dead_code)]

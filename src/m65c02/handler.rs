@@ -116,8 +116,8 @@ impl CpuHandler for M65C02CpuHandler {
             }
 
             let target = ctx.eval_expr(target_expr)?;
-            let current = ctx.current_address() as i32 + 3;
-            let offset = target as i32 - current;
+            let current = ctx.current_address() as i64 + 3;
+            let offset = target - current;
             let rel = if !(-128..=127).contains(&offset) {
                 if ctx.pass() > 1 {
                     return Err(format!("Branch target out of range: offset {}", offset));
@@ -158,8 +158,8 @@ impl CpuHandler for M65C02CpuHandler {
 
                     // Branch instructions use relative addressing
                     if Self::is_branch_mnemonic(mnemonic) {
-                        let current = ctx.current_address() as i32 + 2;
-                        let offset = val as i32 - current;
+                        let current = ctx.current_address() as i64 + 2;
+                        let offset = val - current;
                         if !(-128..=127).contains(&offset) {
                             if ctx.pass() > 1 {
                                 // Only report error on pass 2

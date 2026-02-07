@@ -38,7 +38,7 @@ fn make_asm_line<'a>(symbols: &'a mut SymbolTable, registry: &'a ModuleRegistry)
     AsmLine::new(symbols, registry)
 }
 
-fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u16, pass: u8) -> LineStatus {
+fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineStatus {
     asm.process(line, 1, addr, pass)
 }
 
@@ -686,6 +686,44 @@ fn org_sets_address() {
     let status = process_line(&mut asm, "* = 1200h", 0, 1);
     assert_eq!(status, LineStatus::DirEqu);
     assert_eq!(asm.start_addr(), 0x1200);
+}
+
+#[test]
+fn org_supports_wide_addresses() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .org $123456", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    assert_eq!(asm.start_addr(), 0x123456);
+    assert_eq!(asm.aux_value(), 0x123456);
+}
+
+#[test]
+fn place_allows_regions_above_64k() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".region hi, $120000, $1200ff".to_string(),
+        ".section code".to_string(),
+        ".byte $aa, $bb".to_string(),
+        ".endsection".to_string(),
+        ".place code in hi".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 0);
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
+    assert_eq!(pass2.errors, 0);
+
+    let entries = assembler.image().entries().expect("entries");
+    assert_eq!(entries, vec![(0x120000, 0xaa), (0x120001, 0xbb)]);
 }
 
 #[test]
@@ -2958,7 +2996,7 @@ fn conditionals_only_emit_true_branch_bytes() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    let mut addr: u16 = 0;
+    let mut addr: u32 = 0;
     let mut out = Vec::new();
 
     let lines = [
@@ -2979,7 +3017,7 @@ fn conditionals_only_emit_true_branch_bytes() {
         match status {
             LineStatus::Ok => {
                 out.extend_from_slice(asm.bytes());
-                addr = addr.wrapping_add(asm.num_bytes() as u16);
+                addr = addr.wrapping_add(asm.num_bytes() as u32);
             }
             LineStatus::DirDs => {
                 addr = addr.wrapping_add(asm.aux_value());
@@ -2999,7 +3037,7 @@ fn match_only_emits_matching_case() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    let mut addr: u16 = 0;
+    let mut addr: u32 = 0;
     let mut out = Vec::new();
 
     let lines = [
@@ -3018,7 +3056,7 @@ fn match_only_emits_matching_case() {
         match status {
             LineStatus::Ok => {
                 out.extend_from_slice(asm.bytes());
-                addr = addr.wrapping_add(asm.num_bytes() as u16);
+                addr = addr.wrapping_add(asm.num_bytes() as u32);
             }
             LineStatus::DirDs => {
                 addr = addr.wrapping_add(asm.aux_value());

@@ -122,7 +122,7 @@ pub trait AssemblerContext {
     fn symbols(&self) -> &SymbolTable;
 
     /// Get the current assembly address.
-    fn current_address(&self) -> u16;
+    fn current_address(&self) -> u32;
 
     /// Get the current assembler pass (1 or 2).
     fn pass(&self) -> u8;

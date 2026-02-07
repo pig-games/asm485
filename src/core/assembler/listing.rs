@@ -15,10 +15,10 @@ use super::error::{build_context_lines, LineStatus, PassCounts};
 
 /// Data for a single listing line.
 pub struct ListingLine<'a> {
-    pub addr: u16,
+    pub addr: u32,
     pub bytes: &'a [u8],
     pub status: LineStatus,
-    pub aux: u16,
+    pub aux: u32,
     pub line_num: u32,
     pub source: &'a str,
     pub section: Option<&'a str>,
@@ -45,13 +45,13 @@ impl<W: Write> ListingWriter<W> {
 
     pub fn write_line(&mut self, line: ListingLine<'_>) -> std::io::Result<()> {
         let (loc, bytes_col) = match line.status {
-            LineStatus::DirEqu => (String::new(), format!("EQU {:04X}", line.aux)),
-            LineStatus::DirDs => (format!("{:04X}", line.addr), format!("+{:04X}", line.aux)),
+            LineStatus::DirEqu => (String::new(), format!("EQU {:04X}", line.aux as u16)),
+            LineStatus::DirDs => (format_addr(line.addr), format!("+{:04X}", line.aux as u16)),
             _ => {
                 if line.bytes.is_empty() {
                     ("".to_string(), String::new())
                 } else {
-                    (format!("{:04X}", line.addr), format_bytes(line.bytes))
+                    (format_addr(line.addr), format_bytes(line.bytes))
                 }
             }
         };
@@ -120,7 +120,7 @@ impl<W: Write> ListingWriter<W> {
         counts: &PassCounts,
         symbols: &SymbolTable,
         total_mem: usize,
-        generated_output: &[(u16, u8)],
+        generated_output: &[(u32, u8)],
     ) -> std::io::Result<()> {
         writeln!(
             self.out,
@@ -134,7 +134,7 @@ impl<W: Write> ListingWriter<W> {
         Ok(())
     }
 
-    fn write_generated_output(&mut self, generated_output: &[(u16, u8)]) -> std::io::Result<()> {
+    fn write_generated_output(&mut self, generated_output: &[(u32, u8)]) -> std::io::Result<()> {
         writeln!(self.out, "\nGENERATED OUTPUT\n")?;
         if generated_output.is_empty() {
             writeln!(self.out, "(none)")?;
@@ -149,8 +149,8 @@ impl<W: Write> ListingWriter<W> {
         writeln!(self.out, "ADDR    BYTES")?;
         writeln!(self.out, "------  -----------------------")?;
 
-        let mut line_addr: Option<u16> = None;
-        let mut prev_addr: Option<u16> = None;
+        let mut line_addr: Option<u32> = None;
+        let mut prev_addr: Option<u32> = None;
         let mut line_bytes: Vec<u8> = Vec::new();
 
         for (addr, value) in resolved {
@@ -160,7 +160,12 @@ impl<W: Write> ListingWriter<W> {
             };
             if split {
                 if let Some(start) = line_addr {
-                    writeln!(self.out, "{start:04X}    {}", format_bytes(&line_bytes))?;
+                    writeln!(
+                        self.out,
+                        "{}    {}",
+                        format_addr(start),
+                        format_bytes(&line_bytes)
+                    )?;
                 }
                 line_bytes.clear();
                 line_addr = Some(addr);
@@ -173,10 +178,23 @@ impl<W: Write> ListingWriter<W> {
         }
 
         if let Some(start) = line_addr {
-            writeln!(self.out, "{start:04X}    {}", format_bytes(&line_bytes))?;
+            writeln!(
+                self.out,
+                "{}    {}",
+                format_addr(start),
+                format_bytes(&line_bytes)
+            )?;
         }
 
         Ok(())
+    }
+}
+
+fn format_addr(addr: u32) -> String {
+    if addr <= 0xFFFF {
+        format!("{addr:04X}")
+    } else {
+        format!("{addr:06X}")
     }
 }
 

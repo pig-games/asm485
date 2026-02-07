@@ -68,7 +68,7 @@ impl Assembler {
     pub(crate) fn pass1(&mut self, lines: &[String]) -> PassCounts {
         self.sections.clear();
         self.regions.clear();
-        let mut addr: u16 = 0;
+        let mut addr: u32 = 0;
         let mut line_num: u32 = 1;
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;
@@ -211,7 +211,7 @@ impl Assembler {
         asm_line.clear_scopes();
         self.image = ImageStore::new(65536);
 
-        let mut addr: u16 = 0;
+        let mut addr: u32 = 0;
         let mut line_num: u32 = 1;
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;

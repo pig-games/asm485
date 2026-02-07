@@ -79,8 +79,8 @@ impl CpuHandler for M6502CpuHandler {
 
                     // Branch instructions use relative addressing
                     if Self::is_branch_mnemonic(mnemonic) {
-                        let current = ctx.current_address() as i32 + 2;
-                        let offset = val as i32 - current;
+                        let current = ctx.current_address() as i64 + 2;
+                        let offset = val - current;
                         if !(-128..=127).contains(&offset) {
                             if ctx.pass() > 1 {
                                 // Only report error on pass 2

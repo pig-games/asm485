@@ -43,8 +43,8 @@ impl M65816CpuHandler {
         let span = crate::core::assembler::expression::expr_span(expr);
 
         if matches!(upper.as_str(), "BRL" | "PER") {
-            let current = ctx.current_address() as i32 + 3;
-            let offset = val as i32 - current;
+            let current = ctx.current_address() as i64 + 3;
+            let offset = val - current;
             if !(-32768..=32767).contains(&offset) {
                 if ctx.pass() > 1 {
                     return Err(format!(

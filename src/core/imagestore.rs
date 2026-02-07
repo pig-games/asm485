@@ -13,7 +13,7 @@ static IMAGE_STORE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 struct ImageStoreEntry {
-    addr: u16,
+    addr: u32,
     value: u8,
 }
 
@@ -69,11 +69,13 @@ impl ImageStore {
     }
 
     /// Store a single byte at the given address.
-    pub fn store(&mut self, addr: u16, val: u8) {
+    pub fn store(&mut self, addr: u32, val: u8) {
         if self.write_error.is_some() {
             return;
         }
-        let buf = [(addr >> 8) as u8, (addr & 0xff) as u8, val];
+        let mut buf = [0u8; 5];
+        buf[..4].copy_from_slice(&addr.to_be_bytes());
+        buf[4] = val;
         if let Err(err) = self.file.write_all(&buf) {
             self.write_error = Some(err);
             return;
@@ -82,9 +84,9 @@ impl ImageStore {
     }
 
     /// Store a contiguous slice of bytes starting at `addr`.
-    pub fn store_slice(&mut self, addr: u16, values: &[u8]) {
+    pub fn store_slice(&mut self, addr: u32, values: &[u8]) {
         for (ix, val) in values.iter().enumerate() {
-            let next_addr = addr.wrapping_add(ix as u16);
+            let next_addr = addr.wrapping_add(ix as u32);
             self.store(next_addr, *val);
         }
     }
@@ -93,13 +95,13 @@ impl ImageStore {
         let mut reader = BufReader::new(File::open(&self.path)?);
         let mut entries = Vec::new();
         loop {
-            let mut buf = [0u8; 3];
+            let mut buf = [0u8; 5];
             match reader.read_exact(&mut buf) {
                 Ok(()) => {
-                    let addr = u16::from_be_bytes([buf[0], buf[1]]);
+                    let addr = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
                     entries.push(ImageStoreEntry {
                         addr,
-                        value: buf[2],
+                        value: buf[4],
                     });
                 }
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
@@ -125,7 +127,7 @@ impl ImageStore {
 
         // Deduplicate entries by address (last-write-wins), then sort by address.
         let entries = {
-            let mut seen = std::collections::HashMap::<u16, u8>::new();
+            let mut seen = std::collections::HashMap::<u32, u8>::new();
             for entry in &raw_entries {
                 seen.insert(entry.addr, entry.value);
             }
@@ -137,6 +139,7 @@ impl ImageStore {
             deduped
         };
 
+        let mut current_ela: Option<u16> = None;
         let mut line_addr: u16 = 0;
         let mut line_bytes: u8 = 0;
         let mut checksum: u8 = 0;
@@ -144,9 +147,18 @@ impl ImageStore {
         const LINE_LIMIT: usize = 32;
 
         for (ix, entry) in entries.iter().enumerate() {
+            let ela = (entry.addr >> 16) as u16;
+            if current_ela != Some(ela) {
+                if ela != 0 || current_ela.is_some() {
+                    write_extended_linear_address_record(&mut out, ela)?;
+                }
+                current_ela = Some(ela);
+                line_bytes = 0;
+            }
+
             let val = entry.value;
             if line_bytes == 0 {
-                line_addr = entry.addr;
+                line_addr = (entry.addr & 0xFFFF) as u16;
                 checksum = 0;
                 hex_data.clear();
             }
@@ -155,13 +167,16 @@ impl ImageStore {
             checksum = checksum.wrapping_add(val);
             line_bytes = line_bytes.wrapping_add(1);
 
-            let next_addr = if ix + 1 < entries.len() {
-                entries[ix + 1].addr
+            let should_flush = if (line_bytes as usize) >= LINE_LIMIT {
+                true
+            } else if let Some(next) = entries.get(ix + 1) {
+                let next_ela = (next.addr >> 16) as u16;
+                next_ela != ela || next.addr != entry.addr.wrapping_add(1)
             } else {
-                entry.addr
+                true
             };
 
-            if (line_bytes as usize) >= LINE_LIMIT || next_addr != entry.addr.wrapping_add(1) {
+            if should_flush {
                 checksum = checksum.wrapping_add(line_bytes);
                 checksum = checksum.wrapping_add((line_addr >> 8) as u8);
                 checksum = checksum.wrapping_add((line_addr & 0xff) as u8);
@@ -218,7 +233,10 @@ impl ImageStore {
         let alloc_size = alloc_end.min(65536).saturating_sub(start);
         let mut mem = vec![fill; alloc_size];
         for entry in &entries {
-            let addr = entry.addr as usize;
+            let Ok(addr16) = u16::try_from(entry.addr) else {
+                continue;
+            };
+            let addr = addr16 as usize;
             if addr >= start && addr < start + alloc_size {
                 mem[addr - start] = entry.value;
             }
@@ -242,11 +260,17 @@ impl ImageStore {
             min = min.min(entry.addr);
             max = max.max(entry.addr);
         }
-        Ok(Some((min, max)))
+        if min > u16::MAX as u32 || max > u16::MAX as u32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Binary range exceeds 16-bit address space; use linker .output for wide images",
+            ));
+        }
+        Ok(Some((min as u16, max as u16)))
     }
 
     /// Return all stored `(address, byte)` pairs.
-    pub fn entries(&self) -> io::Result<Vec<(u16, u8)>> {
+    pub fn entries(&self) -> io::Result<Vec<(u32, u8)>> {
         self.ensure_ready()?;
         let entries = self.read_entries()?;
         Ok(entries
@@ -269,9 +293,20 @@ fn hex_digit(val: u8) -> char {
     }
 }
 
+fn write_extended_linear_address_record<W: Write>(out: &mut W, upper: u16) -> io::Result<()> {
+    let mut csum: u8 = 0;
+    csum = csum.wrapping_add(2); // length
+    csum = csum.wrapping_add(4); // record type 04
+    csum = csum.wrapping_add((upper >> 8) as u8);
+    csum = csum.wrapping_add((upper & 0xff) as u8);
+    csum = (!csum).wrapping_add(1);
+    writeln!(out, ":02000004{:04X}{:02X}", upper, csum)
+}
+
 #[cfg(test)]
 mod tests {
     use super::ImageStore;
+    use std::io;
 
     fn parse_hex_byte(s: &str) -> u8 {
         u8::from_str_radix(s, 16).unwrap()
@@ -344,5 +379,27 @@ mod tests {
             .unwrap();
         assert_eq!(out.len(), 5);
         assert_eq!(out, vec![0xff, 0xaa, 0xff, 0xbb, 0xff]);
+    }
+
+    #[test]
+    fn write_hex_emits_extended_linear_address_for_wide_addresses() {
+        let mut image = ImageStore::new(65536);
+        image.store(0x123456, 0xaa);
+        image.store(0x123457, 0xbb);
+        let mut out = Vec::new();
+        image.write_hex_file(&mut out, None).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains(":020000040012"));
+        assert!(text.contains(":02345600AABB"));
+    }
+
+    #[test]
+    fn output_range_rejects_wide_addresses_for_bin_cli() {
+        let mut image = ImageStore::new(65536);
+        image.store(0x010000, 0xaa);
+        let err = image
+            .output_range()
+            .expect_err("expected out-of-range error");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }

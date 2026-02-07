@@ -225,8 +225,8 @@ impl FamilyHandler for MOS6502FamilyHandler {
             // If we have an absolute address, we need to calculate the offset
             if let Some(Operand::Absolute(addr, span)) = operands.first() {
                 if let Some(entry) = lookup_instruction(mnemonic, AddressMode::Relative) {
-                    let current = ctx.current_address() as i32 + 2; // +2 for instruction size
-                    let target = *addr as i32;
+                    let current = ctx.current_address() as i64 + 2; // +2 for instruction size
+                    let target = *addr as i64;
                     let offset = target - current;
                     if !(-128..=127).contains(&offset) {
                         return EncodeResult::error_with_span(

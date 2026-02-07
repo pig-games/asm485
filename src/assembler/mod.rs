@@ -386,8 +386,16 @@ fn run_one(
 #[derive(Debug, Clone)]
 struct ResolvedLinkerSection {
     name: String,
-    base: u16,
+    base: u32,
     bytes: Vec<u8>,
+}
+
+fn format_addr(addr: u32) -> String {
+    if addr <= 0xFFFF {
+        format!("{addr:04X}")
+    } else {
+        format!("{addr:06X}")
+    }
 }
 
 fn collect_linker_sections(
@@ -441,7 +449,7 @@ fn build_linker_output_payload(
             if section.bytes.is_empty() {
                 continue;
             }
-            let start = section.base as u32;
+            let start = section.base;
             let end = start + section.bytes.len() as u32 - 1;
             if start < image_start as u32 || end > image_end as u32 {
                 return Err(AsmError::new(
@@ -458,19 +466,21 @@ fn build_linker_output_payload(
         if output.contiguous {
             let mut expected_base: Option<u32> = None;
             for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
-                let base = section.base as u32;
+                let base = section.base;
                 if let Some(expected) = expected_base {
                     if base != expected {
                         let message = if base > expected {
                             format!(
-                                    "contiguous output requires adjacent sections; gap ${expected:04X}..${:04X}",
-                                    base - 1
-                                )
+                                "contiguous output requires adjacent sections; gap ${}..${}",
+                                format_addr(expected),
+                                format_addr(base - 1)
+                            )
                         } else {
                             format!(
-                                    "contiguous output requires adjacent sections; overlap ${base:04X}..${:04X}",
-                                    expected - 1
-                                )
+                                "contiguous output requires adjacent sections; overlap ${}..${}",
+                                format_addr(base),
+                                format_addr(expected - 1)
+                            )
                         };
                         return Err(AsmError::new(
                             AsmErrorKind::Directive,
@@ -491,7 +501,7 @@ fn build_linker_output_payload(
     };
 
     if output.format == LinkerOutputFormat::Prg {
-        let loadaddr = output.loadaddr.unwrap_or_else(|| {
+        let loadaddr32 = output.loadaddr.map(u32::from).unwrap_or_else(|| {
             ordered
                 .iter()
                 .find(|section| !section.bytes.is_empty())
@@ -499,6 +509,16 @@ fn build_linker_output_payload(
                 .map(|section| section.base)
                 .unwrap_or(0)
         });
+        let loadaddr = match u16::try_from(loadaddr32) {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(AsmError::new(
+                    AsmErrorKind::Directive,
+                    "PRG load address exceeds 16-bit range",
+                    Some(&output.path),
+                ))
+            }
+        };
         let mut prg = Vec::with_capacity(payload.len() + 2);
         prg.push((loadaddr & 0x00ff) as u8);
         prg.push((loadaddr >> 8) as u8);
@@ -650,8 +670,13 @@ fn build_mapfile_text(
         let used = region.cursor.saturating_sub(region.start).min(capacity);
         let free = capacity.saturating_sub(used);
         out.push_str(&format!(
-            "{} {:04X} {:04X} {} {} {}\n",
-            region.name, region.start, region.end, used, free, region.align
+            "{} {} {} {} {} {}\n",
+            region.name,
+            format_addr(region.start),
+            format_addr(region.end),
+            used,
+            free,
+            region.align
         ));
     }
     out.push('\n');
@@ -670,7 +695,7 @@ fn build_mapfile_text(
         let section = &sections[name];
         let base_text = section
             .base_addr
-            .map(|base| format!("{base:04X}"))
+            .map(format_addr)
             .unwrap_or_else(|| "----".to_string());
         let region_name = section_region
             .get(name.as_str())
@@ -709,8 +734,10 @@ fn build_mapfile_text(
                 SymbolVisibility::Private => "private",
             };
             out.push_str(&format!(
-                "{} {:04X} {}\n",
-                entry.name, entry.val, visibility
+                "{} {} {}\n",
+                entry.name,
+                format_addr(entry.val),
+                visibility
             ));
         }
     }
@@ -779,8 +806,8 @@ struct AsmLine<'a> {
     line_end_span: Option<Span>,
     line_end_token: Option<String>,
     bytes: Vec<u8>,
-    start_addr: u16,
-    aux_value: u16,
+    start_addr: u32,
+    aux_value: u32,
     pass: u8,
     label: Option<String>,
     mnemonic: Option<String>,
@@ -876,7 +903,7 @@ impl<'a> AsmLine<'a> {
                 continue;
             };
             if let Some(entry) = self.symbols.entry_mut(&symbol_name) {
-                entry.val = entry.val.saturating_add(base_addr as u32);
+                entry.val = entry.val.saturating_add(base_addr);
             }
         }
     }
@@ -913,11 +940,11 @@ impl<'a> AsmLine<'a> {
         self.bytes.len()
     }
 
-    fn start_addr(&self) -> u16 {
+    fn start_addr(&self) -> u32 {
         self.start_addr
     }
 
-    fn aux_value(&self) -> u16 {
+    fn aux_value(&self) -> u32 {
         self.aux_value
     }
 
@@ -969,7 +996,7 @@ impl<'a> AsmLine<'a> {
         self.current_section.as_deref()
     }
 
-    fn current_addr(&self, main_addr: u16) -> u16 {
+    fn current_addr(&self, main_addr: u32) -> u32 {
         match self.current_section.as_deref() {
             Some(name) => self
                 .sections
@@ -990,8 +1017,8 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    fn update_addresses(&mut self, main_addr: &mut u16, status: LineStatus) {
-        let num_bytes = self.num_bytes() as u16;
+    fn update_addresses(&mut self, main_addr: &mut u32, status: LineStatus) {
+        let num_bytes = self.num_bytes() as u32;
         if let Some(section_name) = self.current_section.clone() {
             if let Some(section) = self.sections.get_mut(&section_name) {
                 if self.pass == 2 {
@@ -1218,7 +1245,7 @@ impl<'a> AsmLine<'a> {
         AsmError::new(AsmErrorKind::Symbol, "Symbol is private", Some(name))
     }
 
-    fn process(&mut self, line: &str, line_num: u32, addr: u16, pass: u8) -> LineStatus {
+    fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {
         self.last_error = None;
         self.last_error_column = None;
         self.last_parser_error = None;
@@ -1475,7 +1502,7 @@ impl<'a> AsmLine<'a> {
                             let res = if self.pass == 1 {
                                 self.symbols.add(
                                     &full_name,
-                                    self.start_addr as u32,
+                                    self.start_addr,
                                     false,
                                     self.current_visibility(),
                                     self.module_active.as_deref(),
@@ -1483,7 +1510,7 @@ impl<'a> AsmLine<'a> {
                             } else if self.in_section() {
                                 crate::symbol_table::SymbolTableResult::Ok
                             } else {
-                                self.symbols.update(&full_name, self.start_addr as u32)
+                                self.symbols.update(&full_name, self.start_addr)
                             };
                             if res == crate::symbol_table::SymbolTableResult::Duplicate {
                                 return self.failure_at_span(
@@ -1517,7 +1544,7 @@ impl<'a> AsmLine<'a> {
                         let res = if self.pass == 1 {
                             self.symbols.add(
                                 &full_name,
-                                self.start_addr as u32,
+                                self.start_addr,
                                 false,
                                 self.current_visibility(),
                                 self.module_active.as_deref(),
@@ -1525,7 +1552,7 @@ impl<'a> AsmLine<'a> {
                         } else if self.in_section() {
                             crate::symbol_table::SymbolTableResult::Ok
                         } else {
-                            self.symbols.update(&full_name, self.start_addr as u32)
+                            self.symbols.update(&full_name, self.start_addr)
                         };
                         if res == crate::symbol_table::SymbolTableResult::Duplicate {
                             return self.failure_at_span(
@@ -1954,7 +1981,7 @@ impl<'a> AsmLine<'a> {
                 let full_name = self.scoped_define_name(&label.name);
                 if op == AssignOp::VarIfUndef {
                     if let Some(entry) = self.symbols.entry(&full_name) {
-                        self.aux_value = entry.val as u16;
+                        self.aux_value = entry.val;
                         return LineStatus::DirEqu;
                     }
                 }
@@ -2008,7 +2035,7 @@ impl<'a> AsmLine<'a> {
                         Some(1),
                     );
                 }
-                self.aux_value = val as u16;
+                self.aux_value = val;
                 return LineStatus::DirEqu;
             }
             _ => {}
@@ -2087,7 +2114,7 @@ impl<'a> AsmLine<'a> {
             entry.val = new_val;
             entry.updated = true;
         }
-        self.aux_value = new_val as u16;
+        self.aux_value = new_val;
         LineStatus::DirEqu
     }
 
@@ -2445,7 +2472,7 @@ impl<'a> AsmLine<'a> {
             );
             return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
         }
-        self.aux_value = total as u16;
+        self.aux_value = total;
         LineStatus::DirDs
     }
 
@@ -2657,7 +2684,7 @@ impl<'a> AsmLine<'a> {
                 ),
                 span: *span,
             }),
-            Expr::Dollar(_span) => Ok(self.start_addr as u32),
+            Expr::Dollar(_span) => Ok(self.start_addr),
             Expr::String(bytes, span) => {
                 if bytes.len() == 1 {
                     Ok(bytes[0] as u32)
@@ -2753,7 +2780,7 @@ impl<'a> AssemblerContext for AsmLine<'a> {
         self.symbols
     }
 
-    fn current_address(&self) -> u16 {
+    fn current_address(&self) -> u32 {
         self.start_addr
     }
 
