@@ -1658,6 +1658,84 @@ fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     assert!(message
         .unwrap_or_default()
         .contains("65816-only addressing mode not supported on 65C02"));
+
+    let (status, message) = assemble_line_status(m6502_cpu_id, "    JSL $123456");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("out of 16-bit range"));
+
+    let (status, message) = assemble_line_status(m65c02_cpu_id, "    MVN $01,$02");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("65816-only addressing mode not supported on 65C02"));
+
+    let (status, message) = assemble_line_status(m65c02_cpu_id, "    PEA $1234");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("No instruction found for PEA"));
+}
+
+#[test]
+fn m65816_brl_per_boundary_offsets() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    BRL $8002"),
+        vec![0x82, 0xFF, 0x7F]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    PER $8002"),
+        vec![0x62, 0xFF, 0x7F]
+    );
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    BRL $8003");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("Long branch target out of range"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    PER $8003");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("Long branch target out of range"));
+}
+
+#[test]
+fn mixed_cpu_switching_with_65816_aliases() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".org $1000",
+        ".cpu 6502",
+        "    RTS",
+        ".cpu 65816",
+        "    REP #$30",
+        "    ORA $10,S",
+        ".cpu 65c02",
+        "    STZ $20",
+        ".cpu 65c816",
+        "    MVN $01,$02",
+        ".cpu w65c816",
+        "    RTL",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x1000, 0x60),
+            (0x1001, 0xC2),
+            (0x1002, 0x30),
+            (0x1003, 0x03),
+            (0x1004, 0x10),
+            (0x1005, 0x64),
+            (0x1006, 0x20),
+            (0x1007, 0x54),
+            (0x1008, 0x01),
+            (0x1009, 0x02),
+            (0x100A, 0x6B),
+        ]
+    );
 }
 
 #[test]
