@@ -276,7 +276,7 @@ fn run_one(
     }
     let mut bin_outputs = Vec::new();
     let bin_count = effective_bin_specs.len();
-    let mut auto_range: Option<Option<(u16, u16)>> = None;
+    let mut auto_range: Option<Option<(u32, u32)>> = None;
     for (index, spec) in effective_bin_specs.iter().enumerate() {
         let range = match &spec.range {
             Some(range) => Some(range.clone()),
@@ -294,7 +294,7 @@ fn run_one(
                     .as_ref()
                     .and_then(|value| value.as_ref().copied())
                     .map(|(start, end)| BinRange {
-                        start_str: format!("{:04X}", start),
+                        start_str: format_bin_suffix(start),
                         start,
                         end,
                     })
@@ -398,6 +398,16 @@ fn format_addr(addr: u32) -> String {
     }
 }
 
+fn format_bin_suffix(addr: u32) -> String {
+    if addr <= 0xFFFF {
+        format!("{addr:04X}")
+    } else if addr <= 0xFF_FFFF {
+        format!("{addr:06X}")
+    } else {
+        format!("{addr:08X}")
+    }
+}
+
 fn collect_linker_sections(
     output: &LinkerOutputDirective,
     sections: &HashMap<String, SectionState>,
@@ -433,75 +443,81 @@ fn build_linker_output_payload(
     sections: &HashMap<String, SectionState>,
 ) -> Result<Vec<u8>, AsmError> {
     let ordered = collect_linker_sections(output, sections)?;
-    let mut payload = if let (Some(image_start), Some(image_end)) =
-        (output.image_start, output.image_end)
-    {
-        let Some(fill) = output.fill else {
-            return Err(AsmError::new(
-                AsmErrorKind::Directive,
-                "image output requires fill in .output",
-                None,
-            ));
-        };
-        let span_len = image_end as u32 + 1 - image_start as u32;
-        let mut image = vec![fill; span_len as usize];
-        for section in &ordered {
-            if section.bytes.is_empty() {
-                continue;
-            }
-            let start = section.base;
-            let end = start + section.bytes.len() as u32 - 1;
-            if start < image_start as u32 || end > image_end as u32 {
+    let mut payload =
+        if let (Some(image_start), Some(image_end)) = (output.image_start, output.image_end) {
+            let Some(fill) = output.fill else {
                 return Err(AsmError::new(
                     AsmErrorKind::Directive,
-                    "Section falls outside image span in .output",
-                    Some(&section.name),
+                    "image output requires fill in .output",
+                    None,
                 ));
+            };
+            let span_len = image_end.saturating_sub(image_start).saturating_add(1);
+            let image_len = usize::try_from(span_len).map_err(|_| {
+                AsmError::new(
+                    AsmErrorKind::Directive,
+                    "Image span is too large for this host",
+                    Some(&output.path),
+                )
+            })?;
+            let mut image = vec![fill; image_len];
+            for section in &ordered {
+                if section.bytes.is_empty() {
+                    continue;
+                }
+                let start = section.base;
+                let end = start + section.bytes.len() as u32 - 1;
+                if start < image_start || end > image_end {
+                    return Err(AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section falls outside image span in .output",
+                        Some(&section.name),
+                    ));
+                }
+                let offset = (start - image_start) as usize;
+                image[offset..offset + section.bytes.len()].copy_from_slice(&section.bytes);
             }
-            let offset = (start - image_start as u32) as usize;
-            image[offset..offset + section.bytes.len()].copy_from_slice(&section.bytes);
-        }
-        image
-    } else {
-        if output.contiguous {
-            let mut expected_base: Option<u32> = None;
-            for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
-                let base = section.base;
-                if let Some(expected) = expected_base {
-                    if base != expected {
-                        let message = if base > expected {
-                            format!(
-                                "contiguous output requires adjacent sections; gap ${}..${}",
-                                format_addr(expected),
-                                format_addr(base - 1)
-                            )
-                        } else {
-                            format!(
+            image
+        } else {
+            if output.contiguous {
+                let mut expected_base: Option<u32> = None;
+                for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
+                    let base = section.base;
+                    if let Some(expected) = expected_base {
+                        if base != expected {
+                            let message = if base > expected {
+                                format!(
+                                    "contiguous output requires adjacent sections; gap ${}..${}",
+                                    format_addr(expected),
+                                    format_addr(base - 1)
+                                )
+                            } else {
+                                format!(
                                 "contiguous output requires adjacent sections; overlap ${}..${}",
                                 format_addr(base),
                                 format_addr(expected - 1)
                             )
-                        };
-                        return Err(AsmError::new(
-                            AsmErrorKind::Directive,
-                            &message,
-                            Some(&section.name),
-                        ));
+                            };
+                            return Err(AsmError::new(
+                                AsmErrorKind::Directive,
+                                &message,
+                                Some(&section.name),
+                            ));
+                        }
                     }
+                    expected_base = Some(base + section.bytes.len() as u32);
                 }
-                expected_base = Some(base + section.bytes.len() as u32);
             }
-        }
-        let total_len: usize = ordered.iter().map(|section| section.bytes.len()).sum();
-        let mut data = Vec::with_capacity(total_len);
-        for section in &ordered {
-            data.extend_from_slice(&section.bytes);
-        }
-        data
-    };
+            let total_len: usize = ordered.iter().map(|section| section.bytes.len()).sum();
+            let mut data = Vec::with_capacity(total_len);
+            for section in &ordered {
+                data.extend_from_slice(&section.bytes);
+            }
+            data
+        };
 
     if output.format == LinkerOutputFormat::Prg {
-        let loadaddr32 = output.loadaddr.map(u32::from).unwrap_or_else(|| {
+        let loadaddr32 = output.loadaddr.unwrap_or_else(|| {
             ordered
                 .iter()
                 .find(|section| !section.bytes.is_empty())

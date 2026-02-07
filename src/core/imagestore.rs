@@ -191,7 +191,7 @@ impl ImageStore {
         }
 
         if let Some(go) = go_addr {
-            let addr = match u16::from_str_radix(go, 16) {
+            let addr = match u32::from_str_radix(go, 16) {
                 Ok(v) => v,
                 Err(_) => {
                     return Err(io::Error::new(
@@ -200,13 +200,27 @@ impl ImageStore {
                     ))
                 }
             };
-            let mut csum: u8 = 0;
-            csum = csum.wrapping_add(4);
-            csum = csum.wrapping_add(3);
-            csum = csum.wrapping_add((addr >> 8) as u8);
-            csum = csum.wrapping_add((addr & 0xff) as u8);
-            csum = (!csum).wrapping_add(1);
-            writeln!(out, ":040000030000{:04X}{:02X}", addr, csum)?;
+            if addr <= u16::MAX as u32 {
+                let addr16 = addr as u16;
+                let mut csum: u8 = 0;
+                csum = csum.wrapping_add(4);
+                csum = csum.wrapping_add(3);
+                csum = csum.wrapping_add((addr16 >> 8) as u8);
+                csum = csum.wrapping_add((addr16 & 0xff) as u8);
+                csum = (!csum).wrapping_add(1);
+                writeln!(out, ":040000030000{:04X}{:02X}", addr16, csum)?;
+            } else {
+                // Start Linear Address Record (type 05) for 32-bit start addresses.
+                let mut csum: u8 = 0;
+                csum = csum.wrapping_add(4);
+                csum = csum.wrapping_add(5);
+                csum = csum.wrapping_add((addr >> 24) as u8);
+                csum = csum.wrapping_add((addr >> 16) as u8);
+                csum = csum.wrapping_add((addr >> 8) as u8);
+                csum = csum.wrapping_add((addr & 0xff) as u8);
+                csum = (!csum).wrapping_add(1);
+                writeln!(out, ":04000005{:08X}{:02X}", addr, csum)?;
+            }
         }
 
         writeln!(out, ":00000001FF")?;
@@ -217,28 +231,29 @@ impl ImageStore {
     pub fn write_bin_file<W: Write>(
         &self,
         mut out: W,
-        start_addr: u16,
-        end_addr: u16,
+        start_addr: u32,
+        end_addr: u32,
         fill: u8,
     ) -> io::Result<()> {
         self.ensure_ready()?;
         let entries = self.read_entries()?;
 
-        let start = start_addr as usize;
-        let mut size = end_addr as i32 - start_addr as i32 + 1;
-        if size < 0 {
-            size = 0;
-        }
-        let alloc_end = start + size as usize;
-        let alloc_size = alloc_end.min(65536).saturating_sub(start);
+        let size_u64 = if end_addr >= start_addr {
+            end_addr as u64 - start_addr as u64 + 1
+        } else {
+            0
+        };
+        let alloc_size = usize::try_from(size_u64).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Binary range is too large for this host",
+            )
+        })?;
         let mut mem = vec![fill; alloc_size];
         for entry in &entries {
-            let Ok(addr16) = u16::try_from(entry.addr) else {
-                continue;
-            };
-            let addr = addr16 as usize;
-            if addr >= start && addr < start + alloc_size {
-                mem[addr - start] = entry.value;
+            if entry.addr >= start_addr && entry.addr <= end_addr {
+                let offset = (entry.addr - start_addr) as usize;
+                mem[offset] = entry.value;
             }
         }
 
@@ -247,7 +262,7 @@ impl ImageStore {
     }
 
     /// Return the (min, max) address range of emitted bytes, or `None` if empty.
-    pub fn output_range(&self) -> io::Result<Option<(u16, u16)>> {
+    pub fn output_range(&self) -> io::Result<Option<(u32, u32)>> {
         self.ensure_ready()?;
         let entries = self.read_entries()?;
         let mut iter = entries.iter();
@@ -260,13 +275,7 @@ impl ImageStore {
             min = min.min(entry.addr);
             max = max.max(entry.addr);
         }
-        if min > u16::MAX as u32 || max > u16::MAX as u32 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Binary range exceeds 16-bit address space; use linker .output for wide images",
-            ));
-        }
-        Ok(Some((min as u16, max as u16)))
+        Ok(Some((min, max)))
     }
 
     /// Return all stored `(address, byte)` pairs.
@@ -306,7 +315,6 @@ fn write_extended_linear_address_record<W: Write>(out: &mut W, upper: u16) -> io
 #[cfg(test)]
 mod tests {
     use super::ImageStore;
-    use std::io;
 
     fn parse_hex_byte(s: &str) -> u8 {
         u8::from_str_radix(s, 16).unwrap()
@@ -369,6 +377,18 @@ mod tests {
     }
 
     #[test]
+    fn includes_start_linear_record_for_wide_start_address() {
+        let mut image = ImageStore::new(65536);
+        image.store_slice(0x123456, &[0xaa]);
+        let mut out = Vec::new();
+        image.write_hex_file(&mut out, Some("123456")).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text
+            .lines()
+            .any(|line| line.starts_with(":0400000500123456")));
+    }
+
+    #[test]
     fn write_bin_respects_range_and_fill() {
         let mut image = ImageStore::new(65536);
         image.store(0x0010, 0xaa);
@@ -394,12 +414,10 @@ mod tests {
     }
 
     #[test]
-    fn output_range_rejects_wide_addresses_for_bin_cli() {
+    fn output_range_supports_wide_addresses() {
         let mut image = ImageStore::new(65536);
         image.store(0x010000, 0xaa);
-        let err = image
-            .output_range()
-            .expect_err("expected out-of-range error");
-        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        let range = image.output_range().expect("range").expect("some range");
+        assert_eq!(range, (0x010000, 0x010000));
     }
 }

@@ -19,7 +19,7 @@ Outputs are opt-in: specify at least one of -l/--list, -x/--hex, or -b/--bin.
 If no outputs are specified for a single input, the assembler defaults to list+hex
 when a root-module output name (or -o) is available.
 Use -o/--outfile to set the output base name when filenames are omitted.
-For -b, ranges are optional: ssss:eeee (4 hex digits each).
+For -b, ranges are optional: ssss:eeee (4-8 hex digits each).
 If a range is omitted, the binary spans the emitted output.
 With multiple -b ranges and no filenames, outputs are named <base>-ssss.bin.
 With multiple inputs, -o must be a directory and explicit output filenames are not allowed.";
@@ -64,7 +64,7 @@ pub struct Cli {
         num_args = 0..=1,
         default_missing_value = "",
         action = ArgAction::Append,
-        long_help = "Emit a binary image file (repeatable). Ranges are optional: ssss:eeee (4 hex digits each). Use ssss:eeee to use the output base, or FILE:ssss:eeee to override the filename. If FILE has no extension, .bin is added. If no range is supplied, the binary spans the emitted output. If multiple -b ranges are provided without filenames, outputs are named <base>-ssss.bin."
+        long_help = "Emit a binary image file (repeatable). Ranges are optional: ssss:eeee (4-8 hex digits each). Use ssss:eeee to use the output base, or FILE:ssss:eeee to override the filename. If FILE has no extension, .bin is added. If no range is supplied, the binary spans the emitted output. If multiple -b ranges are provided without filenames, outputs are named <base>-ssss.bin."
     )]
     pub bin_outputs: Vec<String>,
     #[arg(
@@ -78,7 +78,7 @@ pub struct Cli {
         short = 'g',
         long = "go",
         value_name = "aaaa",
-        long_help = "Set execution start address (4 hex digits). Adds a Start Segment Address record to hex output. Requires hex output."
+        long_help = "Set execution start address (4-8 hex digits). Adds a Start Address record to hex output. Requires hex output."
     )]
     pub go_addr: Option<String>,
     #[arg(
@@ -116,8 +116,8 @@ pub struct Cli {
 #[derive(Debug, Clone)]
 pub struct BinRange {
     pub start_str: String,
-    pub start: u16,
-    pub end: u16,
+    pub start: u32,
+    pub end: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -130,20 +130,22 @@ pub fn is_valid_hex_4(s: &str) -> bool {
     s.len() == 4 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+fn is_valid_hex_4_to_8(s: &str) -> bool {
+    (4..=8).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 pub fn is_valid_hex_2(s: &str) -> bool {
     s.len() == 2 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn is_valid_bin_range(s: &str) -> bool {
-    if s.len() != 9 {
+    let Some((start, end)) = s.split_once(':') else {
+        return false;
+    };
+    if end.contains(':') {
         return false;
     }
-    if !s.as_bytes()[4].eq(&b':') {
-        return false;
-    }
-    s.chars()
-        .enumerate()
-        .all(|(i, c)| (i == 4 && c == ':') || (i != 4 && c.is_ascii_hexdigit()))
+    is_valid_hex_4_to_8(start) && is_valid_hex_4_to_8(end)
 }
 
 pub fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
@@ -163,7 +165,7 @@ pub fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
 
     if let Some((name_part, start, end)) = split_range_suffix(arg) {
         let range = parse_bin_range_parts(start, end)
-            .ok_or("Invalid -b/--bin range; must be ssss:eeee (hex)")?;
+            .ok_or("Invalid -b/--bin range; must be ssss:eeee (4-8 hex digits)")?;
         let name = if name_part.is_empty() {
             None
         } else {
@@ -182,7 +184,7 @@ pub fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
         });
     }
 
-    Err("Invalid -b/--bin argument; use ssss:eeee, name:ssss:eeee, or name only")
+    Err("Invalid -b/--bin argument; use ssss:eeee, name:ssss:eeee, or name only (4-8 hex digits)")
 }
 
 fn split_range_suffix(s: &str) -> Option<(&str, &str, &str)> {
@@ -190,7 +192,7 @@ fn split_range_suffix(s: &str) -> Option<(&str, &str, &str)> {
     let end = parts.next()?;
     let start = parts.next()?;
     let name = parts.next()?;
-    if is_valid_hex_4(start) && is_valid_hex_4(end) {
+    if is_valid_hex_4_to_8(start) && is_valid_hex_4_to_8(end) {
         Some((name, start, end))
     } else {
         None
@@ -198,16 +200,16 @@ fn split_range_suffix(s: &str) -> Option<(&str, &str, &str)> {
 }
 
 fn parse_bin_range_parts(start: &str, end: &str) -> Option<BinRange> {
-    if !is_valid_hex_4(start) || !is_valid_hex_4(end) {
+    if !is_valid_hex_4_to_8(start) || !is_valid_hex_4_to_8(end) {
         return None;
     }
     let start_str = start.to_string();
     let end_str = end.to_string();
-    let start = match u16::from_str_radix(&start_str, 16) {
+    let start = match u32::from_str_radix(&start_str, 16) {
         Ok(v) => v,
         Err(_) => return None,
     };
-    let end = match u16::from_str_radix(&end_str, 16) {
+    let end = match u32::from_str_radix(&end_str, 16) {
         Ok(v) => v,
         Err(_) => return None,
     };
@@ -222,13 +224,14 @@ pub fn parse_bin_range_str(s: &str) -> Option<BinRange> {
     if !is_valid_bin_range(s) {
         return None;
     }
-    let start_str = s[..4].to_string();
-    let end_str = s[5..].to_string();
-    let start = match u16::from_str_radix(&start_str, 16) {
+    let (start_text, end_text) = s.split_once(':')?;
+    let start_str = start_text.to_string();
+    let end_str = end_text.to_string();
+    let start = match u32::from_str_radix(&start_str, 16) {
         Ok(v) => v,
         Err(_) => return None,
     };
-    let end = match u16::from_str_radix(&end_str, 16) {
+    let end = match u32::from_str_radix(&end_str, 16) {
         Ok(v) => v,
         Err(_) => return None,
     };
@@ -436,11 +439,11 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 
     let go_addr = match cli.go_addr.as_deref() {
         Some(go) => {
-            if !is_valid_hex_4(go) {
+            if !is_valid_hex_4_to_8(go) {
                 return Err(AsmRunError::new(
                     AsmError::new(
                         AsmErrorKind::Cli,
-                        "Invalid -g/--go address; must be 4 hex digits",
+                        "Invalid -g/--go address; must be 4-8 hex digits",
                         None,
                     ),
                     Vec::new(),
@@ -659,6 +662,41 @@ mod tests {
         let range = spec.range.expect("range");
         assert_eq!(range.start, 0x1000);
         assert_eq!(range.end, 0x10ff);
+    }
+
+    #[test]
+    fn parse_bin_wide_range_only() {
+        let spec = parse_bin_output_arg("010000:01ffff").expect("wide range only");
+        assert!(spec.name.is_none());
+        let range = spec.range.expect("range");
+        assert_eq!(range.start, 0x010000);
+        assert_eq!(range.end, 0x01ffff);
+    }
+
+    #[test]
+    fn parse_bin_named_wide_range() {
+        let spec = parse_bin_output_arg("out.bin:123456:1234ff").expect("name + wide range");
+        assert_eq!(spec.name.as_deref(), Some("out.bin"));
+        let range = spec.range.expect("range");
+        assert_eq!(range.start, 0x123456);
+        assert_eq!(range.end, 0x1234ff);
+    }
+
+    #[test]
+    fn validate_cli_accepts_wide_go() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-x", "-g", "123456"]);
+        let config = validate_cli(&cli).expect("validate cli");
+        assert_eq!(config.go_addr.as_deref(), Some("123456"));
+    }
+
+    #[test]
+    fn validate_cli_rejects_short_go() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-x", "-g", "123"]);
+        let err = validate_cli(&cli).expect_err("should reject short go");
+        assert_eq!(
+            err.to_string(),
+            "Invalid -g/--go address; must be 4-8 hex digits"
+        );
     }
 
     #[test]

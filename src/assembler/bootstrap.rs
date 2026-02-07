@@ -211,10 +211,10 @@ pub(crate) struct LinkerOutputDirective {
     pub(crate) format: LinkerOutputFormat,
     pub(crate) sections: Vec<String>,
     pub(crate) contiguous: bool,
-    pub(crate) image_start: Option<u16>,
-    pub(crate) image_end: Option<u16>,
+    pub(crate) image_start: Option<u32>,
+    pub(crate) image_end: Option<u32>,
     pub(crate) fill: Option<u8>,
-    pub(crate) loadaddr: Option<u16>,
+    pub(crate) loadaddr: Option<u32>,
 }
 
 impl RootMetadata {

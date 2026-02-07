@@ -2201,6 +2201,24 @@ fn root_metadata_linker_output_image_mode_is_stored() {
 }
 
 #[test]
+fn root_metadata_linker_output_wide_image_mode_is_stored() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".output \"build/rom.bin\", format=bin, image=\"$123400..$1234ff\", fill=$ff, contiguous=false, loadaddr=$123456, sections=code".to_string(),
+        ".endmodule".to_string(),
+    ];
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    let _ = assembler.pass1(&lines);
+
+    assert_eq!(assembler.root_metadata.linker_outputs.len(), 1);
+    let output = &assembler.root_metadata.linker_outputs[0];
+    assert_eq!(output.image_start, Some(0x123400));
+    assert_eq!(output.image_end, Some(0x1234ff));
+    assert_eq!(output.loadaddr, Some(0x123456));
+}
+
+#[test]
 fn linker_output_fill_requires_image() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -2342,6 +2360,31 @@ fn linker_output_prg_prefixes_default_loadaddr() {
         .expect("output directive");
     let payload = build_linker_output_payload(output, assembler.sections()).expect("prg");
     assert_eq!(payload, vec![0x00, 0x10, 0xaa]);
+}
+
+#[test]
+fn linker_output_prg_rejects_wide_loadaddr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".region ram, $1000, $10ff",
+        ".section a",
+        ".byte $aa",
+        ".endsection",
+        ".place a in ram",
+        ".output \"build/out.prg\", format=prg, loadaddr=$123456, sections=a",
+        ".endmodule",
+    ]);
+    let output = assembler
+        .root_metadata
+        .linker_outputs
+        .first()
+        .expect("output directive");
+    let err = build_linker_output_payload(output, assembler.sections())
+        .expect_err("wide PRG loadaddr should fail");
+    assert_eq!(err.kind(), AsmErrorKind::Directive);
+    assert!(err
+        .message()
+        .contains("PRG load address exceeds 16-bit range"));
 }
 
 #[test]

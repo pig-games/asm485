@@ -1185,13 +1185,13 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    fn parse_u16_expr_value(
+    fn parse_u32_expr_value(
         &mut self,
-        directive: &str,
-        key: &str,
+        _directive: &str,
+        _key: &str,
         value_expr: &Expr,
-        span: Span,
-    ) -> Result<u16, LineStatus> {
+        _span: Span,
+    ) -> Result<u32, LineStatus> {
         let value = match self.eval_expr_ast(value_expr) {
             Ok(value) => value,
             Err(err) => {
@@ -1204,23 +1204,14 @@ impl<'a> AsmLine<'a> {
                 ))
             }
         };
-        if value > u16::MAX as u32 {
-            return Err(self.failure_at_span(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("{key} must be in range 0..65535 in {directive}"),
-                None,
-                span,
-            ));
-        }
-        Ok(value as u16)
+        Ok(value)
     }
 
     fn parse_image_span_text(
         &mut self,
         value_expr: &Expr,
         span: Span,
-    ) -> Result<(u16, u16), LineStatus> {
+    ) -> Result<(u32, u32), LineStatus> {
         let value = match self.expr_text_value(value_expr) {
             Some(value) => value,
             None => {
@@ -1267,7 +1258,7 @@ impl<'a> AsmLine<'a> {
                 ))
             }
         };
-        if start > u16::MAX as u32 || end > u16::MAX as u32 || start > end {
+        if start > end {
             return Err(self.failure_at_span(
                 LineStatus::Error,
                 AsmErrorKind::Directive,
@@ -1276,7 +1267,7 @@ impl<'a> AsmLine<'a> {
                 span,
             ));
         }
-        Ok((start as u16, end as u16))
+        Ok((start, end))
     }
 
     fn append_section_names_from_text(
@@ -1582,10 +1573,10 @@ impl<'a> AsmLine<'a> {
         let mut sections: Vec<String> = Vec::new();
         let mut contiguous = true;
         let mut saw_contiguous = false;
-        let mut image_start: Option<u16> = None;
-        let mut image_end: Option<u16> = None;
+        let mut image_start: Option<u32> = None;
+        let mut image_end: Option<u32> = None;
         let mut fill: Option<u8> = None;
-        let mut loadaddr: Option<u16> = None;
+        let mut loadaddr: Option<u32> = None;
 
         let mut idx = 1usize;
         while idx < operands.len() {
@@ -1781,7 +1772,7 @@ impl<'a> AsmLine<'a> {
                     );
                 }
                 loadaddr =
-                    match self.parse_u16_expr_value(".output", "loadaddr", value_expr, option_span)
+                    match self.parse_u32_expr_value(".output", "loadaddr", value_expr, option_span)
                     {
                         Ok(value) => Some(value),
                         Err(status) => return status,
