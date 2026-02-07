@@ -176,10 +176,18 @@ pub fn apply_binary(op: BinaryOp, l: i64, r: i64, span: Span) -> Result<i64, Eva
         }
         BinaryOp::Power => {
             if r < 0 {
-                0 // Integer power with negative exponent
-            } else {
-                l.wrapping_pow(r as u32)
+                return Err(EvalError::with_span(
+                    "Negative exponent in integer power",
+                    span,
+                ));
             }
+            if r > u32::MAX as i64 {
+                return Err(EvalError::with_span(
+                    "Exponent out of range for integer power",
+                    span,
+                ));
+            }
+            l.wrapping_pow(r as u32)
         }
         BinaryOp::BitAnd => l & r,
         BinaryOp::BitOr => l | r,
@@ -256,14 +264,14 @@ pub fn parse_number(text: &str) -> Option<i64> {
     Some(if is_neg { -val } else { val })
 }
 
-/// Returns true if the value fits in an unsigned 8-bit byte.
+/// Returns true if the value fits in a signed or unsigned 8-bit byte (-128..=255).
 pub fn value_fits_byte(value: i64) -> bool {
-    (0..=0xff).contains(&value)
+    (-128..=0xff).contains(&value)
 }
 
-/// Returns true if the value fits in an unsigned 16-bit word.
+/// Returns true if the value fits in a signed or unsigned 16-bit word (-32768..=65535).
 pub fn value_fits_word(value: i64) -> bool {
-    (0..=0xffff).contains(&value)
+    (-32768..=0xffff).contains(&value)
 }
 
 /// Simple evaluation context that wraps a symbol table lookup function.
@@ -388,7 +396,9 @@ mod tests {
         assert!(value_fits_byte(0));
         assert!(value_fits_byte(255));
         assert!(!value_fits_byte(256));
-        assert!(!value_fits_byte(-1));
+        assert!(value_fits_byte(-1));
+        assert!(value_fits_byte(-128));
+        assert!(!value_fits_byte(-129));
     }
 
     #[test]
@@ -396,7 +406,9 @@ mod tests {
         assert!(value_fits_word(0));
         assert!(value_fits_word(65535));
         assert!(!value_fits_word(65536));
-        assert!(!value_fits_word(-1));
+        assert!(value_fits_word(-1));
+        assert!(value_fits_word(-32768));
+        assert!(!value_fits_word(-32769));
     }
 
     #[test]

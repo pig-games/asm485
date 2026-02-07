@@ -15,6 +15,10 @@ use crate::core::cpu::{CpuFamily, CpuType};
 use crate::core::family::{AssemblerContext, EncodeResult, FamilyEncodeResult, FamilyParseError};
 use crate::core::parser::Expr;
 
+/// Type-erased container for family-level operand sets.
+///
+/// Implementations wrap a concrete operand type and provide downcasting
+/// via `Any` so that the CPU handler can recover the concrete type.
 pub trait FamilyOperandSet: Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn clone_box(&self) -> Box<dyn FamilyOperandSet>;
@@ -26,6 +30,7 @@ impl Clone for Box<dyn FamilyOperandSet> {
     }
 }
 
+/// Type-erased container for CPU-resolved operand sets.
 pub trait OperandSet: Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn clone_box(&self) -> Box<dyn OperandSet>;
@@ -37,6 +42,9 @@ impl Clone for Box<dyn OperandSet> {
     }
 }
 
+/// Type-erased family instruction handler.
+///
+/// Owns the family operand parsing logic and base instruction tables.
 pub trait FamilyHandlerDyn: Send + Sync {
     fn family_id(&self) -> CpuFamily;
     fn parse_operands(
@@ -67,6 +75,10 @@ pub trait FamilyHandlerDyn: Send + Sync {
     }
 }
 
+/// Type-erased CPU-specific instruction handler.
+///
+/// Resolves family operands into CPU operands and encodes CPU-extension
+/// instructions not covered by the family handler.
 pub trait CpuHandlerDyn: Send + Sync {
     fn cpu_id(&self) -> CpuType;
     fn family_id(&self) -> CpuFamily;
@@ -85,6 +97,7 @@ pub trait CpuHandlerDyn: Send + Sync {
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
 }
 
+/// Dialect mapping layer for alternate syntax (e.g. Z80 mnemonics → Intel 8080).
 pub trait DialectModule: Send + Sync {
     fn dialect_id(&self) -> &'static str;
     fn family_id(&self) -> CpuFamily;
@@ -95,6 +108,7 @@ pub trait DialectModule: Send + Sync {
     ) -> Option<(String, Box<dyn FamilyOperandSet>)>;
 }
 
+/// Optional CPU-level instruction validator (e.g. 8085 undocumented warnings).
 pub trait CpuValidator: Send + Sync {
     fn validate_instruction(
         &self,
@@ -106,6 +120,7 @@ pub trait CpuValidator: Send + Sync {
     }
 }
 
+/// Registration interface for a CPU family (provides handler factory and dialects).
 pub trait FamilyModule: Send + Sync {
     fn family_id(&self) -> CpuFamily;
     fn family_cpu_id(&self) -> Option<CpuType> {
@@ -122,6 +137,7 @@ pub trait FamilyModule: Send + Sync {
     fn handler(&self) -> Box<dyn FamilyHandlerDyn>;
 }
 
+/// Registration interface for a specific CPU (provides handler factory and defaults).
 pub trait CpuModule: Send + Sync {
     fn cpu_id(&self) -> CpuType;
     fn family_id(&self) -> CpuFamily;
@@ -133,6 +149,7 @@ pub trait CpuModule: Send + Sync {
     }
 }
 
+/// Error returned when the registry cannot resolve a requested pipeline.
 #[derive(Debug, Clone)]
 pub enum RegistryError {
     MissingFamily(CpuFamily),
@@ -140,6 +157,23 @@ pub enum RegistryError {
     MissingDialect { family: CpuFamily, dialect: String },
 }
 
+impl std::fmt::Display for RegistryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingFamily(fam) => write!(f, "no handler registered for family {:?}", fam),
+            Self::MissingCpu(cpu) => write!(f, "no handler registered for CPU {:?}", cpu),
+            Self::MissingDialect { family, dialect } => {
+                write!(
+                    f,
+                    "no dialect '{}' registered for family {:?}",
+                    dialect, family
+                )
+            }
+        }
+    }
+}
+
+/// A fully-resolved assembly pipeline: family handler + CPU handler + dialect + validator.
 pub struct ResolvedPipeline<'a> {
     pub family: Box<dyn FamilyHandlerDyn>,
     pub cpu: Box<dyn CpuHandlerDyn>,
@@ -147,6 +181,7 @@ pub struct ResolvedPipeline<'a> {
     pub validator: Option<Box<dyn CpuValidator>>,
 }
 
+/// Central registry mapping CPU families, CPU types, and dialect modules.
 pub struct ModuleRegistry {
     families: HashMap<CpuFamily, Box<dyn FamilyModule>>,
     cpus: HashMap<CpuType, Box<dyn CpuModule>>,
@@ -275,4 +310,231 @@ fn normalize_dialect(dialect: &str) -> String {
 
 fn normalize_cpu_name(name: &str) -> String {
     name.to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::cpu::{CpuFamily, CpuType};
+    use crate::core::family::{AssemblerContext, EncodeResult, FamilyParseError};
+    use crate::core::parser::Expr;
+
+    const TEST_FAMILY: CpuFamily = CpuFamily::new("test_family");
+    const TEST_CPU: CpuType = CpuType::new("test_cpu");
+    const OTHER_CPU: CpuType = CpuType::new("other_cpu");
+
+    // --- Minimal stubs for testing ---
+
+    struct StubFamilyOperandSet;
+    impl FamilyOperandSet for StubFamilyOperandSet {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn clone_box(&self) -> Box<dyn FamilyOperandSet> {
+            Box::new(StubFamilyOperandSet)
+        }
+    }
+
+    struct StubOperandSet;
+    impl OperandSet for StubOperandSet {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn clone_box(&self) -> Box<dyn OperandSet> {
+            Box::new(StubOperandSet)
+        }
+    }
+
+    struct StubFamilyHandler;
+    impl FamilyHandlerDyn for StubFamilyHandler {
+        fn family_id(&self) -> CpuFamily {
+            TEST_FAMILY
+        }
+        fn parse_operands(
+            &self,
+            _mnemonic: &str,
+            _exprs: &[Expr],
+        ) -> Result<Box<dyn FamilyOperandSet>, FamilyParseError> {
+            Ok(Box::new(StubFamilyOperandSet))
+        }
+        fn encode_instruction(
+            &self,
+            _mnemonic: &str,
+            _operands: &dyn OperandSet,
+            _ctx: &dyn AssemblerContext,
+        ) -> EncodeResult<Vec<u8>> {
+            EncodeResult::NotFound
+        }
+        fn is_register(&self, _name: &str) -> bool {
+            false
+        }
+        fn is_condition(&self, _name: &str) -> bool {
+            false
+        }
+    }
+
+    struct StubCpuHandler;
+    impl CpuHandlerDyn for StubCpuHandler {
+        fn cpu_id(&self) -> CpuType {
+            TEST_CPU
+        }
+        fn family_id(&self) -> CpuFamily {
+            TEST_FAMILY
+        }
+        fn resolve_operands(
+            &self,
+            _mnemonic: &str,
+            _family_operands: &dyn FamilyOperandSet,
+            _ctx: &dyn AssemblerContext,
+        ) -> Result<Box<dyn OperandSet>, String> {
+            Ok(Box::new(StubOperandSet))
+        }
+        fn encode_instruction(
+            &self,
+            _mnemonic: &str,
+            _operands: &dyn OperandSet,
+            _ctx: &dyn AssemblerContext,
+        ) -> EncodeResult<Vec<u8>> {
+            EncodeResult::NotFound
+        }
+        fn supports_mnemonic(&self, _mnemonic: &str) -> bool {
+            false
+        }
+    }
+
+    struct StubDialect;
+    impl DialectModule for StubDialect {
+        fn dialect_id(&self) -> &'static str {
+            "test_dialect"
+        }
+        fn family_id(&self) -> CpuFamily {
+            TEST_FAMILY
+        }
+        fn map_mnemonic(
+            &self,
+            _mnemonic: &str,
+            _operands: &dyn FamilyOperandSet,
+        ) -> Option<(String, Box<dyn FamilyOperandSet>)> {
+            None
+        }
+    }
+
+    struct StubFamilyModule;
+    impl FamilyModule for StubFamilyModule {
+        fn family_id(&self) -> CpuFamily {
+            TEST_FAMILY
+        }
+        fn canonical_dialect(&self) -> &'static str {
+            "test_dialect"
+        }
+        fn dialects(&self) -> Vec<Box<dyn DialectModule>> {
+            vec![Box::new(StubDialect)]
+        }
+        fn handler(&self) -> Box<dyn FamilyHandlerDyn> {
+            Box::new(StubFamilyHandler)
+        }
+    }
+
+    struct StubCpuModule;
+    impl CpuModule for StubCpuModule {
+        fn cpu_id(&self) -> CpuType {
+            TEST_CPU
+        }
+        fn family_id(&self) -> CpuFamily {
+            TEST_FAMILY
+        }
+        fn cpu_name(&self) -> &'static str {
+            "TestCpu"
+        }
+        fn default_dialect(&self) -> &'static str {
+            "test_dialect"
+        }
+        fn handler(&self) -> Box<dyn CpuHandlerDyn> {
+            Box::new(StubCpuHandler)
+        }
+    }
+
+    #[test]
+    fn register_and_resolve_cpu_name() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        assert_eq!(reg.resolve_cpu_name("testcpu"), Some(TEST_CPU));
+        assert!(reg.resolve_cpu_name("nonexistent").is_none());
+    }
+
+    #[test]
+    fn resolve_cpu_name_is_case_insensitive() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        assert_eq!(reg.resolve_cpu_name("TESTCPU"), Some(TEST_CPU));
+        assert_eq!(reg.resolve_cpu_name("TestCpu"), Some(TEST_CPU));
+        assert_eq!(reg.resolve_cpu_name("testcpu"), Some(TEST_CPU));
+    }
+
+    #[test]
+    fn resolve_pipeline_succeeds() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        let pipeline = reg.resolve_pipeline(TEST_CPU, None);
+        assert!(pipeline.is_ok());
+        let p = pipeline.unwrap();
+        assert_eq!(p.family.family_id(), TEST_FAMILY);
+        assert_eq!(p.cpu.cpu_id(), TEST_CPU);
+        assert_eq!(p.dialect.dialect_id(), "test_dialect");
+    }
+
+    #[test]
+    fn resolve_pipeline_missing_cpu_returns_error() {
+        let reg = ModuleRegistry::new();
+        let result = reg.resolve_pipeline(TEST_CPU, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_pipeline_missing_dialect_returns_error() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        let result = reg.resolve_pipeline(TEST_CPU, Some("nonexistent"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cpu_name_list_returns_registered_names() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        let names = reg.cpu_name_list();
+        assert!(names.contains(&"testcpu".to_string()));
+    }
+
+    #[test]
+    fn cpu_display_name_returns_correct_name() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        assert_eq!(reg.cpu_display_name(TEST_CPU), Some("TestCpu"));
+        assert_eq!(reg.cpu_display_name(OTHER_CPU), None);
+    }
+
+    #[test]
+    fn registry_error_display() {
+        let err = RegistryError::MissingCpu(TEST_CPU);
+        assert!(err.to_string().contains("CPU"));
+        let err = RegistryError::MissingFamily(TEST_FAMILY);
+        assert!(err.to_string().contains("family"));
+        let err = RegistryError::MissingDialect {
+            family: TEST_FAMILY,
+            dialect: "z80".to_string(),
+        };
+        assert!(err.to_string().contains("dialect"));
+    }
 }

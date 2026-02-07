@@ -37,3 +37,9 @@ foo             : 200c (8204)
 foo.local       : 0009 (9)
 
 Total memory is 14 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    3A 12 00 32 34 00 01 02 03 03 00 07 09 00

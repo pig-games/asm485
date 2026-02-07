@@ -49,3 +49,11 @@ D2PT1           : 8019 (32793)
 D2PT2           : 801a (32794)
 
 Total memory is 38 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+8000    C3 03 80 3E C0 30 3E FF 47 3D 05 C2 0A 80 FE 00
+8010    C2 09 80 3E 40 30 3E FF 47 3D 05 C2 1A 80 FE 00
+8020    C2 19 80 C3 03 80

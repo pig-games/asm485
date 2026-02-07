@@ -11,7 +11,7 @@ pub fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> Str
                 if use_color {
                     return format!("{line}\x1b[31m^\x1b[0m");
                 }
-                return format!("{line}^");
+                return format!("{line}\n{}^", " ".repeat(line.len()));
             }
             let (head, tail) = line.split_at(idx);
             let ch = tail.chars().next().unwrap_or(' ');
@@ -19,7 +19,7 @@ pub fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> Str
             if use_color {
                 format!("{head}\x1b[31m{ch}\x1b[0m{rest}")
             } else {
-                format!("{head}{ch}{rest}")
+                format!("{head}{ch}{rest}\n{}^", " ".repeat(idx))
             }
         }
         _ => line.to_string(),

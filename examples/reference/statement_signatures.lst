@@ -15,3 +15,9 @@ SYMBOL TABLE
 start           : 0000 (0)
 
 Total memory is 1 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    00

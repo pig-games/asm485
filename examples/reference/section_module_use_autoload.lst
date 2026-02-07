@@ -12,11 +12,11 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                9  
 ----                               10  .module example.section.app
 ----                               11      .use example.section.lib (LIBVAL)
-----                               12      .section data  ; [section data]
-0002    01 04                      13      .byte 1, LIBVAL  ; [section data]
-----                               14      .endsection
-----    EQU 1000                   15      .org 1000h
-1000    02 03 01 04                16      .dsection data
+----                               12      .region ram, $1000, $10ff
+----                               13      .section data  ; [section data]
+0002    01 04                      14      .byte 1, LIBVAL  ; [section data]
+----                               15      .endsection
+----                               16      .place data in ram
 ----                               17  .endmodule
 ----                               18  
 ----                               19  .end
@@ -28,3 +28,9 @@ SYMBOL TABLE
 example.section.lib.LIBVAL: 0004 (4)
 
 Total memory is 4 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    02 03 01 04

@@ -1,0 +1,1 @@
+Assembly failed: Section is bound to region 'ram' but was placed in region 'rom': code

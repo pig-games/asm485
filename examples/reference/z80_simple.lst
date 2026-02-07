@@ -36,13 +36,32 @@ ADDR    BYTES                    LINE  SOURCE
 0021    10 FD                      33          djnz skip       ; decrement B and jump if not zero
 0023    ED B0                      34          ldir            ; block transfer
 0025    ED B1                      35          cpir            ; block search
-----                               36          
-----                               37          .end
+----                               36  
+----                               37  ; CB-prefix bit/shift/rotate operations
+0027    CB 58                      38          bit 3, b        ; CB 58
+0029    CB EE                      39          set 5, (hl)     ; CB EE
+002B    CB 8F                      40          res 1, a        ; CB 8F
+002D    CB 01                      41          rlc c           ; CB 01
+002F    CB 2E                      42          sra (hl)        ; CB 2E
+0031    DD CB 05 56                43          bit 2, (ix+5)   ; DD CB 05 56
+0035    FD CB FE FE                44          set 7, (iy-2)   ; FD CB FE FE
+0039    DD CB 00 3E                45          srl (ix+0)      ; DD CB 00 3E
+----                               46          
+----                               47          .end
 
-Lines: 37  Errors: 0  Warnings: 0
+Lines: 47  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 skip            : 0020 (32)
 
-Total memory is 39 bytes
+Total memory is 61 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    3E 00 06 55 21 34 12 78 77 77 C6 05 80 D6 10 3C
+0010    05 E6 0F F6 80 AF C3 00 10 C2 00 20 18 02 30 00
+0020    00 10 FD ED B0 ED B1 CB 58 CB EE CB 8F CB 01 CB
+0030    2E DD CB 05 56 FD CB FE FE DD CB 00 3E

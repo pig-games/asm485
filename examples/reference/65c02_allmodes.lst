@@ -39,54 +39,75 @@ ADDR    BYTES                    LINE  SOURCE
 031D    EA                         36          nop
 ----                               37  skip1:
 ----                               38  
-----                               39  ; BIT immediate (65C02 only)
-031E    89 55                      40          bit #$55        ; 89 55
-----                               41  
-----                               42  ; BIT zero page,X (65C02 only)
-0320    34 60                      43          bit $60,x       ; 34 60
-----                               44  
-----                               45  ; BIT absolute,X (65C02 only)
-0322    3C 78 56                   46          bit $5678,x     ; 3C 78 56
-----                               47  
-----                               48  ; ========================================
-----                               49  ; ZERO PAGE INDIRECT MODE: op ($nn)
-----                               50  ; (65C02 only - not available on base 6502)
-----                               51  ; ========================================
-0325    B2 20                      52          lda ($20)       ; B2 20
-0327    92 30                      53          sta ($30)       ; 92 30
-0329    72 40                      54          adc ($40)       ; 72 40
-032B    F2 50                      55          sbc ($50)       ; F2 50
-032D    32 60                      56          and ($60)       ; 32 60
-032F    12 70                      57          ora ($70)       ; 12 70
-0331    52 80                      58          eor ($80)       ; 52 80
-0333    D2 90                      59          cmp ($90)       ; D2 90
-----                               60  
-----                               61  ; ========================================
-----                               62  ; ABSOLUTE INDEXED INDIRECT: JMP ($nnnn,X)
-----                               63  ; (65C02 only)
-----                               64  ; ========================================
-0335    7C 34 12                   65          jmp ($1234,x)   ; 7C 34 12
-----                               66  
-----                               67  ; ========================================
-----                               68  ; All base 6502 modes still work
+----                               39  ; BBR/BBS - Branch on Bit Reset/Set
+031E    0F 20 01                   40          bbr0 $20, bbr_target    ; 0F 20 xx
+0321    EA                         41          nop
+----                               42  bbr_target:
+0322    FF 21 01                   43          bbs7 $21, bbs_target    ; FF 21 xx
+0325    EA                         44          nop
+----                               45  bbs_target:
+----                               46  
+----                               47  ; BIT immediate (65C02 only)
+0326    89 55                      48          bit #$55        ; 89 55
+----                               49  
+----                               50  ; BIT zero page,X (65C02 only)
+0328    34 60                      51          bit $60,x       ; 34 60
+----                               52  
+----                               53  ; BIT absolute,X (65C02 only)
+032A    3C 78 56                   54          bit $5678,x     ; 3C 78 56
+----                               55  
+----                               56  ; ========================================
+----                               57  ; ZERO PAGE INDIRECT MODE: op ($nn)
+----                               58  ; (65C02 only - not available on base 6502)
+----                               59  ; ========================================
+032D    B2 20                      60          lda ($20)       ; B2 20
+032F    92 30                      61          sta ($30)       ; 92 30
+0331    72 40                      62          adc ($40)       ; 72 40
+0333    F2 50                      63          sbc ($50)       ; F2 50
+0335    32 60                      64          and ($60)       ; 32 60
+0337    12 70                      65          ora ($70)       ; 12 70
+0339    52 80                      66          eor ($80)       ; 52 80
+033B    D2 90                      67          cmp ($90)       ; D2 90
+----                               68  
 ----                               69  ; ========================================
-0338    A9 42                      70          lda #$42        ; A9 42 - Immediate
-033A    A5 20                      71          lda $20         ; A5 20 - Zero page
-033C    B5 20                      72          lda $20,x       ; B5 20 - Zero page,X
-033E    AD 34 12                   73          lda $1234       ; AD 34 12 - Absolute
-0341    BD 34 12                   74          lda $1234,x     ; BD 34 12 - Absolute,X
-0344    B9 34 12                   75          lda $1234,y     ; B9 34 12 - Absolute,Y
-0347    A1 20                      76          lda ($20,x)     ; A1 20 - Indexed indirect
-0349    B1 20                      77          lda ($20),y     ; B1 20 - Indirect indexed
-----                               78  
-034B    60                         79          rts             ; 60
-----                               80  
-----                               81          .end
+----                               70  ; ABSOLUTE INDEXED INDIRECT: JMP ($nnnn,X)
+----                               71  ; (65C02 only)
+----                               72  ; ========================================
+033D    7C 34 12                   73          jmp ($1234,x)   ; 7C 34 12
+----                               74  
+----                               75  ; ========================================
+----                               76  ; All base 6502 modes still work
+----                               77  ; ========================================
+0340    A9 42                      78          lda #$42        ; A9 42 - Immediate
+0342    A5 20                      79          lda $20         ; A5 20 - Zero page
+0344    B5 20                      80          lda $20,x       ; B5 20 - Zero page,X
+0346    AD 34 12                   81          lda $1234       ; AD 34 12 - Absolute
+0349    BD 34 12                   82          lda $1234,x     ; BD 34 12 - Absolute,X
+034C    B9 34 12                   83          lda $1234,y     ; B9 34 12 - Absolute,Y
+034F    A1 20                      84          lda ($20,x)     ; A1 20 - Indexed indirect
+0351    B1 20                      85          lda ($20),y     ; B1 20 - Indirect indexed
+----                               86  
+0353    60                         87          rts             ; 60
+----                               88  
+----                               89          .end
 
-Lines: 81  Errors: 0  Warnings: 0
+Lines: 89  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 skip1           : 031e (798)
+bbr_target      : 0322 (802)
+bbs_target      : 0326 (806)
 
-Total memory is 76 bytes
+Total memory is 84 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0300    64 20 9C 34 12 74 30 9E 45 23 DA 5A FA 7A 1A 3A
+0310    14 40 1C 56 34 04 50 0C 67 45 80 02 EA EA 0F 20
+0320    01 EA FF 21 01 EA 89 55 34 60 3C 78 56 B2 20 92
+0330    30 72 40 F2 50 32 60 12 70 52 80 D2 90 7C 34 12
+0340    A9 42 A5 20 B5 20 AD 34 12 BD 34 12 B9 34 12 A1
+0350    20 B1 20 60

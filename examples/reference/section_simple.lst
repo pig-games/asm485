@@ -4,11 +4,11 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                1  ; Demonstrates sections.
 ----                                2  
 ----                                3  .module main
-----                                4      .section data  ; [section data]
-0000    01 02                       5      .byte 1, 2  ; [section data]
-----                                6      .endsection
-----    EQU 1000                    7      .org 1000h
-1000    01 02                       8      .dsection data
+----                                4      .region ram, $1000, $10ff
+----                                5      .section data  ; [section data]
+0000    01 02                       6      .byte 1, 2  ; [section data]
+----                                7      .endsection
+----                                8      .place data in ram
 ----                                9  .endmodule
 
 Lines: 9  Errors: 0  Warnings: 0
@@ -17,3 +17,9 @@ SYMBOL TABLE
 
 
 Total memory is 2 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    01 02

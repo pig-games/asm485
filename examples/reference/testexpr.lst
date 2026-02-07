@@ -20,3 +20,9 @@ CHKIO           : 0008 (8)
 TAB2            : 0009 (9)
 
 Total memory is 13 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    21 08 00 00 C3 07 00 00 C9 61 62 63 64

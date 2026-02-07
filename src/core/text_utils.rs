@@ -87,9 +87,9 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
-    /// Skip whitespace characters.
+    /// Skip whitespace characters (spaces and tabs).
     pub fn skip_ws(&mut self) {
-        while self.peek().is_some_and(|c| c.is_ascii_whitespace()) {
+        while self.peek().is_some_and(is_space) {
             self.pos += 1;
         }
     }

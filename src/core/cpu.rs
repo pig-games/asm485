@@ -69,11 +69,23 @@ pub struct OperandParseError {
     pub span: Span,
 }
 
+impl std::fmt::Display for OperandParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 /// Error returned by instruction encoding.
 #[derive(Debug, Clone)]
 pub struct EncodeError {
     pub message: String,
     pub span: Option<Span>,
+}
+
+impl std::fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
 }
 
 impl EncodeError {

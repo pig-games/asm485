@@ -6,7 +6,15 @@
 //! This module ties together the CPU-agnostic core with CPU-specific
 //! instruction encoding (8085, Z80).
 
+mod asmline_directives;
+mod bootstrap;
 pub mod cli;
+mod engine;
+#[cfg(test)]
+mod tests;
+
+use bootstrap::*;
+use engine::Assembler;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -36,7 +44,7 @@ use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::token_value::TokenValue;
-use crate::core::tokenizer::{register_checker_none, ConditionalKind, Span};
+use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
 use std::sync::Arc;
 
 use crate::families::intel8080::module::Intel8080FamilyModule;
@@ -68,522 +76,24 @@ pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
     let mut reports = Vec::new();
     for asm_path in &cli.infiles {
         let (asm_name, input_base) = input_base_from_path(asm_path)?;
-        let report = run_one(
-            &cli,
-            &asm_name,
-            &input_base,
-            config.out_dir.as_ref(),
-            &config.bin_specs,
-            config.go_addr.as_deref(),
-            config.fill_byte,
-            config.fill_byte_set,
-            config.pp_macro_depth,
-            config.default_outputs,
-        )?;
+        let report = run_one(&cli, &asm_name, &input_base, &config)?;
         reports.push(report);
     }
 
     Ok(reports)
 }
 
-#[derive(Debug, Clone)]
-struct ModuleFileInfo {
-    path: PathBuf,
-    has_explicit_modules: bool,
-}
-
-#[derive(Debug, Default)]
-struct ModuleIndex {
-    modules: HashMap<String, Vec<ModuleFileInfo>>,
-}
-
-struct ModuleLoadContext<'a> {
-    index: &'a ModuleIndex,
-    loaded: &'a mut HashSet<String>,
-    preloaded: &'a HashSet<String>,
-    order: &'a mut Vec<Vec<String>>,
-    stack: &'a mut Vec<String>,
-    defines: &'a [String],
-    pp_macro_depth: usize,
-}
-
-#[derive(Debug, Default, Clone)]
-struct OutputConfig {
-    name: Option<String>,
-    list_name: Option<String>,
-    hex_name: Option<String>,
-    bin_specs: Vec<BinOutputSpec>,
-    fill_byte: Option<u8>,
-}
-
-impl OutputConfig {
-    fn merge_override(&self, override_cfg: Option<&OutputConfig>) -> OutputConfig {
-        let mut merged = self.clone();
-        let Some(override_cfg) = override_cfg else {
-            return merged;
-        };
-        if override_cfg.name.is_some() {
-            merged.name = override_cfg.name.clone();
-        }
-        if override_cfg.list_name.is_some() {
-            merged.list_name = override_cfg.list_name.clone();
-        }
-        if override_cfg.hex_name.is_some() {
-            merged.hex_name = override_cfg.hex_name.clone();
-        }
-        if !override_cfg.bin_specs.is_empty() {
-            merged.bin_specs = override_cfg.bin_specs.clone();
-        }
-        if override_cfg.fill_byte.is_some() {
-            merged.fill_byte = override_cfg.fill_byte;
-        }
-        merged
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-struct RootMetadata {
-    root_module_id: Option<String>,
-    name: Option<String>,
-    version: Option<String>,
-    output_default: OutputConfig,
-    output_by_target: HashMap<String, OutputConfig>,
-}
-
-#[derive(Debug, Default, Clone)]
-struct SectionState {
-    pc: u16,
-    bytes: Vec<u8>,
-    placed: bool,
-}
-
-impl RootMetadata {
-    fn output_config_for_cpu(&self, cpu_name: &str) -> OutputConfig {
-        let key = cpu_name.to_ascii_lowercase();
-        let override_cfg = self.output_by_target.get(&key);
-        self.output_default.merge_override(override_cfg)
-    }
-
-    fn output_config_mut(&mut self, target: Option<&str>) -> &mut OutputConfig {
-        if let Some(target) = target {
-            let key = target.to_ascii_lowercase();
-            return self.output_by_target.entry(key).or_default();
-        }
-        &mut self.output_default
-    }
-}
-
-fn canonical_module_id(module_id: &str) -> String {
-    module_id.to_ascii_lowercase()
-}
-
-fn module_id_from_path(path: &Path) -> Result<String, AsmRunError> {
-    let stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
-        AsmRunError::new(
-            AsmError::new(AsmErrorKind::Cli, "Invalid module filename", None),
-            Vec::new(),
-            Vec::new(),
-        )
-    })?;
-    Ok(stem.to_string())
-}
-
-fn root_module_id_from_lines(
-    root_path: &Path,
-    root_lines: &[String],
-) -> Result<String, AsmRunError> {
-    let explicit = scan_module_ids(root_lines);
-    if explicit.is_empty() {
-        return module_id_from_path(root_path);
-    }
-    let implicit = module_id_from_path(root_path)?;
-    if let Some(matched) = explicit
-        .iter()
-        .find(|module_id| module_id.eq_ignore_ascii_case(&implicit))
-    {
-        return Ok(matched.clone());
-    }
-    Ok(explicit[0].clone())
-}
-
-fn resolve_output_base(
-    cli: &Cli,
-    input_base: &str,
-    out_dir: Option<&PathBuf>,
-    metadata: &RootMetadata,
-    cpu: CpuType,
-) -> String {
-    let output_config = metadata.output_config_for_cpu(cpu.as_str());
-    let mut base = if out_dir.is_some() {
-        input_base.to_string()
-    } else if let Some(outfile) = cli.outfile.as_deref() {
-        outfile.to_string()
-    } else if let Some(output) = output_config.name.as_deref() {
-        output.to_string()
-    } else {
-        input_base.to_string()
-    };
-
-    if let Some(dir) = out_dir {
-        base = dir.join(base).to_string_lossy().to_string();
-    }
-
-    base
-}
-
-fn expand_source_file(
-    path: &Path,
-    defines: &[String],
-    pp_macro_depth: usize,
-) -> Result<Vec<String>, AsmRunError> {
-    let mut pp = Preprocessor::with_max_depth(pp_macro_depth);
-    for def in defines {
-        if let Some((name, value)) = def.split_once('=') {
-            pp.define(name, value);
-        } else {
-            pp.define(def, "1");
-        }
-    }
-    if let Err(err) = pp.process_file(path.to_string_lossy().as_ref()) {
-        let err_msg = AsmError::new(AsmErrorKind::Preprocess, err.message(), None);
-        let mut diagnostics = Vec::new();
-        let mut source_lines = Vec::new();
-        if let (Some(line), Some(file)) = (err.line(), err.file()) {
-            if let Ok(contents) = fs::read_to_string(file) {
-                source_lines = contents.lines().map(|s| s.to_string()).collect();
-            }
-            let source_override = if source_lines.is_empty() {
-                err.source().map(|s| s.to_string())
-            } else {
-                None
-            };
-            diagnostics.push(
-                Diagnostic::new(line, Severity::Error, err_msg.clone())
-                    .with_column(err.column())
-                    .with_file(Some(file.to_string()))
-                    .with_source(source_override),
-            );
-        }
-        return Err(AsmRunError::new(err_msg, diagnostics, source_lines));
-    }
-    let src_lines: Vec<String> = pp.lines().to_vec();
-    let mut mp = MacroProcessor::new();
-    let expanded_lines = match mp.expand(&src_lines) {
-        Ok(lines) => lines,
-        Err(err) => {
-            let err_msg = AsmError::new(AsmErrorKind::Preprocess, err.message(), None);
-            let mut diagnostics = Vec::new();
-            if let Some(line) = err.line() {
-                diagnostics.push(
-                    Diagnostic::new(line, Severity::Error, err_msg.clone())
-                        .with_column(err.column()),
-                );
-            }
-            return Err(AsmRunError::new(err_msg, diagnostics, src_lines.clone()));
-        }
-    };
-    Ok(expanded_lines)
-}
-
-fn parse_line_ast(line: &str, line_num: u32) -> Option<LineAst> {
-    let mut parser = asm_parser::Parser::from_line(line, line_num).ok()?;
-    parser.parse_line().ok()
-}
-
-fn expr_to_ident(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.clone()),
-        _ => None,
-    }
-}
-
-fn scan_module_ids(lines: &[String]) -> Vec<String> {
-    let mut modules = Vec::new();
-    for (idx, line) in lines.iter().enumerate() {
-        let Some(LineAst::Statement {
-            mnemonic, operands, ..
-        }) = parse_line_ast(line, idx as u32 + 1)
-        else {
-            continue;
-        };
-        let Some(mnemonic) = mnemonic else { continue };
-        if !mnemonic.eq_ignore_ascii_case(".module") {
-            continue;
-        }
-        if let Some(expr) = operands.first() {
-            if let Some(name) = expr_to_ident(expr) {
-                modules.push(name);
-            }
-        }
-    }
-    modules
-}
-
-fn collect_use_directives(lines: &[String]) -> Vec<String> {
-    let mut uses = Vec::new();
-    for (idx, line) in lines.iter().enumerate() {
-        let Some(ast) = parse_line_ast(line, idx as u32 + 1) else {
-            continue;
-        };
-        if let LineAst::Use { module_id, .. } = ast {
-            uses.push(module_id);
-        }
-    }
-    uses
-}
-
-fn extract_module_block(lines: &[String], module_id: &str) -> Option<Vec<String>> {
-    let mut captured = Vec::new();
-    let mut capture = false;
-    let mut depth = 0usize;
-    for (idx, line) in lines.iter().enumerate() {
-        let Some(LineAst::Statement {
-            mnemonic, operands, ..
-        }) = parse_line_ast(line, idx as u32 + 1)
-        else {
-            if capture {
-                captured.push(line.clone());
-            }
-            continue;
-        };
-        let Some(mnemonic) = mnemonic else {
-            if capture {
-                captured.push(line.clone());
-            }
-            continue;
-        };
-        if mnemonic.eq_ignore_ascii_case(".module") {
-            if let Some(expr) = operands.first() {
-                if let Some(name) = expr_to_ident(expr) {
-                    if name.eq_ignore_ascii_case(module_id) {
-                        capture = true;
-                        depth = 1;
-                        captured.push(line.clone());
-                        continue;
-                    }
-                }
-            }
-        }
-        if mnemonic.eq_ignore_ascii_case(".endmodule") && capture {
-            captured.push(line.clone());
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                break;
-            }
-            continue;
-        }
-        if capture {
-            captured.push(line.clone());
-        }
-    }
-    if capture {
-        Some(captured)
-    } else {
-        None
-    }
-}
-
-fn collect_source_files(root: &Path, extensions: &[&str]) -> io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-            if extensions
-                .iter()
-                .any(|candidate| candidate.eq_ignore_ascii_case(ext))
-            {
-                files.push(path);
-            }
-        }
-    }
-    Ok(files)
-}
-
-fn build_module_index(root: &Path) -> Result<ModuleIndex, AsmRunError> {
-    let files = collect_source_files(root, DEFAULT_MODULE_EXTENSIONS).map_err(|err| {
-        AsmRunError::new(
-            AsmError::new(AsmErrorKind::Io, "Error reading module roots", None),
-            vec![],
-            vec![err.to_string()],
-        )
-    })?;
-
-    let mut index = ModuleIndex::default();
-    for path in files {
-        let contents = fs::read_to_string(&path).map_err(|err| {
-            AsmRunError::new(
-                AsmError::new(AsmErrorKind::Io, "Error reading module source", None),
-                vec![],
-                vec![err.to_string()],
-            )
-        })?;
-        let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
-        let explicit_modules = scan_module_ids(&lines);
-        if explicit_modules.is_empty() {
-            let implicit_id = module_id_from_path(&path)?;
-            let canonical = canonical_module_id(&implicit_id);
-            index
-                .modules
-                .entry(canonical)
-                .or_default()
-                .push(ModuleFileInfo {
-                    path,
-                    has_explicit_modules: false,
-                });
-            continue;
-        }
-        for module_id in explicit_modules {
-            let canonical = canonical_module_id(&module_id);
-            index
-                .modules
-                .entry(canonical)
-                .or_default()
-                .push(ModuleFileInfo {
-                    path: path.clone(),
-                    has_explicit_modules: true,
-                });
-        }
-    }
-    Ok(index)
-}
-
-fn load_module_recursive(
-    module_id: &str,
-    ctx: &mut ModuleLoadContext<'_>,
-) -> Result<(), AsmRunError> {
-    let canonical = canonical_module_id(module_id);
-    if ctx.loaded.contains(&canonical) || ctx.preloaded.contains(&canonical) {
-        return Ok(());
-    }
-    let infos = ctx.index.modules.get(&canonical).ok_or_else(|| {
-        let mut message = format!("Missing module: {module_id}");
-        if !ctx.stack.is_empty() {
-            let chain = ctx.stack.join(" -> ");
-            message.push_str(&format!(" (import stack: {chain})"));
-        }
-        AsmRunError::new(
-            AsmError::new(AsmErrorKind::Directive, &message, None),
-            vec![],
-            vec![],
-        )
-    })?;
-    if infos.len() > 1 {
-        let mut message = format!("Ambiguous module: {module_id}");
-        if !ctx.stack.is_empty() {
-            let chain = ctx.stack.join(" -> ");
-            message.push_str(&format!(" (import stack: {chain})"));
-        }
-        return Err(AsmRunError::new(
-            AsmError::new(AsmErrorKind::Directive, &message, None),
-            vec![],
-            vec![],
-        ));
-    }
-    let info = &infos[0];
-
-    ctx.stack.push(module_id.to_string());
-    let expanded_lines = expand_source_file(&info.path, ctx.defines, ctx.pp_macro_depth)?;
-    let module_lines = if info.has_explicit_modules {
-        extract_module_block(&expanded_lines, module_id).ok_or_else(|| {
-            AsmRunError::new(
-                AsmError::new(
-                    AsmErrorKind::Directive,
-                    "Module not found in source",
-                    Some(module_id),
-                ),
-                vec![],
-                vec![],
-            )
-        })?
-    } else {
-        expanded_lines
-    };
-
-    for dep in collect_use_directives(&module_lines) {
-        load_module_recursive(&dep, ctx)?;
-    }
-
-    ctx.loaded.insert(canonical);
-    ctx.order.push(module_lines);
-    ctx.stack.pop();
-    Ok(())
-}
-
-fn load_module_graph(
-    root_path: &Path,
-    root_lines: Vec<String>,
-    defines: &[String],
-    pp_macro_depth: usize,
-) -> Result<Vec<String>, AsmRunError> {
-    let root_dir = root_path
-        .parent()
-        .ok_or_else(|| {
-            AsmRunError::new(
-                AsmError::new(AsmErrorKind::Cli, "Invalid input path", None),
-                vec![],
-                vec![],
-            )
-        })?
-        .to_path_buf();
-    let index = build_module_index(&root_dir)?;
-
-    let mut preloaded = HashSet::new();
-    let mut explicit_modules = scan_module_ids(&root_lines);
-    if explicit_modules.is_empty() {
-        explicit_modules.push(module_id_from_path(root_path)?);
-    }
-    for module_id in explicit_modules {
-        preloaded.insert(canonical_module_id(&module_id));
-    }
-
-    let mut loaded = HashSet::new();
-    let mut order = Vec::new();
-    let mut stack = Vec::new();
-    let mut ctx = ModuleLoadContext {
-        index: &index,
-        loaded: &mut loaded,
-        preloaded: &preloaded,
-        order: &mut order,
-        stack: &mut stack,
-        defines,
-        pp_macro_depth,
-    };
-    for dep in collect_use_directives(&root_lines) {
-        load_module_recursive(&dep, &mut ctx)?;
-    }
-
-    let mut combined = Vec::new();
-    for module_lines in order {
-        combined.extend(module_lines);
-    }
-    combined.extend(root_lines);
-    Ok(combined)
-}
-
-#[allow(clippy::too_many_arguments)]
 fn run_one(
     cli: &Cli,
     asm_name: &str,
     input_base: &str,
-    out_dir: Option<&PathBuf>,
-    bin_specs: &[BinOutputSpec],
-    go_addr: Option<&str>,
-    fill_byte: u8,
-    fill_byte_set: bool,
-    pp_macro_depth: usize,
-    default_outputs: bool,
+    config: &cli::CliConfig,
 ) -> Result<AsmRunReport, AsmRunError> {
     let root_path = Path::new(asm_name);
-    let root_lines = expand_source_file(root_path, &cli.defines, pp_macro_depth)?;
+    let root_lines = expand_source_file(root_path, &cli.defines, config.pp_macro_depth)?;
     let root_module_id = root_module_id_from_lines(root_path, &root_lines)?;
-    let expanded_lines = load_module_graph(root_path, root_lines, &cli.defines, pp_macro_depth)?;
+    let expanded_lines =
+        load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
 
     let mut assembler = Assembler::new();
     assembler.root_metadata.root_module_id = Some(root_module_id);
@@ -608,7 +118,7 @@ fn run_one(
     let meta_outputs_requested = output_config.list_name.is_some()
         || output_config.hex_name.is_some()
         || !output_config.bin_specs.is_empty();
-    let effective_default_outputs = default_outputs && !meta_outputs_requested;
+    let effective_default_outputs = config.default_outputs && !meta_outputs_requested;
     if effective_default_outputs && metadata_output.is_none() && cli.outfile.is_none() {
         return Err(AsmRunError::new(
             AsmError::new(
@@ -624,7 +134,7 @@ fn run_one(
     let out_base = resolve_output_base(
         cli,
         input_base,
-        out_dir,
+        config.out_dir.as_ref(),
         &assembler.root_metadata,
         assembler.cpu(),
     );
@@ -652,7 +162,7 @@ fn run_one(
         }
         None => None,
     };
-    if go_addr.is_some() && hex_path.is_none() {
+    if config.go_addr.is_some() && hex_path.is_none() {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -698,7 +208,19 @@ fn run_one(
             ))
         }
     };
-    if let Err(err) = listing.footer(&pass2, assembler.symbols(), assembler.image().num_entries()) {
+    let generated_output = assembler.image().entries().map_err(|err| {
+        AsmRunError::new(
+            AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
+            assembler.take_diagnostics(),
+            expanded_lines.clone(),
+        )
+    })?;
+    if let Err(err) = listing.footer_with_generated_output(
+        &pass2,
+        assembler.symbols(),
+        assembler.image().num_entries(),
+        &generated_output,
+    ) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
             assembler.take_diagnostics(),
@@ -718,7 +240,10 @@ fn run_one(
                 expanded_lines.clone(),
             )
         })?;
-        if let Err(err) = assembler.image().write_hex_file(&mut hex_file, go_addr) {
+        if let Err(err) = assembler
+            .image()
+            .write_hex_file(&mut hex_file, config.go_addr.as_deref())
+        {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
                 assembler.take_diagnostics(),
@@ -727,17 +252,17 @@ fn run_one(
         }
     }
 
-    let effective_bin_specs = if !bin_specs.is_empty() {
-        bin_specs.to_vec()
+    let effective_bin_specs = if !config.bin_specs.is_empty() {
+        config.bin_specs.to_vec()
     } else {
         output_config.bin_specs.clone()
     };
-    let effective_fill_byte = if fill_byte_set {
-        fill_byte
+    let effective_fill_byte = if config.fill_byte_set {
+        config.fill_byte
     } else {
-        output_config.fill_byte.unwrap_or(fill_byte)
+        output_config.fill_byte.unwrap_or(config.fill_byte)
     };
-    if fill_byte_set && effective_bin_specs.is_empty() {
+    if config.fill_byte_set && effective_bin_specs.is_empty() {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -815,259 +340,415 @@ fn run_one(
         }
     }
 
+    if let Err(err) = emit_linker_outputs(
+        &assembler.root_metadata.linker_outputs,
+        assembler.sections(),
+        config.out_dir.as_ref(),
+    ) {
+        return Err(AsmRunError::new(
+            err,
+            assembler.take_diagnostics(),
+            expanded_lines.clone(),
+        ));
+    }
+    if let Err(err) = emit_export_sections(
+        &assembler.root_metadata.export_sections,
+        assembler.sections(),
+        config.out_dir.as_ref(),
+    ) {
+        return Err(AsmRunError::new(
+            err,
+            assembler.take_diagnostics(),
+            expanded_lines.clone(),
+        ));
+    }
+    if let Err(err) = emit_mapfiles(
+        &assembler.root_metadata.mapfiles,
+        assembler.regions(),
+        assembler.sections(),
+        assembler.symbols(),
+        config.out_dir.as_ref(),
+    ) {
+        return Err(AsmRunError::new(
+            err,
+            assembler.take_diagnostics(),
+            expanded_lines.clone(),
+        ));
+    }
+
     Ok(AsmRunReport::new(
         assembler.take_diagnostics(),
         expanded_lines,
     ))
 }
 
-/// Core assembler state.
-struct Assembler {
-    symbols: SymbolTable,
-    image: ImageStore,
-    diagnostics: Vec<Diagnostic>,
-    cpu: CpuType,
-    registry: ModuleRegistry,
-    root_metadata: RootMetadata,
+#[derive(Debug, Clone)]
+struct ResolvedLinkerSection {
+    name: String,
+    base: u16,
+    bytes: Vec<u8>,
 }
 
-impl Assembler {
-    fn new() -> Self {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(Intel8080FamilyModule));
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(I8085CpuModule));
-        registry.register_cpu(Box::new(Z80CpuModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
+fn collect_linker_sections(
+    output: &LinkerOutputDirective,
+    sections: &HashMap<String, SectionState>,
+) -> Result<Vec<ResolvedLinkerSection>, AsmError> {
+    let mut resolved = Vec::with_capacity(output.sections.len());
+    for section_name in &output.sections {
+        let Some(section) = sections.get(section_name) else {
+            return Err(AsmError::new(
+                AsmErrorKind::Directive,
+                "Unknown section referenced by .output",
+                Some(section_name),
+            ));
+        };
+        let Some(base) = section.base_addr else {
+            return Err(AsmError::new(
+                AsmErrorKind::Directive,
+                "Section referenced by .output must be explicitly placed",
+                Some(section_name),
+            ));
+        };
+        resolved.push(ResolvedLinkerSection {
+            name: section_name.clone(),
+            base,
+            bytes: section.bytes.clone(),
+        });
+    }
+    resolved.sort_by_key(|section| section.base);
+    Ok(resolved)
+}
 
-        Self {
-            symbols: SymbolTable::new(),
-            image: ImageStore::new(65536),
-            diagnostics: Vec::new(),
-            cpu: default_cpu(),
-            registry,
-            root_metadata: RootMetadata::default(),
+fn build_linker_output_payload(
+    output: &LinkerOutputDirective,
+    sections: &HashMap<String, SectionState>,
+) -> Result<Vec<u8>, AsmError> {
+    let ordered = collect_linker_sections(output, sections)?;
+    let mut payload = if let (Some(image_start), Some(image_end)) =
+        (output.image_start, output.image_end)
+    {
+        let Some(fill) = output.fill else {
+            return Err(AsmError::new(
+                AsmErrorKind::Directive,
+                "image output requires fill in .output",
+                None,
+            ));
+        };
+        let span_len = image_end as u32 + 1 - image_start as u32;
+        let mut image = vec![fill; span_len as usize];
+        for section in &ordered {
+            if section.bytes.is_empty() {
+                continue;
+            }
+            let start = section.base as u32;
+            let end = start + section.bytes.len() as u32 - 1;
+            if start < image_start as u32 || end > image_end as u32 {
+                return Err(AsmError::new(
+                    AsmErrorKind::Directive,
+                    "Section falls outside image span in .output",
+                    Some(&section.name),
+                ));
+            }
+            let offset = (start - image_start as u32) as usize;
+            image[offset..offset + section.bytes.len()].copy_from_slice(&section.bytes);
         }
-    }
-
-    fn cpu(&self) -> CpuType {
-        self.cpu
-    }
-
-    fn symbols(&self) -> &SymbolTable {
-        &self.symbols
-    }
-
-    fn image(&self) -> &ImageStore {
-        &self.image
-    }
-
-    fn clear_diagnostics(&mut self) {
-        self.diagnostics.clear();
-    }
-
-    fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
-        std::mem::take(&mut self.diagnostics)
-    }
-
-    fn pass1(&mut self, lines: &[String]) -> PassCounts {
-        let mut addr: u16 = 0;
-        let mut line_num: u32 = 1;
-        let mut counts = PassCounts::new();
-        let diagnostics = &mut self.diagnostics;
-
-        {
-            let root_metadata = std::mem::take(&mut self.root_metadata);
-            let mut asm_line = AsmLine::with_cpu_and_metadata(
-                &mut self.symbols,
-                self.cpu,
-                &self.registry,
-                root_metadata,
-            );
-            asm_line.clear_conditionals();
-            asm_line.clear_scopes();
-
-            for src in lines {
-                let line_addr = asm_line.current_addr(addr);
-                let status = asm_line.process(src, line_num, line_addr, 1);
-                if status == LineStatus::Pass1Error {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Error, err.clone())
-                                .with_column(asm_line.error_column())
-                                .with_parser_error(asm_line.parser_error()),
-                        );
+        image
+    } else {
+        if output.contiguous {
+            let mut expected_base: Option<u32> = None;
+            for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
+                let base = section.base as u32;
+                if let Some(expected) = expected_base {
+                    if base != expected {
+                        let message = if base > expected {
+                            format!(
+                                    "contiguous output requires adjacent sections; gap ${expected:04X}..${:04X}",
+                                    base - 1
+                                )
+                        } else {
+                            format!(
+                                    "contiguous output requires adjacent sections; overlap ${base:04X}..${:04X}",
+                                    expected - 1
+                                )
+                        };
+                        return Err(AsmError::new(
+                            AsmErrorKind::Directive,
+                            &message,
+                            Some(&section.name),
+                        ));
                     }
-                    counts.errors += 1;
-                } else {
-                    asm_line.update_addresses(&mut addr, status);
                 }
-                line_num += 1;
+                expected_base = Some(base + section.bytes.len() as u32);
             }
-
-            if !asm_line.cond_is_empty() {
-                let err = AsmError::new(
-                    AsmErrorKind::Conditional,
-                    "Found .if without .endif in pass 1",
-                    None,
-                );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Warning, err));
-                asm_line.clear_conditionals();
-                counts.warnings += 1;
-            }
-
-            if asm_line.in_module() {
-                let err = AsmError::new(
-                    AsmErrorKind::Directive,
-                    "Found .module without .endmodule",
-                    None,
-                );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
-                counts.errors += 1;
-            }
-
-            if asm_line.in_section() {
-                let err = AsmError::new(
-                    AsmErrorKind::Directive,
-                    "Found .section without .endsection",
-                    None,
-                );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
-                counts.errors += 1;
-            }
-
-            self.root_metadata = asm_line.take_root_metadata();
         }
+        let total_len: usize = ordered.iter().map(|section| section.bytes.len()).sum();
+        let mut data = Vec::with_capacity(total_len);
+        for section in &ordered {
+            data.extend_from_slice(&section.bytes);
+        }
+        data
+    };
 
-        for issue in self.symbols.validate_imports() {
-            let kind = match issue.kind {
-                crate::core::symbol_table::ImportIssueKind::Directive => AsmErrorKind::Directive,
-                crate::core::symbol_table::ImportIssueKind::Symbol => AsmErrorKind::Symbol,
+    if output.format == LinkerOutputFormat::Prg {
+        let loadaddr = output.loadaddr.unwrap_or_else(|| {
+            ordered
+                .iter()
+                .find(|section| !section.bytes.is_empty())
+                .or_else(|| ordered.first())
+                .map(|section| section.base)
+                .unwrap_or(0)
+        });
+        let mut prg = Vec::with_capacity(payload.len() + 2);
+        prg.push((loadaddr & 0x00ff) as u8);
+        prg.push((loadaddr >> 8) as u8);
+        prg.append(&mut payload);
+        return Ok(prg);
+    }
+
+    Ok(payload)
+}
+
+fn resolve_linker_output_path(path: &str, out_dir: Option<&PathBuf>) -> PathBuf {
+    let raw_path = PathBuf::from(path);
+    if raw_path.is_absolute() {
+        raw_path
+    } else if let Some(dir) = out_dir {
+        dir.join(raw_path)
+    } else {
+        raw_path
+    }
+}
+
+fn emit_linker_outputs(
+    outputs: &[LinkerOutputDirective],
+    sections: &HashMap<String, SectionState>,
+    out_dir: Option<&PathBuf>,
+) -> Result<(), AsmError> {
+    for output in outputs {
+        let payload = build_linker_output_payload(output, sections)?;
+        let output_path = resolve_linker_output_path(&output.path, out_dir);
+        if let Some(parent) = output_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    let path_text = output_path.to_string_lossy().to_string();
+                    return Err(AsmError::new(
+                        AsmErrorKind::Io,
+                        &err.to_string(),
+                        Some(&path_text),
+                    ));
+                }
+            }
+        }
+        let mut file = match File::create(&output_path) {
+            Ok(file) => file,
+            Err(err) => {
+                let path_text = output_path.to_string_lossy().to_string();
+                return Err(AsmError::new(
+                    AsmErrorKind::Io,
+                    &err.to_string(),
+                    Some(&path_text),
+                ));
+            }
+        };
+        if let Err(err) = file.write_all(&payload) {
+            let path_text = output_path.to_string_lossy().to_string();
+            return Err(AsmError::new(
+                AsmErrorKind::Io,
+                &err.to_string(),
+                Some(&path_text),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn build_export_sections_payloads(
+    directive: &ExportSectionsDirective,
+    sections: &HashMap<String, SectionState>,
+) -> Vec<(String, Vec<u8>)> {
+    let mut names: Vec<&String> = sections.keys().collect();
+    names.sort();
+
+    let mut outputs = Vec::new();
+    for name in names {
+        let section = &sections[name];
+        if directive.include == ExportSectionsInclude::NoBss && section.is_bss() {
+            continue;
+        }
+        let mut filename = name.clone();
+        filename.push_str(".bin");
+        outputs.push((filename, section.bytes.clone()));
+    }
+    outputs
+}
+
+fn emit_export_sections(
+    directives: &[ExportSectionsDirective],
+    sections: &HashMap<String, SectionState>,
+    out_dir: Option<&PathBuf>,
+) -> Result<(), AsmError> {
+    for directive in directives {
+        let target_dir = resolve_linker_output_path(&directive.dir, out_dir);
+        if let Err(err) = fs::create_dir_all(&target_dir) {
+            let dir_text = target_dir.to_string_lossy().to_string();
+            return Err(AsmError::new(
+                AsmErrorKind::Io,
+                &err.to_string(),
+                Some(&dir_text),
+            ));
+        }
+        for (filename, payload) in build_export_sections_payloads(directive, sections) {
+            let path = target_dir.join(filename);
+            let mut file = match File::create(&path) {
+                Ok(file) => file,
+                Err(err) => {
+                    let path_text = path.to_string_lossy().to_string();
+                    return Err(AsmError::new(
+                        AsmErrorKind::Io,
+                        &err.to_string(),
+                        Some(&path_text),
+                    ));
+                }
             };
-            let err = AsmError::new(kind, &issue.message, issue.param.as_deref());
-            diagnostics
-                .push(Diagnostic::new(issue.line, Severity::Error, err).with_column(issue.column));
-            counts.errors += 1;
+            if let Err(err) = file.write_all(&payload) {
+                let path_text = path.to_string_lossy().to_string();
+                return Err(AsmError::new(
+                    AsmErrorKind::Io,
+                    &err.to_string(),
+                    Some(&path_text),
+                ));
+            }
         }
+    }
+    Ok(())
+}
 
-        counts.lines = line_num - 1;
-        counts
+fn section_kind_name(kind: SectionKind) -> &'static str {
+    match kind {
+        SectionKind::Code => "code",
+        SectionKind::Data => "data",
+        SectionKind::Bss => "bss",
+    }
+}
+
+fn build_mapfile_text(
+    directive: &MapFileDirective,
+    regions: &HashMap<String, RegionState>,
+    sections: &HashMap<String, SectionState>,
+    symbols: &SymbolTable,
+) -> String {
+    let mut out = String::new();
+
+    out.push_str("Regions\n");
+    out.push_str("name start end used free align\n");
+    let mut region_names: Vec<&String> = regions.keys().collect();
+    region_names.sort();
+    for name in region_names {
+        let region = &regions[name];
+        let capacity = region.end.saturating_sub(region.start).saturating_add(1);
+        let used = region.cursor.saturating_sub(region.start).min(capacity);
+        let free = capacity.saturating_sub(used);
+        out.push_str(&format!(
+            "{} {:04X} {:04X} {} {} {}\n",
+            region.name, region.start, region.end, used, free, region.align
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("Sections\n");
+    out.push_str("name base size kind region\n");
+    let mut section_region: HashMap<String, String> = HashMap::new();
+    for region in regions.values() {
+        for placed in &region.placed {
+            section_region.insert(placed.name.clone(), region.name.clone());
+        }
+    }
+    let mut section_names: Vec<&String> = sections.keys().collect();
+    section_names.sort();
+    for name in section_names {
+        let section = &sections[name];
+        let base_text = section
+            .base_addr
+            .map(|base| format!("{base:04X}"))
+            .unwrap_or_else(|| "----".to_string());
+        let region_name = section_region
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or_else(|| "-".to_string());
+        out.push_str(&format!(
+            "{} {} {} {} {}\n",
+            name,
+            base_text,
+            section.size_bytes(),
+            section_kind_name(section.kind),
+            region_name
+        ));
     }
 
-    fn pass2<W: Write>(
-        &mut self,
-        lines: &[String],
-        listing: &mut ListingWriter<W>,
-    ) -> std::io::Result<PassCounts> {
-        let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
-        asm_line.clear_conditionals();
-        asm_line.clear_scopes();
-        self.image = ImageStore::new(65536);
+    if directive.symbols != MapSymbolsMode::None {
+        out.push('\n');
+        out.push_str("Symbols\n");
+        out.push_str("name value visibility\n");
 
-        let mut addr: u16 = 0;
-        let mut line_num: u32 = 1;
-        let mut counts = PassCounts::new();
-        let diagnostics = &mut self.diagnostics;
-        let image = &mut self.image;
-
-        for src in lines {
-            let line_addr = asm_line.current_addr(addr);
-            let status = asm_line.process(src, line_num, line_addr, 2);
-            let line_addr = asm_line.start_addr();
-            let bytes = asm_line.bytes();
-            if !bytes.is_empty() && !asm_line.in_section() {
-                image.store_slice(line_addr, bytes);
+        let mut entries: Vec<&crate::core::symbol_table::SymbolTableEntry> =
+            symbols.entries().iter().collect();
+        entries.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
+        for entry in entries {
+            if directive.symbols == MapSymbolsMode::Public
+                && entry.visibility != SymbolVisibility::Public
+            {
+                continue;
             }
-
-            listing.write_line(ListingLine {
-                addr: line_addr,
-                bytes,
-                status,
-                aux: asm_line.aux_value(),
-                line_num,
-                source: src,
-                section: asm_line.current_section_name(),
-                cond: asm_line.cond_last(),
-            })?;
-
-            match status {
-                LineStatus::Error => {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Error, err.clone())
-                                .with_column(asm_line.error_column())
-                                .with_parser_error(asm_line.parser_error()),
-                        );
-                        listing.write_diagnostic(
-                            "ERROR",
-                            err.message(),
-                            line_num,
-                            asm_line.error_column(),
-                            lines,
-                            asm_line.parser_error_ref(),
-                        )?;
-                    }
-                    counts.errors += 1;
-                }
-                LineStatus::Warning => {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Warning, err.clone())
-                                .with_column(asm_line.error_column())
-                                .with_parser_error(asm_line.parser_error()),
-                        );
-                        listing.write_diagnostic(
-                            "WARNING",
-                            err.message(),
-                            line_num,
-                            asm_line.error_column(),
-                            lines,
-                            asm_line.parser_error_ref(),
-                        )?;
-                    }
-                    counts.warnings += 1;
-                }
-                _ => {}
-            }
-
-            asm_line.update_addresses(&mut addr, status);
-            line_num += 1;
+            let visibility = match entry.visibility {
+                SymbolVisibility::Public => "public",
+                SymbolVisibility::Private => "private",
+            };
+            out.push_str(&format!(
+                "{} {:04X} {}\n",
+                entry.name, entry.val, visibility
+            ));
         }
-
-        if !asm_line.cond_is_empty() {
-            let err = AsmError::new(AsmErrorKind::Conditional, "Found .if without .endif", None);
-            diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-            listing.write_diagnostic("ERROR", err.message(), line_num, None, lines, None)?;
-            asm_line.clear_conditionals();
-            counts.errors += 1;
-        }
-
-        if asm_line.in_module() {
-            let err = AsmError::new(
-                AsmErrorKind::Directive,
-                "Found .module without .endmodule",
-                None,
-            );
-            diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-            listing.write_diagnostic("ERROR", err.message(), line_num, None, lines, None)?;
-            counts.errors += 1;
-        }
-
-        if asm_line.in_section() {
-            let err = AsmError::new(
-                AsmErrorKind::Directive,
-                "Found .section without .endsection",
-                None,
-            );
-            diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-            listing.write_diagnostic("ERROR", err.message(), line_num, None, lines, None)?;
-            counts.errors += 1;
-        }
-
-        counts.lines = line_num - 1;
-        Ok(counts)
     }
+
+    out
+}
+
+fn emit_mapfiles(
+    directives: &[MapFileDirective],
+    regions: &HashMap<String, RegionState>,
+    sections: &HashMap<String, SectionState>,
+    symbols: &SymbolTable,
+    out_dir: Option<&PathBuf>,
+) -> Result<(), AsmError> {
+    for directive in directives {
+        let map_text = build_mapfile_text(directive, regions, sections, symbols);
+        let output_path = resolve_linker_output_path(&directive.path, out_dir);
+        if let Some(parent) = output_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    let path_text = output_path.to_string_lossy().to_string();
+                    return Err(AsmError::new(
+                        AsmErrorKind::Io,
+                        &err.to_string(),
+                        Some(&path_text),
+                    ));
+                }
+            }
+        }
+        if let Err(err) = fs::write(&output_path, map_text) {
+            let path_text = output_path.to_string_lossy().to_string();
+            return Err(AsmError::new(
+                AsmErrorKind::Io,
+                &err.to_string(),
+                Some(&path_text),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Per-line assembler state.
@@ -1084,6 +765,9 @@ struct AsmLine<'a> {
     in_output_block: bool,
     output_cpu_block: Option<String>,
     sections: HashMap<String, SectionState>,
+    regions: HashMap<String, RegionState>,
+    placement_directives: Vec<PlacementDirective>,
+    section_symbol_sections: HashMap<String, String>,
     section_stack: Vec<Option<String>>,
     current_section: Option<String>,
     saw_explicit_module: bool,
@@ -1100,6 +784,7 @@ struct AsmLine<'a> {
     label: Option<String>,
     mnemonic: Option<String>,
     cpu: CpuType,
+    register_checker: RegisterChecker,
     statement_depth: usize,
 }
 
@@ -1132,6 +817,9 @@ impl<'a> AsmLine<'a> {
             in_output_block: false,
             output_cpu_block: None,
             sections: HashMap::new(),
+            regions: HashMap::new(),
+            placement_directives: Vec::new(),
+            section_symbol_sections: HashMap::new(),
             section_stack: Vec::new(),
             current_section: None,
             saw_explicit_module: false,
@@ -1148,12 +836,48 @@ impl<'a> AsmLine<'a> {
             label: None,
             mnemonic: None,
             cpu,
+            register_checker: Self::build_register_checker(registry, cpu),
             statement_depth: 0,
+        }
+    }
+
+    /// Build a `RegisterChecker` for the given CPU, or a no-op checker on error.
+    fn build_register_checker(registry: &ModuleRegistry, cpu: CpuType) -> RegisterChecker {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => {
+                let family = pipeline.family;
+                Arc::new(move |ident: &str| family.is_register(ident) || family.is_condition(ident))
+            }
+            Err(_) => register_checker_none(),
         }
     }
 
     fn take_root_metadata(&mut self) -> RootMetadata {
         std::mem::take(&mut self.root_metadata)
+    }
+
+    fn take_placement_directives(&mut self) -> Vec<PlacementDirective> {
+        std::mem::take(&mut self.placement_directives)
+    }
+
+    fn take_sections(&mut self) -> HashMap<String, SectionState> {
+        std::mem::take(&mut self.sections)
+    }
+
+    fn take_regions(&mut self) -> HashMap<String, RegionState> {
+        std::mem::take(&mut self.regions)
+    }
+
+    fn finalize_section_symbol_addresses(&mut self) {
+        let section_symbols = std::mem::take(&mut self.section_symbol_sections);
+        for (symbol_name, section_name) in section_symbols {
+            let Some(base_addr) = self.sections.get(&section_name).and_then(|s| s.base_addr) else {
+                continue;
+            };
+            if let Some(entry) = self.symbols.entry_mut(&symbol_name) {
+                entry.val = entry.val.saturating_add(base_addr as u32);
+            }
+        }
     }
 
     fn error(&self) -> Option<&AsmError> {
@@ -1210,6 +934,9 @@ impl<'a> AsmLine<'a> {
         self.in_output_block = false;
         self.output_cpu_block = None;
         self.sections.clear();
+        self.regions.clear();
+        self.placement_directives.clear();
+        self.section_symbol_sections.clear();
         self.section_stack.clear();
         self.current_section = None;
         self.saw_explicit_module = false;
@@ -1246,9 +973,19 @@ impl<'a> AsmLine<'a> {
             Some(name) => self
                 .sections
                 .get(name)
-                .map(|section| section.pc)
+                .map(|section| section.pc.wrapping_add(section.start_pc))
                 .unwrap_or(main_addr),
             None => main_addr,
+        }
+    }
+
+    fn track_section_symbol(&mut self, full_name: &str) {
+        if self.pass != 1 {
+            return;
+        }
+        if let Some(section_name) = self.current_section.as_ref() {
+            self.section_symbol_sections
+                .insert(full_name.to_string(), section_name.clone());
         }
     }
 
@@ -1257,24 +994,29 @@ impl<'a> AsmLine<'a> {
         if let Some(section_name) = self.current_section.clone() {
             if let Some(section) = self.sections.get_mut(&section_name) {
                 if self.pass == 2 {
-                    if status == LineStatus::DirDs && self.aux_value > 0 {
+                    if status == LineStatus::DirDs && self.aux_value > 0 && !section.is_bss() {
                         section
                             .bytes
                             .extend(std::iter::repeat_n(0, self.aux_value as usize));
-                    } else if status == LineStatus::DirEqu && self.start_addr > section.pc {
-                        let pad = self.start_addr.wrapping_sub(section.pc) as usize;
+                    } else if status == LineStatus::DirEqu
+                        && self.start_addr > section.pc.wrapping_add(section.start_pc)
+                        && !section.is_bss()
+                    {
+                        let current_abs = section.pc.wrapping_add(section.start_pc);
+                        let pad = self.start_addr.wrapping_sub(current_abs) as usize;
                         section.bytes.extend(std::iter::repeat_n(0, pad));
-                    } else if !self.bytes.is_empty() {
+                    } else if !self.bytes.is_empty() && !section.is_bss() {
                         section.bytes.extend_from_slice(&self.bytes);
                     }
                 }
                 if status == LineStatus::DirDs {
                     section.pc = section.pc.wrapping_add(self.aux_value);
                 } else if status == LineStatus::DirEqu {
-                    section.pc = self.start_addr;
+                    section.pc = self.start_addr.wrapping_sub(section.start_pc);
                 } else {
                     section.pc = section.pc.wrapping_add(num_bytes);
                 }
+                section.max_pc = section.max_pc.max(section.pc);
             }
         } else if status == LineStatus::DirDs {
             *main_addr = main_addr.wrapping_add(self.aux_value);
@@ -1489,14 +1231,8 @@ impl<'a> AsmLine<'a> {
         self.label = None;
         self.mnemonic = None;
 
-        // Get register checker from the family handler
-        let is_register_fn = match self.registry.resolve_pipeline(self.cpu, None) {
-            Ok(pipeline) => {
-                let family = pipeline.family;
-                Arc::new(move |ident: &str| family.is_register(ident) || family.is_condition(ident))
-            }
-            Err(_) => register_checker_none(),
-        };
+        // Use the cached register checker
+        let is_register_fn = self.register_checker.clone();
 
         match asm_parser::Parser::from_line_with_registers(line, line_num, is_register_fn) {
             Ok(mut parser) => {
@@ -1653,6 +1389,27 @@ impl<'a> AsmLine<'a> {
                     LineStatus::Ok
                 }
             }
+            LineAst::Place {
+                section,
+                region,
+                align,
+                span,
+            } => {
+                if self.cond_stack.skipping() {
+                    return LineStatus::Skip;
+                }
+                self.process_place_ast(&section, &region, align.as_ref(), span)
+            }
+            LineAst::Pack {
+                region,
+                sections,
+                span,
+            } => {
+                if self.cond_stack.skipping() {
+                    return LineStatus::Skip;
+                }
+                self.process_pack_ast(&region, &sections, span)
+            }
             LineAst::StatementDef { .. } => {
                 if self.cond_stack.skipping() {
                     return LineStatus::Skip;
@@ -1722,6 +1479,8 @@ impl<'a> AsmLine<'a> {
                                     self.current_visibility(),
                                     self.module_active.as_deref(),
                                 )
+                            } else if self.in_section() {
+                                crate::symbol_table::SymbolTableResult::Ok
                             } else {
                                 self.symbols.update(&full_name, self.start_addr as u32)
                             };
@@ -1733,6 +1492,9 @@ impl<'a> AsmLine<'a> {
                                     Some(&label.name),
                                     label.span,
                                 );
+                            }
+                            if res == crate::symbol_table::SymbolTableResult::Ok {
+                                self.track_section_symbol(&full_name);
                             }
                         }
                         return LineStatus::NothingDone;
@@ -1759,6 +1521,8 @@ impl<'a> AsmLine<'a> {
                                 self.current_visibility(),
                                 self.module_active.as_deref(),
                             )
+                        } else if self.in_section() {
+                            crate::symbol_table::SymbolTableResult::Ok
                         } else {
                             self.symbols.update(&full_name, self.start_addr as u32)
                         };
@@ -1770,6 +1534,9 @@ impl<'a> AsmLine<'a> {
                                 Some(&label.name),
                                 label.span,
                             );
+                        }
+                        if res == crate::symbol_table::SymbolTableResult::Ok {
+                            self.track_section_symbol(&full_name);
                         }
                     }
                 }
@@ -2172,1116 +1939,6 @@ impl<'a> AsmLine<'a> {
         LineStatus::Ok
     }
 
-    fn process_directive_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
-        let upper = mnemonic.to_ascii_uppercase();
-        let had_dot = upper.starts_with('.');
-        let directive = upper.strip_prefix('.').unwrap_or(&upper);
-        if !had_dot {
-            return LineStatus::NothingDone;
-        }
-        match directive {
-            "META" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .meta",
-                        None,
-                    );
-                }
-                if self.in_meta_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Nested .meta is not allowed",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".meta") {
-                    return status;
-                }
-                self.in_meta_block = true;
-                LineStatus::Ok
-            }
-            "ENDMETA" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .endmeta",
-                        None,
-                    );
-                }
-                if !self.in_meta_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endmeta found without matching .meta",
-                        None,
-                    );
-                }
-                if self.in_output_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Cannot close .meta with open .output block",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".endmeta") {
-                    return status;
-                }
-                self.in_meta_block = false;
-                LineStatus::Ok
-            }
-            "OUTPUT" => {
-                if !self.in_meta_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".output is only allowed inside a .meta block",
-                        None,
-                    );
-                }
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .output",
-                        None,
-                    );
-                }
-                if self.in_output_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Nested .output is not allowed",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".output") {
-                    return status;
-                }
-                self.in_output_block = true;
-                self.output_cpu_block = None;
-                LineStatus::Ok
-            }
-            "ENDOUTPUT" => {
-                if !self.in_meta_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endoutput is only allowed inside a .meta block",
-                        None,
-                    );
-                }
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .endoutput",
-                        None,
-                    );
-                }
-                if !self.in_output_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endoutput found without matching .output",
-                        None,
-                    );
-                }
-                if self.output_cpu_block.is_some() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Cannot close .output with open CPU output block",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".endoutput") {
-                    return status;
-                }
-                self.in_output_block = false;
-                LineStatus::Ok
-            }
-            "DSECTION" => {
-                if self.in_section() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".dsection is not allowed inside a .section block",
-                        None,
-                    );
-                }
-                if operands.len() != 1 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Missing section name for .dsection",
-                        None,
-                    );
-                }
-                let Some(name) = operands.first().and_then(expr_to_ident) else {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Invalid section name for .dsection",
-                        None,
-                    );
-                };
-                let section = self.sections.entry(name.clone()).or_default();
-                if section.placed {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Section already placed",
-                        Some(&name),
-                    );
-                }
-                section.placed = true;
-                if self.pass == 2 {
-                    self.bytes = section.bytes.clone();
-                } else {
-                    self.bytes = vec![0u8; section.pc as usize];
-                }
-                LineStatus::Ok
-            }
-            "SECTION" => {
-                if operands.len() != 1 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Missing section name for .section",
-                        None,
-                    );
-                }
-                let Some(name) = operands.first().and_then(expr_to_ident) else {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Invalid section name for .section",
-                        None,
-                    );
-                };
-                if let Some(section) = self.sections.get(&name) {
-                    if section.placed {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Section has already been placed",
-                            Some(&name),
-                        );
-                    }
-                } else {
-                    self.sections.insert(name.clone(), SectionState::default());
-                }
-                self.section_stack.push(self.current_section.take());
-                self.current_section = Some(name);
-                LineStatus::Ok
-            }
-            "ENDSECTION" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .endsection",
-                        None,
-                    );
-                }
-                if !self.in_section() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endsection found without matching .section",
-                        None,
-                    );
-                }
-                self.current_section = self.section_stack.pop().unwrap_or(None);
-                LineStatus::Ok
-            }
-            "NAME" => {
-                if !self.in_meta_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".name is only allowed inside a .meta block",
-                        None,
-                    );
-                }
-                if self.in_output_block {
-                    if let Some(status) = self.validate_metadata_scope(".output.name") {
-                        return status;
-                    }
-                    let target = self.output_cpu_block.clone();
-                    return self.set_output_entry(target.as_deref(), "NAME", operands, ".name");
-                }
-                if let Some(status) = self.validate_metadata_scope(".name") {
-                    return status;
-                }
-                let value = match self.metadata_value(operands, ".name") {
-                    Some(value) => value,
-                    None => return LineStatus::Error,
-                };
-                self.root_metadata.name = Some(value);
-                LineStatus::Ok
-            }
-            "VERSION" => {
-                if !self.in_meta_block || self.in_output_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".version is only allowed inside a .meta block",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".version") {
-                    return status;
-                }
-                let value = match self.metadata_value(operands, ".version") {
-                    Some(value) => value,
-                    None => return LineStatus::Error,
-                };
-                self.root_metadata.version = Some(value);
-                LineStatus::Ok
-            }
-            "LIST" | "HEX" | "BIN" | "FILL" => {
-                if !self.in_output_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        &format!(".{directive} is only allowed inside a .output block"),
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".output") {
-                    return status;
-                }
-                let target = self.output_cpu_block.clone();
-                self.set_output_entry(
-                    target.as_deref(),
-                    directive,
-                    operands,
-                    &format!(".{directive}"),
-                )
-            }
-            _ if self.in_output_block => {
-                if let Some(status) = self.handle_output_cpu_block(directive, operands) {
-                    return status;
-                }
-                LineStatus::NothingDone
-            }
-            "MODULE" => {
-                if operands.len() != 1 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Missing module id for .module",
-                        None,
-                    );
-                }
-                if self.in_module() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Nested .module is not allowed",
-                        None,
-                    );
-                }
-                if self.scope_stack.depth() > 0 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".module must appear at top level",
-                        None,
-                    );
-                }
-                if self.top_level_content_seen {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Top-level content must be inside a .module block",
-                        None,
-                    );
-                }
-                let module_id = match operands.first() {
-                    Some(Expr::Identifier(name, _)) => name.clone(),
-                    _ => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Invalid module id for .module",
-                            None,
-                        );
-                    }
-                };
-                self.saw_explicit_module = true;
-                if self.pass == 1 {
-                    let res = self.symbols.register_module(&module_id);
-                    if res == crate::symbol_table::SymbolTableResult::Duplicate {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Duplicate module id",
-                            Some(&module_id),
-                        );
-                    }
-                } else if !self.symbols.has_module(&module_id) {
-                    let _ = self.symbols.register_module(&module_id);
-                }
-                if let Err(message) = self.scope_stack.push_named(&module_id) {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        message,
-                        Some(&module_id),
-                    );
-                }
-                self.push_visibility();
-                self.module_active = Some(module_id);
-                self.module_scope_depth = self.scope_stack.depth();
-                LineStatus::Ok
-            }
-            "ENDMODULE" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .endmodule",
-                        None,
-                    );
-                }
-                if self.in_meta_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Cannot close module with open .meta block",
-                        None,
-                    );
-                }
-                if self.in_section() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Cannot close module with open .section block",
-                        None,
-                    );
-                }
-                if !self.in_module() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endmodule found without matching .module",
-                        None,
-                    );
-                }
-                if self.scope_stack.depth() != self.module_scope_depth {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Cannot close module with open scopes",
-                        None,
-                    );
-                }
-                if !self.scope_stack.pop() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endmodule found without matching .module",
-                        None,
-                    );
-                }
-                self.pop_visibility();
-                self.module_active = None;
-                self.module_scope_depth = 0;
-                LineStatus::Ok
-            }
-            "BLOCK" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .block",
-                        None,
-                    );
-                }
-                if let Some(label) = self.label.clone() {
-                    if let Err(message) = self.scope_stack.push_named(&label) {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            message,
-                            Some(&label),
-                        );
-                    }
-                } else {
-                    self.scope_stack.push_anonymous();
-                }
-                self.push_visibility();
-                LineStatus::Ok
-            }
-            "ENDBLOCK" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .endblock",
-                        None,
-                    );
-                }
-                if !self.scope_stack.pop() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        ".endblock found without matching .block",
-                        None,
-                    );
-                }
-                self.pop_visibility();
-                LineStatus::Ok
-            }
-            "PUB" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .pub",
-                        None,
-                    );
-                }
-                self.set_visibility(SymbolVisibility::Public);
-                LineStatus::Ok
-            }
-            "PRIV" => {
-                if !operands.is_empty() {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unexpected operands for .priv",
-                        None,
-                    );
-                }
-                self.set_visibility(SymbolVisibility::Private);
-                LineStatus::Ok
-            }
-            "ORG" => {
-                let expr = match operands.first() {
-                    Some(expr) => expr,
-                    None => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Missing expression for ORG",
-                            None,
-                        )
-                    }
-                };
-                let val = match self.eval_expr_ast(expr) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            err.error.kind(),
-                            err.error.message(),
-                            None,
-                            err.span,
-                        )
-                    }
-                };
-                if let Some(section_name) = self.current_section.as_deref() {
-                    if let Some(section) = self.sections.get(section_name) {
-                        if val < section.pc as u32 {
-                            return self.failure(
-                                LineStatus::Error,
-                                AsmErrorKind::Directive,
-                                ".org cannot move backwards inside a section",
-                                None,
-                            );
-                        }
-                    }
-                }
-                self.start_addr = val as u16;
-                self.aux_value = val as u16;
-                LineStatus::DirEqu
-            }
-            "ALIGN" => {
-                let expr = match operands.first() {
-                    Some(expr) => expr,
-                    None => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Missing expression for .align",
-                            None,
-                        )
-                    }
-                };
-                let val = match self.eval_expr_ast(expr) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            err.error.kind(),
-                            err.error.message(),
-                            None,
-                            err.span,
-                        )
-                    }
-                };
-                let align = val as u16;
-                if align == 0 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Alignment must be greater than zero",
-                        None,
-                    );
-                }
-                let addr = self.start_addr;
-                let pad = (align - (addr % align)) % align;
-                self.aux_value = pad;
-                LineStatus::DirDs
-            }
-            "CONST" | "VAR" | "SET" => {
-                if self.label.is_none() {
-                    return self.failure_at(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Must specify symbol before .const/.var/.set",
-                        None,
-                        Some(1),
-                    );
-                }
-                let expr = match operands.first() {
-                    Some(expr) => expr,
-                    None => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Missing expression for .const/.var/.set",
-                            None,
-                        )
-                    }
-                };
-                let is_rw = directive == "SET" || directive == "VAR";
-                let val = match self.eval_expr_ast(expr) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            err.error.kind(),
-                            err.error.message(),
-                            None,
-                            err.span,
-                        )
-                    }
-                };
-                let label = self.label.clone().unwrap_or_default();
-                if self.pass == 1 && self.selective_import_conflict(&label) {
-                    return self.failure_at(
-                        LineStatus::Error,
-                        AsmErrorKind::Symbol,
-                        "Symbol conflicts with selective import",
-                        Some(&label),
-                        Some(1),
-                    );
-                }
-                let full_name = self.scoped_define_name(&label);
-                let res = if self.pass == 1 {
-                    self.symbols.add(
-                        &full_name,
-                        val,
-                        is_rw,
-                        self.current_visibility(),
-                        self.module_active.as_deref(),
-                    )
-                } else {
-                    self.symbols.update(&full_name, val)
-                };
-                if res == crate::symbol_table::SymbolTableResult::Duplicate {
-                    return self.failure_at(
-                        LineStatus::Error,
-                        AsmErrorKind::Symbol,
-                        "symbol has already been defined",
-                        Some(&label),
-                        Some(1),
-                    );
-                } else if res == crate::symbol_table::SymbolTableResult::TableFull {
-                    return self.failure_at(
-                        LineStatus::Error,
-                        AsmErrorKind::Symbol,
-                        "could not add symbol, table full",
-                        Some(&label),
-                        Some(1),
-                    );
-                }
-                self.aux_value = val as u16;
-                LineStatus::DirEqu
-            }
-            "CPU" => {
-                // .cpu directive to switch target CPU
-                let cpu_name = match operands.first() {
-                    Some(Expr::Identifier(name, _)) => name.clone(),
-                    Some(Expr::Register(name, _)) => name.clone(), // In case Z80 is parsed as register
-                    Some(Expr::Number(name, _)) => name.clone(),   // For bare "8085" without quotes
-                    Some(Expr::String(bytes, _)) => String::from_utf8_lossy(bytes).to_string(),
-                    _ => {
-                        let known = self.registry.cpu_name_list();
-                        let hint = known.join(", ");
-                        let message = if hint.is_empty() {
-                            ".cpu requires a CPU type".to_string()
-                        } else {
-                            format!(".cpu requires a CPU type: {hint}")
-                        };
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            &message,
-                            None,
-                        );
-                    }
-                };
-                match self.registry.resolve_cpu_name(&cpu_name) {
-                    Some(cpu) => {
-                        self.cpu = cpu;
-                        LineStatus::Ok
-                    }
-                    None => {
-                        let known = self.registry.cpu_name_list();
-                        let message = if known.is_empty() {
-                            "Unknown CPU type.".to_string()
-                        } else {
-                            format!("Unknown CPU type. Use: {}", known.join(", "))
-                        };
-                        self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            &message,
-                            Some(&cpu_name),
-                        )
-                    }
-                }
-            }
-            "BYTE" | "DB" => self.store_arg_list_ast(operands, 1),
-            "WORD" | "DW" => self.store_arg_list_ast(operands, 2),
-            "DS" => {
-                let expr = match operands.first() {
-                    Some(expr) => expr,
-                    None => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Missing expression for DS",
-                            None,
-                        )
-                    }
-                };
-                let val = match self.eval_expr_ast(expr) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            err.error.kind(),
-                            err.error.message(),
-                            None,
-                            err.span,
-                        )
-                    }
-                };
-                self.aux_value = val as u16;
-                LineStatus::DirDs
-            }
-            _ if self.in_meta_block && directive.starts_with("OUTPUT.") => {
-                if self.in_output_block {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Inline .output directives are not allowed inside a .output block",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".output") {
-                    return status;
-                }
-                let parts: Vec<&str> = directive.split('.').collect();
-                let output_parts = &parts[1..];
-                let (target, key) = match self.parse_output_inline_parts(output_parts) {
-                    Ok((target, key)) => (target, key),
-                    Err(message) => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            message,
-                            None,
-                        )
-                    }
-                };
-                let directive_name = if let Some(target) = target.as_deref() {
-                    format!(".output.{target}.{key}")
-                } else {
-                    format!(".output.{key}")
-                };
-                self.set_output_entry(target.as_deref(), key, operands, &directive_name)
-            }
-            _ if directive.starts_with("OUTPUT.") => self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                ".output directives are only allowed inside a .meta block",
-                None,
-            ),
-            _ if directive.starts_with("META") => {
-                if directive == "META" {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Missing metadata key for .meta",
-                        None,
-                    );
-                }
-                if let Some(status) = self.validate_metadata_scope(".meta") {
-                    return status;
-                }
-                let parts: Vec<&str> = directive.split('.').collect();
-                if parts.len() < 2 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Invalid .meta directive",
-                        None,
-                    );
-                }
-                let key = parts[1];
-                if key.eq_ignore_ascii_case("OUTPUT") {
-                    if parts.len() < 3 {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Missing output key for .meta.output",
-                            None,
-                        );
-                    }
-                    let output_parts = &parts[2..];
-                    let (target, output_key) = match self.parse_output_inline_parts(output_parts) {
-                        Ok((target, key)) => (target, key),
-                        Err(message) => {
-                            return self.failure(
-                                LineStatus::Error,
-                                AsmErrorKind::Directive,
-                                message,
-                                None,
-                            )
-                        }
-                    };
-                    let directive_name = if let Some(target) = target.as_deref() {
-                        format!(".meta.output.{target}.{output_key}")
-                    } else {
-                        format!(".meta.output.{output_key}")
-                    };
-                    return self.set_output_entry(
-                        target.as_deref(),
-                        output_key,
-                        operands,
-                        &directive_name,
-                    );
-                }
-
-                if parts.len() > 2 {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        "Unknown .meta directive",
-                        None,
-                    );
-                }
-
-                match key.to_ascii_uppercase().as_str() {
-                    "NAME" => {
-                        let value = match self.metadata_value(operands, ".meta.name") {
-                            Some(value) => value,
-                            None => return LineStatus::Error,
-                        };
-                        self.root_metadata.name = Some(value);
-                    }
-                    "VERSION" => {
-                        let value = match self.metadata_value(operands, ".meta.version") {
-                            Some(value) => value,
-                            None => return LineStatus::Error,
-                        };
-                        self.root_metadata.version = Some(value);
-                    }
-                    _ => {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Directive,
-                            "Unknown .meta directive",
-                            None,
-                        );
-                    }
-                }
-
-                LineStatus::Ok
-            }
-            "END" => LineStatus::Ok,
-            _ => LineStatus::NothingDone,
-        }
-    }
-
-    fn validate_metadata_scope(&mut self, directive: &str) -> Option<LineStatus> {
-        if !self.in_module() {
-            return Some(self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("{directive} must appear inside a module"),
-                None,
-            ));
-        }
-        if self.scope_stack.depth() != self.module_scope_depth {
-            return Some(self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("{directive} must appear at module scope"),
-                None,
-            ));
-        }
-        if let (Some(root_id), Some(module_id)) = (
-            self.root_metadata.root_module_id.as_deref(),
-            self.module_active.as_deref(),
-        ) {
-            if !module_id.eq_ignore_ascii_case(root_id) {
-                return Some(self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Directive,
-                    &format!("{directive} is only allowed in the root module"),
-                    None,
-                ));
-            }
-        }
-        None
-    }
-
-    fn metadata_value(&mut self, operands: &[Expr], directive: &str) -> Option<String> {
-        if operands.len() != 1 {
-            self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("Missing value for {directive}"),
-                None,
-            );
-            return None;
-        }
-        match operands.first()? {
-            Expr::Identifier(name, _) | Expr::Register(name, _) | Expr::Number(name, _) => {
-                Some(name.clone())
-            }
-            Expr::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),
-            _ => {
-                self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Directive,
-                    &format!("Invalid value for {directive}"),
-                    None,
-                );
-                None
-            }
-        }
-    }
-
-    fn metadata_optional_value(&mut self, operands: &[Expr], directive: &str) -> Option<String> {
-        if operands.is_empty() {
-            return Some(String::new());
-        }
-        if operands.len() != 1 {
-            self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("Invalid value for {directive}"),
-                None,
-            );
-            return None;
-        }
-        self.metadata_value(operands, directive)
-    }
-
-    fn metadata_bin_spec(&mut self, operands: &[Expr], directive: &str) -> Option<BinOutputSpec> {
-        let value = self.metadata_optional_value(operands, directive)?;
-        match crate::assembler::cli::parse_bin_output_arg(&value) {
-            Ok(spec) => Some(spec),
-            Err(message) => {
-                self.failure(LineStatus::Error, AsmErrorKind::Directive, message, None);
-                None
-            }
-        }
-    }
-
-    fn metadata_fill_byte(&mut self, operands: &[Expr], directive: &str) -> Option<u8> {
-        let value = self.metadata_value(operands, directive)?;
-        if !crate::assembler::cli::is_valid_hex_2(&value) {
-            self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("Invalid {directive} byte; must be 2 hex digits"),
-                None,
-            );
-            return None;
-        }
-        match u8::from_str_radix(&value, 16) {
-            Ok(byte) => Some(byte),
-            Err(_) => {
-                self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Directive,
-                    &format!("Invalid {directive} byte; must be 2 hex digits"),
-                    None,
-                );
-                None
-            }
-        }
-    }
-
-    fn resolve_cpu_key(&self, name: &str) -> Option<String> {
-        self.registry
-            .resolve_cpu_name(name)
-            .map(|cpu| cpu.as_str().to_ascii_lowercase())
-    }
-
-    fn parse_output_inline_parts<'b>(
-        &self,
-        parts: &'b [&'b str],
-    ) -> Result<(Option<String>, &'b str), &'static str> {
-        match parts.len() {
-            0 => Err("Missing output key"),
-            1 => {
-                if self.resolve_cpu_key(parts[0]).is_some() {
-                    Err("Missing output key for CPU-specific output")
-                } else {
-                    Ok((None, parts[0]))
-                }
-            }
-            2 => {
-                if let Some(cpu) = self.resolve_cpu_key(parts[0]) {
-                    Ok((Some(cpu), parts[1]))
-                } else {
-                    Err("Unknown .output directive")
-                }
-            }
-            _ => Err("Unknown .output directive"),
-        }
-    }
-
-    fn set_output_entry(
-        &mut self,
-        target: Option<&str>,
-        key: &str,
-        operands: &[Expr],
-        directive: &str,
-    ) -> LineStatus {
-        let key = key.to_ascii_uppercase();
-        match key.as_str() {
-            "NAME" => {
-                let value = match self.metadata_value(operands, directive) {
-                    Some(value) => value,
-                    None => return LineStatus::Error,
-                };
-                let config = self.root_metadata.output_config_mut(target);
-                config.name = Some(value);
-                LineStatus::Ok
-            }
-            "LIST" => {
-                let value = match self.metadata_optional_value(operands, directive) {
-                    Some(value) => value,
-                    None => return LineStatus::Error,
-                };
-                let config = self.root_metadata.output_config_mut(target);
-                config.list_name = Some(value);
-                LineStatus::Ok
-            }
-            "HEX" => {
-                let value = match self.metadata_optional_value(operands, directive) {
-                    Some(value) => value,
-                    None => return LineStatus::Error,
-                };
-                let config = self.root_metadata.output_config_mut(target);
-                config.hex_name = Some(value);
-                LineStatus::Ok
-            }
-            "BIN" => {
-                let spec = match self.metadata_bin_spec(operands, directive) {
-                    Some(spec) => spec,
-                    None => return LineStatus::Error,
-                };
-                let config = self.root_metadata.output_config_mut(target);
-                config.bin_specs.push(spec);
-                LineStatus::Ok
-            }
-            "FILL" => {
-                let fill = match self.metadata_fill_byte(operands, directive) {
-                    Some(fill) => fill,
-                    None => return LineStatus::Error,
-                };
-                let config = self.root_metadata.output_config_mut(target);
-                config.fill_byte = Some(fill);
-                LineStatus::Ok
-            }
-            _ => self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                "Unknown .output directive",
-                None,
-            ),
-        }
-    }
-
-    fn handle_output_cpu_block(
-        &mut self,
-        directive: &str,
-        operands: &[Expr],
-    ) -> Option<LineStatus> {
-        let upper = directive.to_ascii_uppercase();
-        if let Some(rest) = upper.strip_prefix("END") {
-            if let Some(cpu_key) = self.resolve_cpu_key(rest) {
-                if !operands.is_empty() {
-                    return Some(self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        &format!("Unexpected operands for .end{}", rest.to_ascii_lowercase()),
-                        None,
-                    ));
-                }
-                if self.output_cpu_block.as_deref() != Some(cpu_key.as_str()) {
-                    return Some(self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Directive,
-                        &format!(".end{} found without matching .{}", rest, rest),
-                        None,
-                    ));
-                }
-                self.output_cpu_block = None;
-                return Some(LineStatus::Ok);
-            }
-        }
-        if let Some(cpu_key) = self.resolve_cpu_key(&upper) {
-            if !operands.is_empty() {
-                return Some(self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Directive,
-                    &format!("Unexpected operands for .{}", upper.to_ascii_lowercase()),
-                    None,
-                ));
-            }
-            if self.output_cpu_block.is_some() {
-                return Some(self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Directive,
-                    "Nested CPU output block is not allowed",
-                    None,
-                ));
-            }
-            self.output_cpu_block = Some(cpu_key);
-            return Some(LineStatus::Ok);
-        }
-        None
-    }
-
     fn process_assignment_ast(
         &mut self,
         label: &Label,
@@ -3572,7 +2229,311 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    fn current_section_kind(&self) -> Option<SectionKind> {
+        self.current_section
+            .as_ref()
+            .and_then(|name| self.sections.get(name))
+            .map(|section| section.kind)
+    }
+
+    fn current_cpu_little_endian(&self) -> bool {
+        // Current supported CPUs are little-endian (8085/Z80/6502/65C02).
+        true
+    }
+
+    fn cpu_word_size_bytes(&self) -> u32 {
+        // Current supported CPUs all use 16-bit native words.
+        2
+    }
+
+    fn section_kind_allows_data(&self) -> bool {
+        self.current_section_kind() != Some(SectionKind::Bss)
+    }
+
+    fn section_kind_requires_bss(&self) -> bool {
+        self.current_section_kind() == Some(SectionKind::Bss)
+    }
+
+    fn current_section_kind_label(&self) -> &'static str {
+        self.current_section_kind()
+            .map(section_kind_name)
+            .unwrap_or("none")
+    }
+
+    fn parse_emit_unit_bytes(&self, unit: &Expr) -> Result<u32, AstEvalError> {
+        match unit {
+            Expr::Identifier(name, _) | Expr::Register(name, _) => {
+                if name.eq_ignore_ascii_case("byte") {
+                    Ok(1)
+                } else if name.eq_ignore_ascii_case("word") {
+                    Ok(self.cpu_word_size_bytes())
+                } else if name.eq_ignore_ascii_case("long") {
+                    Ok(4)
+                } else {
+                    self.eval_expr_ast(unit)
+                }
+            }
+            _ => self.eval_expr_ast(unit),
+        }
+    }
+
+    fn write_unit_value(
+        &mut self,
+        unit_bytes: usize,
+        value: u32,
+        span: Span,
+    ) -> Result<(), AstEvalError> {
+        let unit_bits = unit_bytes.saturating_mul(8);
+        if unit_bits < 32 {
+            let max = (1u64 << unit_bits) - 1;
+            if (value as u64) > max {
+                let hex_width = usize::max(2, unit_bytes.saturating_mul(2));
+                let max_u32 = max as u32;
+                let msg = format!(
+                    "Value ${value:0hex_width$X} ({value}) does not fit in {unit_bytes}-byte unit (max ${max_u32:0hex_width$X})"
+                );
+                return Err(AstEvalError {
+                    error: AsmError::new(AsmErrorKind::Directive, &msg, None),
+                    span,
+                });
+            }
+        }
+
+        let little_endian = self.current_cpu_little_endian();
+        if little_endian {
+            for shift in 0..unit_bytes {
+                let byte = if shift < 4 {
+                    (value >> (shift * 8)) as u8
+                } else {
+                    0
+                };
+                self.bytes.push(byte);
+            }
+        } else {
+            for shift in (0..unit_bytes).rev() {
+                let byte = if shift < 4 {
+                    (value >> (shift * 8)) as u8
+                } else {
+                    0
+                };
+                self.bytes.push(byte);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.len() < 2 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Missing unit or values for .emit",
+                None,
+            );
+        }
+        if !self.section_kind_allows_data() {
+            let msg = format!(
+                ".emit is not allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+
+        let unit_bytes = match self.parse_emit_unit_bytes(&operands[0]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+        if unit_bytes == 0 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Unit size must be greater than zero",
+                None,
+            );
+        }
+
+        for expr in &operands[1..] {
+            let value = match self.eval_expr_ast(expr) {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    )
+                }
+            };
+            if let Err(err) = self.write_unit_value(unit_bytes as usize, value, expr_span(expr)) {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        }
+
+        LineStatus::Ok
+    }
+
+    fn res_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.len() != 2 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .res <unit>, <count>",
+                None,
+            );
+        }
+        if !self.section_kind_requires_bss() {
+            let msg = format!(
+                ".res is only allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+
+        let unit_bytes = match self.parse_emit_unit_bytes(&operands[0]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+        if unit_bytes == 0 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Unit size must be greater than zero",
+                None,
+            );
+        }
+        let count = match self.eval_expr_ast(&operands[1]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+        let total = unit_bytes.saturating_mul(count);
+        if total > u16::MAX as u32 {
+            let msg = format!(
+                ".res total size {total} bytes (unit={unit_bytes}, count={count}) exceeds addressable range (max {})",
+                u16::MAX
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+        self.aux_value = total as u16;
+        LineStatus::DirDs
+    }
+
+    fn fill_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.len() != 3 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .fill <unit>, <count>, <value>",
+                None,
+            );
+        }
+        if !self.section_kind_allows_data() {
+            let msg = format!(
+                ".fill is not allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+
+        let unit_bytes = match self.parse_emit_unit_bytes(&operands[0]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+        if unit_bytes == 0 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Unit size must be greater than zero",
+                None,
+            );
+        }
+        let count = match self.eval_expr_ast(&operands[1]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+        let value = match self.eval_expr_ast(&operands[2]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                )
+            }
+        };
+
+        for _ in 0..count {
+            if let Err(err) =
+                self.write_unit_value(unit_bytes as usize, value, expr_span(&operands[2]))
+            {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        }
+        LineStatus::Ok
+    }
+
     fn store_arg_list_ast(&mut self, operands: &[Expr], size: usize) -> LineStatus {
+        if !self.section_kind_allows_data() {
+            let msg = format!(
+                "Data emit directives are not allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
         if operands.is_empty() {
             return self.failure(
                 LineStatus::Error,
@@ -3611,10 +2572,30 @@ impl<'a> AsmLine<'a> {
                 }
             };
             if size == 1 {
+                if val > 0xff {
+                    return self.failure(
+                        LineStatus::Warning,
+                        AsmErrorKind::Expression,
+                        "Value truncated to byte",
+                        None,
+                    );
+                }
                 self.bytes.push((val & 0xff) as u8);
-            } else {
+            } else if size == 2 {
                 self.bytes.push((val & 0xff) as u8);
                 self.bytes.push((val >> 8) as u8);
+            } else if size == 4 {
+                self.bytes.push((val & 0xff) as u8);
+                self.bytes.push(((val >> 8) & 0xff) as u8);
+                self.bytes.push(((val >> 16) & 0xff) as u8);
+                self.bytes.push(((val >> 24) & 0xff) as u8);
+            } else {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Unsupported data size for directive",
+                    None,
+                );
             }
         }
 
@@ -3695,12 +2676,10 @@ impl<'a> AsmLine<'a> {
                 ..
             } => {
                 let cond_val = self.eval_expr_ast(cond)?;
-                let then_val = self.eval_expr_ast(then_expr)?;
-                let else_val = self.eval_expr_ast(else_expr)?;
                 if cond_val != 0 {
-                    Ok(then_val)
+                    self.eval_expr_ast(then_expr)
                 } else {
-                    Ok(else_val)
+                    self.eval_expr_ast(else_expr)
                 }
             }
             Expr::Unary { op, expr, span: _ } => {
@@ -3832,1883 +2811,4 @@ fn is_toplevel_directive(mnemonic: &str) -> bool {
         mnemonic.to_ascii_uppercase().as_str(),
         ".MODULE" | ".ENDMODULE" | ".END"
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
-        Assembler, LineStatus, ListingWriter, RootMetadata, Severity,
-    };
-    use crate::core::macro_processor::MacroProcessor;
-    use crate::core::registry::ModuleRegistry;
-    use crate::core::symbol_table::SymbolTable;
-    use crate::families::intel8080::module::Intel8080FamilyModule;
-    use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
-    use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
-    use crate::m65c02::module::M65C02CpuModule;
-    use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
-    use std::fs::{self, File};
-    use std::io;
-    use std::path::{Path, PathBuf};
-    use std::process;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn default_registry() -> ModuleRegistry {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(Intel8080FamilyModule));
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(I8085CpuModule));
-        registry.register_cpu(Box::new(Z80CpuModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry
-    }
-
-    fn make_asm_line<'a>(
-        symbols: &'a mut SymbolTable,
-        registry: &'a ModuleRegistry,
-    ) -> AsmLine<'a> {
-        AsmLine::new(symbols, registry)
-    }
-
-    fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u16, pass: u8) -> LineStatus {
-        asm.process(line, 1, addr, pass)
-    }
-
-    fn assemble_bytes(cpu: crate::core::cpu::CpuType, line: &str) -> Vec<u8> {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
-        asm.clear_conditionals();
-        asm.clear_scopes();
-        let status = asm.process(line, 1, 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        asm.bytes().to_vec()
-    }
-
-    fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<(), String> {
-        let base = asm_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| "Invalid example filename".to_string())?;
-
-        assemble_example_with_base(asm_path, out_dir, base)
-    }
-
-    fn assemble_example_with_base(
-        asm_path: &Path,
-        out_dir: &Path,
-        base: &str,
-    ) -> Result<(), String> {
-        let list_path = out_dir.join(format!("{base}.lst"));
-        let hex_path = out_dir.join(format!("{base}.hex"));
-
-        let mut list_file =
-            File::create(&list_path).map_err(|err| format!("Create list file: {err}"))?;
-        let mut hex_file =
-            File::create(&hex_path).map_err(|err| format!("Create hex file: {err}"))?;
-
-        let root_path = asm_path;
-        let root_lines = expand_source_file(root_path, &[], 64)
-            .map_err(|err| format!("Preprocess failed: {err}"))?;
-        let expanded_lines = load_module_graph(root_path, root_lines.clone(), &[], 64)
-            .map_err(|err| format!("Preprocess failed: {err}"))?;
-
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id =
-            Some(root_module_id_from_lines(root_path, &root_lines).map_err(|err| err.to_string())?);
-        assembler.clear_diagnostics();
-        let _ = assembler.pass1(&expanded_lines);
-
-        let mut listing = ListingWriter::new(&mut list_file, false);
-        listing
-            .header("opForge 8085 Assembler v1.0")
-            .map_err(|err| format!("Write listing header: {err}"))?;
-        let pass2 = assembler
-            .pass2(&expanded_lines, &mut listing)
-            .map_err(|err| format!("Pass2 failed: {err}"))?;
-        listing
-            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
-            .map_err(|err| format!("Write listing footer: {err}"))?;
-
-        assembler
-            .image()
-            .write_hex_file(&mut hex_file, None)
-            .map_err(|err| format!("Write hex file: {err}"))?;
-
-        Ok(())
-    }
-
-    fn run_pass1(lines: &[&str]) -> Assembler {
-        let mut assembler = Assembler::new();
-        let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
-        let _ = assembler.pass1(&lines);
-        assembler
-    }
-
-    fn create_temp_dir(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join(format!("test-{label}-{}-{nanos}", process::id()));
-        fs::create_dir_all(&dir).expect("Create temp dir");
-        dir
-    }
-
-    fn write_file(path: &Path, contents: &str) {
-        fs::write(path, contents).expect("Write test file");
-    }
-
-    fn assemble_example_error(asm_path: &Path) -> Option<String> {
-        let asm_name = asm_path.to_string_lossy().to_string();
-
-        let root_path = Path::new(&asm_name);
-        let root_lines = match expand_source_file(root_path, &[], 64) {
-            Ok(lines) => lines,
-            Err(err) => return Some(format!("Preprocess failed: {err}")),
-        };
-        let expanded_lines = match load_module_graph(root_path, root_lines.clone(), &[], 64) {
-            Ok(lines) => lines,
-            Err(err) => return Some(format!("Preprocess failed: {err}")),
-        };
-
-        let mut assembler = Assembler::new();
-        if let Ok(module_id) = root_module_id_from_lines(root_path, &root_lines) {
-            assembler.root_metadata.root_module_id = Some(module_id);
-        }
-        assembler.clear_diagnostics();
-        let _ = assembler.pass1(&expanded_lines);
-
-        let mut sink = io::sink();
-        let mut listing = ListingWriter::new(&mut sink, false);
-        if listing.header("opForge 8085 Assembler v1.0").is_ok() {
-            let _ = assembler.pass2(&expanded_lines, &mut listing);
-        }
-
-        assembler
-            .diagnostics
-            .iter()
-            .find(|diag| diag.severity == Severity::Error)
-            .map(|diag| format!("Assembly failed: {}", diag.error.message()))
-    }
-
-    #[test]
-    fn module_loader_orders_dependencies_before_root() {
-        let dir = create_temp_dir("module-order");
-        let root_path = dir.join("main.asm");
-        let lib_path = dir.join("lib.asm");
-
-        write_file(
-            &root_path,
-            ".module app\n    .use lib\n    .byte 1\n.endmodule\n",
-        );
-        write_file(
-            &lib_path,
-            ".module lib\n    .pub\nVAL .const 2\n.endmodule\n",
-        );
-
-        let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-        let combined = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-
-        let lib_idx = combined
-            .iter()
-            .position(|line| line.trim().eq_ignore_ascii_case(".module lib"))
-            .expect("lib module in combined output");
-        let app_idx = combined
-            .iter()
-            .position(|line| line.trim().eq_ignore_ascii_case(".module app"))
-            .expect("app module in combined output");
-
-        assert!(lib_idx < app_idx, "lib module should come before app");
-    }
-
-    #[test]
-    fn module_loader_reports_missing_module() {
-        let dir = create_temp_dir("module-missing");
-        let root_path = dir.join("main.asm");
-
-        write_file(
-            &root_path,
-            ".module app\n    .use missing.mod\n.endmodule\n",
-        );
-
-        let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-        let err = load_module_graph(&root_path, root_lines, &[], 32)
-            .expect_err("expected missing module error");
-        assert!(
-            err.to_string().contains("Missing module"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn module_loader_missing_module_includes_import_stack() {
-        let dir = create_temp_dir("module-missing-stack");
-        let root_path = dir.join("main.asm");
-        let lib_path = dir.join("lib.asm");
-
-        write_file(&root_path, ".module app\n    .use lib\n.endmodule\n");
-        write_file(&lib_path, ".module lib\n    .use missing\n.endmodule\n");
-
-        let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-        let err = load_module_graph(&root_path, root_lines, &[], 32)
-            .expect_err("expected missing module error");
-        let message = err.to_string();
-        assert!(
-            message.contains("import stack"),
-            "missing import stack: {message}"
-        );
-        assert!(message.contains("lib"), "missing lib in stack: {message}");
-    }
-
-    #[test]
-    fn module_loader_reports_ambiguous_module_id() {
-        let dir = create_temp_dir("module-ambiguous");
-        let root_path = dir.join("main.asm");
-        let a_path = dir.join("a.asm");
-        let b_path = dir.join("b.asm");
-
-        write_file(&root_path, ".module app\n    .use lib\n.endmodule\n");
-        write_file(&a_path, ".module lib\n.endmodule\n");
-        write_file(&b_path, ".module lib\n.endmodule\n");
-
-        let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-        let err = load_module_graph(&root_path, root_lines, &[], 32)
-            .expect_err("expected ambiguous module id");
-        assert!(
-            err.to_string().contains("Ambiguous module"),
-            "unexpected error: {err}"
-        );
-    }
-
-    fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
-        let expected_lines: Vec<&str> = expected.split('\n').collect();
-        let actual_lines: Vec<&str> = actual.split('\n').collect();
-        let max = expected_lines.len().max(actual_lines.len());
-        let mut out = String::new();
-        let mut shown = 0usize;
-
-        for idx in 0..max {
-            let exp = expected_lines.get(idx).copied().unwrap_or("");
-            let act = actual_lines.get(idx).copied().unwrap_or("");
-            if exp != act {
-                shown += 1;
-                out.push_str(&format!("{:>5} | -{}\n", idx + 1, exp));
-                out.push_str(&format!("{:>5} | +{}\n", idx + 1, act));
-                if shown >= max_lines {
-                    out.push_str("...\n");
-                    break;
-                }
-            }
-        }
-
-        if shown == 0 {
-            out.push_str("(no differences)\n");
-        }
-
-        out
-    }
-
-    fn expected_example_error(base: &str) -> Option<&'static str> {
-        match base {
-            "errors" => Some("Assembly failed: Illegal character in decimal constant: 5X5"),
-            "statement_signature_error" => Some("Preprocess failed: Missing closing }]"),
-            "statement_unquoted_comma_error" => {
-                Some("Preprocess failed: Commas must be quoted in statement signatures")
-            }
-            "module_use_private_error" => Some("Assembly failed: Symbol is private: SECRET"),
-            _ => None,
-        }
-    }
-
-    #[test]
-    fn examples_match_reference_outputs() {
-        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let examples_dir = repo_root.join("examples");
-        let reference_dir = examples_dir.join("reference");
-        let update_reference = std::env::var("opForge_UPDATE_REFERENCE").is_ok();
-
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let out_dir =
-            repo_root
-                .join("target")
-                .join(format!("example-outputs-{}-{}", process::id(), nanos));
-        fs::create_dir_all(&out_dir).expect("Create example output directory");
-        if update_reference {
-            fs::create_dir_all(&reference_dir).expect("Create reference directory");
-        }
-
-        let mut asm_files: Vec<PathBuf> = fs::read_dir(&examples_dir)
-            .expect("Read examples directory")
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("asm"))
-            .collect();
-        asm_files.sort();
-        assert!(
-            !asm_files.is_empty(),
-            "No .asm examples found in {}",
-            examples_dir.display()
-        );
-
-        for asm_path in asm_files {
-            let base = asm_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("<unknown>");
-
-            let expected_error = expected_example_error(base);
-            if let Some(expected) = expected_error {
-                let err = assemble_example_error(&asm_path)
-                    .unwrap_or_else(|| panic!("Expected {base} to fail but it succeeded"));
-                assert_eq!(err, expected, "Unexpected error for {base}");
-                continue;
-            }
-
-            match assemble_example(&asm_path, &out_dir) {
-                Ok(()) => {}
-                Err(err) => panic!("Failed to assemble {base}: {err}"),
-            }
-
-            let out_hex = fs::read(out_dir.join(format!("{base}.hex")))
-                .unwrap_or_else(|err| panic!("Missing output hex for {base}: {err}"));
-            let out_lst = fs::read(out_dir.join(format!("{base}.lst")))
-                .unwrap_or_else(|err| panic!("Missing output list for {base}: {err}"));
-            let ref_hex_path = reference_dir.join(format!("{base}.hex"));
-            let ref_lst_path = reference_dir.join(format!("{base}.lst"));
-            if update_reference {
-                fs::write(&ref_hex_path, &out_hex).unwrap_or_else(|err| {
-                    panic!(
-                        "Failed to write reference hex {}: {err}",
-                        ref_hex_path.display()
-                    )
-                });
-                fs::write(&ref_lst_path, &out_lst).unwrap_or_else(|err| {
-                    panic!(
-                        "Failed to write reference list {}: {err}",
-                        ref_lst_path.display()
-                    )
-                });
-            } else {
-                let ref_hex = fs::read(&ref_hex_path).unwrap_or_else(|err| {
-                    panic!("Missing reference hex {}: {err}", ref_hex_path.display())
-                });
-                assert_eq!(out_hex, ref_hex, "Hex mismatch for {base}");
-
-                let ref_lst = fs::read(&ref_lst_path).unwrap_or_else(|err| {
-                    panic!("Missing reference list {}: {err}", ref_lst_path.display())
-                });
-                let out_lst_text = String::from_utf8_lossy(&out_lst);
-                let ref_lst_text = String::from_utf8_lossy(&ref_lst);
-                if out_lst_text != ref_lst_text {
-                    let diff = diff_text(&ref_lst_text, &out_lst_text, 20);
-                    panic!("List mismatch for {base}\n{diff}");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn project_root_example_matches_reference_outputs() {
-        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let example_dir = repo_root.join("examples").join("project_root");
-        let asm_path = example_dir.join("main.asm");
-        let reference_dir = repo_root.join("examples").join("reference");
-        let update_reference = std::env::var("opForge_UPDATE_REFERENCE").is_ok();
-
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let out_dir =
-            repo_root
-                .join("target")
-                .join(format!("example-outputs-{}-{}", process::id(), nanos));
-        fs::create_dir_all(&out_dir).expect("Create example output directory");
-        if update_reference {
-            fs::create_dir_all(&reference_dir).expect("Create reference directory");
-        }
-
-        let base = "project_root-main";
-        assemble_example_with_base(&asm_path, &out_dir, base)
-            .unwrap_or_else(|err| panic!("Failed to assemble project_root example: {err}"));
-
-        let out_hex = fs::read(out_dir.join(format!("{base}.hex")))
-            .unwrap_or_else(|err| panic!("Missing output hex for {base}: {err}"));
-        let out_lst = fs::read(out_dir.join(format!("{base}.lst")))
-            .unwrap_or_else(|err| panic!("Missing output list for {base}: {err}"));
-        let ref_hex_path = reference_dir.join(format!("{base}.hex"));
-        let ref_lst_path = reference_dir.join(format!("{base}.lst"));
-        if update_reference {
-            fs::write(&ref_hex_path, &out_hex).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to write reference hex {}: {err}",
-                    ref_hex_path.display()
-                )
-            });
-            fs::write(&ref_lst_path, &out_lst).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to write reference list {}: {err}",
-                    ref_lst_path.display()
-                )
-            });
-        } else {
-            let ref_hex = fs::read(&ref_hex_path).unwrap_or_else(|err| {
-                panic!("Missing reference hex {}: {err}", ref_hex_path.display())
-            });
-            assert_eq!(out_hex, ref_hex, "Hex mismatch for {base}");
-
-            let ref_lst = fs::read(&ref_lst_path).unwrap_or_else(|err| {
-                panic!("Missing reference list {}: {err}", ref_lst_path.display())
-            });
-            let out_lst_text = String::from_utf8_lossy(&out_lst);
-            let ref_lst_text = String::from_utf8_lossy(&ref_lst);
-            if out_lst_text != ref_lst_text {
-                let diff = diff_text(&ref_lst_text, &out_lst_text, 20);
-                panic!("List mismatch for {base}\n{diff}");
-            }
-        }
-    }
-
-    #[test]
-    fn zilog_dialect_encodes_like_intel() {
-        let intel = assemble_bytes(i8085_cpu_id, "    MVI A,55h");
-        let zilog = assemble_bytes(z80_cpu_id, "    LD A,55h");
-        assert_eq!(intel, zilog);
-
-        let intel = assemble_bytes(i8085_cpu_id, "    MOV A,B");
-        let zilog = assemble_bytes(z80_cpu_id, "    LD A,B");
-        assert_eq!(intel, zilog);
-
-        let intel = assemble_bytes(i8085_cpu_id, "    JMP 1000h");
-        let zilog = assemble_bytes(z80_cpu_id, "    JP 1000h");
-        assert_eq!(intel, zilog);
-
-        let intel = assemble_bytes(i8085_cpu_id, "    JZ 1000h");
-        let zilog = assemble_bytes(z80_cpu_id, "    JP Z,1000h");
-        assert_eq!(intel, zilog);
-
-        let intel = assemble_bytes(i8085_cpu_id, "    ADI 10h");
-        let zilog = assemble_bytes(z80_cpu_id, "    ADD A,10h");
-        assert_eq!(intel, zilog);
-    }
-
-    #[test]
-    fn org_sets_address() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .org 1000h", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.start_addr(), 0x1000);
-        assert_eq!(asm.aux_value(), 0x1000);
-
-        let status = process_line(&mut asm, "* = 1200h", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.start_addr(), 0x1200);
-    }
-
-    #[test]
-    fn ds_reserves_space_and_defines_label() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "BUFFER: .ds 4", 0x0200, 1);
-        assert_eq!(status, LineStatus::DirDs);
-        assert_eq!(asm.aux_value(), 4);
-        assert_eq!(asm.symbols().lookup("BUFFER"), Some(0x0200));
-    }
-
-    #[test]
-    fn db_and_dw_emit_bytes() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .byte 1, 2, 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1, 2, 3]);
-
-        let status = process_line(&mut asm, "    .word 7", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[7, 0]);
-    }
-
-    #[test]
-    fn equ_defines_symbol_for_pass2() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "VAL .const 3", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), Some(3));
-
-        let status = process_line(&mut asm, "    .word VAL+1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[4, 0]);
-    }
-
-    #[test]
-    fn scoped_symbols_resolve_in_current_scope() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "SCOPE .block", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "VAL .const 3", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, "    .word VAL", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[3, 0]);
-        let status = process_line(&mut asm, ".endblock", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.symbols().lookup("SCOPE.VAL"), Some(3));
-        assert_eq!(asm.symbols().lookup("VAL"), None);
-    }
-
-    #[test]
-    fn segment_symbols_visible_outside_definition() {
-        let lines = vec![
-            "MYSEG .segment".to_string(),
-            "VAL .const 3".to_string(),
-            ".endsegment".to_string(),
-            ".MYSEG".to_string(),
-            ".word VAL".to_string(),
-        ];
-        let mut mp = MacroProcessor::new();
-        let expanded_lines = mp.expand(&lines).expect("expand");
-
-        let mut assembler = Assembler::new();
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&expanded_lines);
-        assert_eq!(pass1.errors, 0);
-        assert_eq!(assembler.symbols().lookup("VAL"), Some(3));
-    }
-
-    #[test]
-    fn statement_definitions_skip_body_lines() {
-        let lines = vec![
-            ".statement foo byte:a".to_string(),
-            "BADTOKEN".to_string(),
-            ".endstatement".to_string(),
-            ".byte 1".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&lines);
-        assert_eq!(pass1.errors, 0);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        assert_eq!(pass2.errors, 0);
-    }
-
-    #[test]
-    fn statement_definition_rejects_unquoted_commas() {
-        let lines = vec![
-            ".statement move.b char:dst, char:src".to_string(),
-            ".endstatement".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.clear_diagnostics();
-        let _ = assembler.pass1(&lines);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        assert!(pass2.errors > 0);
-    }
-
-    #[test]
-    fn qualified_symbol_resolves_outside_scope() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "SCOPE .block", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "VAL .const 7", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, ".endblock", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-
-        let status = process_line(&mut asm, "    .word SCOPE.VAL", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[7, 0]);
-    }
-
-    #[test]
-    fn scoped_symbol_shadowing_prefers_inner_scope() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "VAL .const 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, "SCOPE .block", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "VAL .const 2", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, "    .word VAL", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[2, 0]);
-        let status = process_line(&mut asm, ".endblock", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "    .word VAL", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1, 0]);
-    }
-
-    #[test]
-    fn nested_scopes_are_addressable_by_qualified_name() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "OUTER .block", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "INNER .block", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "VAL .const 5", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, ".endblock", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".endblock", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "    .word OUTER.INNER.VAL", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[5, 0]);
-    }
-
-    #[test]
-    fn module_scopes_qualify_symbols() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, ".module alpha", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, "VAL .const 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, ".endmodule", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.symbols().lookup("alpha.VAL"), Some(1));
-    }
-
-    #[test]
-    fn module_duplicate_ids_error() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, ".module alpha", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".endmodule", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".module alpha", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn missing_endmodule_emits_diagnostic() {
-        let assembler = run_pass1(&[".module alpha", "VAL .const 1"]);
-        assert!(assembler
-            .diagnostics
-            .iter()
-            .any(|diag| diag.error.message().contains(".endmodule")));
-    }
-
-    #[test]
-    fn section_injects_bytes_at_dsection() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".section data".to_string(),
-            ".byte 1, 2".to_string(),
-            ".endsection".to_string(),
-            ".org 1000h".to_string(),
-            ".dsection data".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&lines);
-        assert_eq!(pass1.errors, 0);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        listing
-            .header("opForge 8085 Assembler v1.0")
-            .expect("listing header");
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        listing
-            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
-            .expect("listing footer");
-
-        let mut hex = Vec::new();
-        assembler
-            .image()
-            .write_hex_file(&mut hex, None)
-            .expect("hex output");
-        let hex_text = String::from_utf8_lossy(&hex);
-        assert!(
-            hex_text.contains(":021000000102EB"),
-            "unexpected hex output: {hex_text}"
-        );
-    }
-
-    #[test]
-    fn missing_endsection_emits_diagnostic() {
-        let assembler = run_pass1(&[".module alpha", ".section data", ".byte 1"]);
-        assert!(assembler
-            .diagnostics
-            .iter()
-            .any(|diag| diag.error.message().contains(".endsection")));
-    }
-
-    #[test]
-    fn align_inserts_padding_bytes() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".org 1000h".to_string(),
-            ".byte 1".to_string(),
-            ".align 4".to_string(),
-            ".byte 2".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&lines);
-        assert_eq!(pass1.errors, 0);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        listing
-            .header("opForge 8085 Assembler v1.0")
-            .expect("listing header");
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        listing
-            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
-            .expect("listing footer");
-
-        let mut hex = Vec::new();
-        assembler
-            .image()
-            .write_hex_file(&mut hex, None)
-            .expect("hex output");
-        let hex_text = String::from_utf8_lossy(&hex);
-        assert!(
-            hex_text.contains(":0110000001EE"),
-            "unexpected hex output: {hex_text}"
-        );
-        assert!(
-            hex_text.contains(":0110040002E9"),
-            "unexpected hex output: {hex_text}"
-        );
-    }
-
-    #[test]
-    fn dsection_without_bytes_emits_nothing() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".dsection data".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&lines);
-        assert_eq!(pass1.errors, 0);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        listing
-            .header("opForge 8085 Assembler v1.0")
-            .expect("listing header");
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        listing
-            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
-            .expect("listing footer");
-
-        let mut hex = Vec::new();
-        assembler
-            .image()
-            .write_hex_file(&mut hex, None)
-            .expect("hex output");
-        let hex_text = String::from_utf8_lossy(&hex);
-        assert_eq!(hex_text.trim(), ":00000001FF");
-    }
-
-    #[test]
-    fn section_selects_and_restores_output_target() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".section data".to_string(),
-            ".byte 1".to_string(),
-            ".endsection".to_string(),
-            ".byte 2".to_string(),
-            ".org 1000h".to_string(),
-            ".dsection data".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&lines);
-        assert_eq!(pass1.errors, 0);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        listing
-            .header("opForge 8085 Assembler v1.0")
-            .expect("listing header");
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        listing
-            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
-            .expect("listing footer");
-
-        let mut hex = Vec::new();
-        assembler
-            .image()
-            .write_hex_file(&mut hex, None)
-            .expect("hex output");
-        let hex_text = String::from_utf8_lossy(&hex);
-        assert!(
-            hex_text.contains(":0100000002FD"),
-            "unexpected hex output: {hex_text}"
-        );
-        assert!(
-            hex_text.contains(":0110000001EE"),
-            "unexpected hex output: {hex_text}"
-        );
-    }
-
-    #[test]
-    fn rts_encodes_in_6502_family() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".cpu 6502".to_string(),
-            ".org 1000h".to_string(),
-            "    rts".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        assembler.clear_diagnostics();
-        let pass1 = assembler.pass1(&lines);
-        assert_eq!(pass1.errors, 0);
-
-        let mut output = Vec::new();
-        let mut listing = ListingWriter::new(&mut output, false);
-        listing
-            .header("opForge 8085 Assembler v1.0")
-            .expect("listing header");
-        let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-        listing
-            .footer(&pass2, assembler.symbols(), assembler.image().num_entries())
-            .expect("listing footer");
-
-        let mut hex = Vec::new();
-        assembler
-            .image()
-            .write_hex_file(&mut hex, None)
-            .expect("hex output");
-        let hex_text = String::from_utf8_lossy(&hex);
-        assert!(
-            hex_text.contains(":01100000608F"),
-            "unexpected hex output: {hex_text}"
-        );
-    }
-
-    #[test]
-    fn module_rejects_top_level_content_before_explicit_modules() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "VAL .const 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, ".module alpha", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn use_selective_import_resolves_unqualified_name() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let lines = vec![
-            ".module alpha".to_string(),
-            ".pub".to_string(),
-            "VAL .const 1".to_string(),
-            ".endmodule".to_string(),
-            ".module beta".to_string(),
-            ".use alpha (VAL)".to_string(),
-            "    .word VAL".to_string(),
-            ".endmodule".to_string(),
-        ];
-
-        let mut asm_pass1 = make_asm_line(&mut symbols, &registry);
-        for line in &lines {
-            let _ = process_line(&mut asm_pass1, line, 0, 1);
-        }
-
-        let mut asm_pass2 = make_asm_line(&mut symbols, &registry);
-        let mut status = LineStatus::Ok;
-        for line in &lines {
-            status = process_line(&mut asm_pass2, line, 0, 2);
-            if line.contains(".word") {
-                break;
-            }
-        }
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm_pass2.bytes(), &[1, 0]);
-    }
-
-    #[test]
-    fn use_alias_import_resolves_qualified_name() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let lines = vec![
-            ".module alpha".to_string(),
-            ".pub".to_string(),
-            "VAL .const 2".to_string(),
-            ".endmodule".to_string(),
-            ".module beta".to_string(),
-            ".use alpha as A".to_string(),
-            "    .word A.VAL".to_string(),
-            ".endmodule".to_string(),
-        ];
-
-        let mut asm_pass1 = make_asm_line(&mut symbols, &registry);
-        for line in &lines {
-            let _ = process_line(&mut asm_pass1, line, 0, 1);
-        }
-
-        let mut asm_pass2 = make_asm_line(&mut symbols, &registry);
-        let mut status = LineStatus::Ok;
-        for line in &lines {
-            status = process_line(&mut asm_pass2, line, 0, 2);
-            if line.contains(".word") {
-                break;
-            }
-        }
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm_pass2.bytes(), &[2, 0]);
-    }
-
-    #[test]
-    fn use_missing_module_emits_diagnostic() {
-        let assembler = run_pass1(&[".module alpha", ".use missing.mod", ".endmodule"]);
-        assert!(assembler
-            .diagnostics
-            .iter()
-            .any(|diag| diag.error.kind() == AsmErrorKind::Directive));
-    }
-
-    #[test]
-    fn use_private_selective_symbol_emits_diagnostic() {
-        let assembler = run_pass1(&[
-            ".module alpha",
-            "VAL .const 1",
-            ".endmodule",
-            ".module beta",
-            ".use alpha (VAL)",
-            ".endmodule",
-        ]);
-        assert!(assembler
-            .diagnostics
-            .iter()
-            .any(|diag| diag.error.kind() == AsmErrorKind::Symbol));
-    }
-
-    #[test]
-    fn use_alias_collision_errors() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let lines = [
-            ".module alpha",
-            ".endmodule",
-            ".module beta",
-            ".use alpha as A",
-            ".use alpha as A",
-        ];
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        for (idx, line) in lines.iter().enumerate() {
-            let status = process_line(&mut asm, line, 0, 1);
-            if idx == 4 {
-                assert_eq!(status, LineStatus::Error);
-                assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-            }
-        }
-    }
-
-    #[test]
-    fn use_selective_collision_errors() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let lines = [
-            ".module alpha",
-            ".pub",
-            "VAL .const 1",
-            ".endmodule",
-            ".module beta",
-            ".use alpha (VAL)",
-            ".use alpha (VAL)",
-        ];
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        for (idx, line) in lines.iter().enumerate() {
-            let status = process_line(&mut asm, line, 0, 1);
-            if idx == 6 {
-                assert_eq!(status, LineStatus::Error);
-                assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-            }
-        }
-    }
-
-    #[test]
-    fn use_import_cycle_emits_diagnostic() {
-        let assembler = run_pass1(&[
-            ".module moda",
-            ".use modb",
-            ".endmodule",
-            ".module modb",
-            ".use moda",
-            ".endmodule",
-        ]);
-        assert!(assembler
-            .diagnostics
-            .iter()
-            .any(|diag| diag.error.message().contains("Import cycle detected")));
-    }
-
-    #[test]
-    fn root_metadata_conditional_applies_last_active() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".if 0".to_string(),
-            ".meta.output.name \"nope\"".to_string(),
-            ".else".to_string(),
-            ".meta.output.name \"ok\"".to_string(),
-            ".endif".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        let _ = assembler.pass1(&lines);
-        let output = assembler.root_metadata.output_config_for_cpu("i8085");
-        assert_eq!(output.name.as_deref(), Some("ok"));
-    }
-
-    #[test]
-    fn root_metadata_target_specific_output_is_stored() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".meta.output.z80.name \"demo-z80\"".to_string(),
-            ".meta.output.name \"demo\"".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        let _ = assembler.pass1(&lines);
-        let z80_output = assembler.root_metadata.output_config_for_cpu("z80");
-        let default_output = assembler.root_metadata.output_config_for_cpu("i8085");
-        assert_eq!(z80_output.name.as_deref(), Some("demo-z80"));
-        assert_eq!(default_output.name.as_deref(), Some("demo"));
-    }
-
-    #[test]
-    fn root_metadata_block_sets_values() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".meta".to_string(),
-            ".name \"Meta Demo\"".to_string(),
-            ".version \"1.0.0\"".to_string(),
-            ".output".to_string(),
-            ".name \"meta-demo\"".to_string(),
-            ".z80".to_string(),
-            ".name \"meta-demo-z80\"".to_string(),
-            ".endz80".to_string(),
-            ".endoutput".to_string(),
-            ".endmeta".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        let _ = assembler.pass1(&lines);
-        assert_eq!(assembler.root_metadata.name.as_deref(), Some("Meta Demo"));
-        assert_eq!(assembler.root_metadata.version.as_deref(), Some("1.0.0"));
-        let default_output = assembler.root_metadata.output_config_for_cpu("i8085");
-        let z80_output = assembler.root_metadata.output_config_for_cpu("z80");
-        assert_eq!(default_output.name.as_deref(), Some("meta-demo"));
-        assert_eq!(z80_output.name.as_deref(), Some("meta-demo-z80"));
-    }
-
-    #[test]
-    fn root_metadata_block_name_does_not_set_output() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".meta".to_string(),
-            ".name \"Meta Name\"".to_string(),
-            ".endmeta".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        let _ = assembler.pass1(&lines);
-        assert_eq!(assembler.root_metadata.name.as_deref(), Some("Meta Name"));
-        let output = assembler.root_metadata.output_config_for_cpu("i8085");
-        assert_eq!(output.name.as_deref(), None);
-    }
-
-    #[test]
-    fn root_metadata_output_selection_directives_are_stored() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".meta.output.list".to_string(),
-            ".meta.output.hex \"meta-hex\"".to_string(),
-            ".meta.output.bin \"0000:0003\"".to_string(),
-            ".meta.output.fill \"aa\"".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        let _ = assembler.pass1(&lines);
-        let output = assembler.root_metadata.output_config_for_cpu("i8085");
-        assert_eq!(output.list_name.as_deref(), Some(""));
-        assert_eq!(output.hex_name.as_deref(), Some("meta-hex"));
-        assert_eq!(output.bin_specs.len(), 1);
-        let spec = &output.bin_specs[0];
-        let range = spec.range.as_ref().expect("range");
-        assert_eq!(range.start, 0x0000);
-        assert_eq!(range.end, 0x0003);
-        assert_eq!(output.fill_byte, Some(0xaa));
-    }
-
-    #[test]
-    fn root_metadata_bin_allows_empty_value() {
-        let lines = vec![
-            ".module main".to_string(),
-            ".meta.output.bin".to_string(),
-            ".endmodule".to_string(),
-        ];
-        let mut assembler = Assembler::new();
-        assembler.root_metadata.root_module_id = Some("main".to_string());
-        let _ = assembler.pass1(&lines);
-        let output = assembler.root_metadata.output_config_for_cpu("i8085");
-        assert_eq!(output.bin_specs.len(), 1);
-        let spec = &output.bin_specs[0];
-        assert!(spec.name.is_none());
-        assert!(spec.range.is_none());
-    }
-
-    #[test]
-    fn root_metadata_name_sets_name_only() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, ".module main", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".name \"Project Name\"", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn root_metadata_block_rejects_non_root_module() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut metadata = RootMetadata::default();
-        metadata.root_module_id = Some("main".to_string());
-        let mut asm =
-            AsmLine::with_cpu_and_metadata(&mut symbols, i8085_cpu_id, &registry, metadata);
-        asm.clear_conditionals();
-        asm.clear_scopes();
-        let status = process_line(&mut asm, ".module lib", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".meta", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn endmeta_requires_meta() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, ".module main", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".endmeta", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn endmodule_rejects_open_meta_block() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, ".module main", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".meta", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".endmodule", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn meta_block_rejects_non_metadata_directive() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, ".module main", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".meta", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".byte 01h", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn root_metadata_rejects_non_root_module() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut metadata = RootMetadata::default();
-        metadata.root_module_id = Some("main".to_string());
-        let mut asm =
-            AsmLine::with_cpu_and_metadata(&mut symbols, i8085_cpu_id, &registry, metadata);
-        asm.clear_conditionals();
-        asm.clear_scopes();
-        let status = process_line(&mut asm, ".module lib", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-        let status = process_line(&mut asm, ".meta.output.name \"x\"", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn private_symbol_is_not_visible_across_modules() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let lines = vec![
-            ".module alpha".to_string(),
-            "VAL .const 1".to_string(),
-            ".endmodule".to_string(),
-            ".module beta".to_string(),
-            "    .word alpha.VAL".to_string(),
-            ".endmodule".to_string(),
-        ];
-
-        let mut asm_pass1 = make_asm_line(&mut symbols, &registry);
-        for line in &lines {
-            let _ = process_line(&mut asm_pass1, line, 0, 1);
-        }
-
-        let mut asm_pass2 = make_asm_line(&mut symbols, &registry);
-        let mut status = LineStatus::Ok;
-        for line in &lines {
-            status = process_line(&mut asm_pass2, line, 0, 2);
-            if line.contains(".word") {
-                break;
-            }
-        }
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm_pass2.error().unwrap().kind(), AsmErrorKind::Symbol);
-    }
-
-    #[test]
-    fn public_symbol_is_visible_across_modules() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let lines = vec![
-            ".module alpha".to_string(),
-            ".pub".to_string(),
-            "VAL .const 1".to_string(),
-            ".endmodule".to_string(),
-            ".module beta".to_string(),
-            "    .word alpha.VAL".to_string(),
-            ".endmodule".to_string(),
-        ];
-
-        let mut asm_pass1 = make_asm_line(&mut symbols, &registry);
-        for line in &lines {
-            let _ = process_line(&mut asm_pass1, line, 0, 1);
-        }
-
-        let mut asm_pass2 = make_asm_line(&mut symbols, &registry);
-        let mut status = LineStatus::Ok;
-        for line in &lines {
-            status = process_line(&mut asm_pass2, line, 0, 2);
-            if line.contains(".word") {
-                break;
-            }
-        }
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm_pass2.bytes(), &[1, 0]);
-    }
-
-    #[test]
-    fn var_allows_redefinition_and_set_alias() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "VAL .var 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), Some(1));
-
-        let status = process_line(&mut asm, "VAL .var 2", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), Some(2));
-
-        let status = process_line(&mut asm, "VAL .set 3", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("VAL"), Some(3));
-    }
-
-    #[test]
-    fn assignment_ops_update_symbols() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-
-        let status = process_line(&mut asm, "WIDTH = 40", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("WIDTH"), Some(40));
-
-        let status = process_line(&mut asm, "var2 := 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), Some(1));
-
-        let status = process_line(&mut asm, "var2 += 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), Some(2));
-
-        let status = process_line(&mut asm, "var2 *= 3", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), Some(6));
-
-        let status = process_line(&mut asm, "var2 <?= 4", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), Some(4));
-
-        let status = process_line(&mut asm, "var2 >?= 5", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var2"), Some(5));
-
-        let status = process_line(&mut asm, "var3 :?= 5", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var3"), Some(5));
-
-        let status = process_line(&mut asm, "var3 :?= 7", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("var3"), Some(5));
-
-        let status = process_line(&mut asm, "rep := $ab", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, "rep x= 3", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("rep"), Some(0x00ababab));
-
-        let status = process_line(&mut asm, "cat := $12", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, "cat ..= $3456", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("cat"), Some(0x00123456));
-
-        let status = process_line(&mut asm, "mem := 1", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        let status = process_line(&mut asm, "mem .= 5", 0, 1);
-        assert_eq!(status, LineStatus::DirEqu);
-        assert_eq!(asm.symbols().lookup("mem"), Some(5));
-    }
-
-    #[test]
-    fn label_without_colon_defines_symbol() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "LABEL NOP", 0x1000, 1);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.symbols().lookup("LABEL"), Some(0x1000));
-    }
-
-    #[test]
-    fn set_without_dot_is_not_directive() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    SET 1", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
-    }
-
-    #[test]
-    fn undotted_directives_are_not_recognized() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    ORG 1000h", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
-    }
-
-    #[test]
-    fn instruction_encoding_mvi() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    MVI A, 12h", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x3e, 0x12]);
-    }
-
-    #[test]
-    fn conditionals_do_not_skip_mnemonic_lines() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .if 0", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(asm.cond_skipping());
-
-        let status = process_line(&mut asm, "    .byte 5", 0, 2);
-        assert_eq!(status, LineStatus::Skip);
-        assert!(asm.bytes().is_empty());
-    }
-
-    #[test]
-    fn undefined_label_in_pass2_errors() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word MISSING", 0, 2);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.symbols().lookup("MISSING"), None);
-    }
-
-    #[test]
-    fn expression_precedence_and_ops() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word 1+2*3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[7, 0]);
-
-        let status = process_line(&mut asm, "    .word (1+2)*3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[9, 0]);
-
-        let status = process_line(&mut asm, "    .word 1 << 4", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x10, 0x00]);
-
-        let status = process_line(&mut asm, "    .word 1 | 2", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[3, 0]);
-
-        let status = process_line(&mut asm, "    .word 2 ** 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[8, 0]);
-
-        let status = process_line(&mut asm, "    .word 0 ? 1 : 2", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[2, 0]);
-    }
-
-    #[test]
-    fn logical_ops_use_truthiness() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word 2 && 4", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x01, 0x00]);
-
-        let status = process_line(&mut asm, "    .word 0 && 4", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x00, 0x00]);
-
-        let status = process_line(&mut asm, "    .word 0 || 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x01, 0x00]);
-
-        let status = process_line(&mut asm, "    .word 2 ^^ 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x00, 0x00]);
-
-        let status = process_line(&mut asm, "    .word 0 ^^ 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x01, 0x00]);
-
-        let status = process_line(&mut asm, "    .word !0", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x01, 0x00]);
-    }
-
-    #[test]
-    fn expression_literals_and_prefixes() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word $1f, %1010, 1_0_0_0, 17o, 17q", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(
-            asm.bytes(),
-            &[0x1f, 0x00, 0x0a, 0x00, 0xe8, 0x03, 0x0f, 0x00, 0x0f, 0x00]
-        );
-    }
-
-    #[test]
-    fn expression_comparisons_and_logicals() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(
-            &mut asm,
-            "    .byte 3==3, 3!=4, 3<>4, 3<=3, 2<3, 3>=2, 3>2, 4=4",
-            0,
-            2,
-        );
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1, 1, 1, 1, 1, 1, 1, 1]);
-
-        let status = process_line(&mut asm, "    .byte 2&&3, 0||5, 2^^3, !0, !1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1, 1, 0, 1, 0]);
-    }
-
-    #[test]
-    fn expression_bitwise_ops() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(
-            &mut asm,
-            "    .byte 0f0h & 00fh, 0f0h | 00fh, 0f0h ^ 00fh",
-            0,
-            2,
-        );
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x00, 0xff, 0xff]);
-    }
-
-    #[test]
-    fn expression_power_and_ternary_precedence() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word 2 ** 3 ** 2", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x00, 0x02]);
-
-        let status = process_line(&mut asm, "    .byte 0 || 1 ? 2 : 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[2]);
-    }
-
-    #[test]
-    fn expression_ternary_associativity() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .byte 0 ? 1 : 0 ? 2 : 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[3]);
-
-        let status = process_line(&mut asm, "    .byte 0 ? 1 : 0 || 1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1]);
-    }
-
-    #[test]
-    fn expression_shift_precedence() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word 1 + 2 << 3", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[24, 0]);
-
-        let status = process_line(&mut asm, "    .word 1 << 2 + 1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[8, 0]);
-    }
-
-    #[test]
-    fn expression_high_low_with_groups() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .byte >($1234+1), <($1234+1)", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x12, 0x35]);
-    }
-
-    #[test]
-    fn expression_not_equal_aliases() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .byte 3 <> 4, 3 != 4", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1, 1]);
-    }
-
-    #[test]
-    fn expression_nested_ternary_with_parens() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .byte 1 ? (0 ? 2 : 3) : 4", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[3]);
-
-        let status = process_line(&mut asm, "    .byte 0 ? 1 : (0 ? 2 : 5)", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[5]);
-    }
-
-    #[test]
-    fn expression_underscores_in_hex_suffix() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word 1_2_3_4h, 0_f_f_fh", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x34, 0x12, 0xff, 0x0f]);
-    }
-
-    #[test]
-    fn conditional_nesting_state_changes() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .if 0", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(asm.cond_skipping());
-
-        let status = process_line(&mut asm, "    .else", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(!asm.cond_skipping());
-
-        let status = process_line(&mut asm, "    .endif", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(asm.cond_is_empty());
-    }
-
-    #[test]
-    fn conditionals_skip_unmatched_blocks() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-
-        let status = process_line(&mut asm, "    .if 1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(!asm.cond_skipping());
-
-        let status = process_line(&mut asm, "    .byte 1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[1]);
-
-        let status = process_line(&mut asm, "    .else", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(asm.cond_skipping());
-
-        let status = process_line(&mut asm, "    .byte 2", 0, 2);
-        assert_eq!(status, LineStatus::Skip);
-        assert!(asm.bytes().is_empty());
-
-        let status = process_line(&mut asm, "    .endif", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert!(asm.cond_is_empty());
-    }
-
-    #[test]
-    fn conditionals_only_emit_true_branch_bytes() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let mut addr: u16 = 0;
-        let mut out = Vec::new();
-
-        let lines = [
-            "    .if 1",
-            "    .byte 1",
-            "    .else",
-            "    .byte 2",
-            "    .endif",
-            "    .if 0",
-            "    .byte 3",
-            "    .else",
-            "    .byte 4",
-            "    .endif",
-        ];
-
-        for line in lines {
-            let status = asm.process(line, 1, addr, 2);
-            match status {
-                LineStatus::Ok => {
-                    out.extend_from_slice(asm.bytes());
-                    addr = addr.wrapping_add(asm.num_bytes() as u16);
-                }
-                LineStatus::DirDs => {
-                    addr = addr.wrapping_add(asm.aux_value());
-                }
-                LineStatus::DirEqu => {
-                    addr = asm.start_addr();
-                }
-                _ => {}
-            }
-        }
-
-        assert_eq!(out, vec![1, 4]);
-    }
-
-    #[test]
-    fn match_only_emits_matching_case() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let mut addr: u16 = 0;
-        let mut out = Vec::new();
-
-        let lines = [
-            "    .match 2",
-            "    .case 1",
-            "    .byte 1",
-            "    .case 2, 3",
-            "    .byte 2",
-            "    .default",
-            "    .byte 9",
-            "    .endmatch",
-        ];
-
-        for line in lines {
-            let status = asm.process(line, 1, addr, 2);
-            match status {
-                LineStatus::Ok => {
-                    out.extend_from_slice(asm.bytes());
-                    addr = addr.wrapping_add(asm.num_bytes() as u16);
-                }
-                LineStatus::DirDs => {
-                    addr = addr.wrapping_add(asm.aux_value());
-                }
-                LineStatus::DirEqu => {
-                    addr = asm.start_addr();
-                }
-                _ => {}
-            }
-        }
-
-        assert_eq!(out, vec![2]);
-    }
-
-    #[test]
-    fn expression_high_low_and_unary() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word > 1234H", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x12, 0x00]);
-
-        let status = process_line(&mut asm, "    .word < 1234H", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x34, 0x00]);
-
-        let status = process_line(&mut asm, "    .word -1", 0, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0xff, 0xff]);
-    }
-
-    #[test]
-    fn expression_current_address_dollar() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word $ + 1", 0x1000, 2);
-        assert_eq!(status, LineStatus::Ok);
-        assert_eq!(asm.bytes(), &[0x01, 0x10]);
-    }
-
-    #[test]
-    fn conditional_errors_for_mismatched_blocks() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .else", 0, 2);
-        assert_eq!(status, LineStatus::Error);
-
-        let status = process_line(&mut asm, "    .endif", 0, 2);
-        assert_eq!(status, LineStatus::Error);
-    }
-
-    #[test]
-    fn column_one_errors_for_identifier() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "1mov a,b", 0, 2);
-        assert_eq!(status, LineStatus::Error);
-        assert!(asm.error_message().contains("column 1"));
-    }
-
-    #[test]
-    fn error_kind_for_parser_failure() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "123", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Parser);
-    }
-
-    #[test]
-    fn error_kind_for_directive_failure() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .const 5", 0, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
-    }
-
-    #[test]
-    fn error_kind_for_instruction_failure() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    RST A", 0, 2);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
-    }
-
-    #[test]
-    fn error_kind_for_expression_failure() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "    .word 1/0", 0, 2);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Expression);
-    }
-
-    #[test]
-    fn error_kind_for_symbol_failure() {
-        let mut symbols = SymbolTable::new();
-        let registry = default_registry();
-        let mut asm = make_asm_line(&mut symbols, &registry);
-        let status = process_line(&mut asm, "LABEL: NOP", 0, 1);
-        assert_eq!(status, LineStatus::Ok);
-
-        let status = process_line(&mut asm, "LABEL: NOP", 1, 1);
-        assert_eq!(status, LineStatus::Error);
-        assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Symbol);
-    }
 }

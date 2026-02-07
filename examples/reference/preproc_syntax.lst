@@ -19,3 +19,9 @@ SYMBOL TABLE
 INCVAL          : 0005 (5)
 
 Total memory is 3 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    01 02 05

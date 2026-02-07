@@ -252,7 +252,7 @@ impl<'a> MacroExpander<'a> {
                             k += 1;
                         }
                         if k < bytes.len() && bytes[k] == b'(' {
-                            let mut paren = 0i32;
+                            let mut paren = 0usize;
                             let mut args_str = String::new();
                             let mut p = k;
                             let mut s_in_single = false;
@@ -471,7 +471,7 @@ impl Preprocessor {
             line.clear();
             let read = match reader.read_line(&mut line) {
                 Ok(n) => n,
-                Err(_) => return Err(PreprocessError::new(format!("Error opening file: {path}"))),
+                Err(_) => return Err(PreprocessError::new(format!("Error reading file: {path}"))),
             };
             if read == 0 {
                 break;
@@ -763,7 +763,7 @@ fn dirname(path: &str) -> String {
 fn join_path(base: &str, rel: &str) -> String {
     match rel {
         "" => base.to_string(),
-        _ if rel.starts_with('/') || rel.starts_with('\\') => rel.to_string(),
+        _ if std::path::Path::new(rel).is_absolute() => rel.to_string(),
         _ if base.is_empty() => rel.to_string(),
         _ => format!("{base}/{rel}"),
     }

@@ -68,3 +68,9 @@ TRUE            : 0001 (1)
 FALSE           : 0000 (0)
 
 Total memory is 6 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    01 05 08 0A 0D 10

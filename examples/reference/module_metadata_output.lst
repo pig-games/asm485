@@ -21,3 +21,9 @@ SYMBOL TABLE
 main.START      : 0000 (0)
 
 Total memory is 4 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    01 02 03 04

@@ -33,3 +33,12 @@ Icon?
 .Spotlight-V100
 .Trashes
 .fseventsd
+
+# Local planning/implementation scratch space
+/dev-docs/NextSteps/implementations/
+/dev-docs/NextSteps/core/opforge_45gs02_statement_dialect_example_v0_2.md
+/dev-docs
+
+# Local AI agent guidance (environment-specific, keep unversioned)
+AGENTS.md
+/scripts/route_workflow.sh

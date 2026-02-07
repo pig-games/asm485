@@ -6,6 +6,7 @@
 use crate::core::parser::{UseItem, UseParam};
 use crate::core::tokenizer::Span;
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 #[derive(Debug, Clone)]
@@ -75,6 +76,8 @@ pub const MAX_ENTRIES: usize = 66000;
 #[derive(Debug, Default)]
 pub struct SymbolTable {
     entries: Vec<SymbolTableEntry>,
+    /// Case-normalized name → index into `entries` for O(1) lookup.
+    index: HashMap<String, usize>,
     modules: Vec<String>,
     module_info: Vec<ModuleInfo>,
 }
@@ -84,6 +87,7 @@ impl SymbolTable {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            index: HashMap::new(),
             modules: Vec::new(),
             module_info: Vec::new(),
         }
@@ -324,7 +328,9 @@ impl SymbolTable {
             return SymbolTableResult::TableFull;
         }
 
-        if let Some(entry) = self.entry_mut(name) {
+        let key = name.to_ascii_uppercase();
+        if let Some(&idx) = self.index.get(&key) {
+            let entry = &mut self.entries[idx];
             if entry.rw {
                 entry.val = val;
                 return SymbolTableResult::Ok;
@@ -332,6 +338,7 @@ impl SymbolTable {
             return SymbolTableResult::Duplicate;
         }
 
+        let idx = self.entries.len();
         self.entries.push(SymbolTableEntry {
             name: name.to_string(),
             val,
@@ -340,6 +347,7 @@ impl SymbolTable {
             visibility,
             module_id: module_id.map(str::to_string),
         });
+        self.index.insert(key, idx);
         SymbolTableResult::Ok
     }
 
@@ -364,15 +372,21 @@ impl SymbolTable {
 
     #[must_use]
     pub fn entry(&self, name: &str) -> Option<&SymbolTableEntry> {
-        self.entries
-            .iter()
-            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        let key = name.to_ascii_uppercase();
+        self.index.get(&key).map(|&idx| &self.entries[idx])
     }
 
     pub fn entry_mut(&mut self, name: &str) -> Option<&mut SymbolTableEntry> {
-        self.entries
-            .iter_mut()
-            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        let key = name.to_ascii_uppercase();
+        self.index
+            .get(&key)
+            .copied()
+            .map(|idx| &mut self.entries[idx])
+    }
+
+    #[must_use]
+    pub fn entries(&self) -> &[SymbolTableEntry] {
+        &self.entries
     }
 
     pub fn dump<W: Write>(&self, mut out: W) -> io::Result<()> {

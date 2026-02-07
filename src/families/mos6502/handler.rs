@@ -28,6 +28,12 @@ impl MOS6502FamilyHandler {
         )
     }
 
+    /// Check if a mnemonic is a 65C02 bit branch instruction.
+    fn is_bit_branch_instruction(mnemonic: &str) -> bool {
+        let upper = mnemonic.to_ascii_uppercase();
+        upper.starts_with("BBR") || upper.starts_with("BBS")
+    }
+
     /// Parse a single expression into a FamilyOperand.
     fn parse_single_operand(&self, expr: &Expr) -> Result<FamilyOperand, FamilyParseError> {
         match expr {
@@ -89,12 +95,20 @@ impl FamilyHandler for MOS6502FamilyHandler {
 
     fn parse_operands(
         &self,
-        _mnemonic: &str,
+        mnemonic: &str,
         exprs: &[Expr],
     ) -> Result<Vec<FamilyOperand>, FamilyParseError> {
         // No operands = implied mode
         if exprs.is_empty() {
             return Ok(vec![]);
+        }
+
+        // 65C02 bit branches take two expression operands: zp,target
+        if exprs.len() == 2 && Self::is_bit_branch_instruction(mnemonic) {
+            return Ok(vec![
+                FamilyOperand::Direct(exprs[0].clone()),
+                FamilyOperand::Direct(exprs[1].clone()),
+            ]);
         }
 
         // Handle indexed modes that come as separate expressions

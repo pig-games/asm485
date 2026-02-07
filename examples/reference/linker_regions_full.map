@@ -1,0 +1,14 @@
+Regions
+name start end used free align
+rom 8000 80FF 11 245 1
+
+Sections
+name base size kind region
+code 8000 3 code rom
+data 8004 3 code rom
+zero 8007 4 bss rom
+
+Symbols
+name value visibility
+main.data_start 8004 private
+main.entry 8000 public

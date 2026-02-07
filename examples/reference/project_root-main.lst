@@ -23,3 +23,9 @@ util.VALUE      : 002a (42)
 main.START      : 0000 (0)
 
 Total memory is 4 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    01 02 2A 00

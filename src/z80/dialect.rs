@@ -212,6 +212,16 @@ pub static ZILOG_DIALECT_MAP: &[DialectEntry] = &[
         canonical_has_imm: false,
         transform: OperandTransform::DropFirst,
     },
+    // SUB A,n → SUI n
+    DialectEntry {
+        from: "SUB",
+        from_regs: 1,
+        from_has_imm: true,
+        canonical: "SUI",
+        canonical_regs: 0,
+        canonical_has_imm: true,
+        transform: OperandTransform::DropFirst,
+    },
     // SUB n → SUI n
     DialectEntry {
         from: "SUB",
@@ -220,7 +230,7 @@ pub static ZILOG_DIALECT_MAP: &[DialectEntry] = &[
         canonical: "SUI",
         canonical_regs: 0,
         canonical_has_imm: true,
-        transform: OperandTransform::DropFirst,
+        transform: OperandTransform::Identity,
     },
     // SBC A,r → SBB r
     DialectEntry {

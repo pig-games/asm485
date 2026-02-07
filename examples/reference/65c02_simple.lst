@@ -64,3 +64,12 @@ skip            : 2009 (8201)
 nobranch        : 2023 (8227)
 
 Total memory is 56 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    64 20 9C 34 12 80 02 EA EA DA 5A FA 7A 1A 3A 14
+2010    30 04 40 90 0E B0 0C F0 0A D0 08 30 06 10 04 50
+2020    02 70 00 A9 42 A2 10 A0 20 89 55 69 01 29 0F 09
+2030    F0 49 AA A5 50 85 60 60

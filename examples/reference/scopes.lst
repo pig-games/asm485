@@ -34,3 +34,9 @@ SHADOW          : 1000 (4096)
 SHADOW.GLOBAL   : 0002 (2)
 
 Total memory is 6 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    02 00 01 00 05 00

@@ -26,3 +26,9 @@ SYMBOL TABLE
 lib.math.VALUE  : 0005 (5)
 
 Total memory is 2 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    05 05

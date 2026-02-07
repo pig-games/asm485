@@ -38,6 +38,35 @@ impl M65C02CpuHandler {
         let upper = mnemonic.to_ascii_uppercase();
         upper == "BRA" || upper.starts_with("BBR") || upper.starts_with("BBS")
     }
+
+    /// Check if mnemonic is a 65C02 bit-branch variant (BBRn/BBSn).
+    fn is_bit_branch(mnemonic: &str) -> bool {
+        let upper = mnemonic.to_ascii_uppercase();
+        upper.starts_with("BBR") || upper.starts_with("BBS")
+    }
+
+    /// Decode BBRn/BBSn opcode from mnemonic.
+    fn bit_branch_opcode(mnemonic: &str) -> Option<u8> {
+        let upper = mnemonic.to_ascii_uppercase();
+        let (is_set, suffix) = if let Some(suffix) = upper.strip_prefix("BBR") {
+            (false, suffix)
+        } else if let Some(suffix) = upper.strip_prefix("BBS") {
+            (true, suffix)
+        } else {
+            return None;
+        };
+
+        let bit = suffix.parse::<u8>().ok()?;
+        if bit > 7 {
+            return None;
+        }
+
+        if is_set {
+            Some(0x8F + (bit << 4))
+        } else {
+            Some(0x0F + (bit << 4))
+        }
+    }
 }
 
 impl CpuHandler for M65C02CpuHandler {
@@ -53,6 +82,57 @@ impl CpuHandler for M65C02CpuHandler {
         family_operands: &[FamilyOperand],
         ctx: &dyn AssemblerContext,
     ) -> Result<Vec<Operand>, String> {
+        if Self::is_bit_branch(mnemonic) {
+            if family_operands.len() != 2 {
+                return Err(format!(
+                    "{} requires two operands: zero-page address and branch target",
+                    mnemonic.to_ascii_uppercase()
+                ));
+            }
+
+            let zp_expr = match &family_operands[0] {
+                FamilyOperand::Direct(expr) | FamilyOperand::Immediate(expr) => expr,
+                _ => {
+                    return Err(format!(
+                        "{} first operand must be a zero-page address",
+                        mnemonic.to_ascii_uppercase()
+                    ));
+                }
+            };
+
+            let target_expr = match &family_operands[1] {
+                FamilyOperand::Direct(expr) | FamilyOperand::Immediate(expr) => expr,
+                _ => {
+                    return Err(format!(
+                        "{} second operand must be a branch target expression",
+                        mnemonic.to_ascii_uppercase()
+                    ));
+                }
+            };
+
+            let zp_val = ctx.eval_expr(zp_expr)?;
+            if !(0..=255).contains(&zp_val) {
+                return Err(format!("Zero page address {} out of range (0-255)", zp_val));
+            }
+
+            let target = ctx.eval_expr(target_expr)?;
+            let current = ctx.current_address() as i32 + 3;
+            let offset = target as i32 - current;
+            let rel = if !(-128..=127).contains(&offset) {
+                if ctx.pass() > 1 {
+                    return Err(format!("Branch target out of range: offset {}", offset));
+                }
+                0
+            } else {
+                offset as i8
+            };
+
+            return Ok(vec![
+                Operand::ZeroPage(zp_val as u8, family_operands[0].span()),
+                Operand::Relative(rel, family_operands[1].span()),
+            ]);
+        }
+
         // No operands = implied mode
         if family_operands.is_empty() {
             return Ok(vec![Operand::Implied]);
@@ -204,6 +284,51 @@ impl CpuHandler for M65C02CpuHandler {
         operands: &[Operand],
         _ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>> {
+        if let Some(opcode) = Self::bit_branch_opcode(mnemonic) {
+            if operands.len() != 2 {
+                return EncodeResult::error(format!(
+                    "{} requires two operands",
+                    mnemonic.to_ascii_uppercase()
+                ));
+            }
+
+            let zp = match operands.first() {
+                Some(Operand::ZeroPage(val, _)) => *val,
+                Some(other) => {
+                    return EncodeResult::error(format!(
+                        "{} first operand must be zero page, got {:?}",
+                        mnemonic.to_ascii_uppercase(),
+                        other
+                    ));
+                }
+                None => {
+                    return EncodeResult::error(format!(
+                        "{} requires two operands",
+                        mnemonic.to_ascii_uppercase()
+                    ));
+                }
+            };
+
+            let rel = match operands.get(1) {
+                Some(Operand::Relative(offset, _)) => *offset,
+                Some(other) => {
+                    return EncodeResult::error(format!(
+                        "{} second operand must be a relative branch target, got {:?}",
+                        mnemonic.to_ascii_uppercase(),
+                        other
+                    ));
+                }
+                None => {
+                    return EncodeResult::error(format!(
+                        "{} requires two operands",
+                        mnemonic.to_ascii_uppercase()
+                    ));
+                }
+            };
+
+            return EncodeResult::Ok(vec![opcode, zp, rel as u8]);
+        }
+
         // Determine addressing mode from operand
         let mode = if operands.is_empty() {
             AddressMode::Implied
@@ -237,7 +362,9 @@ impl CpuHandler for M65C02CpuHandler {
     }
 
     fn supports_mnemonic(&self, mnemonic: &str) -> bool {
-        has_mnemonic(mnemonic) || has_family_mnemonic(mnemonic)
+        Self::bit_branch_opcode(mnemonic).is_some()
+            || has_mnemonic(mnemonic)
+            || has_family_mnemonic(mnemonic)
     }
 }
 

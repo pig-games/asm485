@@ -3,6 +3,8 @@
 This document describes the opForge assembler language, directives, and tooling.
 It follows a chapter layout similar to 64tass. Sections marked **Planned** describe 
 features that are not implemented yet.
+This manual is validated against opForge CLI `0.9` (crate `0.9.0`). Release notes use
+feature-series labels (for example `v3.1` for the linker-region milestone).
 
 ## 1. Introduction
 
@@ -13,7 +15,8 @@ opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, a
 - Macro expansion with `.macro` and `.segment`.
 - Optional listing, Intel HEX, and binary outputs.
 
-The `.cpu` directive currently accepts `8080` (alias), `8085`, `z80`, `6502`, and `65c02`.
+The `.cpu` directive currently accepts `8080` (alias for `8085`), `8085`, `z80`,
+`6502`, `m6502`, and `65c02`.
 
 There is no `.dialect` directive; dialect selection follows the CPU default.
 
@@ -21,7 +24,8 @@ There is no `.dialect` directive; dialect selection follows the CPU default.
 
 - Directives, preprocessor directives, and conditionals are dot-prefixed
   (`.org`, `.if`, `.ifdef`).
-- `#` is reserved for macro invocation.
+- `#` prefixes immediate operands (for example `LDA #$10`).
+- Macro invocation is dot-prefixed (for example `.COPY src,dst`).
 - Labels may end with `:` or omit it.
 - The program counter can be set with `* = expr` or `.org expr`.
 - If no outputs are specified for a single input, the assembler defaults to
@@ -110,27 +114,58 @@ Notes:
 * = $2000
 ```
 
-Section placement and emission:
+Section-local emission and linker-region placement:
 
 ```
-.dsection data
-.section data
+.region ram, $1000, $10ff, align=16
+.section data, kind=data, align=2, region=ram
 .endsection
+.place data in ram
+.pack in ram : code, data
 .align 16
 ```
 
 Notes:
 - `.section` selects a named emission target; `.endsection` restores the previous target.
-- `.dsection` injects the section’s bytes at the current address.
+- `.section` supports `kind=code|data|bss`, `align=<n>`, and `region=<name>`.
+- `.place`/`.pack` assign final section base addresses via regions.
+- `.dsection` is not supported and emits an error.
 - `.org` and `.align` apply to the current emission target.
+- Sections referenced by `.output` must be explicitly placed.
+- `.mapfile` and `.exportsections` may include unplaced sections.
+
+Linker output directives:
+
+```
+.output "build/out.bin", format=bin, sections=code,data
+.output "build/image.bin", format=bin, image="$8000..$80ff", fill=$ff, contiguous=false, sections=code,data
+.mapfile "build/out.map", symbols=all
+.exportsections dir="build/sections", format=bin, include=bss
+```
+
+Output mode rules:
+- Default output mode is contiguous (`contiguous=true`): selected sections must be adjacent.
+- Image output mode (`image=...` + `fill=...`) allows sparse placement within the configured span.
+- PRG output prefixes a 2-byte little-endian load address (`loadaddr=` optional).
 
 ### 4.3 Data directives
 
 ```
 .byte expr[, expr...]
+.db expr[, expr...]          ; alias for .byte
 .word expr[, expr...]
+.dw expr[, expr...]          ; alias for .word
+.long expr[, expr...]
 .ds expr
+.emit unit, expr[, expr...]  ; unit = byte|word|long or numeric size
+.res unit, count             ; BSS-only reservation
+.fill unit, count, value     ; repeated data fill
 ```
+
+Notes:
+- `.emit` and `.fill` are data-emitting directives and are not allowed in `kind=bss` sections.
+- `.res` is only allowed in `kind=bss` sections.
+- For `word`, unit size follows current CPU word size.
 
 ### 4.4 Symbols and assignments
 
@@ -251,9 +286,9 @@ Output base precedence:
 4. input base (file basename or folder name)
 
 Examples in the repo:
-- [examples/module_use_autoload.asm](examples/module_use_autoload.asm)
-- [examples/module_metadata_output.asm](examples/module_metadata_output.asm)
-- [examples/project_root/main.asm](examples/project_root/main.asm)
+- [examples/module_use_autoload.asm](../examples/module_use_autoload.asm)
+- [examples/module_metadata_output.asm](../examples/module_metadata_output.asm)
+- [examples/project_root/main.asm](../examples/project_root/main.asm)
 
 Match form:
 
@@ -294,10 +329,11 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 .cpu 8085
 .cpu z80
 .cpu 6502
+.cpu m6502
 .cpu 65c02
 ```
 
-Candidates: `65816`, `45gs02`, `68000` and other related CPUs.
+Planned (not currently supported): `65816`, `45gs02`, `68000` and related CPUs.
 
 ### 4.8 End of assembly
 
@@ -319,7 +355,7 @@ Preprocessor directives are dot-prefixed:
 ```
 
 Notes:
-- `#` is reserved for macro invocation.
+- `#` is used for immediate operands; preprocessor directives must use dot form.
 - Preprocessor directives run before macro expansion.
 - Preprocessor symbols are provided via the `-D/--define` command-line option.
 
@@ -332,6 +368,8 @@ NAME .macro a, b=2
     .byte .a, .b
 .endmacro
 ```
+
+`.endm` is an alias for `.endmacro`.
 
 Alternate directive-first form:
 
@@ -376,6 +414,8 @@ Alternate directive-first form:
     .byte .v
 .endsegment
 ```
+
+`.ends` is an alias for `.endsegment`.
 
 ### 5.4 Repetition
 
@@ -452,20 +492,23 @@ Inputs (required):
 Outputs:
 - `-l, --list [FILE]`: listing output (optional filename).
 - `-x, --hex [FILE]`: Intel HEX output (optional filename).
-- `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s).
+- `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s), repeatable.
 
 Other options:
 - `-o, --outfile <BASE>`: output base name if output filename omitted.
-- `-f, --fill <hh>`: fill byte for binary output (hex). Requires binary output.
+- `-f, --fill <hh>`: fill byte for binary output (hex). Requires binary output. Defaults to `FF`.
 - `-g, --go <aaaa>`: execution start address in HEX output. Requires HEX output.
 - `-D, --define <NAME[=VAL]>`: predefine macro (repeatable).
 - `-c, --cond-debug`: include conditional state in listing.
-- `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default 64).
+- `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default `64`, minimum `1`).
+- `-h, --help`: print help.
+- `-V, --version`: print version.
 
 Notes:
 - If multiple inputs are provided, `-o` must be a directory and explicit output
   filenames are not allowed; each input uses its own base name under the output
   directory.
+- With multiple inputs, at least one output type (`-l`, `-x`, `-b`) must be selected.
 - If no outputs are specified for a single input, opForge defaults to list+hex
     when `.meta.output.name` (or `-o`) is available.
 - `-b` without a range emits a binary that spans the emitted output.
@@ -476,8 +519,13 @@ Diagnostics include a line/column and a highlighted span in listings. Terminal
 output may use ANSI colors to highlight the offending region.
 
 Listing addresses reflect the current emission context: inside a `.section` the
-address column shows the section-local program counter, while `.dsection` lines
-show absolute placement addresses.
+address column shows the section-local program counter. Absolute placed output
+is shown in the generated-output footer table.
+
+Common linker-region failures:
+- `.dsection has been removed; use .place/.pack with .output`
+- `Section referenced by .output must be explicitly placed`
+- `contiguous output requires adjacent sections` (gap diagnostic includes range)
 
 ## 9. Credits
 
@@ -502,22 +550,35 @@ Any other escape sequence inserts the escaped character as-is.
 
 Instruction mnemonics are selected by `.cpu`:
 - Intel dialect for 8080/8085 (`MOV`, `MVI`, `JMP`, ...)
-- Zilog dialect for Z80 (`LD`, `JP`, `JR`, ...)
-- Standard MOS 6502/65C02 mnemonics (`LDA`, `JMP`, `BRA`, ...)
+- 8085-only additions include `RIM` and `SIM`.
+- Zilog dialect for Z80 (`LD`, `JP`, `JR`, ...), including `SLL` and half-index
+  registers (`IXH`, `IXL`, `IYH`, `IYL`).
+- Standard MOS 6502/65C02 mnemonics (`LDA`, `JMP`, `BRA`, ...), including 65C02
+  additions such as `STP`, `WAI`, `DEC A`/`INC A` (`DEA`/`INA` aliases), and
+  extended `BIT` modes.
 
 ## 13. Appendix: quick reference
 
 ### 13.1 Directives
 
 ```
-.org  .align  .dsection  .section  .endsection  .const  .var  .set  .byte  .word  .ds  .end  .cpu
-.block  .endblock
-.macro  .endmacro  .segment  .endsegment
-.if  .elseif  .else  .endif
-.module  .endmodule  .use  .pub  .priv
-.match  .case  .default  .endmatch
-.name  .meta.name  .meta.version  .output  .endoutput  .list  .hex  .bin  .fill
+.org  .align  .region  .place  .pack  .section  .endsection  .cpu  .end
+.byte  .db  .word  .dw  .long  .ds  .emit  .res  .fill
+.const  .var  .set
+.if  .elseif  .else  .endif  .match  .case  .default  .endmatch
+.ifdef  .ifndef  .include
+.module  .endmodule  .use  .pub  .priv  .block  .endblock
+.macro  .endmacro  .endm  .segment  .endsegment  .ends  .statement  .endstatement
+.meta  .endmeta  .name  .version  .output  .endoutput  .list  .hex  .bin  .mapfile  .exportsections
+.meta.name  .meta.version
 .meta.output.name  .meta.output.<target>.name  .meta.output.list  .meta.output.hex  .meta.output.bin  .meta.output.fill
+```
+
+### 13.2 Assignment operators
+
+```
+=  :=  :?=  +=  -=  *=  /=  %=  **=  |=  ^=  &=  ||=  &&=  <<=  >>=  ..=  <?=  >?=  x=  .=
+```
 
 ## 14. Appendix: multi-CPU architecture
 
@@ -615,9 +676,8 @@ The assembler is organized into layers with hierarchical parsing and encoding:
 2. Family handler parses expressions into family operands.
 3. Dialect mapping rewrites mnemonic/operands (if needed).
 4. Family pre-encode (optional) attempts encoding from family operands.
-5. CPU handler resolves ambiguous operands to CPU-specific operands.
-6. Family encoder encodes base instructions.
-7. CPU encoder encodes extensions when family returns `NotFound`.
+5. CPU handler resolves ambiguous operands to CPU-specific operands and applies CPU validation.
+6. Encode with family handler first; CPU handler encodes extensions when family returns `NotFound`.
 
 ### Family extensions
 
@@ -642,6 +702,9 @@ Instruction extensions:
 | `BRA` | ✗ | ✓ Branch Always |
 | `PHX`, `PLX` | ✗ | ✓ Push/Pull X |
 | `PHY`, `PLY` | ✗ | ✓ Push/Pull Y |
+| `STP`, `WAI` | ✗ | ✓ Stop/Wait |
+| `DEC A`/`INC A` | ✗ | ✓ Accumulator mode (`DEA`/`INA` aliases) |
+| `BIT #imm`, `BIT zp,X`, `BIT abs,X` | ✗ | ✓ Extended BIT modes |
 | `STZ` | ✗ | ✓ Store Zero |
 | `TRB`, `TSB` | ✗ | ✓ Test and Reset/Set Bits |
 | `BBSn`, `BBRn` | ✗ | ✓ Branch on Bit Set/Reset |
@@ -655,12 +718,14 @@ Operand syntax extensions:
 |--------|------------------|----------------|
 | `A`, `B`, `HL` | Register ✓ | Register ✓ |
 | `(HL)` | Indirect ✓ | Indirect ✓ |
-| `(IX+d)`, `(IY+d)` | ✗ | Indexed ✓ |
+| `(IX+d)`, `(IY+d)` | ✗ | CB-prefix targets only ✓ (general forms not yet encoded) |
 
 Instruction extensions:
 
 The Z80 adds `DJNZ`, `JR` (with conditions), `EX`, `EXX`, block operations
-(`LDI`, `LDIR`, etc.), bit operations (`BIT`, `SET`, `RES`), and shifts/rotates.
+(`LDI`, `LDIR`, etc.), bit operations (`BIT`, `SET`, `RES`), and shifts/rotates
+including `SLL`. Z80-specific registers include `IX`, `IY`, `IXH`, `IXL`, `IYH`,
+and `IYL`.
 
 ### Syntax dialects (8080 vs Z80)
 
@@ -728,16 +793,17 @@ The Z80 adds `DJNZ`, `JR` (with conditions), `EX`, `EXX`, block operations
 ### Module interfaces (summary)
 
 ```rust
-pub trait FamilyModule {
+pub trait FamilyModule: Send + Sync {
     fn family_id(&self) -> CpuFamily;
     fn family_cpu_id(&self) -> Option<CpuType> { None }
     fn family_cpu_name(&self) -> Option<&'static str> { None }
+    fn cpu_names(&self, registry: &ModuleRegistry) -> Vec<String>;
     fn canonical_dialect(&self) -> &'static str;
     fn dialects(&self) -> Vec<Box<dyn DialectModule>>;
     fn handler(&self) -> Box<dyn FamilyHandlerDyn>;
 }
 
-pub trait CpuModule {
+pub trait CpuModule: Send + Sync {
     fn cpu_id(&self) -> CpuType;
     fn family_id(&self) -> CpuFamily;
     fn cpu_name(&self) -> &'static str;
@@ -746,7 +812,7 @@ pub trait CpuModule {
     fn validator(&self) -> Option<Box<dyn CpuValidator>> { None }
 }
 
-pub trait DialectModule {
+pub trait DialectModule: Send + Sync {
     fn dialect_id(&self) -> &'static str;
     fn family_id(&self) -> CpuFamily;
     fn map_mnemonic(
@@ -755,13 +821,4 @@ pub trait DialectModule {
         operands: &dyn FamilyOperandSet,
     ) -> Option<(String, Box<dyn FamilyOperandSet>)>;
 }
-```
-.match  .case  .default  .endmatch
-.ifdef  .ifndef  .include
-```
-
-### 13.2 Assignment operators
-
-```
-=  :=  :?=  +=  -=  *=  /=  %=  **=  |=  ^=  &=  ||=  &&=  <<=  >>=  ..=  <?=  >?=  x=  .=
 ```

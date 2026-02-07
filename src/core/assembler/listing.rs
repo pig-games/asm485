@@ -3,6 +3,7 @@
 
 //! Listing file generation.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 
 use crate::core::parser::ParseError;
@@ -111,6 +112,16 @@ impl<W: Write> ListingWriter<W> {
         symbols: &SymbolTable,
         total_mem: usize,
     ) -> std::io::Result<()> {
+        self.footer_with_generated_output(counts, symbols, total_mem, &[])
+    }
+
+    pub fn footer_with_generated_output(
+        &mut self,
+        counts: &PassCounts,
+        symbols: &SymbolTable,
+        total_mem: usize,
+        generated_output: &[(u16, u8)],
+    ) -> std::io::Result<()> {
         writeln!(
             self.out,
             "\nLines: {}  Errors: {}  Warnings: {}",
@@ -119,6 +130,52 @@ impl<W: Write> ListingWriter<W> {
         writeln!(self.out, "\nSYMBOL TABLE\n")?;
         symbols.dump(&mut self.out)?;
         writeln!(self.out, "\nTotal memory is {} bytes", total_mem)?;
+        self.write_generated_output(generated_output)?;
+        Ok(())
+    }
+
+    fn write_generated_output(&mut self, generated_output: &[(u16, u8)]) -> std::io::Result<()> {
+        writeln!(self.out, "\nGENERATED OUTPUT\n")?;
+        if generated_output.is_empty() {
+            writeln!(self.out, "(none)")?;
+            return Ok(());
+        }
+
+        let mut resolved = BTreeMap::new();
+        for (addr, value) in generated_output {
+            resolved.insert(*addr, *value);
+        }
+
+        writeln!(self.out, "ADDR    BYTES")?;
+        writeln!(self.out, "------  -----------------------")?;
+
+        let mut line_addr: Option<u16> = None;
+        let mut prev_addr: Option<u16> = None;
+        let mut line_bytes: Vec<u8> = Vec::new();
+
+        for (addr, value) in resolved {
+            let split = match prev_addr {
+                Some(prev) => addr != prev.wrapping_add(1) || line_bytes.len() >= 16,
+                None => false,
+            };
+            if split {
+                if let Some(start) = line_addr {
+                    writeln!(self.out, "{start:04X}    {}", format_bytes(&line_bytes))?;
+                }
+                line_bytes.clear();
+                line_addr = Some(addr);
+            }
+            if line_addr.is_none() {
+                line_addr = Some(addr);
+            }
+            line_bytes.push(value);
+            prev_addr = Some(addr);
+        }
+
+        if let Some(start) = line_addr {
+            writeln!(self.out, "{start:04X}    {}", format_bytes(&line_bytes))?;
+        }
+
         Ok(())
     }
 }

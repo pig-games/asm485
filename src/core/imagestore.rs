@@ -17,6 +17,10 @@ struct ImageStoreEntry {
     value: u8,
 }
 
+/// Stores assembled bytes using a temp-file-backed buffer.
+///
+/// Bytes are appended via `store`/`store_slice` and later emitted as
+/// Intel HEX or raw binary output files.
 pub struct ImageStore {
     path: PathBuf,
     file: File,
@@ -25,6 +29,7 @@ pub struct ImageStore {
 }
 
 impl ImageStore {
+    /// Create a new image store. `_max_entries` is reserved for future use.
     pub fn new(_max_entries: usize) -> Self {
         let mut path = std::env::temp_dir();
         let nanos = SystemTime::now()
@@ -34,24 +39,36 @@ impl ImageStore {
         let pid = std::process::id();
         let counter = IMAGE_STORE_COUNTER.fetch_add(1, Ordering::Relaxed);
         path.push(format!("opForge-image-{pid}-{nanos}-{counter}.bin"));
-        let file = OpenOptions::new()
+        match OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(&path)
-            .expect("image store temp file");
-        Self {
-            path,
-            file,
-            entries: 0,
-            write_error: None,
+        {
+            Ok(file) => Self {
+                path,
+                file,
+                entries: 0,
+                write_error: None,
+            },
+            Err(err) => Self {
+                path,
+                file: File::open("/dev/null").unwrap_or_else(|_| {
+                    // Fallback: create a file struct that will report errors on use
+                    File::open(".").unwrap()
+                }),
+                entries: 0,
+                write_error: Some(err),
+            },
         }
     }
 
+    /// Return the number of stored address/byte entries.
     pub fn num_entries(&self) -> usize {
         self.entries
     }
 
+    /// Store a single byte at the given address.
     pub fn store(&mut self, addr: u16, val: u8) {
         if self.write_error.is_some() {
             return;
@@ -64,6 +81,7 @@ impl ImageStore {
         self.entries = self.entries.saturating_add(1);
     }
 
+    /// Store a contiguous slice of bytes starting at `addr`.
     pub fn store_slice(&mut self, addr: u16, values: &[u8]) {
         for (ix, val) in values.iter().enumerate() {
             let next_addr = addr.wrapping_add(ix as u16);
@@ -99,9 +117,26 @@ impl ImageStore {
         Ok(())
     }
 
+    /// Write an Intel HEX file. Deduplicates by address (last write wins)
+    /// and sorts records by address. Optional `go_addr` emits a start-address record.
     pub fn write_hex_file<W: Write>(&self, mut out: W, go_addr: Option<&str>) -> io::Result<()> {
         self.ensure_ready()?;
-        let entries = self.read_entries()?;
+        let raw_entries = self.read_entries()?;
+
+        // Deduplicate entries by address (last-write-wins), then sort by address.
+        let entries = {
+            let mut seen = std::collections::HashMap::<u16, u8>::new();
+            for entry in &raw_entries {
+                seen.insert(entry.addr, entry.value);
+            }
+            let mut deduped: Vec<ImageStoreEntry> = seen
+                .into_iter()
+                .map(|(addr, value)| ImageStoreEntry { addr, value })
+                .collect();
+            deduped.sort_by_key(|e| e.addr);
+            deduped
+        };
+
         let mut line_addr: u16 = 0;
         let mut line_bytes: u8 = 0;
         let mut checksum: u8 = 0;
@@ -163,6 +198,7 @@ impl ImageStore {
         Ok(())
     }
 
+    /// Write a raw binary file covering `start..=end`, filling gaps with `fill`.
     pub fn write_bin_file<W: Write>(
         &self,
         mut out: W,
@@ -172,22 +208,27 @@ impl ImageStore {
     ) -> io::Result<()> {
         self.ensure_ready()?;
         let entries = self.read_entries()?;
-        let mut mem = vec![fill; 65536];
-        for entry in &entries {
-            mem[entry.addr as usize] = entry.value;
-        }
 
         let start = start_addr as usize;
         let mut size = end_addr as i32 - start_addr as i32 + 1;
         if size < 0 {
             size = 0;
         }
-        let max_len = mem.len().saturating_sub(start);
-        let write_size = usize::min(size as usize, max_len);
-        out.write_all(&mem[start..start + write_size])?;
+        let alloc_end = start + size as usize;
+        let alloc_size = alloc_end.min(65536).saturating_sub(start);
+        let mut mem = vec![fill; alloc_size];
+        for entry in &entries {
+            let addr = entry.addr as usize;
+            if addr >= start && addr < start + alloc_size {
+                mem[addr - start] = entry.value;
+            }
+        }
+
+        out.write_all(&mem)?;
         Ok(())
     }
 
+    /// Return the (min, max) address range of emitted bytes, or `None` if empty.
     pub fn output_range(&self) -> io::Result<Option<(u16, u16)>> {
         self.ensure_ready()?;
         let entries = self.read_entries()?;
@@ -202,6 +243,16 @@ impl ImageStore {
             max = max.max(entry.addr);
         }
         Ok(Some((min, max)))
+    }
+
+    /// Return all stored `(address, byte)` pairs.
+    pub fn entries(&self) -> io::Result<Vec<(u16, u8)>> {
+        self.ensure_ready()?;
+        let entries = self.read_entries()?;
+        Ok(entries
+            .into_iter()
+            .map(|entry| (entry.addr, entry.value))
+            .collect())
     }
 }
 

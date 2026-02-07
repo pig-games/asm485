@@ -12,7 +12,7 @@ It produces optional Intel Hex, listing, and binary image outputs, selected by c
 It also supports patterned `.statement` definitions for custom statement syntax, with typed captures using
 `type:name` and quoted literal commas (use `","`). Statement labels may include dots (e.g. `move.b`).
 
-For all documentation on features and syntax read: [opForge Reference Manual](docs/opForge-reference-manual.md).
+For all documentation on features and syntax read: [opForge Reference Manual](documentation/opForge-reference-manual.md).
 
 
 Build:
@@ -113,3 +113,41 @@ creates:
     opForge -b -i prog.asm
 creates:
 * A binary image file containing the emitted output range
+
+## Linker Regions Workflow (v3.1)
+
+Use explicit region placement and output directives for section-based builds.
+
+Minimal flow:
+
+```asm
+.module main
+
+.region ram, $1000, $10ff
+
+.section code
+start:
+    .byte $42, $43
+.endsection
+
+.place code in ram
+
+.output "build/minimal.bin", format=bin, sections=code
+.mapfile "build/minimal.map", symbols=public
+.exportsections dir="build/minimal_sections", format=bin
+
+.endmodule
+```
+
+Grouped placement flow:
+
+```asm
+.pack in rom : code, data, zero
+.output "build/full.prg", format=prg, contiguous=false, sections=code,data
+.output "build/full-image.bin", format=bin, image="$8000..$8010", fill=$ff, contiguous=false, sections=code,data
+```
+
+Examples:
+- `examples/linker_regions_minimal.asm`
+- `examples/linker_regions_full.asm`
+

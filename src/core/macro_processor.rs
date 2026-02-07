@@ -6,63 +6,9 @@
 use crate::core::parser::{
     match_statement_signature, select_statement_signature, LineAst, Parser, StatementSignature,
 };
-use crate::core::text_utils::{is_ident_char, is_ident_start, is_space, to_upper};
+use crate::core::text_utils::{is_ident_char, is_ident_start, is_space, to_upper, Cursor};
 use crate::core::tokenizer::{Span, Token, TokenKind, Tokenizer};
 use std::collections::HashMap;
-
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Cursor<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            bytes: input.as_bytes(),
-            pos: 0,
-        }
-    }
-
-    fn with_pos(input: &'a str, pos: usize) -> Self {
-        Self {
-            bytes: input.as_bytes(),
-            pos,
-        }
-    }
-
-    fn pos(&self) -> usize {
-        self.pos
-    }
-
-    fn skip_ws(&mut self) {
-        while self.peek().is_some_and(is_space) {
-            self.pos += 1;
-        }
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.pos).copied()
-    }
-
-    fn next(&mut self) -> Option<u8> {
-        let c = self.peek()?;
-        self.pos += 1;
-        Some(c)
-    }
-
-    fn take_ident(&mut self) -> Option<String> {
-        let start = self.pos;
-        let first = self.peek()?;
-        if !is_ident_start(first) {
-            return None;
-        }
-        self.pos += 1;
-        while self.peek().is_some_and(is_ident_char) {
-            self.pos += 1;
-        }
-        Some(String::from_utf8_lossy(&self.bytes[start..self.pos]).to_string())
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct MacroError {
@@ -1102,8 +1048,17 @@ fn has_named(args: &MacroArgs, name: &str) -> bool {
 fn split_comment(line: &str) -> (String, String) {
     let mut in_single = false;
     let mut in_double = false;
+    let mut escape = false;
     for (idx, c) in line.char_indices() {
         match c {
+            _ if escape => {
+                escape = false;
+                continue;
+            }
+            '\\' if in_single || in_double => {
+                escape = true;
+                continue;
+            }
             '\'' if !in_double => {
                 in_single = !in_single;
             }

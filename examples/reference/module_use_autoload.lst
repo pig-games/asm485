@@ -21,3 +21,9 @@ SYMBOL TABLE
 example.autoload.lib.LIBVAL: 0007 (7)
 
 Total memory is 1 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    07

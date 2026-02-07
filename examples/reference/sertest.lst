@@ -57,3 +57,11 @@ CO2             : 000e (14)
 CHILL           : 0022 (34)
 
 Total memory is 45 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    0E 54 F3 06 0B AF 3E 80 1F 3F 30 21 13 01 2D C2
+0010    0E 00 25 C2 0E 00 37 79 1F 4F 05 C2 06 00 FB 21
+0020    FF 3F 2D C2 22 00 25 C2 22 00 C3 00 00

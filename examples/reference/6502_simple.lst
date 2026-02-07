@@ -57,3 +57,12 @@ SYMBOL TABLE
 start           : 1000 (4096)
 
 Total memory is 49 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    EA 18 38 58 78 0A 4A 2A 6A A9 42 A2 10 A0 FF 69
+1010    01 E9 02 C9 00 E0 80 C0 7F 29 0F 09 F0 49 AA A5
+1020    42 85 50 A6 60 A4 70 AD 34 12 8D 78 56 4C 00 20
+1030    60

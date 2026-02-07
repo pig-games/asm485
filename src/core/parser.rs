@@ -23,6 +23,17 @@ pub enum LineAst {
         exprs: Vec<Expr>,
         span: Span,
     },
+    Place {
+        section: String,
+        region: String,
+        align: Option<Expr>,
+        span: Span,
+    },
+    Pack {
+        region: String,
+        sections: Vec<String>,
+        span: Span,
+    },
     Use {
         module_id: String,
         alias: Option<String>,
@@ -447,6 +458,12 @@ impl Parser {
             if upper.as_str() == "USE" {
                 return self.parse_use_directive(span);
             }
+            if upper.as_str() == "PLACE" {
+                return self.parse_place_directive(span);
+            }
+            if upper.as_str() == "PACK" {
+                return self.parse_pack_directive(span);
+            }
             if matches!(
                 upper.as_str(),
                 "MACRO" | "SEGMENT" | "ENDMACRO" | "ENDSEGMENT" | "ENDM" | "ENDS"
@@ -588,6 +605,109 @@ impl Parser {
             label,
             mnemonic,
             operands,
+        })
+    }
+
+    fn parse_place_directive(&mut self, start_span: Span) -> Result<LineAst, ParseError> {
+        let (section, section_span) = self.parse_ident_like("Expected section name for .place")?;
+        let (in_kw, in_span) = self.parse_ident_like("Expected 'in' in .place directive")?;
+        if !in_kw.eq_ignore_ascii_case("in") {
+            return Err(ParseError {
+                message: "Expected 'in' in .place directive".to_string(),
+                span: in_span,
+            });
+        }
+        let (region, _) = self.parse_ident_like("Expected region name for .place")?;
+
+        let mut align = None;
+        if self.consume_comma() {
+            let (key, key_span) =
+                self.parse_ident_like("Expected option key after ',' in .place directive")?;
+            if !key.eq_ignore_ascii_case("align") {
+                return Err(ParseError {
+                    message: "Unknown .place option key".to_string(),
+                    span: key_span,
+                });
+            }
+            if !self.match_operator(OperatorKind::Eq) {
+                return Err(ParseError {
+                    message: "Expected '=' after align in .place directive".to_string(),
+                    span: self.current_span(),
+                });
+            }
+            align = Some(self.parse_expr()?);
+        }
+
+        if self.index < self.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: self.tokens[self.index].span,
+            });
+        }
+
+        let end_span = if self.index == 0 {
+            section_span
+        } else {
+            self.prev_span()
+        };
+        Ok(LineAst::Place {
+            section,
+            region,
+            align,
+            span: Span {
+                line: start_span.line,
+                col_start: start_span.col_start,
+                col_end: end_span.col_end,
+            },
+        })
+    }
+
+    fn parse_pack_directive(&mut self, start_span: Span) -> Result<LineAst, ParseError> {
+        let (in_kw, in_span) = self.parse_ident_like("Expected 'in' in .pack directive")?;
+        if !in_kw.eq_ignore_ascii_case("in") {
+            return Err(ParseError {
+                message: "Expected 'in' in .pack directive".to_string(),
+                span: in_span,
+            });
+        }
+        let (region, _) = self.parse_ident_like("Expected region name for .pack")?;
+        if !self.consume_kind(TokenKind::Colon) {
+            return Err(ParseError {
+                message: "Expected ':' in .pack directive".to_string(),
+                span: self.current_span(),
+            });
+        }
+
+        let mut sections = Vec::new();
+        let (first_section, _) =
+            self.parse_ident_like("Expected at least one section in .pack directive")?;
+        sections.push(first_section);
+        while self.consume_comma() {
+            let (name, _) =
+                self.parse_ident_like("Expected section name after ',' in .pack directive")?;
+            sections.push(name);
+        }
+
+        if self.index < self.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: self.tokens[self.index].span,
+            });
+        }
+
+        let end_span = if self.index == 0 {
+            start_span
+        } else {
+            self.prev_span()
+        };
+        Ok(LineAst::Pack {
+            region,
+            sections,
+            span: Span {
+                line: start_span.line,
+                col_start: start_span.col_start,
+                col_end: end_span.col_end,
+            },
         })
     }
 
@@ -1812,6 +1932,40 @@ mod tests {
                 assert_eq!(operands.len(), 2);
             }
             _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_place_directive() {
+        let mut parser = Parser::from_line(".place code in ram, align=2", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Place {
+                section,
+                region,
+                align,
+                ..
+            } => {
+                assert_eq!(section, "code");
+                assert_eq!(region, "ram");
+                assert!(align.is_some());
+            }
+            _ => panic!("Expected place directive"),
+        }
+    }
+
+    #[test]
+    fn parses_pack_directive() {
+        let mut parser = Parser::from_line(".pack in ram : code, data", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Pack {
+                region, sections, ..
+            } => {
+                assert_eq!(region, "ram");
+                assert_eq!(sections, vec!["code".to_string(), "data".to_string()]);
+            }
+            _ => panic!("Expected pack directive"),
         }
     }
 

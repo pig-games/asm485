@@ -33,5 +33,15 @@ skip:
         djnz skip       ; decrement B and jump if not zero
         ldir            ; block transfer
         cpir            ; block search
+
+; CB-prefix bit/shift/rotate operations
+        bit 3, b        ; CB 58
+        set 5, (hl)     ; CB EE
+        res 1, a        ; CB 8F
+        rlc c           ; CB 01
+        sra (hl)        ; CB 2E
+        bit 2, (ix+5)   ; DD CB 05 56
+        set 7, (iy-2)   ; FD CB FE FE
+        srl (ix+0)      ; DD CB 00 3E
         
         .end

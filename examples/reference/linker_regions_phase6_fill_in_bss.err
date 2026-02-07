@@ -1,0 +1,1 @@
+Assembly failed: .fill is not allowed in kind=bss section (current kind=bss)

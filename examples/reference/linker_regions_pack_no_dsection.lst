@@ -1,0 +1,38 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  .module main
+----                                2  
+----                                3  .region ram, $1200, $12ff
+----                                4  
+----                                5  .section code  ; [section code]
+----                                6  .pub  ; [section code]
+----                                7  start:  ; [section code]
+0000    10 11                       8      .byte $10, $11  ; [section code]
+----                                9  .priv  ; [section code]
+----                               10  .endsection
+----                               11  
+----                               12  .section data  ; [section data]
+0000    22 33                      13      .byte $22, $33  ; [section data]
+----                               14  .endsection
+----                               15  
+----                               16  .pack in ram : code, data
+----                               17  
+----                               18  .output "build/pack-no-dsection.bin", format=bin, contiguous=false, sections=code,data
+----                               19  .mapfile "build/pack-no-dsection.map", symbols=public
+----                               20  
+----                               21  .endmodule
+
+Lines: 21  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+main.start      : 1200 (4608)
+
+Total memory is 4 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1200    10 11 22 33

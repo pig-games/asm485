@@ -1,0 +1,11 @@
+Regions
+name start end used free align
+ram 1000 10FF 2 254 1
+
+Sections
+name base size kind region
+code 1000 2 code ram
+
+Symbols
+name value visibility
+main.start 1000 public

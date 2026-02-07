@@ -39,6 +39,12 @@ impl FamilyParseError {
     }
 }
 
+impl std::fmt::Display for FamilyParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 /// Error returned when encoding fails.
 #[derive(Debug, Clone)]
 pub enum EncodeResult<T> {

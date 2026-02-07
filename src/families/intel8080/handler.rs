@@ -23,12 +23,12 @@ impl FamilyHandler for Intel8080FamilyHandler {
 
     fn parse_operands(
         &self,
-        _mnemonic: &str,
+        mnemonic: &str,
         exprs: &[Expr],
     ) -> Result<Vec<Self::FamilyOperand>, FamilyParseError> {
         let mut result = Vec::new();
 
-        let upper = _mnemonic.to_ascii_uppercase();
+        let upper = mnemonic.to_ascii_uppercase();
 
         for expr in exprs {
             if upper == "RST" {
@@ -102,8 +102,13 @@ impl FamilyHandler for Intel8080FamilyHandler {
                             right,
                             span: inner_span,
                         } => {
-                            if let Expr::Identifier(name, _) = left.as_ref() {
-                                let upper = name.to_uppercase();
+                            let base_name = match left.as_ref() {
+                                Expr::Identifier(name, _) | Expr::Register(name, _) => {
+                                    Some(name.to_uppercase())
+                                }
+                                _ => None,
+                            };
+                            if let Some(upper) = base_name {
                                 if is_index_register(&upper)
                                     && (*op == BinaryOp::Add || *op == BinaryOp::Subtract)
                                 {
@@ -288,6 +293,13 @@ fn encode_intel8080_family_operands(
 
     if upper == "RST" {
         return encode_rst(operands);
+    }
+
+    // RLC/RRC overlap between 8080 single-byte accumulator forms and
+    // Z80 CB-prefixed register/memory forms. Defer non-zero-operand forms
+    // to the Z80 CPU handler.
+    if matches!(upper.as_str(), "RLC" | "RRC") && !operands.is_empty() {
+        return FamilyEncodeResult::NotFound;
     }
 
     let entry = match find_intel8080_family_entry(&upper, operands) {
@@ -659,6 +671,12 @@ fn resolve_operand(
                 message: e,
                 span: *span,
             })?;
+            if !(-128..=127).contains(&offset_value) {
+                return Err(FamilyParseError {
+                    message: format!("Index offset {} out of range (-128..127)", offset_value),
+                    span: *span,
+                });
+            }
             Ok(Operand::Indexed {
                 base: base.clone(),
                 offset: offset_value as i8,

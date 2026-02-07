@@ -28,3 +28,9 @@ alpha.VALUE     : 0001 (1)
 alpha.OTHER     : 0002 (2)
 
 Total memory is 4 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    01 02 01 02

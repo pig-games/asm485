@@ -1,9 +1,9 @@
 ; Demonstrates sections.
 
 .module main
+    .region ram, $1000, $10ff
     .section data
     .byte 1, 2
     .endsection
-    .org 1000h
-    .dsection data
+    .place data in ram
 .endmodule

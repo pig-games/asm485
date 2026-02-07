@@ -25,3 +25,10 @@ alpha.VALUE     : 0001 (1)
 beta.VALUE      : 0002 (2)
 
 Total memory is 2 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    01
+2000    02

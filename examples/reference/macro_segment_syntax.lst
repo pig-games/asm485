@@ -30,3 +30,9 @@ SYMBOL TABLE
 VAL             : 0007 (7)
 
 Total memory is 6 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    01 02 03 07 07 00

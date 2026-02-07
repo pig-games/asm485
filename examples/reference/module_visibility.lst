@@ -29,3 +29,9 @@ alpha.PRIVATE   : 0002 (2)
 beta.VALUE      : 0003 (3)
 
 Total memory is 3 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    01 02 03

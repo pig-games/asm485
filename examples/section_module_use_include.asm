@@ -4,11 +4,11 @@
 
 .module example.section.app
     .use example.section.include.lib (LIBVAL)
+    .region ram, $1000, $10ff
     .section data
     .byte 1, LIBVAL
     .endsection
-    .org 1000h
-    .dsection data
+    .place data in ram
 .endmodule
 
 .end
