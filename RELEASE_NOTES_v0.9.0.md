@@ -49,7 +49,12 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
+  - `examples/65816_wide_image.asm`
   - matching `examples/reference/65816_*.hex` and `examples/reference/65816_*.lst`
+- Wide-address phase-2 slice:
+  - `.org`, region placement (`.region`/`.place`/`.pack`), and linker image spans support wide addresses
+  - CLI accepts 4-8 hex digit addresses for `-b/--bin` ranges and `-g/--go`
+  - HEX start-address emission supports both start-segment (16-bit) and start-linear (wide) records
 
 ## Changed
 
@@ -62,6 +67,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 - Documentation tree was reorganized from `docs/` to `documentation/`, and
   a generated reference-manual PDF was added.
 - Repository policy change: `AGENTS.md` was removed from tracked sources.
+- PRG output keeps a 16-bit load address prefix and now reports a directive error
+  when `loadaddr` exceeds 16 bits.
 
 ## Fixed
 
@@ -108,7 +115,8 @@ Or grouped placement:
 
 ## Notes on 65816 scope
 
-The current 65816 implementation is MVP/phase-1:
-- core assembler address/layout flow remains 16-bit
-- full 24-bit architecture/output behavior is still planned
+Current 65816 coverage includes MVP instructions plus a wide-address output/layout slice:
+- wide placement and output workflows are supported (`.org`, regions, wide image spans, wide BIN ranges, HEX ELA/start-linear records)
+- long memory encodings are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`)
+- full banked CPU-state semantics are still planned
 - width-sensitive immediate sizing via M/X state tracking is still planned

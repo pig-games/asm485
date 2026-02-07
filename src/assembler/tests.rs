@@ -1684,6 +1684,42 @@ fn m65816_stack_relative_forms_encode() {
 }
 
 #[test]
+fn m65816_long_memory_forms_encode() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA $123456"),
+        vec![0x0F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA $123456,X"),
+        vec![0x1F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA $123456"),
+        vec![0xAF, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA $123456,X"),
+        vec![0xBF, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA $123456"),
+        vec![0x8F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA $123456,X"),
+        vec![0x9F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ADC $123456"),
+        vec![0x6F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    SBC $123456,X"),
+        vec![0xFF, 0x56, 0x34, 0x12]
+    );
+}
+
+#[test]
 fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     let (status, message) = assemble_line_status(m6502_cpu_id, "    BRL $0005");
     assert_eq!(status, LineStatus::Error);

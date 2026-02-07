@@ -145,8 +145,8 @@ Linker output directives:
 
 Output mode rules:
 - Default output mode is contiguous (`contiguous=true`): selected sections must be adjacent.
-- Image output mode (`image=...` + `fill=...`) allows sparse placement within the configured span.
-- PRG output prefixes a 2-byte little-endian load address (`loadaddr=` optional).
+- Image output mode (`image=...` + `fill=...`) allows sparse placement within the configured span (wide addresses supported).
+- PRG output prefixes a 2-byte little-endian load address (`loadaddr=` optional, must fit in 16 bits).
 
 ### 4.3 Data directives
 
@@ -339,9 +339,10 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 
 65816 support is currently MVP/phase-1 scope:
-- Uses the current 16-bit assembler core address model.
 - Implements selected 65816 mnemonics and operand forms.
-- Does not yet implement full 24-bit core output/layout behavior.
+- Includes long memory forms for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`).
+- Includes a wide-address output/layout slice (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
+- Does not yet implement full banked CPU-state semantics.
 - Does not yet implement M/X width-state tracking for width-sensitive immediate sizing.
 
 ### 4.8 End of assembly
@@ -501,12 +502,12 @@ Inputs (required):
 Outputs:
 - `-l, --list [FILE]`: listing output (optional filename).
 - `-x, --hex [FILE]`: Intel HEX output (optional filename).
-- `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s), repeatable.
+- `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s), repeatable (`ssss`/`eeee` are 4-8 hex digits).
 
 Other options:
 - `-o, --outfile <BASE>`: output base name if output filename omitted.
 - `-f, --fill <hh>`: fill byte for binary output (hex). Requires binary output. Defaults to `FF`.
-- `-g, --go <aaaa>`: execution start address in HEX output. Requires HEX output.
+- `-g, --go <aaaa>`: execution start address in HEX output (4-8 hex digits). Requires HEX output.
 - `-D, --define <NAME[=VAL]>`: predefine macro (repeatable).
 - `-c, --cond-debug`: include conditional state in listing.
 - `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default `64`, minimum `1`).
@@ -521,6 +522,7 @@ Notes:
 - If no outputs are specified for a single input, opForge defaults to list+hex
     when `.meta.output.name` (or `-o`) is available.
 - `-b` without a range emits a binary that spans the emitted output.
+- `-g` writes a Start Segment Address record for 16-bit values and a Start Linear Address record for wider values.
 
 ## 8. Messages
 
@@ -736,7 +738,8 @@ Currently implemented 65816-specific additions in this branch:
 - operand forms: `d,S`, `(d,S),Y`, bracketed indirect (`[...]`, `[...,Y]`) for supported instructions
 
 Current 65816 limits:
-- core assembler address/layout flow is still 16-bit
+- PRG load-address prefix remains 16-bit
+- full banked CPU-state semantics are still in progress
 - no M/X width-state tracking for width-sensitive immediate sizing
 
 **Intel 8080 Family**

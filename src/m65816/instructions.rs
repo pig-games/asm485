@@ -141,6 +141,86 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "ORA",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0x0F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ORA",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0x1F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0x2F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0x3F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0x4F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0x5F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0x6F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0x7F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0x8F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0x9F,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0xAF,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0xBF,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0xCF,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0xDF,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::AbsoluteLong,
+        opcode: 0xEF,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::AbsoluteLongX,
+        opcode: 0xFF,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ORA",
         mode: AddressMode::StackRelative,
         opcode: 0x03,
     },
@@ -179,6 +259,7 @@ mod tests {
         assert!(has_mnemonic("BRL"));
         assert!(lookup_instruction("BRL", AddressMode::RelativeLong).is_some());
         assert!(lookup_instruction("JML", AddressMode::AbsoluteLong).is_some());
+        assert!(lookup_instruction("LDA", AddressMode::AbsoluteLongX).is_some());
         assert!(lookup_instruction("MVN", AddressMode::BlockMove).is_some());
     }
 }

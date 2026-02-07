@@ -97,19 +97,35 @@ impl CpuHandler for M65816CpuHandler {
         family_operands: &[FamilyOperand],
         ctx: &dyn AssemblerContext,
     ) -> Result<Vec<Operand>, String> {
+        let upper_mnemonic = Self::upper_mnemonic(mnemonic);
+
         if family_operands.len() == 1 {
             match &family_operands[0] {
                 FamilyOperand::Direct(expr) => {
                     if matches!(
-                        Self::upper_mnemonic(mnemonic).as_str(),
+                        upper_mnemonic.as_str(),
                         "BRL" | "PER" | "PEA" | "JSL" | "JML"
                     ) {
                         return Ok(vec![self.resolve_direct(mnemonic, expr, ctx)?]);
                     }
+
+                    let val = ctx.eval_expr(expr)?;
+                    if (0..=0xFF_FFFF).contains(&val)
+                        && val > 65535
+                        && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLong).is_some()
+                    {
+                        return Ok(vec![Operand::AbsoluteLong(
+                            val as u32,
+                            crate::core::assembler::expression::expr_span(expr),
+                        )]);
+                    }
                 }
                 FamilyOperand::DirectX(expr) => {
                     let val = ctx.eval_expr(expr)?;
-                    if (0..=0xFF_FFFF).contains(&val) && val > 65535 {
+                    if (0..=0xFF_FFFF).contains(&val)
+                        && val > 65535
+                        && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLongX).is_some()
+                    {
                         return Ok(vec![Operand::AbsoluteLongX(
                             val as u32,
                             crate::core::assembler::expression::expr_span(expr),

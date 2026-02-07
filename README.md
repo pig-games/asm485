@@ -14,15 +14,17 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 
 For all documentation on features and syntax read: [opForge Reference Manual](documentation/opForge-reference-manual.md).
 
-## 65816 Status (MVP)
+## 65816 Status (MVP + Wide Address Slice)
 
-Current 65816 support is phase-1/MVP and uses the existing 16-bit core address model.
+Current 65816 support includes the phase-1 instruction MVP plus an initial wide-address
+phase-2 slice for placement/output workflows.
 
 - CPU names: `65816` (canonical), `65c816`, `w65c816`
 - Includes 65816 instruction support currently implemented in this branch:
   - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
   - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
   - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
+  - long memory forms: `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC` with `$llhhhh` and `$llhhhh,X`
   - block move: `MVN`, `MVP`
 - Implemented 65816-only operand forms currently include:
   - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`)
@@ -30,12 +32,14 @@ Current 65816 support is phase-1/MVP and uses the existing 16-bit core address m
   - long absolute operands for implemented long-control instructions
 
 Current limits:
-- Full 24-bit core address-model behavior is not implemented yet.
+- Full banked CPU-state semantics are not implemented yet.
+- PRG output `loadaddr` must still fit in 16 bits.
 - Width-sensitive immediate sizing state (M/X state tracking) is not implemented yet.
 
 New 65816 examples:
 - `examples/65816_simple.asm`
 - `examples/65816_allmodes.asm`
+- `examples/65816_wide_image.asm`
 
 
 Build:
@@ -90,11 +94,12 @@ Arguments:
                                  Emit a binary image file (repeatable). A range is optional.
                                  Use ssss:eeee to use the output base, FILE:ssss:eeee to
                                  override the filename, or FILE to emit the full output range.
+                                 Range values are 4-8 hex digits per side.
                                  If FILE has no extension, .bin is added.
                                  If multiple -b ranges are provided without filenames, each file
                                  is named <base>-ssss.bin to avoid collisions.
-    -g, --go <aaaa>              Set execution start address (4 hex digits). Adds a Start
-                                 Segment Address record to the hex output. Requires hex output.
+    -g, --go <aaaa>              Set execution start address (4-8 hex digits). Adds a Start
+                                 Address record to the hex output. Requires hex output.
     -f, --fill <hh>              Fill byte for binary output (2 hex digits). Defaults to FF.
     -D, --define <NAME[=VAL]>    Predefine a macro (repeatable). If VAL is omitted, it
                                  defaults to 1.
@@ -107,7 +112,8 @@ a root-module output name (via `.meta.output.name`) or `-o` is specified. Output
 also be provided by `.meta.output.list`, `.meta.output.hex`, and `.meta.output.bin` in the root module;
 `.meta.output.fill` sets the binary fill byte. CLI flags always take precedence when both are present.
 
-The `-g` option adds a Start Segment Address record to the output hex file. Some loaders may use this to start execution when the download is complete.
+The `-g` option adds a Start Segment Address record for 16-bit values and a Start Linear
+Address record for wider values in the output hex file.
 
 If `test.asm` is specified as the input with `-i` and `-l`/`-x` are used without filenames (and `-o` is not used), the outputs will be named `test.lst` and `test.hex`. Bytes not present in the assembly source are initialized to `FF` in binary image files.
 
@@ -136,6 +142,11 @@ creates:
     opForge -b -i prog.asm
 creates:
 * A binary image file containing the emitted output range
+
+    opForge -x -g 123456 -b out.bin:123400:12341f -i examples/65816_wide_image.asm
+creates:
+* A hex file with wide-address records (ELA + start linear address)
+* A binary image file out.bin covering `$123400..$12341F`
 
 ## Linker Regions Workflow (v3.1)
 
