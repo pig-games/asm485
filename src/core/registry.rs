@@ -142,6 +142,9 @@ pub trait CpuModule: Send + Sync {
     fn cpu_id(&self) -> CpuType;
     fn family_id(&self) -> CpuFamily;
     fn cpu_name(&self) -> &'static str;
+    fn cpu_aliases(&self) -> &'static [&'static str] {
+        &[]
+    }
     fn default_dialect(&self) -> &'static str;
     fn handler(&self) -> Box<dyn CpuHandlerDyn>;
     fn validator(&self) -> Option<Box<dyn CpuValidator>> {
@@ -221,6 +224,9 @@ impl ModuleRegistry {
         let cpu_id = module.cpu_id();
         self.cpu_names
             .insert(normalize_cpu_name(module.cpu_name()), cpu_id);
+        for alias in module.cpu_aliases() {
+            self.cpu_names.insert(normalize_cpu_name(alias), cpu_id);
+        }
         self.cpus.insert(cpu_id, module);
     }
 
@@ -446,6 +452,9 @@ mod tests {
         fn cpu_name(&self) -> &'static str {
             "TestCpu"
         }
+        fn cpu_aliases(&self) -> &'static [&'static str] {
+            &["test_alias", "test16"]
+        }
         fn default_dialect(&self) -> &'static str {
             "test_dialect"
         }
@@ -473,6 +482,16 @@ mod tests {
         assert_eq!(reg.resolve_cpu_name("TESTCPU"), Some(TEST_CPU));
         assert_eq!(reg.resolve_cpu_name("TestCpu"), Some(TEST_CPU));
         assert_eq!(reg.resolve_cpu_name("testcpu"), Some(TEST_CPU));
+    }
+
+    #[test]
+    fn resolve_cpu_alias_name_maps_to_cpu() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        assert_eq!(reg.resolve_cpu_name("test_alias"), Some(TEST_CPU));
+        assert_eq!(reg.resolve_cpu_name("TEST16"), Some(TEST_CPU));
     }
 
     #[test]

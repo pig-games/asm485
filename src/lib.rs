@@ -9,12 +9,14 @@
 //! - [`z80`] - Zilog Z80-specific implementation
 //! - [`families`] - CPU family handlers (MOS 6502, etc.)
 //! - [`m65c02`] - WDC 65C02-specific extensions
+//! - [`m65816`] - WDC 65816-specific extensions
 //! - [`assembler`] - Main assembler entry point
 
 pub mod assembler;
 pub mod core;
 pub mod families;
 pub mod i8085;
+pub mod m65816;
 pub mod m65c02;
 pub mod z80;
 

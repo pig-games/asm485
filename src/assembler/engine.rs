@@ -23,6 +23,7 @@ impl Assembler {
         registry.register_cpu(Box::new(Z80CpuModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         Self {
             symbols: SymbolTable::new(),

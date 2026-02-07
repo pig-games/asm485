@@ -10,6 +10,8 @@ use crate::core::symbol_table::SymbolTable;
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
+use crate::m65816::module::M65816CpuModule;
+use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::fs::{self, File};
@@ -26,6 +28,7 @@ fn default_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(Z80CpuModule));
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
+    registry.register_cpu(Box::new(M65816CpuModule));
     registry
 }
 
@@ -1548,6 +1551,42 @@ fn rts_encodes_in_6502_family() {
         hex_text.contains(":01100000608F"),
         "unexpected hex output: {hex_text}"
     );
+}
+
+#[test]
+fn cpu_65816_aliases_are_accepted() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 65c816", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu w65c816", 0, 1), LineStatus::Ok);
+}
+
+#[test]
+fn cpu_65816_can_assemble_family_instruction() {
+    let bytes = assemble_bytes(m65816_cpu_id, "    RTS");
+    assert_eq!(bytes, vec![0x60]);
+}
+
+#[test]
+fn unknown_cpu_diagnostic_lists_65816_and_aliases() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, ".cpu nope816", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+
+    let message = asm
+        .error()
+        .expect("expected unknown cpu error")
+        .message()
+        .to_string();
+    assert!(message.contains("65816"), "unexpected message: {message}");
+    assert!(message.contains("65c816"), "unexpected message: {message}");
+    assert!(message.contains("w65c816"), "unexpected message: {message}");
 }
 
 #[test]

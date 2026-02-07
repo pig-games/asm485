@@ -50,6 +50,7 @@ use std::sync::Arc;
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
+use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::z80::module::Z80CpuModule;
 
@@ -2237,7 +2238,7 @@ impl<'a> AsmLine<'a> {
     }
 
     fn current_cpu_little_endian(&self) -> bool {
-        // Current supported CPUs are little-endian (8085/Z80/6502/65C02).
+        // Current supported CPUs are little-endian (8085/Z80/6502/65C02/65816).
         true
     }
 
