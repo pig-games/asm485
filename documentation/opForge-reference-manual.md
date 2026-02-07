@@ -341,6 +341,7 @@ Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 65816 support is currently MVP/phase-1 scope:
 - Implements selected 65816 mnemonics and operand forms.
 - Includes long memory forms for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`).
+- Includes stack-relative forms (`d,S` and `(d,S),Y`) for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`.
 - Includes a wide-address output/layout slice (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
 - Does not yet implement full banked CPU-state semantics.
 - Does not yet implement M/X width-state tracking for width-sensitive immediate sizing.

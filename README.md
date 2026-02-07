@@ -27,7 +27,8 @@ phase-2 slice for placement/output workflows.
   - long memory forms: `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC` with `$llhhhh` and `$llhhhh,X`
   - block move: `MVN`, `MVP`
 - Implemented 65816-only operand forms currently include:
-  - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`)
+  - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`) for
+    `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC`
   - bracketed long-indirect forms (`[...]` / `[...,Y]`) used by implemented instructions
   - long absolute operands for implemented long-control instructions
 

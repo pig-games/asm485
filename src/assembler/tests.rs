@@ -1702,6 +1702,18 @@ fn m65816_stack_relative_forms_encode() {
         vec![0x63, 0x13]
     );
     assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    AND ($24,S),Y"),
+        vec![0x33, 0x24]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    EOR $25,S"),
+        vec![0x43, 0x25]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    CMP ($26,S),Y"),
+        vec![0xD3, 0x26]
+    );
+    assert_eq!(
         assemble_bytes(m65816_cpu_id, "    SBC ($23,S),Y"),
         vec![0xF3, 0x23]
     );

@@ -118,5 +118,6 @@ Or grouped placement:
 Current 65816 coverage includes MVP instructions plus a wide-address output/layout slice:
 - wide placement and output workflows are supported (`.org`, regions, wide image spans, wide BIN ranges, HEX ELA/start-linear records)
 - long memory encodings are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`)
+- stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
 - full banked CPU-state semantics are still planned
 - width-sensitive immediate sizing via M/X state tracking is still planned
