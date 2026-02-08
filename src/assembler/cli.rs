@@ -278,10 +278,6 @@ pub fn resolve_bin_path(
 }
 
 pub fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError> {
-    if path.is_dir() {
-        return resolve_root_module_from_dir(path);
-    }
-    let asm_name = path.to_string_lossy().to_string();
     let file_name = match path.file_name().and_then(|s| s.to_str()) {
         Some(name) => name,
         None => {
@@ -292,15 +288,48 @@ pub fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError
             ))
         }
     };
-    if !file_name.ends_with(".asm") {
+
+    if file_name.ends_with(".asm") {
+        if path.is_dir() {
+            return Err(AsmRunError::new(
+                AsmError::new(
+                    AsmErrorKind::Cli,
+                    "Input path ends with .asm but is a folder",
+                    None,
+                ),
+                Vec::new(),
+                Vec::new(),
+            ));
+        }
+        if !path.is_file() {
+            return Err(AsmRunError::new(
+                AsmError::new(AsmErrorKind::Cli, "Input .asm file not found", None),
+                Vec::new(),
+                Vec::new(),
+            ));
+        }
+        let asm_name = path.to_string_lossy().to_string();
+        let base = file_name.strip_suffix(".asm").unwrap_or(file_name);
+        return Ok((asm_name, base.to_string()));
+    }
+
+    if path.is_dir() {
+        return resolve_root_module_from_dir(path);
+    }
+
+    if path.is_file() || !path.exists() {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Cli, "Input file must end with .asm", None),
             Vec::new(),
             Vec::new(),
         ));
     }
-    let base = file_name.strip_suffix(".asm").unwrap_or(file_name);
-    Ok((asm_name, base.to_string()))
+
+    Err(AsmRunError::new(
+        AsmError::new(AsmErrorKind::Cli, "Invalid input path", None),
+        Vec::new(),
+        Vec::new(),
+    ))
 }
 
 fn resolve_root_module_from_dir(path: &Path) -> Result<(String, String), AsmRunError> {
@@ -713,6 +742,21 @@ mod tests {
     fn input_base_from_path_requires_asm_extension() {
         let err = input_base_from_path(&PathBuf::from("prog.txt")).unwrap_err();
         assert_eq!(err.to_string(), "Input file must end with .asm");
+    }
+
+    #[test]
+    fn input_base_from_path_requires_existing_asm_file() {
+        let err = input_base_from_path(&PathBuf::from("missing.asm")).unwrap_err();
+        assert_eq!(err.to_string(), "Input .asm file not found");
+    }
+
+    #[test]
+    fn input_base_from_path_rejects_folder_named_asm() {
+        let dir = create_temp_dir("input-folder-named-asm");
+        let fake_file_dir = dir.join("my.asm");
+        fs::create_dir_all(&fake_file_dir).expect("create folder named .asm");
+        let err = input_base_from_path(&fake_file_dir).unwrap_err();
+        assert_eq!(err.to_string(), "Input path ends with .asm but is a folder");
     }
 
     #[test]

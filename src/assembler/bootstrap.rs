@@ -631,22 +631,20 @@ pub(crate) struct ModuleGraphResult {
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
 }
 
+fn module_search_root(root_path: &Path) -> PathBuf {
+    match root_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
 pub(crate) fn load_module_graph(
     root_path: &Path,
     root_lines: Vec<String>,
     defines: &[String],
     pp_macro_depth: usize,
 ) -> Result<ModuleGraphResult, AsmRunError> {
-    let root_dir = root_path
-        .parent()
-        .ok_or_else(|| {
-            AsmRunError::new(
-                AsmError::new(AsmErrorKind::Cli, "Invalid input path", None),
-                vec![],
-                vec![],
-            )
-        })?
-        .to_path_buf();
+    let root_dir = module_search_root(root_path);
     let index = build_module_index(&root_dir)?;
 
     let mut preloaded = HashSet::new();
@@ -755,4 +753,26 @@ pub(crate) fn load_module_graph(
         lines: combined,
         module_macro_names,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::module_search_root;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn module_search_root_uses_current_dir_for_bare_filename() {
+        assert_eq!(
+            module_search_root(Path::new("main.asm")),
+            PathBuf::from(".")
+        );
+    }
+
+    #[test]
+    fn module_search_root_preserves_explicit_parent() {
+        assert_eq!(
+            module_search_root(Path::new("examples/main.asm")),
+            PathBuf::from("examples")
+        );
+    }
 }
