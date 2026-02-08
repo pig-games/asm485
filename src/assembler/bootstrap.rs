@@ -89,7 +89,7 @@ pub(crate) struct SectionState {
     pub(crate) bytes: Vec<u8>,
     pub(crate) emitted: bool,
     pub(crate) layout_placed: bool,
-    pub(crate) align: u16,
+    pub(crate) align: u32,
     pub(crate) kind: SectionKind,
     pub(crate) default_region: Option<String>,
     #[allow(dead_code)]
@@ -110,7 +110,7 @@ impl SectionState {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SectionOptions {
-    pub(crate) align: Option<u16>,
+    pub(crate) align: Option<u32>,
     pub(crate) kind: Option<SectionKind>,
     pub(crate) region: Option<String>,
 }
@@ -120,7 +120,7 @@ pub(crate) enum PlacementDirective {
     Place {
         section: String,
         region: String,
-        align: Option<u16>,
+        align: Option<u32>,
         span: Span,
     },
     Pack {
@@ -153,7 +153,7 @@ pub(crate) struct RegionState {
     pub(crate) start: u32,
     pub(crate) end: u32, // inclusive
     pub(crate) cursor: u32,
-    pub(crate) align: u16,
+    pub(crate) align: u32,
     pub(crate) placed: Vec<PlacedSectionInfo>,
 }
 

@@ -193,7 +193,7 @@ impl<'a> AsmLine<'a> {
                     );
                 }
 
-                let mut align: u16 = 1;
+                let mut align: u32 = 1;
                 for expr in &operands[3..] {
                     let Expr::Binary {
                         op: asm_parser::BinaryOp::Eq,
@@ -243,16 +243,16 @@ impl<'a> AsmLine<'a> {
                             )
                         }
                     };
-                    if value == 0 || value > u16::MAX as u32 {
+                    if value == 0 {
                         return self.failure_at_span(
                             LineStatus::Error,
                             AsmErrorKind::Directive,
-                            "Region align must be in range 1..65535",
+                            "Region align must be greater than zero",
                             None,
                             *span,
                         );
                     }
-                    align = value as u16;
+                    align = value;
                 }
 
                 if let Some(existing) = self.regions.get(&name) {
@@ -2124,16 +2124,16 @@ impl<'a> AsmLine<'a> {
                         ))
                     }
                 };
-                if align == 0 || align > u16::MAX as u32 {
+                if align == 0 {
                     return Err(self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
-                        "Section align must be in range 1..65535",
+                        "Section align must be greater than zero",
                         None,
                         *span,
                     ));
                 }
-                options.align = Some(align as u16);
+                options.align = Some(align);
                 continue;
             }
 
@@ -2183,15 +2183,15 @@ impl<'a> AsmLine<'a> {
         Ok(options)
     }
 
-    fn align_up(value: u32, align: u32) -> u32 {
+    fn align_up(value: u32, align: u32) -> Option<u32> {
         if align <= 1 {
-            return value;
+            return Some(value);
         }
         let rem = value % align;
         if rem == 0 {
-            value
+            Some(value)
         } else {
-            value + (align - rem)
+            value.checked_add(align - rem)
         }
     }
 
@@ -2199,7 +2199,7 @@ impl<'a> AsmLine<'a> {
         &mut self,
         section_name: &str,
         region_name: &str,
-        directive_align: Option<u16>,
+        directive_align: Option<u32>,
         span: Span,
     ) -> LineStatus {
         if self.in_section() {
@@ -2270,8 +2270,19 @@ impl<'a> AsmLine<'a> {
         let align = directive_align
             .unwrap_or(1)
             .max(region_align)
-            .max(section_align) as u32;
-        let base = Self::align_up(region_cursor, align);
+            .max(section_align);
+        let base = match Self::align_up(region_cursor, align) {
+            Some(base) => base,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Section alignment overflows address range",
+                    Some(section_name),
+                    span,
+                )
+            }
+        };
         let size = section_size;
         let last_addr = if size == 0 {
             base
@@ -2334,16 +2345,16 @@ impl<'a> AsmLine<'a> {
                     )
                 }
             };
-            if value == 0 || value > u16::MAX as u32 {
+            if value == 0 {
                 return self.failure_at_span(
                     LineStatus::Error,
                     AsmErrorKind::Directive,
-                    "Placement align must be in range 1..65535",
+                    "Placement align must be greater than zero",
                     None,
                     span,
                 );
             }
-            Some(value as u16)
+            Some(value)
         } else {
             None
         };

@@ -792,6 +792,24 @@ fn pack_places_sections_in_order_and_alignment() {
 }
 
 #[test]
+fn wide_alignment_options_accept_32bit_values() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".region ram, $010001, $02ffff, align=$20000",
+        ".section code, align=$10000",
+        "start:",
+        "    .byte $aa",
+        ".endsection",
+        ".place code in ram, align=$8000",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0x020000, 0xaa)]);
+    assert_eq!(assembler.symbols().lookup("main.start"), Some(0x020000));
+}
+
+#[test]
 fn section_symbols_are_finalized_from_layout_before_pass2() {
     let lines = vec![
         ".module main".to_string(),
