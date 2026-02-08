@@ -570,6 +570,36 @@ fn module_loader_selective_import_excludes_segment() {
 }
 
 #[test]
+fn module_loader_selective_import_private_segment_emits_private_diagnostic() {
+    let dir = create_temp_dir("module-segment-private-selective");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (EMIT)\n    .org $0000\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .priv\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(pass1.errors > 0, "Expected private import diagnostic");
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error.kind() == AsmErrorKind::Symbol && diag.error.message().contains("private")
+    }));
+}
+
+#[test]
 fn module_loader_selective_import_includes_statement() {
     let dir = create_temp_dir("module-statement-selective");
     let root_path = dir.join("main.asm");
@@ -632,6 +662,36 @@ fn module_loader_selective_import_excludes_statement() {
 }
 
 #[test]
+fn module_loader_selective_import_private_statement_emits_private_diagnostic() {
+    let dir = create_temp_dir("module-statement-private-selective");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (PUSHB)\n    .org $0000\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .priv\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(pass1.errors > 0, "Expected private import diagnostic");
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error.kind() == AsmErrorKind::Symbol && diag.error.message().contains("private")
+    }));
+}
+
+#[test]
 fn module_loader_bare_use_does_not_import_statement_unqualified() {
     let dir = create_temp_dir("module-statement-bare-use");
     let root_path = dir.join("main.asm");
@@ -689,6 +749,36 @@ fn module_loader_bare_use_does_not_import_macro_unqualified() {
         pass1.errors > 0,
         "Expected errors because EMIT_PAIR macro was not imported by bare .use"
     );
+}
+
+#[test]
+fn module_loader_selective_import_private_macro_emits_private_diagnostic() {
+    let dir = create_temp_dir("module-macro-private-selective");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (EMIT_PAIR)\n    .org $0000\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .priv\nEMIT_PAIR .macro a, b\n    .byte .a\n    .byte .b\n.endmacro\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(pass1.errors > 0, "Expected private import diagnostic");
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error.kind() == AsmErrorKind::Symbol && diag.error.message().contains("private")
+    }));
 }
 
 #[test]

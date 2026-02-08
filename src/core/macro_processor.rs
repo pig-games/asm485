@@ -52,6 +52,7 @@ struct MacroDef {
     params: Vec<MacroParam>,
     body: Vec<String>,
     wrap_scope: bool,
+    visibility: CompileTimeVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +60,7 @@ struct StatementDef {
     keyword: String,
     signature: StatementSignature,
     body: Vec<String>,
+    visibility: CompileTimeVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +76,18 @@ struct MacroInvocation {
 enum MacroKind {
     Macro,
     Segment,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileTimeVisibility {
+    Public,
+    Private,
+}
+
+impl CompileTimeVisibility {
+    fn is_public(self) -> bool {
+        matches!(self, Self::Public)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -97,12 +111,36 @@ impl MacroExports {
         names.extend(self.statements.keys().cloned());
         names
     }
+
+    /// Exported compile-time symbol visibilities (uppercased names).
+    pub fn visibility_index(&self) -> HashMap<String, CompileTimeVisibility> {
+        let mut vis = HashMap::new();
+        for (name, def) in &self.macros {
+            vis.insert(name.clone(), def.visibility);
+        }
+        for (name, defs) in &self.statements {
+            let statement_vis = if defs.iter().any(|def| def.visibility.is_public()) {
+                CompileTimeVisibility::Public
+            } else {
+                CompileTimeVisibility::Private
+            };
+            vis.entry(name.clone())
+                .and_modify(|entry| {
+                    if statement_vis.is_public() {
+                        *entry = CompileTimeVisibility::Public;
+                    }
+                })
+                .or_insert(statement_vis);
+        }
+        vis
+    }
 }
 
 pub struct MacroProcessor {
     macros: HashMap<String, MacroDef>,
     statements: HashMap<String, Vec<StatementDef>>,
     injected_names: HashSet<String>,
+    visibility_stack: Vec<CompileTimeVisibility>,
     max_depth: usize,
 }
 
@@ -118,6 +156,7 @@ impl MacroProcessor {
             macros: HashMap::new(),
             statements: HashMap::new(),
             injected_names: HashSet::new(),
+            visibility_stack: vec![CompileTimeVisibility::Private],
             max_depth: 64,
         }
     }
@@ -127,12 +166,21 @@ impl MacroProcessor {
         for name in names {
             let upper = name.to_ascii_uppercase();
             if let Some(def) = exports.macros.get(&upper) {
-                self.injected_names.insert(upper.clone());
-                self.macros.insert(upper.clone(), def.clone());
+                if def.visibility.is_public() {
+                    self.injected_names.insert(upper.clone());
+                    self.macros.insert(upper.clone(), def.clone());
+                }
             }
             if let Some(defs) = exports.statements.get(&upper) {
-                self.injected_names.insert(upper.clone());
-                self.statements.insert(upper.clone(), defs.clone());
+                let public_defs: Vec<StatementDef> = defs
+                    .iter()
+                    .filter(|def| def.visibility.is_public())
+                    .cloned()
+                    .collect();
+                if !public_defs.is_empty() {
+                    self.injected_names.insert(upper.clone());
+                    self.statements.insert(upper.clone(), public_defs);
+                }
             }
         }
     }
@@ -140,26 +188,44 @@ impl MacroProcessor {
     /// Inject all exports (for wildcard `.use` without an items list).
     pub fn inject_all(&mut self, exports: &MacroExports) {
         for (name, def) in &exports.macros {
-            self.injected_names.insert(name.clone());
-            self.macros.insert(name.clone(), def.clone());
+            if def.visibility.is_public() {
+                self.injected_names.insert(name.clone());
+                self.macros.insert(name.clone(), def.clone());
+            }
         }
         for (name, defs) in &exports.statements {
-            self.injected_names.insert(name.clone());
-            self.statements.insert(name.clone(), defs.clone());
+            let public_defs: Vec<StatementDef> = defs
+                .iter()
+                .filter(|def| def.visibility.is_public())
+                .cloned()
+                .collect();
+            if !public_defs.is_empty() {
+                self.injected_names.insert(name.clone());
+                self.statements.insert(name.clone(), public_defs);
+            }
         }
     }
 
     /// Inject all exports under a qualifier (for bare `.use module` and aliases).
     pub fn inject_qualified(&mut self, exports: &MacroExports, qualifier: &str) {
         for (name, def) in &exports.macros {
-            let qualified = to_upper(&format!("{qualifier}.{name}"));
-            self.injected_names.insert(qualified.clone());
-            self.macros.insert(qualified, def.clone());
+            if def.visibility.is_public() {
+                let qualified = to_upper(&format!("{qualifier}.{name}"));
+                self.injected_names.insert(qualified.clone());
+                self.macros.insert(qualified, def.clone());
+            }
         }
         for (name, defs) in &exports.statements {
-            let qualified = to_upper(&format!("{qualifier}.{name}"));
-            self.injected_names.insert(qualified.clone());
-            self.statements.insert(qualified, defs.clone());
+            let public_defs: Vec<StatementDef> = defs
+                .iter()
+                .filter(|def| def.visibility.is_public())
+                .cloned()
+                .collect();
+            if !public_defs.is_empty() {
+                let qualified = to_upper(&format!("{qualifier}.{name}"));
+                self.injected_names.insert(qualified.clone());
+                self.statements.insert(qualified, public_defs);
+            }
         }
     }
 
@@ -183,6 +249,41 @@ impl MacroProcessor {
         self.expand_lines(lines, 0)
     }
 
+    fn current_visibility(&self) -> CompileTimeVisibility {
+        self.visibility_stack
+            .last()
+            .copied()
+            .unwrap_or(CompileTimeVisibility::Private)
+    }
+
+    fn push_visibility(&mut self) {
+        let current = self.current_visibility();
+        self.visibility_stack.push(current);
+    }
+
+    fn pop_visibility(&mut self) {
+        if self.visibility_stack.len() > 1 {
+            self.visibility_stack.pop();
+        }
+    }
+
+    fn set_visibility(&mut self, visibility: CompileTimeVisibility) {
+        if let Some(current) = self.visibility_stack.last_mut() {
+            *current = visibility;
+        } else {
+            self.visibility_stack.push(visibility);
+        }
+    }
+
+    fn apply_visibility_directive(&mut self, directive: VisibilityDirective) {
+        match directive {
+            VisibilityDirective::SetPublic => self.set_visibility(CompileTimeVisibility::Public),
+            VisibilityDirective::SetPrivate => self.set_visibility(CompileTimeVisibility::Private),
+            VisibilityDirective::PushScope => self.push_visibility(),
+            VisibilityDirective::PopScope => self.pop_visibility(),
+        }
+    }
+
     fn expand_lines(&mut self, lines: &[String], depth: usize) -> Result<Vec<String>, MacroError> {
         if depth > self.max_depth {
             return Err(MacroError::new(
@@ -200,6 +301,12 @@ impl MacroProcessor {
         for (idx, line) in lines.iter().enumerate() {
             let line_num = idx as u32 + 1;
             let (code, _) = split_comment(line);
+
+            if current.is_none() && current_statement.is_none() && !skip_statement_body {
+                if let Some(directive) = parse_visibility_directive(&code) {
+                    self.apply_visibility_directive(directive);
+                }
+            }
 
             if let Some((name, params, kind)) = parse_macro_def_line(&code, line_num)? {
                 if current.is_some() {
@@ -238,6 +345,7 @@ impl MacroProcessor {
                         params: param_defs,
                         body: Vec::new(),
                         wrap_scope,
+                        visibility: self.current_visibility(),
                     },
                     kind,
                 ));
@@ -293,6 +401,7 @@ impl MacroProcessor {
                                     keyword,
                                     signature,
                                     body: Vec::new(),
+                                    visibility: self.current_visibility(),
                                 });
                                 continue;
                             }
@@ -389,6 +498,33 @@ impl MacroProcessor {
 enum StatementDirective {
     Def,
     End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisibilityDirective {
+    SetPublic,
+    SetPrivate,
+    PushScope,
+    PopScope,
+}
+
+fn parse_visibility_directive(code: &str) -> Option<VisibilityDirective> {
+    let (_, idx, _) = parse_label(code);
+    let mut cursor = Cursor::with_pos(code, idx);
+    cursor.skip_ws();
+    if cursor.peek() != Some(b'.') {
+        return None;
+    }
+    cursor.next();
+    cursor.skip_ws();
+    let directive = cursor.take_ident()?.to_ascii_uppercase();
+    match directive.as_str() {
+        "PUB" => Some(VisibilityDirective::SetPublic),
+        "PRIV" => Some(VisibilityDirective::SetPrivate),
+        "BLOCK" | "MODULE" => Some(VisibilityDirective::PushScope),
+        "ENDBLOCK" | "ENDMODULE" => Some(VisibilityDirective::PopScope),
+        _ => None,
+    }
 }
 
 fn parse_statement_directive(code: &str) -> Option<StatementDirective> {

@@ -250,7 +250,7 @@ Notes:
 - Bare `.use mod` exposes compile-time symbols as **qualified-only** names (`.mod.MACRO`, `mod.STATEMENT`).
 - Selective imports (`.use mod (NAME, ...)`) inject listed symbols as unqualified names.
 - Wildcard selective imports (`.use mod (*)`) inject all public symbols as unqualified names.
-- `.pub/.priv` visibility is enforced for runtime symbols (labels/constants/vars) only; compile-time definition filtering by visibility is not fully enforced yet.
+- `.pub/.priv` visibility is enforced for both runtime symbols (labels/constants/vars) and compile-time symbols (`.macro`, `.segment`, `.statement`).
 
 #### 4.10.1 Root input
 
@@ -277,7 +277,7 @@ Notes:
 #### 4.10.4 Visibility rules
 
 - `.pub`/`.priv` control **runtime symbol** visibility (labels/constants/vars).
-- Compile-time definitions from loaded modules are not currently filtered by `.pub/.priv`.
+- `.pub`/`.priv` also control compile-time symbol visibility for imported `.macro`, `.segment`, and `.statement` definitions.
 
 #### 4.10.5 Root metadata output rules
 

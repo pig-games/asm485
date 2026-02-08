@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-use crate::core::macro_processor::MacroExports;
+use crate::core::macro_processor::{CompileTimeVisibility, MacroExports};
 
 use super::*;
 
@@ -627,8 +627,8 @@ fn load_module_recursive(
 #[derive(Debug)]
 pub(crate) struct ModuleGraphResult {
     pub(crate) lines: Vec<String>,
-    /// Macro/segment/statement names defined per module (canonical module ID → name set).
-    pub(crate) module_macro_names: HashMap<String, HashSet<String>>,
+    /// Compile-time symbol visibility map (canonical module ID → name → visibility).
+    pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
 }
 
 pub(crate) fn load_module_graph(
@@ -733,9 +733,22 @@ pub(crate) fn load_module_graph(
     }
     combined.extend(expanded_root);
 
-    let module_macro_names: HashMap<String, HashSet<String>> = module_exports
+    let module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>> = module_exports
         .into_iter()
-        .map(|(id, exports)| (id, exports.names()))
+        .map(|(id, exports)| {
+            let visibility_index = exports
+                .visibility_index()
+                .into_iter()
+                .map(|(name, visibility)| {
+                    let visibility = match visibility {
+                        CompileTimeVisibility::Public => SymbolVisibility::Public,
+                        CompileTimeVisibility::Private => SymbolVisibility::Private,
+                    };
+                    (name, visibility)
+                })
+                .collect();
+            (id, visibility_index)
+        })
         .collect();
 
     Ok(ModuleGraphResult {

@@ -6,7 +6,7 @@
 use crate::core::parser::{UseItem, UseParam};
 use crate::core::tokenizer::Span;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 #[derive(Debug, Clone)]
@@ -226,7 +226,7 @@ impl SymbolTable {
     #[must_use]
     pub fn validate_imports(
         &self,
-        known_macro_names: &HashMap<String, HashSet<String>>,
+        known_compile_time_symbols: &HashMap<String, HashMap<String, SymbolVisibility>>,
     ) -> Vec<ImportIssue> {
         let mut issues = Vec::new();
 
@@ -260,10 +260,21 @@ impl SymbolTable {
                             }
                         }
                         None => {
-                            // Skip items that are known macro/segment/statement names
+                            // Validate compile-time symbols (macro/segment/statement)
                             let dep_canonical = import.module_id.to_ascii_lowercase();
-                            if let Some(macro_names) = known_macro_names.get(&dep_canonical) {
-                                if macro_names.contains(&item.name.to_ascii_uppercase()) {
+                            if let Some(symbols) = known_compile_time_symbols.get(&dep_canonical) {
+                                if let Some(visibility) =
+                                    symbols.get(&item.name.to_ascii_uppercase())
+                                {
+                                    if *visibility == SymbolVisibility::Private {
+                                        issues.push(ImportIssue {
+                                            line: item.span.line,
+                                            column: Some(item.span.col_start),
+                                            kind: ImportIssueKind::Symbol,
+                                            message: "Symbol is private".to_string(),
+                                            param: Some(item.name.clone()),
+                                        });
+                                    }
                                     continue;
                                 }
                             }

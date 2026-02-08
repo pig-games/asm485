@@ -12,7 +12,7 @@ pub(crate) struct Assembler {
     pub(crate) cpu: CpuType,
     pub(crate) registry: ModuleRegistry,
     pub(crate) root_metadata: RootMetadata,
-    pub(crate) module_macro_names: HashMap<String, HashSet<String>>,
+    pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
 }
 
 impl Assembler {
