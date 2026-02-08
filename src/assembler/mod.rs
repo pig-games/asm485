@@ -903,6 +903,7 @@ struct AsmLine<'a> {
     mnemonic: Option<String>,
     cpu: CpuType,
     register_checker: RegisterChecker,
+    cpu_program_address_max: u32,
     cpu_word_size_bytes: u32,
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
@@ -958,6 +959,7 @@ impl<'a> AsmLine<'a> {
             mnemonic: None,
             cpu,
             register_checker: Self::build_register_checker(registry, cpu),
+            cpu_program_address_max: Self::build_cpu_program_address_max(registry, cpu),
             cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
@@ -980,6 +982,13 @@ impl<'a> AsmLine<'a> {
         match registry.resolve_pipeline(cpu, None) {
             Ok(pipeline) => pipeline.cpu.runtime_state_defaults(),
             Err(_) => HashMap::new(),
+        }
+    }
+
+    fn build_cpu_program_address_max(registry: &ModuleRegistry, cpu: CpuType) -> u32 {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.max_program_address(),
+            Err(_) => 0xFFFF,
         }
     }
 
@@ -1091,6 +1100,7 @@ impl<'a> AsmLine<'a> {
     }
 
     fn reset_cpu_runtime_profile(&mut self) {
+        self.cpu_program_address_max = Self::build_cpu_program_address_max(self.registry, self.cpu);
         self.cpu_word_size_bytes = Self::build_cpu_word_size(self.registry, self.cpu);
         self.cpu_little_endian = Self::build_cpu_endianness(self.registry, self.cpu);
         self.cpu_state_flags = Self::build_cpu_runtime_state(self.registry, self.cpu);
@@ -2410,6 +2420,32 @@ impl<'a> AsmLine<'a> {
             .as_ref()
             .and_then(|name| self.sections.get(name))
             .map(|section| section.kind)
+    }
+
+    fn max_program_address(&self) -> u32 {
+        self.cpu_program_address_max
+    }
+
+    fn validate_program_address(
+        &self,
+        value: u32,
+        directive_name: &str,
+        span: Span,
+    ) -> Result<(), AstEvalError> {
+        let max = self.max_program_address();
+        if value <= max {
+            return Ok(());
+        }
+        let message = format!(
+            "{directive_name} address ${} exceeds max ${} for CPU {}",
+            format_addr(value),
+            format_addr(max),
+            self.cpu.as_str()
+        );
+        Err(AstEvalError {
+            error: AsmError::new(AsmErrorKind::Directive, &message, None),
+            span,
+        })
     }
 
     fn current_cpu_little_endian(&self) -> bool {

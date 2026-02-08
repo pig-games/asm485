@@ -95,6 +95,10 @@ impl CpuHandlerDyn for M65816CpuHandler {
         <Self as crate::core::family::CpuHandler>::supports_mnemonic(self, mnemonic)
     }
 
+    fn max_program_address(&self) -> u32 {
+        0x00FF_FFFF
+    }
+
     fn runtime_state_defaults(&self) -> HashMap<String, u32> {
         state::initial_state()
     }

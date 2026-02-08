@@ -713,6 +713,15 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
+                if let Err(err) = self.validate_program_address(val, ".org", expr_span(expr)) {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 if let Some(section_name) = self.current_section.as_deref() {
                     if let Some(section) = self.sections.get(section_name) {
                         let current_abs = section.start_pc + section.pc;

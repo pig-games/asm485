@@ -690,10 +690,27 @@ fn org_sets_address() {
 }
 
 #[test]
-fn org_supports_wide_addresses() {
+fn org_rejects_wide_addresses_on_legacy_cpu() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .org $123456", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn org_supports_wide_addresses_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
     let status = process_line(&mut asm, "    .org $123456", 0, 1);
     assert_eq!(status, LineStatus::DirEqu);
     assert_eq!(asm.start_addr(), 0x123456);

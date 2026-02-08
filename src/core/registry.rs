@@ -95,6 +95,9 @@ pub trait CpuHandlerDyn: Send + Sync {
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>>;
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
+    fn max_program_address(&self) -> u32 {
+        0xFFFF
+    }
     fn native_word_size_bytes(&self) -> u32 {
         2
     }
@@ -426,6 +429,9 @@ mod tests {
         fn native_word_size_bytes(&self) -> u32 {
             3
         }
+        fn max_program_address(&self) -> u32 {
+            0x01FF_FFFF
+        }
         fn is_little_endian(&self) -> bool {
             false
         }
@@ -553,6 +559,7 @@ mod tests {
         reg.register_cpu(Box::new(StubCpuModule));
 
         let p = reg.resolve_pipeline(TEST_CPU, None).expect("pipeline");
+        assert_eq!(p.cpu.max_program_address(), 0x01FF_FFFF);
         assert_eq!(p.cpu.native_word_size_bytes(), 3);
         assert!(!p.cpu.is_little_endian());
         let mut state = p.cpu.runtime_state_defaults();
