@@ -8,6 +8,7 @@ use crate::families::mos6502::{
     has_mnemonic as has_family_mnemonic, AddressMode, FamilyOperand, Operand,
 };
 use crate::m65816::instructions::{has_mnemonic, lookup_instruction};
+use crate::m65816::state;
 
 /// CPU handler for WDC 65816.
 #[derive(Debug)]
@@ -83,6 +84,73 @@ impl M65816CpuHandler {
         Err(format!("Address {} out of 24-bit range", val))
     }
 
+    fn is_accumulator_width_immediate_mnemonic(mnemonic: &str) -> bool {
+        matches!(
+            mnemonic,
+            "ADC" | "AND" | "BIT" | "CMP" | "EOR" | "LDA" | "ORA" | "SBC"
+        )
+    }
+
+    fn is_index_width_immediate_mnemonic(mnemonic: &str) -> bool {
+        matches!(mnemonic, "CPX" | "CPY" | "LDX" | "LDY")
+    }
+
+    fn resolve_immediate(
+        &self,
+        mnemonic: &str,
+        expr: &crate::core::parser::Expr,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Operand, String> {
+        let val = ctx.eval_expr(expr)?;
+        let span = crate::core::assembler::expression::expr_span(expr);
+        let upper = Self::upper_mnemonic(mnemonic);
+
+        if Self::is_accumulator_width_immediate_mnemonic(&upper) {
+            let is_8bit = state::accumulator_is_8bit(ctx);
+            if is_8bit {
+                if !(0..=255).contains(&val) {
+                    return Err(format!(
+                        "Accumulator immediate value {} out of range (0-255) in 8-bit mode",
+                        val
+                    ));
+                }
+                return Ok(Operand::Immediate(val as u8, span));
+            }
+            if !(0..=65535).contains(&val) {
+                return Err(format!(
+                    "Accumulator immediate value {} out of range (0-65535) in 16-bit mode",
+                    val
+                ));
+            }
+            return Ok(Operand::ImmediateWord(val as u16, span));
+        }
+
+        if Self::is_index_width_immediate_mnemonic(&upper) {
+            let is_8bit = state::index_is_8bit(ctx);
+            if is_8bit {
+                if !(0..=255).contains(&val) {
+                    return Err(format!(
+                        "Index immediate value {} out of range (0-255) in 8-bit mode",
+                        val
+                    ));
+                }
+                return Ok(Operand::Immediate(val as u8, span));
+            }
+            if !(0..=65535).contains(&val) {
+                return Err(format!(
+                    "Index immediate value {} out of range (0-65535) in 16-bit mode",
+                    val
+                ));
+            }
+            return Ok(Operand::ImmediateWord(val as u16, span));
+        }
+
+        if !(0..=255).contains(&val) {
+            return Err(format!("Immediate value {} out of range (0-255)", val));
+        }
+        Ok(Operand::Immediate(val as u8, span))
+    }
+
     fn expr_has_unresolved_symbols(
         expr: &crate::core::parser::Expr,
         ctx: &dyn AssemblerContext,
@@ -134,6 +202,9 @@ impl CpuHandler for M65816CpuHandler {
 
         if family_operands.len() == 1 {
             match &family_operands[0] {
+                FamilyOperand::Immediate(expr) => {
+                    return Ok(vec![self.resolve_immediate(mnemonic, expr, ctx)?]);
+                }
                 FamilyOperand::Direct(expr) => {
                     if matches!(
                         upper_mnemonic.as_str(),

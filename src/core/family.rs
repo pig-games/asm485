@@ -134,6 +134,11 @@ pub trait AssemblerContext {
 
     /// Get the current assembler pass (1 or 2).
     fn pass(&self) -> u8;
+
+    /// Return a CPU-specific runtime state flag by key, if available.
+    fn cpu_state_flag(&self, _key: &str) -> Option<u32> {
+        None
+    }
 }
 
 /// Family-level handler for parsing and encoding.

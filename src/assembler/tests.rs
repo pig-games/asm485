@@ -1689,6 +1689,65 @@ fn m65816_prioritized_instruction_encoding() {
 }
 
 #[test]
+fn m65816_rep_sep_control_immediate_width_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        "    REP #$30",
+        "    LDA #$1234",
+        "    LDX #$5678",
+        "    SEP #$20",
+        "    LDA #$9A",
+        "    SEP #$10",
+        "    LDX #$BC",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x30),
+            (0x0002, 0xA9),
+            (0x0003, 0x34),
+            (0x0004, 0x12),
+            (0x0005, 0xA2),
+            (0x0006, 0x78),
+            (0x0007, 0x56),
+            (0x0008, 0xE2),
+            (0x0009, 0x20),
+            (0x000A, 0xA9),
+            (0x000B, 0x9A),
+            (0x000C, 0xE2),
+            (0x000D, 0x10),
+            (0x000E, 0xA2),
+            (0x000F, 0xBC),
+        ]
+    );
+}
+
+#[test]
+fn m65816_cpu_switch_resets_width_state() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "    REP #$30", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 6502", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA #$1234", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error()
+        .expect("expected immediate width error")
+        .message()
+        .contains("8-bit mode"));
+}
+
+#[test]
 fn m65816_stack_relative_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA $10,S"),
@@ -2796,6 +2855,7 @@ fn mapfile_formats_32bit_addresses_without_truncation() {
         ".cpu 65816",
         ".region hi, $FF000000, $FF0000FF",
         "wide_const .const $89ABCDEF",
+        "wide_var .var $01234567",
         ".section code",
         "entry: .byte $ea",
         ".endsection",
@@ -2814,6 +2874,7 @@ fn mapfile_formats_32bit_addresses_without_truncation() {
     assert!(map.contains("code FF000000 1 code hi"));
     assert!(map.contains("main.entry FF000000 private"));
     assert!(map.contains("main.wide_const 89ABCDEF private"));
+    assert!(map.contains("main.wide_var 01234567 private"));
 }
 
 #[test]

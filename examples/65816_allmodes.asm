@@ -24,6 +24,17 @@ long_target:
         xba                 ; EB
 
 ; ========================================
+; WIDTH-SENSITIVE IMMEDIATES
+; ========================================
+        rep #$30            ; C2 30 (A/X -> 16-bit immediates)
+        lda #$1234          ; A9 34 12
+        ldx #$5678          ; A2 78 56
+        sep #$20            ; E2 20 (A -> 8-bit immediate)
+        lda #$12            ; A9 12
+        sep #$10            ; E2 10 (X/Y -> 8-bit immediate)
+        ldx #$34            ; A2 34
+
+; ========================================
 ; STACK/REGISTER CONTROL
 ; ========================================
         phb                 ; 8B

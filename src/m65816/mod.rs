@@ -9,5 +9,6 @@
 mod handler;
 pub mod instructions;
 pub mod module;
+pub mod state;
 
 pub use handler::M65816CpuHandler;

@@ -903,6 +903,7 @@ struct AsmLine<'a> {
     mnemonic: Option<String>,
     cpu: CpuType,
     register_checker: RegisterChecker,
+    cpu_state_flags: HashMap<String, u32>,
     statement_depth: usize,
 }
 
@@ -955,6 +956,7 @@ impl<'a> AsmLine<'a> {
             mnemonic: None,
             cpu,
             register_checker: Self::build_register_checker(registry, cpu),
+            cpu_state_flags: crate::m65816::state::initial_state_for_cpu(cpu),
             statement_depth: 0,
         }
     }
@@ -1060,6 +1062,24 @@ impl<'a> AsmLine<'a> {
         self.current_section = None;
         self.saw_explicit_module = false;
         self.top_level_content_seen = false;
+        self.reset_cpu_runtime_state();
+    }
+
+    fn reset_cpu_runtime_state(&mut self) {
+        self.cpu_state_flags = crate::m65816::state::initial_state_for_cpu(self.cpu);
+    }
+
+    fn apply_cpu_runtime_state_after_encode(
+        &mut self,
+        mnemonic: &str,
+        operands: &dyn crate::core::registry::OperandSet,
+    ) {
+        crate::m65816::state::apply_after_encode(
+            self.cpu,
+            mnemonic,
+            operands,
+            &mut self.cpu_state_flags,
+        );
     }
 
     fn cond_last(&self) -> Option<&ConditionalContext> {
@@ -2301,6 +2321,10 @@ impl<'a> AsmLine<'a> {
         {
             EncodeResult::Ok(bytes) => {
                 self.bytes.extend_from_slice(&bytes);
+                self.apply_cpu_runtime_state_after_encode(
+                    &mapped_mnemonic,
+                    resolved_operands.as_ref(),
+                );
                 LineStatus::Ok
             }
             EncodeResult::Error(msg, span_opt) => {
@@ -2323,6 +2347,10 @@ impl<'a> AsmLine<'a> {
             ) {
                 EncodeResult::Ok(bytes) => {
                     self.bytes.extend_from_slice(&bytes);
+                    self.apply_cpu_runtime_state_after_encode(
+                        &mapped_mnemonic,
+                        resolved_operands.as_ref(),
+                    );
                     LineStatus::Ok
                 }
                 EncodeResult::Error(msg, span_opt) => {
@@ -2886,6 +2914,10 @@ impl<'a> AssemblerContext for AsmLine<'a> {
 
     fn pass(&self) -> u8 {
         self.pass
+    }
+
+    fn cpu_state_flag(&self, key: &str) -> Option<u32> {
+        self.cpu_state_flags.get(key).copied()
     }
 }
 

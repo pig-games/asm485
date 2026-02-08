@@ -197,6 +197,8 @@ pub enum Operand {
 
     /// Immediate 8-bit value
     Immediate(u8, Span),
+    /// Immediate 16-bit value (65816 width-sensitive immediate)
+    ImmediateWord(u16, Span),
 
     /// Zero page address
     ZeroPage(u8, Span),
@@ -263,6 +265,7 @@ impl Operand {
             Operand::Implied => AddressMode::Implied,
             Operand::Accumulator(_) => AddressMode::Accumulator,
             Operand::Immediate(_, _) => AddressMode::Immediate,
+            Operand::ImmediateWord(_, _) => AddressMode::Immediate,
             Operand::ZeroPage(_, _) => AddressMode::ZeroPage,
             Operand::ZeroPageX(_, _) => AddressMode::ZeroPageX,
             Operand::ZeroPageY(_, _) => AddressMode::ZeroPageY,
@@ -295,6 +298,7 @@ impl Operand {
             Operand::Implied => Span::default(),
             Operand::Accumulator(span) => *span,
             Operand::Immediate(_, span) => *span,
+            Operand::ImmediateWord(_, span) => *span,
             Operand::ZeroPage(_, span) => *span,
             Operand::ZeroPageX(_, span) => *span,
             Operand::ZeroPageY(_, span) => *span,
@@ -323,8 +327,9 @@ impl Operand {
     pub fn value_bytes(&self) -> Vec<u8> {
         match self {
             Operand::Implied | Operand::Accumulator(_) => vec![],
-            Operand::Immediate(v, _)
-            | Operand::ZeroPage(v, _)
+            Operand::Immediate(v, _) => vec![*v],
+            Operand::ImmediateWord(v, _) => vec![(*v & 0xFF) as u8, (*v >> 8) as u8],
+            Operand::ZeroPage(v, _)
             | Operand::ZeroPageX(v, _)
             | Operand::ZeroPageY(v, _)
             | Operand::IndexedIndirectX(v, _)
