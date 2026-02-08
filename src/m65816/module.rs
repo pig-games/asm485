@@ -18,6 +18,7 @@ pub struct M65816CpuModule;
 
 pub const CPU_ID: CpuType = CpuType::new("65816");
 const CPU_ALIASES: &[&str] = &["65c816", "w65c816"];
+const MAX_PROGRAM_ADDRESS: u32 = 0x00FF_FFFF;
 
 impl CpuModule for M65816CpuModule {
     fn cpu_id(&self) -> CpuType {
@@ -96,7 +97,7 @@ impl CpuHandlerDyn for M65816CpuHandler {
     }
 
     fn max_program_address(&self) -> u32 {
-        u32::MAX
+        MAX_PROGRAM_ADDRESS
     }
 
     fn runtime_state_defaults(&self) -> HashMap<String, u32> {

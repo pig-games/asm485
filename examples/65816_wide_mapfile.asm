@@ -1,10 +1,10 @@
 ; 65816 wide mapfile coverage
-; Ensures map output preserves full 32-bit addresses and symbol values.
+; Ensures map output preserves wide symbol values and high 24-bit addresses.
 
 .module main
 .cpu 65816
 
-.region hi, $FF000000, $FF0000FF
+.region hi, $FF0000, $FF00FF
 wide_const .const $89ABCDEF
 
 .section code

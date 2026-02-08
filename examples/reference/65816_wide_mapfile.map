@@ -1,12 +1,12 @@
 Regions
 name start end used free align
-hi FF000000 FF0000FF 1 255 1
+hi FF0000 FF00FF 1 255 1
 
 Sections
 name base size kind region
-code FF000000 1 code hi
+code FF0000 1 code hi
 
 Symbols
 name value visibility
-main.entry FF000000 private
+main.entry FF0000 private
 main.wide_const 89ABCDEF private

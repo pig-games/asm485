@@ -718,6 +718,26 @@ fn org_supports_wide_addresses_on_65816() {
 }
 
 #[test]
+fn org_rejects_address_above_24bit_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .org $01000000", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("exceeds max $FFFFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
 fn region_rejects_wide_addresses_on_legacy_cpu() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -727,6 +747,26 @@ fn region_rejects_wide_addresses_on_legacy_cpu() {
     assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
     assert!(
         asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn region_rejects_address_above_24bit_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .region hi, $01000000, $010000ff", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("exceeds max $FFFFFF"),
         "unexpected message: {}",
         asm.error().unwrap().message()
     );
@@ -3144,11 +3184,11 @@ fn mapfile_all_and_none_modes_control_symbol_listing() {
 }
 
 #[test]
-fn mapfile_formats_32bit_addresses_without_truncation() {
+fn mapfile_formats_wide_values_without_truncation() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
-        ".region hi, $FF000000, $FF0000FF",
+        ".region hi, $FF0000, $FF00FF",
         "wide_const .const $89ABCDEF",
         "wide_var .var $01234567",
         ".section code",
@@ -3165,9 +3205,9 @@ fn mapfile_formats_32bit_addresses_without_truncation() {
         assembler.sections(),
         assembler.symbols(),
     );
-    assert!(map.contains("hi FF000000 FF0000FF"));
-    assert!(map.contains("code FF000000 1 code hi"));
-    assert!(map.contains("main.entry FF000000 private"));
+    assert!(map.contains("hi FF0000 FF00FF"));
+    assert!(map.contains("code FF0000 1 code hi"));
+    assert!(map.contains("main.entry FF0000 private"));
     assert!(map.contains("main.wide_const 89ABCDEF private"));
     assert!(map.contains("main.wide_var 01234567 private"));
 }
