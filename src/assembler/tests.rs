@@ -2790,6 +2790,33 @@ fn mapfile_all_and_none_modes_control_symbol_listing() {
 }
 
 #[test]
+fn mapfile_formats_32bit_addresses_without_truncation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".region hi, $FF000000, $FF0000FF",
+        "wide_const .const $89ABCDEF",
+        ".section code",
+        "entry: .byte $ea",
+        ".endsection",
+        ".place code in hi",
+        ".mapfile \"build/wide.map\", symbols=all",
+        ".endmodule",
+    ]);
+    let directive = assembler.root_metadata.mapfiles.first().expect("mapfile");
+    let map = build_mapfile_text(
+        directive,
+        assembler.regions(),
+        assembler.sections(),
+        assembler.symbols(),
+    );
+    assert!(map.contains("hi FF000000 FF0000FF"));
+    assert!(map.contains("code FF000000 1 code hi"));
+    assert!(map.contains("main.entry FF000000 private"));
+    assert!(map.contains("main.wide_const 89ABCDEF private"));
+}
+
+#[test]
 fn root_metadata_name_sets_name_only() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

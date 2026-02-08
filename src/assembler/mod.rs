@@ -393,8 +393,10 @@ struct ResolvedLinkerSection {
 fn format_addr(addr: u32) -> String {
     if addr <= 0xFFFF {
         format!("{addr:04X}")
-    } else {
+    } else if addr <= 0xFF_FFFF {
         format!("{addr:06X}")
+    } else {
+        format!("{addr:08X}")
     }
 }
 

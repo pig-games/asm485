@@ -1,0 +1,36 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 wide mapfile coverage
+----                                2  ; Ensures map output preserves full 32-bit addresses and symbol values.
+----                                3  
+----                                4  .module main
+----                                5  .cpu 65816
+----                                6  
+----                                7  .region hi, $FF000000, $FF0000FF
+----    EQU 89ABCDEF                8  wide_const .const $89ABCDEF
+----                                9  
+----                               10  .section code  ; [section code]
+----                               11  entry:  ; [section code]
+0000    EA                         12      .byte $ea  ; [section code]
+----                               13  .endsection
+----                               14  
+----                               15  .place code in hi
+----                               16  .mapfile "build/65816-wide-mapfile.map", symbols=all
+----                               17  
+----                               18  .endmodule
+
+Lines: 18  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+main.wide_const : 89abcdef (2309737967)
+main.entry      : ff000000 (4278190080)
+
+Total memory is 1 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+FF000000    EA
