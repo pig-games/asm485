@@ -343,8 +343,8 @@ Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 - Includes long memory forms for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`).
 - Includes stack-relative forms (`d,S` and `(d,S),Y`) for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`.
 - Includes a wide-address output/layout slice (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
+- Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
 - Does not yet implement full banked CPU-state semantics.
-- Does not yet implement M/X width-state tracking for width-sensitive immediate sizing.
 
 ### 4.8 End of assembly
 
@@ -741,7 +741,6 @@ Currently implemented 65816-specific additions in this branch:
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
 - full banked CPU-state semantics are still in progress
-- no M/X width-state tracking for width-sensitive immediate sizing
 
 **Intel 8080 Family**
 

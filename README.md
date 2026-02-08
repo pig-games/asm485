@@ -31,11 +31,12 @@ phase-2 slice for placement/output workflows.
     `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC`
   - bracketed long-indirect forms (`[...]` / `[...,Y]`) used by implemented instructions
   - long absolute operands for implemented long-control instructions
+- Width-sensitive immediate sizing is implemented for supported 65816 immediate
+  mnemonics via `REP`/`SEP` M/X state tracking.
 
 Current limits:
 - Full banked CPU-state semantics are not implemented yet.
 - PRG output `loadaddr` must still fit in 16 bits.
-- Width-sensitive immediate sizing state (M/X state tracking) is not implemented yet.
 
 New 65816 examples:
 - `examples/65816_simple.asm`

@@ -46,6 +46,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - initial 65816 addressing-form support in MOS-family parsing:
     - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`)
     - bracketed indirect forms (`[...]`, `[...,Y]`) for implemented instructions
+  - width-sensitive immediate sizing for supported 65816 immediate mnemonics via `REP`/`SEP`
+    M/X state tracking (including CPU-switch state reset behavior)
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
@@ -120,4 +122,4 @@ Current 65816 coverage includes MVP instructions plus a wide-address output/layo
 - long memory encodings are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`)
 - stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
 - full banked CPU-state semantics are still planned
-- width-sensitive immediate sizing via M/X state tracking is still planned
+- width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics
