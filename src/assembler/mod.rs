@@ -920,6 +920,7 @@ impl<'a> AsmLine<'a> {
             };
             if let Some(entry) = self.symbols.entry_mut(&symbol_name) {
                 entry.val = entry.val.saturating_add(base_addr);
+                entry.updated = true;
             }
         }
     }
@@ -2798,6 +2799,10 @@ impl<'a> AssemblerContext for AsmLine<'a> {
 
     fn has_symbol(&self, name: &str) -> bool {
         self.lookup_scoped_entry(name).is_some()
+    }
+
+    fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
+        self.lookup_scoped_entry(name).map(|entry| entry.updated)
     }
 
     fn current_address(&self) -> u32 {

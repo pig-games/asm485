@@ -9,8 +9,10 @@
 
 use crate::core::assembler::expression::expr_span;
 use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
-use crate::families::mos6502::table::has_mnemonic;
-use crate::families::mos6502::{FamilyOperand, MOS6502FamilyHandler, Operand};
+use crate::core::parser::Expr;
+use crate::families::mos6502::{
+    has_mnemonic, lookup_instruction, AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand,
+};
 
 /// CPU handler for base MOS 6502.
 #[derive(Debug)]
@@ -38,6 +40,43 @@ impl M6502CpuHandler {
             upper.as_str(),
             "BCC" | "BCS" | "BEQ" | "BNE" | "BMI" | "BPL" | "BVC" | "BVS"
         )
+    }
+
+    fn has_mode(mnemonic: &str, mode: AddressMode) -> bool {
+        lookup_instruction(mnemonic, mode).is_some()
+    }
+
+    fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> bool {
+        match expr {
+            Expr::Identifier(name, _) | Expr::Register(name, _) => {
+                if !ctx.has_symbol(name) {
+                    return true;
+                }
+                ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
+            }
+            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
+                Self::expr_has_unstable_symbols(inner, ctx)
+            }
+            Expr::Tuple(items, _) => items
+                .iter()
+                .any(|item| Self::expr_has_unstable_symbols(item, ctx)),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                Self::expr_has_unstable_symbols(cond, ctx)
+                    || Self::expr_has_unstable_symbols(then_expr, ctx)
+                    || Self::expr_has_unstable_symbols(else_expr, ctx)
+            }
+            Expr::Unary { expr, .. } => Self::expr_has_unstable_symbols(expr, ctx),
+            Expr::Binary { left, right, .. } => {
+                Self::expr_has_unstable_symbols(left, ctx)
+                    || Self::expr_has_unstable_symbols(right, ctx)
+            }
+            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+        }
     }
 }
 
@@ -95,8 +134,14 @@ impl CpuHandler for M6502CpuHandler {
                             Operand::Relative(offset as i8, span)
                         }
                     } else if (0..=255).contains(&val) {
-                        // Prefer zero page when possible
-                        Operand::ZeroPage(val as u8, span)
+                        if Self::expr_has_unstable_symbols(expr, ctx)
+                            && Self::has_mode(mnemonic, AddressMode::Absolute)
+                        {
+                            Operand::Absolute(val as u16, span)
+                        } else {
+                            // Prefer zero page when possible
+                            Operand::ZeroPage(val as u8, span)
+                        }
                     } else if (0..=65535).contains(&val) {
                         Operand::Absolute(val as u16, span)
                     } else {
@@ -108,7 +153,13 @@ impl CpuHandler for M6502CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = expr_span(expr);
                     if (0..=255).contains(&val) {
-                        Operand::ZeroPageX(val as u8, span)
+                        if Self::expr_has_unstable_symbols(expr, ctx)
+                            && Self::has_mode(mnemonic, AddressMode::AbsoluteX)
+                        {
+                            Operand::AbsoluteX(val as u16, span)
+                        } else {
+                            Operand::ZeroPageX(val as u8, span)
+                        }
                     } else if (0..=65535).contains(&val) {
                         Operand::AbsoluteX(val as u16, span)
                     } else {
@@ -120,7 +171,13 @@ impl CpuHandler for M6502CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = expr_span(expr);
                     if (0..=255).contains(&val) {
-                        Operand::ZeroPageY(val as u8, span)
+                        if Self::expr_has_unstable_symbols(expr, ctx)
+                            && Self::has_mode(mnemonic, AddressMode::AbsoluteY)
+                        {
+                            Operand::AbsoluteY(val as u16, span)
+                        } else {
+                            Operand::ZeroPageY(val as u8, span)
+                        }
                     } else if (0..=65535).contains(&val) {
                         Operand::AbsoluteY(val as u16, span)
                     } else {

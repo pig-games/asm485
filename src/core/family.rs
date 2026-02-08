@@ -124,6 +124,11 @@ pub trait AssemblerContext {
     /// Check whether an identifier currently resolves in this context.
     fn has_symbol(&self, name: &str) -> bool;
 
+    /// Return whether a resolved symbol has been finalized for this pass.
+    ///
+    /// `None` means the symbol does not currently resolve in this context.
+    fn symbol_is_finalized(&self, name: &str) -> Option<bool>;
+
     /// Get the current assembly address.
     fn current_address(&self) -> u32;
 

@@ -41,7 +41,7 @@ mod table;
 pub use cpu_handler::M6502CpuHandler;
 pub use handler::MOS6502FamilyHandler;
 pub use operand::{AddressMode, FamilyOperand, Operand};
-pub use table::{has_mnemonic, FAMILY_INSTRUCTION_TABLE};
+pub use table::{has_mnemonic, lookup_instruction, FAMILY_INSTRUCTION_TABLE};
 
 /// Check if an identifier is a register for the MOS 6502 family.
 pub fn is_register(name: &str) -> bool {

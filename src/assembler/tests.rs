@@ -1785,6 +1785,62 @@ fn m65816_forward_high_bank_label_uses_stable_long_sizing() {
 }
 
 #[test]
+fn m6502_forward_boundary_label_uses_stable_absolute_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 6502",
+        ".org $00FD",
+        "start:",
+        "    LDA target",
+        "    NOP",
+        "target:",
+        "    RTS",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x00FD, 0xAD),
+            (0x00FE, 0x01),
+            (0x00FF, 0x01),
+            (0x0100, 0xEA),
+            (0x0101, 0x60),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0101));
+}
+
+#[test]
+fn m65c02_forward_boundary_label_uses_stable_absolute_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65c02",
+        ".org $00FD",
+        "start:",
+        "    STZ target",
+        "    NOP",
+        "target:",
+        "    RTS",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x00FD, 0x9C),
+            (0x00FE, 0x01),
+            (0x00FF, 0x01),
+            (0x0100, 0xEA),
+            (0x0101, 0x60),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0101));
+}
+
+#[test]
 fn m65816_direct_page_indirect_long_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA [$10]"),
