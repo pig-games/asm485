@@ -1,0 +1,42 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  .module statement.export.lib
+----                                2      .pub
+----    EQU 0042                    3  LIBVAL  .const $42
+----                                4  
+----                                5  
+----                                6  .endmodule
+----                                7  ; Test: successful cross-module statement import
+----                                8  ;
+----                                9  ; When PUSHB is explicitly listed in the .use import list,
+----                               10  ; the statement defined in the library module becomes available.
+----                               11  
+----                               12  .module statement.cross.ok.app
+----                               13      .cpu 8085
+----                               14  
+----                               15      .use statement.export.lib (LIBVAL, PUSHB)
+----                               16  
+----    EQU 0000                   17      .org $0000
+----                               18  
+0000    3E 42                      19      mvi a, LIBVAL       ; Use the exported const ($42)
+0002    AA                         20      .byte $AA
+0003    BB                         21      .byte $BB
+0004    76                         22      hlt
+----                               23  .endmodule
+----                               24  
+----                               25  .end
+
+Lines: 25  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+statement.export.lib.LIBVAL: 0042 (66)
+
+Total memory is 5 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    3E 42 AA BB 76

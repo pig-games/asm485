@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
+use crate::core::macro_processor::MacroExports;
+
 use super::*;
 
 #[derive(Debug, Clone)]
@@ -18,7 +20,7 @@ struct ModuleLoadContext<'a> {
     index: &'a ModuleIndex,
     loaded: &'a mut HashSet<String>,
     preloaded: &'a HashSet<String>,
-    order: &'a mut Vec<Vec<String>>,
+    order: &'a mut Vec<(String, Vec<String>)>,
     stack: &'a mut Vec<String>,
     defines: &'a [String],
     pp_macro_depth: usize,
@@ -326,10 +328,15 @@ pub(crate) fn expand_source_file(
         }
         return Err(AsmRunError::new(err_msg, diagnostics, source_lines));
     }
-    let src_lines: Vec<String> = pp.lines().to_vec();
-    let mut mp = MacroProcessor::new();
-    let expanded_lines = match mp.expand(&src_lines) {
-        Ok(lines) => lines,
+    Ok(pp.lines().to_vec())
+}
+
+fn expand_with_processor(
+    mp: &mut MacroProcessor,
+    lines: &[String],
+) -> Result<Vec<String>, AsmRunError> {
+    match mp.expand(lines) {
+        Ok(lines) => Ok(lines),
         Err(err) => {
             let err_msg = AsmError::new(AsmErrorKind::Preprocess, err.message(), None);
             let mut diagnostics = Vec::new();
@@ -339,10 +346,9 @@ pub(crate) fn expand_source_file(
                         .with_column(err.column()),
                 );
             }
-            return Err(AsmRunError::new(err_msg, diagnostics, src_lines.clone()));
+            Err(AsmRunError::new(err_msg, diagnostics, lines.to_vec()))
         }
-    };
-    Ok(expanded_lines)
+    }
 }
 
 fn parse_line_ast(line: &str, line_num: u32) -> Option<LineAst> {
@@ -387,6 +393,23 @@ fn collect_use_directives(lines: &[String]) -> Vec<String> {
         };
         if let LineAst::Use { module_id, .. } = ast {
             uses.push(module_id);
+        }
+    }
+    uses
+}
+
+fn collect_use_directives_with_items(lines: &[String]) -> Vec<(String, Vec<String>)> {
+    let mut uses = Vec::new();
+    for (idx, line) in lines.iter().enumerate() {
+        let Some(ast) = parse_line_ast(line, idx as u32 + 1) else {
+            continue;
+        };
+        if let LineAst::Use {
+            module_id, items, ..
+        } = ast
+        {
+            let item_names: Vec<String> = items.iter().map(|item| item.name.clone()).collect();
+            uses.push((module_id, item_names));
         }
     }
     uses
@@ -556,9 +579,9 @@ fn load_module_recursive(
     let info = &infos[0];
 
     ctx.stack.push(module_id.to_string());
-    let expanded_lines = expand_source_file(&info.path, ctx.defines, ctx.pp_macro_depth)?;
+    let source_lines = expand_source_file(&info.path, ctx.defines, ctx.pp_macro_depth)?;
     let module_lines = if info.has_explicit_modules {
-        extract_module_block(&expanded_lines, module_id).ok_or_else(|| {
+        extract_module_block(&source_lines, module_id).ok_or_else(|| {
             AsmRunError::new(
                 AsmError::new(
                     AsmErrorKind::Directive,
@@ -570,7 +593,7 @@ fn load_module_recursive(
             )
         })?
     } else {
-        expanded_lines
+        source_lines
     };
 
     for dep in collect_use_directives(&module_lines) {
@@ -578,9 +601,16 @@ fn load_module_recursive(
     }
 
     ctx.loaded.insert(canonical);
-    ctx.order.push(module_lines);
+    ctx.order.push((module_id.to_string(), module_lines));
     ctx.stack.pop();
     Ok(())
+}
+
+#[derive(Debug)]
+pub(crate) struct ModuleGraphResult {
+    pub(crate) lines: Vec<String>,
+    /// Macro/segment/statement names defined per module (canonical module ID → name set).
+    pub(crate) module_macro_names: HashMap<String, HashSet<String>>,
 }
 
 pub(crate) fn load_module_graph(
@@ -588,7 +618,7 @@ pub(crate) fn load_module_graph(
     root_lines: Vec<String>,
     defines: &[String],
     pp_macro_depth: usize,
-) -> Result<Vec<String>, AsmRunError> {
+) -> Result<ModuleGraphResult, AsmRunError> {
     let root_dir = root_path
         .parent()
         .ok_or_else(|| {
@@ -626,10 +656,62 @@ pub(crate) fn load_module_graph(
         load_module_recursive(&dep, &mut ctx)?;
     }
 
-    let mut combined = Vec::new();
-    for module_lines in order {
-        combined.extend(module_lines);
+    // Phase 1: expand macros per-module and collect exports.
+    // `order` is dependency-first, so by the time we process a module,
+    // all of its dependencies' exports are already collected.
+    let mut module_exports: HashMap<String, MacroExports> = HashMap::new();
+    let mut expanded_deps: Vec<Vec<String>> = Vec::new();
+
+    for (module_id, module_lines) in &order {
+        let canonical = canonical_module_id(module_id);
+        let use_directives = collect_use_directives_with_items(module_lines);
+
+        let mut mp = MacroProcessor::new();
+        for (dep_id, items) in &use_directives {
+            let dep_canonical = canonical_module_id(dep_id);
+            if let Some(dep_exports) = module_exports.get(&dep_canonical) {
+                if items.is_empty() {
+                    mp.inject_all(dep_exports);
+                } else {
+                    mp.inject_from(dep_exports, items);
+                }
+            }
+        }
+
+        let expanded = expand_with_processor(&mut mp, module_lines)?;
+        module_exports.insert(canonical, mp.take_native_exports());
+        expanded_deps.push(expanded);
     }
-    combined.extend(root_lines);
-    Ok(combined)
+
+    // Phase 2: expand root with only its explicitly imported macros.
+    let root_uses = collect_use_directives_with_items(&root_lines);
+    let mut mp = MacroProcessor::new();
+    for (dep_id, items) in &root_uses {
+        let dep_canonical = canonical_module_id(dep_id);
+        if let Some(dep_exports) = module_exports.get(&dep_canonical) {
+            if items.is_empty() {
+                mp.inject_all(dep_exports);
+            } else {
+                mp.inject_from(dep_exports, items);
+            }
+        }
+    }
+
+    let expanded_root = expand_with_processor(&mut mp, &root_lines)?;
+
+    let mut combined = Vec::new();
+    for dep_lines in expanded_deps {
+        combined.extend(dep_lines);
+    }
+    combined.extend(expanded_root);
+
+    let module_macro_names: HashMap<String, HashSet<String>> = module_exports
+        .into_iter()
+        .map(|(id, exports)| (id, exports.names()))
+        .collect();
+
+    Ok(ModuleGraphResult {
+        lines: combined,
+        module_macro_names,
+    })
 }

@@ -77,12 +77,14 @@ fn assemble_example_with_base(
     let root_path = asm_path;
     let root_lines = expand_source_file(root_path, &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
-    let expanded_lines = load_module_graph(root_path, root_lines.clone(), &[], 64)
+    let graph = load_module_graph(root_path, root_lines.clone(), &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
+    let expanded_lines = graph.lines;
 
     let mut assembler = Assembler::new();
     assembler.root_metadata.root_module_id =
         Some(root_module_id_from_lines(root_path, &root_lines).map_err(|err| err.to_string())?);
+    assembler.module_macro_names = graph.module_macro_names;
     assembler.clear_diagnostics();
     let _ = assembler.pass1(&expanded_lines);
 
@@ -195,15 +197,17 @@ fn assemble_example_error(asm_path: &Path) -> Option<String> {
         Ok(lines) => lines,
         Err(err) => return Some(format!("Preprocess failed: {err}")),
     };
-    let expanded_lines = match load_module_graph(root_path, root_lines.clone(), &[], 64) {
-        Ok(lines) => lines,
-        Err(err) => return Some(format!("Preprocess failed: {err}")),
-    };
+    let (expanded_lines, module_macro_names) =
+        match load_module_graph(root_path, root_lines.clone(), &[], 64) {
+            Ok(graph) => (graph.lines, graph.module_macro_names),
+            Err(err) => return Some(format!("Preprocess failed: {err}")),
+        };
 
     let mut assembler = Assembler::new();
     if let Ok(module_id) = root_module_id_from_lines(root_path, &root_lines) {
         assembler.root_metadata.root_module_id = Some(module_id);
     }
+    assembler.module_macro_names = module_macro_names;
     assembler.clear_diagnostics();
     let _ = assembler.pass1(&expanded_lines);
 
@@ -235,7 +239,9 @@ fn module_loader_orders_dependencies_before_root() {
     );
 
     let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let combined = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = load_module_graph(&root_path, root_lines, &[], 32)
+        .expect("load graph")
+        .lines;
 
     let lib_idx = combined
         .iter()
@@ -305,6 +311,241 @@ fn module_loader_reports_ambiguous_module_id() {
     assert!(
         err.to_string().contains("Ambiguous module"),
         "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn module_loader_allows_cross_module_segment_expansion() {
+    let dir = create_temp_dir("module-segment-cross");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib\n    .org $0000\n    .EMIT $AA\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
+    assert_eq!(
+        pass2.errors, 0,
+        "pass2 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut hex = Vec::new();
+    assembler
+        .image()
+        .write_hex_file(&mut hex, None)
+        .expect("hex output");
+    let hex_text = String::from_utf8_lossy(&hex);
+    assert!(
+        hex_text.contains(":02000000AA76DE"),
+        "unexpected hex output: {hex_text}"
+    );
+}
+
+#[test]
+fn module_loader_allows_cross_module_statement_expansion() {
+    let dir = create_temp_dir("module-statement-cross");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib\n    .org $0000\n    PUSHB $5A\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
+    assert_eq!(
+        pass2.errors, 0,
+        "pass2 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut hex = Vec::new();
+    assembler
+        .image()
+        .write_hex_file(&mut hex, None)
+        .expect("hex output");
+    let hex_text = String::from_utf8_lossy(&hex);
+    assert!(
+        hex_text.contains(":020000005A762E"),
+        "unexpected hex output: {hex_text}"
+    );
+}
+
+#[test]
+fn module_loader_selective_import_includes_segment() {
+    let dir = create_temp_dir("module-segment-selective");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (EMIT)\n    .org $0000\n    .EMIT $AA\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
+    assert_eq!(
+        pass2.errors, 0,
+        "pass2 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+}
+
+#[test]
+fn module_loader_selective_import_excludes_segment() {
+    let dir = create_temp_dir("module-segment-not-imported");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    // Only import VAL, not EMIT — segment should NOT be available
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (VAL)\n    .org $0000\n    .byte VAL\n    .EMIT $AA\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nVAL .const 7\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(
+        pass1.errors > 0,
+        "Expected errors because EMIT segment was not imported"
+    );
+}
+
+#[test]
+fn module_loader_selective_import_includes_statement() {
+    let dir = create_temp_dir("module-statement-selective");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (PUSHB)\n    .org $0000\n    PUSHB $5A\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+}
+
+#[test]
+fn module_loader_selective_import_excludes_statement() {
+    let dir = create_temp_dir("module-statement-not-imported");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    // Only import VAL, not PUSHB — statement should NOT be available
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (VAL)\n    .org $0000\n    .byte VAL\n    PUSHB $5A\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nVAL .const 7\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(
+        pass1.errors > 0,
+        "Expected errors because PUSHB statement was not imported"
     );
 }
 
@@ -1358,6 +1599,49 @@ fn statement_definition_rejects_unquoted_commas() {
     let mut listing = ListingWriter::new(&mut output, false);
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
     assert!(pass2.errors > 0);
+}
+
+#[test]
+fn statement_dollar_hex_suffix_chars_assemble_correctly() {
+    // Regression: $BB, $AB, $0B etc. failed in statement byte-capture matching
+    // because parse_number treated the trailing B as a binary suffix before
+    // recognising the $ hex prefix.
+    let lines = vec![
+        ".statement PUSHB byte:v".to_string(),
+        "    .byte .v".to_string(),
+        ".endstatement".to_string(),
+        "    .org $0000".to_string(),
+        "    PUSHB $AA".to_string(),
+        "    PUSHB $BB".to_string(),
+        "    PUSHB $AB".to_string(),
+        "    PUSHB $0B".to_string(),
+        "    PUSHB $FB".to_string(),
+    ];
+    let mut mp = MacroProcessor::new();
+    let expanded = mp.expand(&lines).expect("expand");
+
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&expanded);
+    assert_eq!(pass1.errors, 0, "pass1 errors: {:?}", assembler.diagnostics);
+
+    let mut output = Vec::new();
+    let mut listing = ListingWriter::new(&mut output, false);
+    let _ = listing.header("test");
+    let pass2 = assembler.pass2(&expanded, &mut listing).expect("pass2");
+    assert_eq!(pass2.errors, 0, "pass2 errors: {:?}", assembler.diagnostics);
+
+    let mut hex = Vec::new();
+    assembler
+        .image()
+        .write_hex_file(&mut hex, None)
+        .expect("hex");
+    let hex_text = String::from_utf8_lossy(&hex);
+    // Expected bytes at $0000: AA BB AB 0B FB
+    assert!(
+        hex_text.contains(":05000000AABBAB0BFBE5"),
+        "unexpected hex: {hex_text}"
+    );
 }
 
 #[test]

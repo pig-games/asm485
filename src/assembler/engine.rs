@@ -12,6 +12,7 @@ pub(crate) struct Assembler {
     pub(crate) cpu: CpuType,
     pub(crate) registry: ModuleRegistry,
     pub(crate) root_metadata: RootMetadata,
+    pub(crate) module_macro_names: HashMap<String, HashSet<String>>,
 }
 
 impl Assembler {
@@ -33,6 +34,7 @@ impl Assembler {
             cpu: default_cpu(),
             registry,
             root_metadata: RootMetadata::default(),
+            module_macro_names: HashMap::new(),
         }
     }
 
@@ -185,7 +187,7 @@ impl Assembler {
             self.regions = asm_line.take_regions();
         }
 
-        for issue in self.symbols.validate_imports() {
+        for issue in self.symbols.validate_imports(&self.module_macro_names) {
             let kind = match issue.kind {
                 crate::core::symbol_table::ImportIssueKind::Directive => AsmErrorKind::Directive,
                 crate::core::symbol_table::ImportIssueKind::Symbol => AsmErrorKind::Symbol,

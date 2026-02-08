@@ -8,7 +8,7 @@ use crate::core::parser::{
 };
 use crate::core::text_utils::{is_ident_char, is_ident_start, is_space, to_upper, Cursor};
 use crate::core::tokenizer::{Span, Token, TokenKind, Tokenizer};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct MacroError {
@@ -83,9 +83,26 @@ struct MacroArgs {
     full_list: String,
 }
 
+/// Opaque collection of macro/segment/statement definitions exported by a module.
+#[derive(Debug, Clone, Default)]
+pub struct MacroExports {
+    macros: HashMap<String, MacroDef>,
+    statements: HashMap<String, Vec<StatementDef>>,
+}
+
+impl MacroExports {
+    /// All exported macro/segment/statement names (uppercased).
+    pub fn names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = self.macros.keys().cloned().collect();
+        names.extend(self.statements.keys().cloned());
+        names
+    }
+}
+
 pub struct MacroProcessor {
     macros: HashMap<String, MacroDef>,
     statements: HashMap<String, Vec<StatementDef>>,
+    injected_names: HashSet<String>,
     max_depth: usize,
 }
 
@@ -100,8 +117,52 @@ impl MacroProcessor {
         Self {
             macros: HashMap::new(),
             statements: HashMap::new(),
+            injected_names: HashSet::new(),
             max_depth: 64,
         }
+    }
+
+    /// Inject selected exports by name (for selective `.use` imports).
+    pub fn inject_from(&mut self, exports: &MacroExports, names: &[String]) {
+        for name in names {
+            let upper = name.to_ascii_uppercase();
+            if let Some(def) = exports.macros.get(&upper) {
+                self.injected_names.insert(upper.clone());
+                self.macros.insert(upper.clone(), def.clone());
+            }
+            if let Some(defs) = exports.statements.get(&upper) {
+                self.injected_names.insert(upper.clone());
+                self.statements.insert(upper.clone(), defs.clone());
+            }
+        }
+    }
+
+    /// Inject all exports (for wildcard `.use` without an items list).
+    pub fn inject_all(&mut self, exports: &MacroExports) {
+        for (name, def) in &exports.macros {
+            self.injected_names.insert(name.clone());
+            self.macros.insert(name.clone(), def.clone());
+        }
+        for (name, defs) in &exports.statements {
+            self.injected_names.insert(name.clone());
+            self.statements.insert(name.clone(), defs.clone());
+        }
+    }
+
+    /// Take the natively-defined (not injected) exports from this processor.
+    pub fn take_native_exports(&mut self) -> MacroExports {
+        let all_macros = std::mem::take(&mut self.macros);
+        let all_statements = std::mem::take(&mut self.statements);
+        let injected = &self.injected_names;
+        let macros = all_macros
+            .into_iter()
+            .filter(|(name, _)| !injected.contains(name))
+            .collect();
+        let statements = all_statements
+            .into_iter()
+            .filter(|(name, _)| !injected.contains(name))
+            .collect();
+        MacroExports { macros, statements }
     }
 
     pub fn expand(&mut self, lines: &[String]) -> Result<Vec<String>, MacroError> {
@@ -1290,5 +1351,29 @@ mod tests {
         assert!(out.contains(&"    .byte 0ffh".to_string()));
         assert!(out.contains(&"    .byte %1010".to_string()));
         assert!(out.contains(&"    .byte $ff".to_string()));
+    }
+
+    #[test]
+    fn statement_dollar_hex_ending_in_suffix_chars() {
+        // Regression: $BB was misinterpreted because the trailing-B binary
+        // suffix heuristic in parse_number fired before the $ prefix check,
+        // causing byte-capture matching to fail.
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            ".statement PUSHB byte:v".to_string(),
+            "    .byte .v".to_string(),
+            ".endstatement".to_string(),
+            "    PUSHB $AA".to_string(),
+            "    PUSHB $BB".to_string(),
+            "    PUSHB $AB".to_string(),
+            "    PUSHB $0B".to_string(),
+            "    PUSHB $FB".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.contains(&"    .byte $AA".to_string()), "missing $AA");
+        assert!(out.contains(&"    .byte $BB".to_string()), "missing $BB");
+        assert!(out.contains(&"    .byte $AB".to_string()), "missing $AB");
+        assert!(out.contains(&"    .byte $0B".to_string()), "missing $0B");
+        assert!(out.contains(&"    .byte $FB".to_string()), "missing $FB");
     }
 }

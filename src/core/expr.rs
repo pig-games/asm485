@@ -230,6 +230,9 @@ pub fn parse_number(text: &str) -> Option<i64> {
     let text: String = text.chars().filter(|&c| c != '_').collect();
     let text = text.as_str();
 
+    // Prefix-based notations are checked first so that suffix heuristics
+    // (e.g. trailing 'B' for binary) never misinterpret a prefixed literal
+    // like $BB or %0101.
     let val = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
         i64::from_str_radix(hex, 16).ok()?
     } else if let Some(bin) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
@@ -238,6 +241,8 @@ pub fn parse_number(text: &str) -> Option<i64> {
         i64::from_str_radix(oct, 8).ok()?
     } else if let Some(bin) = text.strip_prefix('%') {
         i64::from_str_radix(bin, 2).ok()?
+    } else if let Some(hex) = text.strip_prefix('$') {
+        i64::from_str_radix(hex, 16).ok()?
     } else if text.ends_with('h') || text.ends_with('H') {
         i64::from_str_radix(&text[..text.len() - 1], 16).ok()?
     } else if text.ends_with('b') || text.ends_with('B') {
@@ -255,8 +260,6 @@ pub fn parse_number(text: &str) -> Option<i64> {
         || text.ends_with('Q')
     {
         i64::from_str_radix(&text[..text.len() - 1], 8).ok()?
-    } else if let Some(hex) = text.strip_prefix('$') {
-        i64::from_str_radix(hex, 16).ok()?
     } else {
         text.parse::<i64>().ok()?
     };
@@ -366,6 +369,17 @@ mod tests {
         assert_eq!(parse_number("$2A"), Some(42));
         assert_eq!(parse_number("2Ah"), Some(42));
         assert_eq!(parse_number("2AH"), Some(42));
+    }
+
+    #[test]
+    fn parse_number_dollar_hex_ending_in_b() {
+        // Regression: $BB was misinterpreted as a binary-suffixed literal
+        // because the ends_with('B') branch fired before the '$' prefix branch.
+        assert_eq!(parse_number("$BB"), Some(0xBB));
+        assert_eq!(parse_number("$AB"), Some(0xAB));
+        assert_eq!(parse_number("$0B"), Some(0x0B));
+        assert_eq!(parse_number("$1B"), Some(0x1B));
+        assert_eq!(parse_number("$FB"), Some(0xFB));
     }
 
     #[test]

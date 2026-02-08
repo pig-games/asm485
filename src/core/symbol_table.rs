@@ -6,7 +6,7 @@
 use crate::core::parser::{UseItem, UseParam};
 use crate::core::tokenizer::Span;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 #[derive(Debug, Clone)]
@@ -207,7 +207,10 @@ impl SymbolTable {
     }
 
     #[must_use]
-    pub fn validate_imports(&self) -> Vec<ImportIssue> {
+    pub fn validate_imports(
+        &self,
+        known_macro_names: &HashMap<String, HashSet<String>>,
+    ) -> Vec<ImportIssue> {
         let mut issues = Vec::new();
 
         for info in &self.module_info {
@@ -237,6 +240,13 @@ impl SymbolTable {
                             }
                         }
                         None => {
+                            // Skip items that are known macro/segment/statement names
+                            let dep_canonical = import.module_id.to_ascii_lowercase();
+                            if let Some(macro_names) = known_macro_names.get(&dep_canonical) {
+                                if macro_names.contains(&item.name.to_ascii_uppercase()) {
+                                    continue;
+                                }
+                            }
                             issues.push(ImportIssue {
                                 line: item.span.line,
                                 column: Some(item.span.col_start),

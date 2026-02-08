@@ -1,0 +1,48 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  .module macro.export.lib
+----                                2      .pub
+----    EQU 0042                    3  LIBVAL  .const $42
+----                                4  
+----                                5  
+----                                6  .endmodule
+----                                7  ; Test: successful cross-module macro import
+----                                8  ;
+----                                9  ; When EMIT_PAIR is explicitly listed in the .use import list,
+----                               10  ; the macro defined in the library module becomes available.
+----                               11  
+----                               12  .module macro.cross.ok.app
+----                               13      .cpu 8085
+----                               14  
+----                               15      .use macro.export.lib (LIBVAL, EMIT_PAIR)
+----                               16  
+----    EQU 0000                   17      .org $0000
+----                               18  
+0000    3E 42                      19      mvi a, LIBVAL       ; Use the exported const ($42)
+----                               20      .block
+0002    AA                         21      .byte $AA
+0003    BB                         22      .byte $BB
+----                               23      .endblock
+----                               24      .block
+0004    CC                         25      .byte $CC
+0005    DD                         26      .byte $DD
+----                               27      .endblock
+0006    76                         28      hlt
+----                               29  .endmodule
+----                               30  
+----                               31  .end
+
+Lines: 31  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+macro.export.lib.LIBVAL: 0042 (66)
+
+Total memory is 7 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    3E 42 AA BB CC DD 76

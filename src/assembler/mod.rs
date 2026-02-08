@@ -92,11 +92,12 @@ fn run_one(
     let root_path = Path::new(asm_name);
     let root_lines = expand_source_file(root_path, &cli.defines, config.pp_macro_depth)?;
     let root_module_id = root_module_id_from_lines(root_path, &root_lines)?;
-    let expanded_lines =
-        load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
+    let graph = load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
+    let expanded_lines = graph.lines;
 
     let mut assembler = Assembler::new();
     assembler.root_metadata.root_module_id = Some(root_module_id);
+    assembler.module_macro_names = graph.module_macro_names;
     assembler.clear_diagnostics();
     let pass1 = assembler.pass1(&expanded_lines);
     if pass1.errors > 0 {

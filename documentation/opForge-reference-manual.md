@@ -246,8 +246,8 @@ block (or `.meta.output.*` inline), `.name` sets the output base name.
 
 Notes:
 - `.use` must appear **inside a module** and **at module scope**.
-- `.use` affects **runtime symbol resolution only**.
-- `.pub/.priv` visibility is enforced for runtime symbols (labels/constants/vars) only; macro/segment exports are not filtered by `.use`.
+- `.use` affects runtime symbol resolution and also controls which dependency modules are loaded before macro/statement expansion.
+- `.pub/.priv` visibility is enforced for runtime symbols (labels/constants/vars) only; macro/segment/statement definitions from loaded modules are still available to expansion.
 
 #### 4.10.1 Root input
 
@@ -274,7 +274,7 @@ Notes:
 #### 4.10.4 Visibility rules
 
 - `.pub`/`.priv` control **runtime symbol** visibility (labels/constants/vars).
-- Macro/segment exports are **not** filtered by `.use`.
+- Macro/segment/statement definitions from loaded modules are not currently filtered by `.pub/.priv`.
 
 #### 4.10.5 Root metadata output rules
 
@@ -449,6 +449,7 @@ Capture types (built-in):
 
 Expansion model:
 - `.statement` definitions are expanded by the macro processor **before parsing**.
+- Expansion runs after module graph loading, so statements from `.use`-loaded modules participate in one global statement set.
 - Statement definitions are **global** (not module-scoped).
 
 ### 5.6 Assembler pipeline (CPU family/dialect)
