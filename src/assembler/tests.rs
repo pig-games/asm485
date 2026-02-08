@@ -1331,6 +1331,41 @@ fn byte_list_supports_span_on_65816() {
 }
 
 #[test]
+fn instruction_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    LDA #$01", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("instruction LDA span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn instruction_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    LDA #$01", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xA9, 0x01]);
+}
+
+#[test]
 fn res_allows_wide_total_and_reports_size() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

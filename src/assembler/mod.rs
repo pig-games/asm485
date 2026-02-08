@@ -2304,6 +2304,17 @@ impl<'a> AsmLine<'a> {
             self,
         ) {
             crate::core::family::FamilyEncodeResult::Ok(bytes) => {
+                if let Err(err) =
+                    self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.bytes.extend_from_slice(&bytes);
                 return LineStatus::Ok;
             }
@@ -2357,6 +2368,17 @@ impl<'a> AsmLine<'a> {
             .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
         {
             EncodeResult::Ok(bytes) => {
+                if let Err(err) =
+                    self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.bytes.extend_from_slice(&bytes);
                 self.apply_cpu_runtime_state_after_encode(
                     pipeline.cpu.as_ref(),
@@ -2384,6 +2406,17 @@ impl<'a> AsmLine<'a> {
                 self,
             ) {
                 EncodeResult::Ok(bytes) => {
+                    if let Err(err) =
+                        self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                    {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
                     self.bytes.extend_from_slice(&bytes);
                     self.apply_cpu_runtime_state_after_encode(
                         pipeline.cpu.as_ref(),
@@ -2486,6 +2519,30 @@ impl<'a> AsmLine<'a> {
             error: AsmError::new(AsmErrorKind::Directive, &message, None),
             span,
         })
+    }
+
+    fn validate_instruction_emit_span(
+        &self,
+        mnemonic: &str,
+        operands: &[Expr],
+        byte_count: usize,
+    ) -> Result<(), AstEvalError> {
+        let size_bytes = match u32::try_from(byte_count) {
+            Ok(size_bytes) => size_bytes,
+            Err(_) => {
+                return Err(AstEvalError {
+                    error: AsmError::new(
+                        AsmErrorKind::Instruction,
+                        "instruction size overflow exceeds supported range",
+                        None,
+                    ),
+                    span: operands.first().map(expr_span).unwrap_or_default(),
+                });
+            }
+        };
+        let span = operands.first().map(expr_span).unwrap_or_default();
+        let label = format!("instruction {}", mnemonic.to_ascii_uppercase());
+        self.validate_program_span(size_bytes, &label, span)
     }
 
     fn current_cpu_little_endian(&self) -> bool {
