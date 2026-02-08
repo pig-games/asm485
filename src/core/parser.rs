@@ -1034,28 +1034,49 @@ impl Parser {
                     span: self.prev_span(),
                 });
             }
-            loop {
-                let (name, span) =
-                    self.parse_ident_like("Expected identifier in selective import list")?;
-                let mut item_alias = None;
+            if self.match_operator(OperatorKind::Multiply) {
+                let star_span = self.prev_span();
                 if self.match_keyword("as") {
-                    let (alias_name, _alias_span) =
-                        self.parse_ident_like("Expected alias in selective import list")?;
-                    item_alias = Some(alias_name);
-                }
-                items.push(UseItem {
-                    name,
-                    alias: item_alias,
-                    span,
-                });
-                if self.consume_kind(TokenKind::CloseParen) {
-                    break;
-                }
-                if !self.consume_comma() {
                     return Err(ParseError {
-                        message: "Expected ',' or ')' in selective import list".to_string(),
+                        message: "Wildcard import cannot have an alias".to_string(),
                         span: self.current_span(),
                     });
+                }
+                if !self.consume_kind(TokenKind::CloseParen) {
+                    return Err(ParseError {
+                        message: "Wildcard import must be the only selective item".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                items.push(UseItem {
+                    name: "*".to_string(),
+                    alias: None,
+                    span: star_span,
+                });
+            } else {
+                loop {
+                    let (name, span) =
+                        self.parse_ident_like("Expected identifier in selective import list")?;
+                    let mut item_alias = None;
+                    if self.match_keyword("as") {
+                        let (alias_name, _alias_span) =
+                            self.parse_ident_like("Expected alias in selective import list")?;
+                        item_alias = Some(alias_name);
+                    }
+                    items.push(UseItem {
+                        name,
+                        alias: item_alias,
+                        span,
+                    });
+                    if self.consume_kind(TokenKind::CloseParen) {
+                        break;
+                    }
+                    if !self.consume_comma() {
+                        return Err(ParseError {
+                            message: "Expected ',' or ')' in selective import list".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
                 }
             }
         }
@@ -2021,6 +2042,26 @@ mod tests {
     #[test]
     fn rejects_empty_selective_list() {
         let mut parser = Parser::from_line(".use std.math ()", 1).unwrap();
+        assert!(parser.parse_line().is_err());
+    }
+
+    #[test]
+    fn parses_use_wildcard_selective_list() {
+        let mut parser = Parser::from_line(".use std.math (*)", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Use { items, .. } => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].name, "*");
+                assert!(items[0].alias.is_none());
+            }
+            _ => panic!("Expected use directive"),
+        }
+    }
+
+    #[test]
+    fn rejects_wildcard_with_alias_in_selective_list() {
+        let mut parser = Parser::from_line(".use std.math (* as all)", 1).unwrap();
         assert!(parser.parse_line().is_err());
     }
 

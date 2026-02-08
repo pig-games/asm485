@@ -398,21 +398,39 @@ fn collect_use_directives(lines: &[String]) -> Vec<String> {
     uses
 }
 
-fn collect_use_directives_with_items(lines: &[String]) -> Vec<(String, Vec<String>)> {
+#[derive(Debug, Clone)]
+struct UseImportSpec {
+    module_id: String,
+    alias: Option<String>,
+    items: Vec<String>,
+}
+
+fn collect_use_directives_with_items(lines: &[String]) -> Vec<UseImportSpec> {
     let mut uses = Vec::new();
     for (idx, line) in lines.iter().enumerate() {
         let Some(ast) = parse_line_ast(line, idx as u32 + 1) else {
             continue;
         };
         if let LineAst::Use {
-            module_id, items, ..
+            module_id,
+            alias,
+            items,
+            ..
         } = ast
         {
             let item_names: Vec<String> = items.iter().map(|item| item.name.clone()).collect();
-            uses.push((module_id, item_names));
+            uses.push(UseImportSpec {
+                module_id,
+                alias,
+                items: item_names,
+            });
         }
     }
     uses
+}
+
+fn is_wildcard_selective(items: &[String]) -> bool {
+    items.len() == 1 && items[0] == "*"
 }
 
 fn extract_module_block(lines: &[String], module_id: &str) -> Option<Vec<String>> {
@@ -667,13 +685,18 @@ pub(crate) fn load_module_graph(
         let use_directives = collect_use_directives_with_items(module_lines);
 
         let mut mp = MacroProcessor::new();
-        for (dep_id, items) in &use_directives {
-            let dep_canonical = canonical_module_id(dep_id);
+        for import in &use_directives {
+            let dep_canonical = canonical_module_id(&import.module_id);
             if let Some(dep_exports) = module_exports.get(&dep_canonical) {
-                if items.is_empty() {
+                if is_wildcard_selective(&import.items) {
                     mp.inject_all(dep_exports);
+                } else if !import.items.is_empty() {
+                    mp.inject_from(dep_exports, &import.items);
                 } else {
-                    mp.inject_from(dep_exports, items);
+                    mp.inject_qualified(dep_exports, &import.module_id);
+                    if let Some(alias) = import.alias.as_deref() {
+                        mp.inject_qualified(dep_exports, alias);
+                    }
                 }
             }
         }
@@ -686,13 +709,18 @@ pub(crate) fn load_module_graph(
     // Phase 2: expand root with only its explicitly imported macros.
     let root_uses = collect_use_directives_with_items(&root_lines);
     let mut mp = MacroProcessor::new();
-    for (dep_id, items) in &root_uses {
-        let dep_canonical = canonical_module_id(dep_id);
+    for import in &root_uses {
+        let dep_canonical = canonical_module_id(&import.module_id);
         if let Some(dep_exports) = module_exports.get(&dep_canonical) {
-            if items.is_empty() {
+            if is_wildcard_selective(&import.items) {
                 mp.inject_all(dep_exports);
+            } else if !import.items.is_empty() {
+                mp.inject_from(dep_exports, &import.items);
             } else {
-                mp.inject_from(dep_exports, items);
+                mp.inject_qualified(dep_exports, &import.module_id);
+                if let Some(alias) = import.alias.as_deref() {
+                    mp.inject_qualified(dep_exports, alias);
+                }
             }
         }
     }

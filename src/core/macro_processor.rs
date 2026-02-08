@@ -149,6 +149,20 @@ impl MacroProcessor {
         }
     }
 
+    /// Inject all exports under a qualifier (for bare `.use module` and aliases).
+    pub fn inject_qualified(&mut self, exports: &MacroExports, qualifier: &str) {
+        for (name, def) in &exports.macros {
+            let qualified = to_upper(&format!("{qualifier}.{name}"));
+            self.injected_names.insert(qualified.clone());
+            self.macros.insert(qualified, def.clone());
+        }
+        for (name, defs) in &exports.statements {
+            let qualified = to_upper(&format!("{qualifier}.{name}"));
+            self.injected_names.insert(qualified.clone());
+            self.statements.insert(qualified, defs.clone());
+        }
+    }
+
     /// Take the natively-defined (not injected) exports from this processor.
     pub fn take_native_exports(&mut self) -> MacroExports {
         let all_macros = std::mem::take(&mut self.macros);

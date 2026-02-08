@@ -140,12 +140,18 @@ impl SymbolTable {
         }
 
         for item in &import.items {
+            if item.name == "*" && item.alias.is_none() {
+                continue;
+            }
             let local = item.alias.as_deref().unwrap_or(&item.name);
             if info
                 .imports
                 .iter()
                 .flat_map(|existing| existing.items.iter())
                 .any(|existing| {
+                    if existing.name == "*" && existing.alias.is_none() {
+                        return false;
+                    }
                     let existing_local = existing.alias.as_deref().unwrap_or(&existing.name);
                     existing_local.eq_ignore_ascii_case(local)
                 })
@@ -195,6 +201,17 @@ impl SymbolTable {
         self.module_info(module).and_then(|info| {
             info.imports.iter().find_map(|import| {
                 import.items.iter().find_map(|item| {
+                    if item.name == "*" && item.alias.is_none() {
+                        let full_name = format!("{}.{}", import.module_id, name);
+                        if let Some(entry) = self.entry(&full_name) {
+                            if entry.visibility == SymbolVisibility::Public {
+                                let target_name =
+                                    entry.name.rsplit('.').next().unwrap_or(&entry.name);
+                                return Some((import.module_id.as_str(), target_name));
+                            }
+                        }
+                        return None;
+                    }
                     let local = item.alias.as_deref().unwrap_or(&item.name);
                     if local.eq_ignore_ascii_case(name) {
                         Some((import.module_id.as_str(), item.name.as_str()))
@@ -226,6 +243,9 @@ impl SymbolTable {
                     continue;
                 }
                 for item in &import.items {
+                    if item.name == "*" && item.alias.is_none() {
+                        continue;
+                    }
                     let full_name = format!("{}.{}", import.module_id, item.name);
                     match self.entry(&full_name) {
                         Some(entry) => {

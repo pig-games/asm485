@@ -322,7 +322,7 @@ fn module_loader_allows_cross_module_segment_expansion() {
 
     write_file(
         &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    .EMIT $AA\n    hlt\n.endmodule\n",
+        ".module app\n    .use lib\n    .org $0000\n    .lib.EMIT $AA\n    hlt\n.endmodule\n",
     );
     write_file(
         &lib_path,
@@ -373,7 +373,7 @@ fn module_loader_allows_cross_module_statement_expansion() {
 
     write_file(
         &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    PUSHB $5A\n    hlt\n.endmodule\n",
+        ".module app\n    .use lib\n    .org $0000\n    lib.PUSHB $5A\n    hlt\n.endmodule\n",
     );
     write_file(
         &lib_path,
@@ -413,6 +413,88 @@ fn module_loader_allows_cross_module_statement_expansion() {
     assert!(
         hex_text.contains(":020000005A762E"),
         "unexpected hex output: {hex_text}"
+    );
+}
+
+#[test]
+fn module_loader_bare_use_allows_qualified_macro_expansion() {
+    let dir = create_temp_dir("module-macro-cross");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib\n    .org $0000\n    .lib.EMIT_PAIR $AA, $BB\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nEMIT_PAIR .macro a, b\n    .byte .a\n    .byte .b\n.endmacro\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
+    assert_eq!(
+        pass2.errors, 0,
+        "pass2 diagnostics: {:?}",
+        assembler.diagnostics
+    );
+
+    let mut hex = Vec::new();
+    assembler
+        .image()
+        .write_hex_file(&mut hex, None)
+        .expect("hex output");
+    let hex_text = String::from_utf8_lossy(&hex);
+    assert!(
+        hex_text.contains(":03000000AABB7622"),
+        "unexpected hex output: {hex_text}"
+    );
+}
+
+#[test]
+fn module_loader_bare_use_alias_allows_qualified_segment_expansion() {
+    let dir = create_temp_dir("module-segment-alias-qualified");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib as L\n    .org $0000\n    .L.EMIT $AA\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
     );
 }
 
@@ -546,6 +628,97 @@ fn module_loader_selective_import_excludes_statement() {
     assert!(
         pass1.errors > 0,
         "Expected errors because PUSHB statement was not imported"
+    );
+}
+
+#[test]
+fn module_loader_bare_use_does_not_import_statement_unqualified() {
+    let dir = create_temp_dir("module-statement-bare-use");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib\n    .org $0000\n    PUSHB $5A\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(
+        pass1.errors > 0,
+        "Expected errors because PUSHB statement was not imported by bare .use"
+    );
+}
+
+#[test]
+fn module_loader_bare_use_does_not_import_macro_unqualified() {
+    let dir = create_temp_dir("module-macro-bare-use");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib\n    .org $0000\n    .EMIT_PAIR $AA, $BB\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nEMIT_PAIR .macro a, b\n    .byte .a\n    .byte .b\n.endmacro\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert!(
+        pass1.errors > 0,
+        "Expected errors because EMIT_PAIR macro was not imported by bare .use"
+    );
+}
+
+#[test]
+fn module_loader_wildcard_import_includes_runtime_and_statement() {
+    let dir = create_temp_dir("module-wildcard-runtime-statement");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib (*)\n    .org $0000\n    .byte VAL\n    PUSHB $5A\n    hlt\n.endmodule\n",
+    );
+    write_file(
+        &lib_path,
+        ".module lib\n    .pub\nVAL .const 7\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
+    );
+
+    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
+    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
+    let combined = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("app".to_string());
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&combined);
+    assert_eq!(
+        pass1.errors, 0,
+        "pass1 diagnostics: {:?}",
+        assembler.diagnostics
     );
 }
 

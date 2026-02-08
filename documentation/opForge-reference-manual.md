@@ -246,8 +246,11 @@ block (or `.meta.output.*` inline), `.name` sets the output base name.
 
 Notes:
 - `.use` must appear **inside a module** and **at module scope**.
-- `.use` affects runtime symbol resolution and also controls which dependency modules are loaded before macro/statement expansion.
-- `.pub/.priv` visibility is enforced for runtime symbols (labels/constants/vars) only; macro/segment/statement definitions from loaded modules are still available to expansion.
+- `.use` affects runtime symbol resolution and compile-time symbol availability (`.macro`, `.segment`, `.statement`).
+- Bare `.use mod` exposes compile-time symbols as **qualified-only** names (`.mod.MACRO`, `mod.STATEMENT`).
+- Selective imports (`.use mod (NAME, ...)`) inject listed symbols as unqualified names.
+- Wildcard selective imports (`.use mod (*)`) inject all public symbols as unqualified names.
+- `.pub/.priv` visibility is enforced for runtime symbols (labels/constants/vars) only; compile-time definition filtering by visibility is not fully enforced yet.
 
 #### 4.10.1 Root input
 
@@ -274,7 +277,7 @@ Notes:
 #### 4.10.4 Visibility rules
 
 - `.pub`/`.priv` control **runtime symbol** visibility (labels/constants/vars).
-- Macro/segment/statement definitions from loaded modules are not currently filtered by `.pub/.priv`.
+- Compile-time definitions from loaded modules are not currently filtered by `.pub/.priv`.
 
 #### 4.10.5 Root metadata output rules
 

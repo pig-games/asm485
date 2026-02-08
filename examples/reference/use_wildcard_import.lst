@@ -1,0 +1,43 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Wildcard selective import for all public symbols.
+----                                2  
+----                                3  .module wildcard.import.lib
+----                                4      .pub
+----    EQU 0011                    5  VAL .const $11
+----                                6  
+----                                7  
+----                                8  
+----                                9  .endmodule
+----                               10  
+----                               11  .module wildcard.import.app
+----                               12      .cpu 8085
+----                               13      .use wildcard.import.lib (*)
+----    EQU 0000                   14      .org $0000
+----                               15  
+0000    3E 11                      16      mvi a, VAL
+0002    22                         17      .byte $22
+----                               18      .block
+0003    33                         19      .byte $33
+0004    44                         20      .byte $44
+----                               21      .endblock
+0005    55                         22      .byte $55
+0006    76                         23      hlt
+----                               24  .endmodule
+----                               25  
+----                               26  .end
+
+Lines: 26  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+wildcard.import.lib.VAL: 0011 (17)
+
+Total memory is 7 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    3E 11 22 33 44 55 76
