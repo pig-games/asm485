@@ -28,7 +28,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 000F                   25  num_oct_q       .const  17q
 ----                               26  
 ----                               27  ; Digit separators with underscore
-----    EQU 4240                   28  num_sep_dec     .const  1_000_000   ; decimal with separators
+----    EQU 0F4240                 28  num_sep_dec     .const  1_000_000   ; decimal with separators
 ----    EQU FF00                   29  num_sep_hex     .const  $FF_00      ; hex with separators
 ----    EQU 00F0                   30  num_sep_bin     .const  %1111_0000  ; binary with separators
 ----    EQU 00F0                   31  num_sep_suf     .const  1111_0000b  ; suffix binary with separators
@@ -38,8 +38,8 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 0034                   35  lo_byte         .const  <$1234
 ----    EQU 0001                   36  not_zero        .const  !0
 ----    EQU 0000                   37  not_one         .const  !1
-----    EQU FF00                   38  bit_not         .const  ~$00ff
-----    EQU FFFF                   39  neg_one         .const  -1
+----    EQU FFFFFF00               38  bit_not         .const  ~$00ff
+----    EQU FFFFFFFF               39  neg_one         .const  -1
 ----                               40  
 ----                               41  ; Arithmetic and shifts
 ----    EQU 0008                   42  pow1            .const  2 ** 3

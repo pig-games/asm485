@@ -45,8 +45,11 @@ impl<W: Write> ListingWriter<W> {
 
     pub fn write_line(&mut self, line: ListingLine<'_>) -> std::io::Result<()> {
         let (loc, bytes_col) = match line.status {
-            LineStatus::DirEqu => (String::new(), format!("EQU {:04X}", line.aux as u16)),
-            LineStatus::DirDs => (format_addr(line.addr), format!("+{:04X}", line.aux as u16)),
+            LineStatus::DirEqu => (String::new(), format!("EQU {}", format_addr(line.aux))),
+            LineStatus::DirDs => (
+                format_addr(line.addr),
+                format!("+{}", format_addr(line.aux)),
+            ),
             _ => {
                 if line.bytes.is_empty() {
                     ("".to_string(), String::new())
@@ -193,8 +196,10 @@ impl<W: Write> ListingWriter<W> {
 fn format_addr(addr: u32) -> String {
     if addr <= 0xFFFF {
         format!("{addr:04X}")
-    } else {
+    } else if addr <= 0xFF_FFFF {
         format!("{addr:06X}")
+    } else {
+        format!("{addr:08X}")
     }
 }
 
@@ -215,4 +220,51 @@ fn format_cond(ctx: &ConditionalContext) -> String {
         "  [{}{}{}{}]",
         matched, ctx.nest_level, ctx.skip_level, skipping
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ListingLine, ListingWriter};
+    use crate::core::assembler::error::LineStatus;
+
+    #[test]
+    fn dir_equ_listing_keeps_wide_value() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::DirEqu,
+                aux: 0x123456,
+                line_num: 1,
+                source: "value = $123456",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("EQU 123456"));
+    }
+
+    #[test]
+    fn dir_ds_listing_keeps_wide_reserve_size() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0x010000,
+                bytes: &[],
+                status: LineStatus::DirDs,
+                aux: 0x123456,
+                line_num: 2,
+                source: ".res byte, $123456",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("010000"));
+        assert!(text.contains("+123456"));
+    }
 }

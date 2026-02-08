@@ -10,7 +10,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                7  
 ----                                8  .section vars, kind=bss  ; [section vars]
 ----                                9  start:  ; [section vars]
-0000    +3880                      10      .res long, 20000  ; [section vars]
+0000    +013880                    10      .res long, 20000  ; [section vars]
 ----                               11  end_label:  ; [section vars]
 ----                               12  .endsection
 ----                               13  
