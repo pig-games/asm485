@@ -1149,7 +1149,7 @@ impl<'a> AsmLine<'a> {
             Some(name) => self
                 .sections
                 .get(name)
-                .map(|section| section.pc.wrapping_add(section.start_pc))
+                .and_then(|section| section.start_pc.checked_add(section.pc))
                 .unwrap_or(main_addr),
             None => main_addr,
         }
@@ -1165,42 +1165,168 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    fn update_addresses(&mut self, main_addr: &mut u32, status: LineStatus) {
-        let num_bytes = self.num_bytes() as u32;
+    fn update_addresses(&mut self, main_addr: &mut u32, status: LineStatus) -> Result<(), ()> {
+        let num_bytes = match u32::try_from(self.num_bytes()) {
+            Ok(num_bytes) => num_bytes,
+            Err(_) => {
+                let message = format!(
+                    "line byte count exceeds supported range for CPU {}",
+                    self.cpu.as_str()
+                );
+                return self.fail_address_update(message);
+            }
+        };
+        let max = self.max_program_address();
+        let cpu_name = self.cpu.as_str().to_string();
         if let Some(section_name) = self.current_section.clone() {
-            if let Some(section) = self.sections.get_mut(&section_name) {
+            let update_result: Result<(), String> = (|| {
+                let Some(section) = self.sections.get_mut(&section_name) else {
+                    return Ok(());
+                };
+                let current_abs = Self::checked_add_address(
+                    section.start_pc,
+                    section.pc,
+                    max,
+                    cpu_name.as_str(),
+                    &format!("section {section_name} absolute address"),
+                )?;
                 if self.pass == 2 {
                     if status == LineStatus::DirDs && self.aux_value > 0 && !section.is_bss() {
                         section
                             .bytes
                             .extend(std::iter::repeat_n(0, self.aux_value as usize));
                     } else if status == LineStatus::DirEqu
-                        && self.start_addr > section.pc.wrapping_add(section.start_pc)
+                        && self.start_addr > current_abs
                         && !section.is_bss()
                     {
-                        let current_abs = section.pc.wrapping_add(section.start_pc);
-                        let pad = self.start_addr.wrapping_sub(current_abs) as usize;
-                        section.bytes.extend(std::iter::repeat_n(0, pad));
+                        let pad = self.start_addr - current_abs;
+                        section.bytes.extend(std::iter::repeat_n(0, pad as usize));
                     } else if !self.bytes.is_empty() && !section.is_bss() {
                         section.bytes.extend_from_slice(&self.bytes);
                     }
                 }
-                if status == LineStatus::DirDs {
-                    section.pc = section.pc.wrapping_add(self.aux_value);
+                section.pc = if status == LineStatus::DirDs {
+                    let current_abs = Self::checked_add_address(
+                        section.pc,
+                        self.aux_value,
+                        max,
+                        cpu_name.as_str(),
+                        &format!("section {section_name} program counter"),
+                    )?;
+                    current_abs
                 } else if status == LineStatus::DirEqu {
-                    section.pc = self.start_addr.wrapping_sub(section.start_pc);
+                    Self::checked_sub_address(
+                        self.start_addr,
+                        section.start_pc,
+                        max,
+                        cpu_name.as_str(),
+                        &format!("section {section_name} program counter"),
+                    )?
                 } else {
-                    section.pc = section.pc.wrapping_add(num_bytes);
-                }
+                    Self::checked_add_address(
+                        section.pc,
+                        num_bytes,
+                        max,
+                        cpu_name.as_str(),
+                        &format!("section {section_name} program counter"),
+                    )?
+                };
+                let _ = Self::checked_add_address(
+                    section.start_pc,
+                    section.pc,
+                    max,
+                    cpu_name.as_str(),
+                    &format!("section {section_name} absolute address"),
+                )?;
                 section.max_pc = section.max_pc.max(section.pc);
+                Ok(())
+            })();
+            if let Err(message) = update_result {
+                return self.fail_address_update(message);
             }
         } else if status == LineStatus::DirDs {
-            *main_addr = main_addr.wrapping_add(self.aux_value);
+            match Self::checked_add_address(
+                *main_addr,
+                self.aux_value,
+                max,
+                cpu_name.as_str(),
+                "program counter",
+            ) {
+                Ok(addr) => *main_addr = addr,
+                Err(message) => return self.fail_address_update(message),
+            }
         } else if status == LineStatus::DirEqu {
+            if self.start_addr > max {
+                let message = format!(
+                    "program counter ${} exceeds max ${} for CPU {}",
+                    format_addr(self.start_addr),
+                    format_addr(max),
+                    cpu_name
+                );
+                return self.fail_address_update(message);
+            }
             *main_addr = self.start_addr;
         } else {
-            *main_addr = main_addr.wrapping_add(num_bytes);
+            match Self::checked_add_address(
+                *main_addr,
+                num_bytes,
+                max,
+                cpu_name.as_str(),
+                "program counter",
+            ) {
+                Ok(addr) => *main_addr = addr,
+                Err(message) => return self.fail_address_update(message),
+            }
         }
+        Ok(())
+    }
+
+    fn checked_add_address(
+        start: u32,
+        delta: u32,
+        max: u32,
+        cpu_name: &str,
+        label: &str,
+    ) -> Result<u32, String> {
+        let value = start
+            .checked_add(delta)
+            .ok_or_else(|| format!("{label} overflows address arithmetic for CPU {cpu_name}"))?;
+        if value > max {
+            return Err(format!(
+                "{label} ${} exceeds max ${} for CPU {}",
+                format_addr(value),
+                format_addr(max),
+                cpu_name
+            ));
+        }
+        Ok(value)
+    }
+
+    fn checked_sub_address(
+        value: u32,
+        subtrahend: u32,
+        max: u32,
+        cpu_name: &str,
+        label: &str,
+    ) -> Result<u32, String> {
+        let result = value
+            .checked_sub(subtrahend)
+            .ok_or_else(|| format!("{label} underflows address arithmetic for CPU {cpu_name}"))?;
+        if result > max {
+            return Err(format!(
+                "{label} ${} exceeds max ${} for CPU {}",
+                format_addr(result),
+                format_addr(max),
+                cpu_name
+            ));
+        }
+        Ok(result)
+    }
+
+    fn fail_address_update(&mut self, message: String) -> Result<(), ()> {
+        self.last_error = Some(AsmError::new(AsmErrorKind::Directive, &message, None));
+        self.last_error_column = self.line_end_span.map(|span| span.col_start);
+        Err(())
     }
 
     fn is_allowed_meta_directive(&self, mnemonic: &str) -> bool {

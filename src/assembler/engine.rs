@@ -96,8 +96,14 @@ impl Assembler {
                         );
                     }
                     counts.errors += 1;
-                } else {
-                    asm_line.update_addresses(&mut addr, status);
+                } else if asm_line.update_addresses(&mut addr, status).is_err() {
+                    if let Some(err) = asm_line.error() {
+                        diagnostics.push(
+                            Diagnostic::new(line_num, Severity::Error, err.clone())
+                                .with_column(asm_line.error_column()),
+                        );
+                    }
+                    counts.errors += 1;
                 }
                 line_num += 1;
             }
@@ -277,7 +283,23 @@ impl Assembler {
                 _ => {}
             }
 
-            asm_line.update_addresses(&mut addr, status);
+            if asm_line.update_addresses(&mut addr, status).is_err() {
+                if let Some(err) = asm_line.error() {
+                    diagnostics.push(
+                        Diagnostic::new(line_num, Severity::Error, err.clone())
+                            .with_column(asm_line.error_column()),
+                    );
+                    listing.write_diagnostic(
+                        "ERROR",
+                        err.message(),
+                        line_num,
+                        asm_line.error_column(),
+                        lines,
+                        None,
+                    )?;
+                }
+                counts.errors += 1;
+            }
             line_num += 1;
         }
 

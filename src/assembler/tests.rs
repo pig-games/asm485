@@ -1406,6 +1406,51 @@ fn instruction_supports_span_on_65816() {
 }
 
 #[test]
+fn update_addresses_reports_section_address_arithmetic_overflow() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.current_section = Some("code".to_string());
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            start_pc: u32::MAX,
+            pc: 1,
+            ..SectionState::default()
+        },
+    );
+    let mut addr = 0u32;
+    let result = asm.update_addresses(&mut addr, LineStatus::Ok);
+    assert!(result.is_err());
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("overflows address arithmetic"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn update_addresses_reports_main_pc_beyond_cpu_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.bytes = vec![0xEA, 0xEA];
+    let mut addr = 0xFFFF;
+    let result = asm.update_addresses(&mut addr, LineStatus::Ok);
+    assert!(result.is_err());
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
 fn res_allows_wide_total_and_reports_size() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
