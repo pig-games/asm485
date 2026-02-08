@@ -86,7 +86,20 @@ impl ImageStore {
     /// Store a contiguous slice of bytes starting at `addr`.
     pub fn store_slice(&mut self, addr: u32, values: &[u8]) {
         for (ix, val) in values.iter().enumerate() {
-            let next_addr = addr.wrapping_add(ix as u32);
+            let Ok(offset) = u32::try_from(ix) else {
+                self.write_error = Some(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Address overflow while storing image slice",
+                ));
+                return;
+            };
+            let Some(next_addr) = addr.checked_add(offset) else {
+                self.write_error = Some(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Address overflow while storing image slice",
+                ));
+                return;
+            };
             self.store(next_addr, *val);
         }
     }
@@ -171,7 +184,8 @@ impl ImageStore {
                 true
             } else if let Some(next) = entries.get(ix + 1) {
                 let next_ela = (next.addr >> 16) as u16;
-                next_ela != ela || next.addr != entry.addr.wrapping_add(1)
+                let next_contiguous = entry.addr.checked_add(1) == Some(next.addr);
+                next_ela != ela || !next_contiguous
             } else {
                 true
             };
@@ -315,6 +329,7 @@ fn write_extended_linear_address_record<W: Write>(out: &mut W, upper: u16) -> io
 #[cfg(test)]
 mod tests {
     use super::ImageStore;
+    use std::io;
 
     fn parse_hex_byte(s: &str) -> u8 {
         u8::from_str_radix(s, 16).unwrap()
@@ -419,5 +434,19 @@ mod tests {
         image.store(0x010000, 0xaa);
         let range = image.output_range().expect("range").expect("some range");
         assert_eq!(range, (0x010000, 0x010000));
+    }
+
+    #[test]
+    fn store_slice_reports_address_overflow() {
+        let mut image = ImageStore::new(65536);
+        image.store_slice(u32::MAX, &[0xaa, 0xbb]);
+        let mut out = Vec::new();
+        let err = image
+            .write_hex_file(&mut out, None)
+            .expect_err("overflow should be reported");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err
+            .to_string()
+            .contains("Address overflow while storing image slice"));
     }
 }

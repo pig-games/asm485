@@ -1,8 +1,8 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
     expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
-    Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputFormat,
-    ListingWriter, MapSymbolsMode, RootMetadata, Severity,
+    Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputDirective,
+    LinkerOutputFormat, ListingWriter, MapSymbolsMode, RootMetadata, SectionState, Severity,
 };
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
@@ -16,6 +16,7 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -2613,6 +2614,58 @@ fn linker_output_prg_rejects_wide_loadaddr() {
     assert!(err
         .message()
         .contains("PRG load address exceeds 16-bit range"));
+}
+
+#[test]
+fn linker_output_image_mode_rejects_section_address_overflow() {
+    let output = LinkerOutputDirective {
+        path: "build/out.bin".to_string(),
+        format: LinkerOutputFormat::Bin,
+        sections: vec!["a".to_string()],
+        contiguous: false,
+        image_start: Some(u32::MAX - 1),
+        image_end: Some(u32::MAX),
+        fill: Some(0xff),
+        loadaddr: None,
+    };
+    let mut sections = HashMap::new();
+    let mut section = SectionState::default();
+    section.base_addr = Some(u32::MAX);
+    section.bytes = vec![0xaa, 0xbb];
+    sections.insert("a".to_string(), section);
+
+    let err = build_linker_output_payload(&output, &sections)
+        .expect_err("address overflow should be rejected");
+    assert_eq!(err.kind(), AsmErrorKind::Directive);
+    assert!(err
+        .message()
+        .contains("Section address range overflows in .output"));
+}
+
+#[test]
+fn linker_output_contiguous_mode_rejects_section_address_overflow() {
+    let output = LinkerOutputDirective {
+        path: "build/out.bin".to_string(),
+        format: LinkerOutputFormat::Bin,
+        sections: vec!["a".to_string()],
+        contiguous: true,
+        image_start: None,
+        image_end: None,
+        fill: None,
+        loadaddr: None,
+    };
+    let mut sections = HashMap::new();
+    let mut section = SectionState::default();
+    section.base_addr = Some(u32::MAX);
+    section.bytes = vec![0xaa, 0xbb];
+    sections.insert("a".to_string(), section);
+
+    let err = build_linker_output_payload(&output, &sections)
+        .expect_err("address overflow should be rejected");
+    assert_eq!(err.kind(), AsmErrorKind::Directive);
+    assert!(err
+        .message()
+        .contains("Section address range overflows in contiguous output"));
 }
 
 #[test]

@@ -452,7 +452,16 @@ fn build_linker_output_payload(
                     None,
                 ));
             };
-            let span_len = image_end.saturating_sub(image_start).saturating_add(1);
+            let span_len = image_end
+                .checked_sub(image_start)
+                .and_then(|delta| delta.checked_add(1))
+                .ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Invalid image span range in .output",
+                        Some(&output.path),
+                    )
+                })?;
             let image_len = usize::try_from(span_len).map_err(|_| {
                 AsmError::new(
                     AsmErrorKind::Directive,
@@ -465,8 +474,23 @@ fn build_linker_output_payload(
                 if section.bytes.is_empty() {
                     continue;
                 }
+                let section_len_u32 = u32::try_from(section.bytes.len()).map_err(|_| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section size is too large for address arithmetic in .output",
+                        Some(&section.name),
+                    )
+                })?;
                 let start = section.base;
-                let end = start + section.bytes.len() as u32 - 1;
+                let end = start
+                    .checked_add(section_len_u32.saturating_sub(1))
+                    .ok_or_else(|| {
+                        AsmError::new(
+                            AsmErrorKind::Directive,
+                            "Section address range overflows in .output",
+                            Some(&section.name),
+                        )
+                    })?;
                 if start < image_start || end > image_end {
                     return Err(AsmError::new(
                         AsmErrorKind::Directive,
@@ -474,8 +498,35 @@ fn build_linker_output_payload(
                         Some(&section.name),
                     ));
                 }
-                let offset = (start - image_start) as usize;
-                image[offset..offset + section.bytes.len()].copy_from_slice(&section.bytes);
+                let offset_u32 = start.checked_sub(image_start).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section falls outside image span in .output",
+                        Some(&section.name),
+                    )
+                })?;
+                let offset = usize::try_from(offset_u32).map_err(|_| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Image offset is too large for this host",
+                        Some(&section.name),
+                    )
+                })?;
+                let end_offset = offset.checked_add(section.bytes.len()).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Image offset arithmetic overflow in .output",
+                        Some(&section.name),
+                    )
+                })?;
+                if end_offset > image.len() {
+                    return Err(AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section falls outside image span in .output",
+                        Some(&section.name),
+                    ));
+                }
+                image[offset..end_offset].copy_from_slice(&section.bytes);
             }
             image
         } else {
@@ -483,6 +534,13 @@ fn build_linker_output_payload(
                 let mut expected_base: Option<u32> = None;
                 for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
                     let base = section.base;
+                    let section_len_u32 = u32::try_from(section.bytes.len()).map_err(|_| {
+                        AsmError::new(
+                            AsmErrorKind::Directive,
+                            "Section size is too large for address arithmetic in .output",
+                            Some(&section.name),
+                        )
+                    })?;
                     if let Some(expected) = expected_base {
                         if base != expected {
                             let message = if base > expected {
@@ -505,10 +563,24 @@ fn build_linker_output_payload(
                             ));
                         }
                     }
-                    expected_base = Some(base + section.bytes.len() as u32);
+                    expected_base = Some(base.checked_add(section_len_u32).ok_or_else(|| {
+                        AsmError::new(
+                            AsmErrorKind::Directive,
+                            "Section address range overflows in contiguous output",
+                            Some(&section.name),
+                        )
+                    })?);
                 }
             }
-            let total_len: usize = ordered.iter().map(|section| section.bytes.len()).sum();
+            let total_len = ordered.iter().try_fold(0usize, |acc, section| {
+                acc.checked_add(section.bytes.len()).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Output payload is too large for this host",
+                        Some(&output.path),
+                    )
+                })
+            })?;
             let mut data = Vec::with_capacity(total_len);
             for section in &ordered {
                 data.extend_from_slice(&section.bytes);
