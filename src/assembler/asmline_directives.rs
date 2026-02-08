@@ -933,9 +933,9 @@ impl<'a> AsmLine<'a> {
             }
             "EMIT" => self.emit_directive_ast(operands),
             "RES" => self.res_directive_ast(operands),
-            "BYTE" | "DB" => self.store_arg_list_ast(operands, 1),
-            "WORD" | "DW" => self.store_arg_list_ast(operands, 2),
-            "LONG" => self.store_arg_list_ast(operands, 4),
+            "BYTE" | "DB" => self.store_arg_list_ast(operands, 1, ".byte"),
+            "WORD" | "DW" => self.store_arg_list_ast(operands, 2, ".word"),
+            "LONG" => self.store_arg_list_ast(operands, 4, ".long"),
             "DS" => {
                 let expr = match operands.first() {
                     Some(expr) => expr,

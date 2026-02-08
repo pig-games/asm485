@@ -2609,6 +2609,37 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
+        let emit_count = match u32::try_from(operands.len().saturating_sub(1)) {
+            Ok(count) => count,
+            Err(_) => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    ".emit operand list is too large",
+                    None,
+                )
+            }
+        };
+        let total = match unit_bytes.checked_mul(emit_count) {
+            Some(total) => total,
+            None => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    ".emit total size overflow exceeds supported range",
+                    None,
+                )
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".emit", expr_span(&operands[0])) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
 
         for expr in &operands[1..] {
             let value = match self.eval_expr_ast(expr) {
@@ -2769,6 +2800,24 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
+        let total = match unit_bytes.checked_mul(count) {
+            Some(total) => total,
+            None => {
+                let msg = format!(
+                    ".fill total size overflow (unit={unit_bytes}, count={count}) exceeds supported range"
+                );
+                return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".fill", expr_span(&operands[1])) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
 
         for _ in 0..count {
             if let Err(err) =
@@ -2786,7 +2835,12 @@ impl<'a> AsmLine<'a> {
         LineStatus::Ok
     }
 
-    fn store_arg_list_ast(&mut self, operands: &[Expr], size: usize) -> LineStatus {
+    fn store_arg_list_ast(
+        &mut self,
+        operands: &[Expr],
+        size: usize,
+        directive_name: &str,
+    ) -> LineStatus {
         if !self.section_kind_allows_data() {
             let msg = format!(
                 "Data emit directives are not allowed in kind=bss section (current kind={})",
@@ -2803,9 +2857,49 @@ impl<'a> AsmLine<'a> {
             );
         }
 
+        let unit_size = size as u32;
+        let mut projected_total = 0u32;
         for expr in operands {
             if let Expr::String(bytes, span) = expr {
                 if bytes.len() > 1 {
+                    let string_len = match u32::try_from(bytes.len()) {
+                        Ok(len) => len,
+                        Err(_) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Directive,
+                                "String literal too large to emit",
+                                None,
+                                *span,
+                            );
+                        }
+                    };
+                    projected_total = match projected_total.checked_add(string_len) {
+                        Some(total) => total,
+                        None => {
+                            let msg = format!(
+                                "{directive_name} total size overflow exceeds supported range"
+                            );
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Directive,
+                                &msg,
+                                None,
+                                *span,
+                            );
+                        }
+                    };
+                    if let Err(err) =
+                        self.validate_program_span(projected_total, directive_name, *span)
+                    {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            err.error.kind(),
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
                     self.bytes.extend_from_slice(bytes);
                     continue;
                 }
@@ -2818,6 +2912,31 @@ impl<'a> AsmLine<'a> {
                         *span,
                     );
                 }
+            }
+            projected_total = match projected_total.checked_add(unit_size) {
+                Some(total) => total,
+                None => {
+                    let msg =
+                        format!("{directive_name} total size overflow exceeds supported range");
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        &msg,
+                        None,
+                        expr_span(expr),
+                    );
+                }
+            };
+            if let Err(err) =
+                self.validate_program_span(projected_total, directive_name, expr_span(expr))
+            {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
             }
             let val = match self.eval_expr_ast(expr) {
                 Ok(value) => value,

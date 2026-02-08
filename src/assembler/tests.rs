@@ -1235,6 +1235,102 @@ fn emit_overflow_is_error() {
 }
 
 #[test]
+fn emit_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .emit byte, 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".emit span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn emit_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .emit byte, 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[1, 2]);
+}
+
+#[test]
+fn fill_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .fill byte, 2, $ff", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".fill span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn fill_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .fill byte, 2, $ff", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xFF, 0xFF]);
+}
+
+#[test]
+fn byte_list_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .byte 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".byte span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn byte_list_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .byte 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[1, 2]);
+}
+
+#[test]
 fn res_allows_wide_total_and_reports_size() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
