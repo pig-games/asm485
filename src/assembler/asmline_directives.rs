@@ -796,6 +796,15 @@ impl<'a> AsmLine<'a> {
                 }
                 let addr = self.start_addr;
                 let pad = (align - (addr % align)) % align;
+                if let Err(err) = self.validate_program_span(pad, ".align", expr_span(expr)) {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.aux_value = pad;
                 LineStatus::DirDs
             }
@@ -951,6 +960,15 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
+                if let Err(err) = self.validate_program_span(val, ".ds", expr_span(expr)) {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.aux_value = val;
                 LineStatus::DirDs
             }

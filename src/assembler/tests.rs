@@ -787,6 +787,70 @@ fn place_rejects_wide_region_after_switching_back_to_legacy_cpu() {
 }
 
 #[test]
+fn align_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .align $10001", 1, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".align span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn align_supports_wide_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .align $10001", 1, 1);
+    assert_eq!(status, LineStatus::DirDs);
+    assert_eq!(asm.aux_value(), 0x10000);
+}
+
+#[test]
+fn ds_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .ds 2", 0xFFFF, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".ds span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn ds_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .ds 2", 0xFFFF, 1);
+    assert_eq!(status, LineStatus::DirDs);
+    assert_eq!(asm.aux_value(), 2);
+}
+
+#[test]
 fn place_sets_section_base_for_image_emission() {
     let lines = vec![
         ".module main".to_string(),
@@ -1175,12 +1239,51 @@ fn res_allows_wide_total_and_reports_size() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, ".cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
 
     let status = process_line(&mut asm, ".section vars, kind=bss", 0, 1);
     assert_eq!(status, LineStatus::Ok);
     let status = process_line(&mut asm, "    .res long, 20000", 0, 1);
     assert_eq!(status, LineStatus::DirDs);
     assert_eq!(asm.aux_value(), 80_000);
+}
+
+#[test]
+fn res_rejects_span_beyond_legacy_max() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".section vars, kind=bss".to_string(),
+        ".org $ffff".to_string(),
+        ".res byte, 2".to_string(),
+        ".endsection".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error.message().contains(".res span")
+            && diag.error.message().contains("exceeds max $FFFF")
+    }));
+}
+
+#[test]
+fn res_supports_span_on_65816() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".section vars, kind=bss",
+        ".org $ffff",
+        ".res byte, 2",
+        ".endsection",
+        ".endmodule",
+    ]);
+
+    assert_eq!(assembler.image().num_entries(), 0);
 }
 
 #[test]

@@ -2448,6 +2448,46 @@ impl<'a> AsmLine<'a> {
         })
     }
 
+    fn validate_program_span(
+        &self,
+        size_bytes: u32,
+        directive_name: &str,
+        span: Span,
+    ) -> Result<(), AstEvalError> {
+        if size_bytes == 0 {
+            return Ok(());
+        }
+        let max = self.max_program_address();
+        let start = self.start_addr;
+        let end = match start.checked_add(size_bytes - 1) {
+            Some(end) => end,
+            None => {
+                let message = format!(
+                    "{directive_name} size overflows address arithmetic for CPU {}",
+                    self.cpu.as_str()
+                );
+                return Err(AstEvalError {
+                    error: AsmError::new(AsmErrorKind::Directive, &message, None),
+                    span,
+                });
+            }
+        };
+        if end <= max {
+            return Ok(());
+        }
+        let message = format!(
+            "{directive_name} span ${}..${} exceeds max ${} for CPU {}",
+            format_addr(start),
+            format_addr(end),
+            format_addr(max),
+            self.cpu.as_str()
+        );
+        Err(AstEvalError {
+            error: AsmError::new(AsmErrorKind::Directive, &message, None),
+            span,
+        })
+    }
+
     fn current_cpu_little_endian(&self) -> bool {
         self.cpu_little_endian
     }
@@ -2655,6 +2695,15 @@ impl<'a> AsmLine<'a> {
                 return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
             }
         };
+        if let Err(err) = self.validate_program_span(total, ".res", expr_span(&operands[1])) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
         self.aux_value = total;
         LineStatus::DirDs
     }
