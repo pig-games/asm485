@@ -82,6 +82,39 @@ impl M65816CpuHandler {
         }
         Err(format!("Address {} out of 24-bit range", val))
     }
+
+    fn expr_has_unresolved_symbols(
+        expr: &crate::core::parser::Expr,
+        ctx: &dyn AssemblerContext,
+    ) -> bool {
+        use crate::core::parser::Expr;
+
+        match expr {
+            Expr::Identifier(name, _) | Expr::Register(name, _) => !ctx.has_symbol(name),
+            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
+                Self::expr_has_unresolved_symbols(inner, ctx)
+            }
+            Expr::Tuple(items, _) => items
+                .iter()
+                .any(|item| Self::expr_has_unresolved_symbols(item, ctx)),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                Self::expr_has_unresolved_symbols(cond, ctx)
+                    || Self::expr_has_unresolved_symbols(then_expr, ctx)
+                    || Self::expr_has_unresolved_symbols(else_expr, ctx)
+            }
+            Expr::Unary { expr, .. } => Self::expr_has_unresolved_symbols(expr, ctx),
+            Expr::Binary { left, right, .. } => {
+                Self::expr_has_unresolved_symbols(left, ctx)
+                    || Self::expr_has_unresolved_symbols(right, ctx)
+            }
+            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+        }
+    }
 }
 
 impl CpuHandler for M65816CpuHandler {
@@ -109,6 +142,18 @@ impl CpuHandler for M65816CpuHandler {
                         return Ok(vec![self.resolve_direct(mnemonic, expr, ctx)?]);
                     }
 
+                    let unresolved =
+                        ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
+                    if unresolved
+                        && ctx.current_address() > 0xFFFF
+                        && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLong).is_some()
+                    {
+                        return Ok(vec![Operand::AbsoluteLong(
+                            0,
+                            crate::core::assembler::expression::expr_span(expr),
+                        )]);
+                    }
+
                     let val = ctx.eval_expr(expr)?;
                     if (0..=0xFF_FFFF).contains(&val)
                         && val > 65535
@@ -121,6 +166,18 @@ impl CpuHandler for M65816CpuHandler {
                     }
                 }
                 FamilyOperand::DirectX(expr) => {
+                    let unresolved =
+                        ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
+                    if unresolved
+                        && ctx.current_address() > 0xFFFF
+                        && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLongX).is_some()
+                    {
+                        return Ok(vec![Operand::AbsoluteLongX(
+                            0,
+                            crate::core::assembler::expression::expr_span(expr),
+                        )]);
+                    }
+
                     let val = ctx.eval_expr(expr)?;
                     if (0..=0xFF_FFFF).contains(&val)
                         && val > 65535

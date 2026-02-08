@@ -121,6 +121,9 @@ pub trait AssemblerContext {
     /// Get the symbol table for label resolution.
     fn symbols(&self) -> &SymbolTable;
 
+    /// Check whether an identifier currently resolves in this context.
+    fn has_symbol(&self, name: &str) -> bool;
+
     /// Get the current assembly address.
     fn current_address(&self) -> u32;
 

@@ -2796,6 +2796,10 @@ impl<'a> AssemblerContext for AsmLine<'a> {
         self.symbols
     }
 
+    fn has_symbol(&self, name: &str) -> bool {
+        self.lookup_scoped_entry(name).is_some()
+    }
+
     fn current_address(&self) -> u32 {
         self.start_addr
     }

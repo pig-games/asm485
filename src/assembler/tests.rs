@@ -1756,6 +1756,35 @@ fn m65816_long_memory_forms_encode() {
 }
 
 #[test]
+fn m65816_forward_high_bank_label_uses_stable_long_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        "start:",
+        "    LDA target",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0xAF),
+            (0x123401, 0x05),
+            (0x123402, 0x34),
+            (0x123403, 0x12),
+            (0x123404, 0xEA),
+            (0x123405, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x123405));
+}
+
+#[test]
 fn m65816_direct_page_indirect_long_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA [$10]"),
