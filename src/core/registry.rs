@@ -95,6 +95,12 @@ pub trait CpuHandlerDyn: Send + Sync {
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>>;
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
+    fn native_word_size_bytes(&self) -> u32 {
+        2
+    }
+    fn is_little_endian(&self) -> bool {
+        true
+    }
     fn runtime_state_defaults(&self) -> HashMap<String, u32> {
         HashMap::new()
     }
@@ -338,6 +344,7 @@ mod tests {
     const TEST_FAMILY: CpuFamily = CpuFamily::new("test_family");
     const TEST_CPU: CpuType = CpuType::new("test_cpu");
     const OTHER_CPU: CpuType = CpuType::new("other_cpu");
+    const TEST_RUNTIME_KEY: &str = "test.runtime";
 
     // --- Minimal stubs for testing ---
 
@@ -415,6 +422,27 @@ mod tests {
         }
         fn supports_mnemonic(&self, _mnemonic: &str) -> bool {
             false
+        }
+        fn native_word_size_bytes(&self) -> u32 {
+            3
+        }
+        fn is_little_endian(&self) -> bool {
+            false
+        }
+        fn runtime_state_defaults(&self) -> HashMap<String, u32> {
+            let mut state = HashMap::new();
+            state.insert(TEST_RUNTIME_KEY.to_string(), 7);
+            state
+        }
+        fn update_runtime_state_after_encode(
+            &self,
+            mnemonic: &str,
+            _operands: &dyn OperandSet,
+            state: &mut HashMap<String, u32>,
+        ) {
+            if mnemonic.eq_ignore_ascii_case("PING") {
+                state.insert(TEST_RUNTIME_KEY.to_string(), 9);
+            }
         }
     }
 
@@ -516,6 +544,22 @@ mod tests {
         assert_eq!(p.family.family_id(), TEST_FAMILY);
         assert_eq!(p.cpu.cpu_id(), TEST_CPU);
         assert_eq!(p.dialect.dialect_id(), "test_dialect");
+    }
+
+    #[test]
+    fn pipeline_exposes_cpu_runtime_hooks() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        let p = reg.resolve_pipeline(TEST_CPU, None).expect("pipeline");
+        assert_eq!(p.cpu.native_word_size_bytes(), 3);
+        assert!(!p.cpu.is_little_endian());
+        let mut state = p.cpu.runtime_state_defaults();
+        assert_eq!(state.get(TEST_RUNTIME_KEY).copied(), Some(7));
+        p.cpu
+            .update_runtime_state_after_encode("PING", &StubOperandSet, &mut state);
+        assert_eq!(state.get(TEST_RUNTIME_KEY).copied(), Some(9));
     }
 
     #[test]

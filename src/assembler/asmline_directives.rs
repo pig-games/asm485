@@ -870,7 +870,7 @@ impl<'a> AsmLine<'a> {
                 match self.registry.resolve_cpu_name(&cpu_name) {
                     Some(cpu) => {
                         self.cpu = cpu;
-                        self.reset_cpu_runtime_state();
+                        self.reset_cpu_runtime_profile();
                         self.register_checker =
                             Self::build_register_checker(self.registry, self.cpu);
                         LineStatus::Ok

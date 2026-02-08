@@ -903,6 +903,8 @@ struct AsmLine<'a> {
     mnemonic: Option<String>,
     cpu: CpuType,
     register_checker: RegisterChecker,
+    cpu_word_size_bytes: u32,
+    cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
     statement_depth: usize,
 }
@@ -956,6 +958,8 @@ impl<'a> AsmLine<'a> {
             mnemonic: None,
             cpu,
             register_checker: Self::build_register_checker(registry, cpu),
+            cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
+            cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
             statement_depth: 0,
         }
@@ -976,6 +980,20 @@ impl<'a> AsmLine<'a> {
         match registry.resolve_pipeline(cpu, None) {
             Ok(pipeline) => pipeline.cpu.runtime_state_defaults(),
             Err(_) => HashMap::new(),
+        }
+    }
+
+    fn build_cpu_word_size(registry: &ModuleRegistry, cpu: CpuType) -> u32 {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.native_word_size_bytes().max(1),
+            Err(_) => 2,
+        }
+    }
+
+    fn build_cpu_endianness(registry: &ModuleRegistry, cpu: CpuType) -> bool {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.is_little_endian(),
+            Err(_) => true,
         }
     }
 
@@ -1069,10 +1087,12 @@ impl<'a> AsmLine<'a> {
         self.current_section = None;
         self.saw_explicit_module = false;
         self.top_level_content_seen = false;
-        self.reset_cpu_runtime_state();
+        self.reset_cpu_runtime_profile();
     }
 
-    fn reset_cpu_runtime_state(&mut self) {
+    fn reset_cpu_runtime_profile(&mut self) {
+        self.cpu_word_size_bytes = Self::build_cpu_word_size(self.registry, self.cpu);
+        self.cpu_little_endian = Self::build_cpu_endianness(self.registry, self.cpu);
         self.cpu_state_flags = Self::build_cpu_runtime_state(self.registry, self.cpu);
     }
 
@@ -2393,13 +2413,11 @@ impl<'a> AsmLine<'a> {
     }
 
     fn current_cpu_little_endian(&self) -> bool {
-        // Current supported CPUs are little-endian (8085/Z80/6502/65C02/65816).
-        true
+        self.cpu_little_endian
     }
 
     fn cpu_word_size_bytes(&self) -> u32 {
-        // Current supported CPUs all use 16-bit native words.
-        2
+        self.cpu_word_size_bytes
     }
 
     fn section_kind_allows_data(&self) -> bool {
