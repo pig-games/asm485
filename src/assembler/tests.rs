@@ -718,9 +718,25 @@ fn org_supports_wide_addresses_on_65816() {
 }
 
 #[test]
-fn place_allows_regions_above_64k() {
+fn region_rejects_wide_addresses_on_legacy_cpu() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .region hi, $120000, $1200ff", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn place_allows_regions_above_64k_on_65816() {
     let lines = vec![
         ".module main".to_string(),
+        ".cpu 65816".to_string(),
         ".region hi, $120000, $1200ff".to_string(),
         ".section code".to_string(),
         ".byte $aa, $bb".to_string(),
@@ -742,6 +758,32 @@ fn place_allows_regions_above_64k() {
 
     let entries = assembler.image().entries().expect("entries");
     assert_eq!(entries, vec![(0x120000, 0xaa), (0x120001, 0xbb)]);
+}
+
+#[test]
+fn place_rejects_wide_region_after_switching_back_to_legacy_cpu() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 65816".to_string(),
+        ".region hi, $120000, $1200ff".to_string(),
+        ".section code".to_string(),
+        ".byte $aa".to_string(),
+        ".endsection".to_string(),
+        ".cpu 6502".to_string(),
+        ".place code in hi".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error
+            .message()
+            .contains(".place/.pack address $120000 exceeds max $FFFF")
+    }));
 }
 
 #[test]
@@ -813,6 +855,7 @@ fn pack_places_sections_in_order_and_alignment() {
 fn wide_alignment_options_accept_32bit_values() {
     let assembler = run_passes(&[
         ".module main",
+        ".cpu 65816",
         ".region ram, $010001, $02ffff, align=$20000",
         ".section code, align=$10000",
         "start:",
@@ -1881,6 +1924,7 @@ fn m65816_forward_high_bank_label_uses_stable_long_sizing() {
 fn bss_reserve_wide_size_places_symbol_above_64k() {
     let assembler = run_passes(&[
         ".module main",
+        ".cpu 65816",
         ".region ram, $010000, $04FFFF",
         ".section vars, kind=bss",
         "start:",

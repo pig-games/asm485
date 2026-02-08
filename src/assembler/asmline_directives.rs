@@ -172,6 +172,17 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
+                if let Err(err) =
+                    self.validate_program_address(start, ".region", expr_span(&operands[1]))
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 let end = match self.eval_expr_ast(&operands[2]) {
                     Ok(value) => value,
                     Err(err) => {
@@ -184,6 +195,17 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
+                if let Err(err) =
+                    self.validate_program_address(end, ".region", expr_span(&operands[2]))
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 if start > end {
                     return self.failure(
                         LineStatus::Error,
@@ -2293,12 +2315,32 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
+        if let Err(err) = self.validate_program_address(base, ".place/.pack", span) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                Some(section_name),
+                err.span,
+            );
+        }
         let size = section_size;
         let last_addr = if size == 0 {
             base
         } else {
             base.saturating_add(size.saturating_sub(1))
         };
+        if size > 0 {
+            if let Err(err) = self.validate_program_address(last_addr, ".place/.pack", span) {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    Some(section_name),
+                    err.span,
+                );
+            }
+        }
         if size > 0 && last_addr > region_end {
             return self.failure_at_span(
                 LineStatus::Error,

@@ -96,7 +96,7 @@ impl CpuHandlerDyn for M65816CpuHandler {
     }
 
     fn max_program_address(&self) -> u32 {
-        0x00FF_FFFF
+        u32::MAX
     }
 
     fn runtime_state_defaults(&self) -> HashMap<String, u32> {

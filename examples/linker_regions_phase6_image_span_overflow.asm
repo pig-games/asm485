@@ -1,4 +1,5 @@
 .module main
+.cpu 65816
 
 .region rom, $fffffe, $ffffff
 
