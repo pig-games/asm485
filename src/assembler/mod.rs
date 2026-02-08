@@ -2481,14 +2481,15 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let total = unit_bytes.saturating_mul(count);
-        if total > u16::MAX as u32 {
-            let msg = format!(
-                ".res total size {total} bytes (unit={unit_bytes}, count={count}) exceeds addressable range (max {})",
-                u16::MAX
-            );
-            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
-        }
+        let total = match unit_bytes.checked_mul(count) {
+            Some(total) => total,
+            None => {
+                let msg = format!(
+                    ".res total size overflow (unit={unit_bytes}, count={count}) exceeds supported range"
+                );
+                return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+            }
+        };
         self.aux_value = total;
         LineStatus::DirDs
     }

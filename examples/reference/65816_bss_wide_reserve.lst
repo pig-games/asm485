@@ -1,0 +1,31 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 wide-address BSS reserve coverage
+----                                2  ; Ensures .res can reserve beyond 64 KiB when placed in a wide region.
+----                                3  
+----                                4  .module main
+----                                5  .cpu 65816
+----                                6  .region ram, $010000, $04ffff
+----                                7  
+----                                8  .section vars, kind=bss  ; [section vars]
+----                                9  start:  ; [section vars]
+0000    +3880                      10      .res long, 20000  ; [section vars]
+----                               11  end_label:  ; [section vars]
+----                               12  .endsection
+----                               13  
+----                               14  .place vars in ram
+----                               15  .endmodule
+
+Lines: 15  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+main.start      : 10000 (65536)
+main.end_label  : 23880 (145536)
+
+Total memory is 0 bytes
+
+GENERATED OUTPUT
+
+(none)

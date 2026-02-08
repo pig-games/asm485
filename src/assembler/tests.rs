@@ -1092,7 +1092,7 @@ fn emit_overflow_is_error() {
 }
 
 #[test]
-fn res_overflow_reports_total_and_unit() {
+fn res_allows_wide_total_and_reports_size() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
@@ -1100,10 +1100,8 @@ fn res_overflow_reports_total_and_unit() {
     let status = process_line(&mut asm, ".section vars, kind=bss", 0, 1);
     assert_eq!(status, LineStatus::Ok);
     let status = process_line(&mut asm, "    .res long, 20000", 0, 1);
-    assert_eq!(status, LineStatus::Error);
-    assert!(asm.error_message().contains("total size"));
-    assert!(asm.error_message().contains("unit=4"));
-    assert!(asm.error_message().contains("count=20000"));
+    assert_eq!(status, LineStatus::DirDs);
+    assert_eq!(asm.aux_value(), 80_000);
 }
 
 #[test]
@@ -1782,6 +1780,25 @@ fn m65816_forward_high_bank_label_uses_stable_long_sizing() {
         ]
     );
     assert_eq!(assembler.symbols().lookup("main.target"), Some(0x123405));
+}
+
+#[test]
+fn bss_reserve_wide_size_places_symbol_above_64k() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".region ram, $010000, $04FFFF",
+        ".section vars, kind=bss",
+        "start:",
+        "    .res long, 20000",
+        "end_label:",
+        ".endsection",
+        ".place vars in ram",
+        ".endmodule",
+    ]);
+
+    assert_eq!(assembler.symbols().lookup("main.start"), Some(0x010000));
+    assert_eq!(assembler.symbols().lookup("main.end_label"), Some(0x023880));
+    assert_eq!(assembler.image().num_entries(), 0);
 }
 
 #[test]
