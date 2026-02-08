@@ -956,7 +956,7 @@ impl<'a> AsmLine<'a> {
             mnemonic: None,
             cpu,
             register_checker: Self::build_register_checker(registry, cpu),
-            cpu_state_flags: crate::m65816::state::initial_state_for_cpu(cpu),
+            cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
             statement_depth: 0,
         }
     }
@@ -969,6 +969,13 @@ impl<'a> AsmLine<'a> {
                 Arc::new(move |ident: &str| family.is_register(ident) || family.is_condition(ident))
             }
             Err(_) => register_checker_none(),
+        }
+    }
+
+    fn build_cpu_runtime_state(registry: &ModuleRegistry, cpu: CpuType) -> HashMap<String, u32> {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.runtime_state_defaults(),
+            Err(_) => HashMap::new(),
         }
     }
 
@@ -1066,16 +1073,16 @@ impl<'a> AsmLine<'a> {
     }
 
     fn reset_cpu_runtime_state(&mut self) {
-        self.cpu_state_flags = crate::m65816::state::initial_state_for_cpu(self.cpu);
+        self.cpu_state_flags = Self::build_cpu_runtime_state(self.registry, self.cpu);
     }
 
     fn apply_cpu_runtime_state_after_encode(
         &mut self,
+        cpu_handler: &dyn crate::core::registry::CpuHandlerDyn,
         mnemonic: &str,
         operands: &dyn crate::core::registry::OperandSet,
     ) {
-        crate::m65816::state::apply_after_encode(
-            self.cpu,
+        cpu_handler.update_runtime_state_after_encode(
             mnemonic,
             operands,
             &mut self.cpu_state_flags,
@@ -2322,6 +2329,7 @@ impl<'a> AsmLine<'a> {
             EncodeResult::Ok(bytes) => {
                 self.bytes.extend_from_slice(&bytes);
                 self.apply_cpu_runtime_state_after_encode(
+                    pipeline.cpu.as_ref(),
                     &mapped_mnemonic,
                     resolved_operands.as_ref(),
                 );
@@ -2348,6 +2356,7 @@ impl<'a> AsmLine<'a> {
                 EncodeResult::Ok(bytes) => {
                     self.bytes.extend_from_slice(&bytes);
                     self.apply_cpu_runtime_state_after_encode(
+                        pipeline.cpu.as_ref(),
                         &mapped_mnemonic,
                         resolved_operands.as_ref(),
                     );

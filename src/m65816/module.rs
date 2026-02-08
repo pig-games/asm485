@@ -3,6 +3,8 @@
 
 //! 65816 CPU module.
 
+use std::collections::HashMap;
+
 use crate::core::cpu::{CpuFamily, CpuType};
 use crate::core::family::AssemblerContext;
 use crate::core::registry::{CpuHandlerDyn, CpuModule, FamilyOperandSet, OperandSet};
@@ -10,7 +12,7 @@ use crate::families::mos6502::module::{
     MOS6502FamilyOperands, MOS6502Operands, DIALECT_TRANSPARENT, FAMILY_ID as MOS6502_FAMILY_ID,
 };
 
-use super::M65816CpuHandler;
+use super::{state, M65816CpuHandler};
 
 pub struct M65816CpuModule;
 
@@ -91,5 +93,21 @@ impl CpuHandlerDyn for M65816CpuHandler {
 
     fn supports_mnemonic(&self, mnemonic: &str) -> bool {
         <Self as crate::core::family::CpuHandler>::supports_mnemonic(self, mnemonic)
+    }
+
+    fn runtime_state_defaults(&self) -> HashMap<String, u32> {
+        state::initial_state()
+    }
+
+    fn update_runtime_state_after_encode(
+        &self,
+        mnemonic: &str,
+        operands: &dyn OperandSet,
+        state_flags: &mut HashMap<String, u32>,
+    ) {
+        let Some(mos_operands) = operands.as_any().downcast_ref::<MOS6502Operands>() else {
+            return;
+        };
+        state::apply_after_encode(mnemonic, &mos_operands.0, state_flags);
     }
 }

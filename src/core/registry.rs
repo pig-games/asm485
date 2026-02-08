@@ -95,6 +95,16 @@ pub trait CpuHandlerDyn: Send + Sync {
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>>;
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
+    fn runtime_state_defaults(&self) -> HashMap<String, u32> {
+        HashMap::new()
+    }
+    fn update_runtime_state_after_encode(
+        &self,
+        _mnemonic: &str,
+        _operands: &dyn OperandSet,
+        _state: &mut HashMap<String, u32>,
+    ) {
+    }
 }
 
 /// Dialect mapping layer for alternate syntax (e.g. Z80 mnemonics → Intel 8080).
