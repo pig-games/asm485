@@ -41,7 +41,7 @@ core addressing and output/layout workflows.
   assembly address bank when no explicit `.assume pbr=...` is set.
 - A conservative `PHK`/`PLB` sequence inference is supported: when `PBR` is
   explicit, `PHK ... PLB` updates assumed `DBR` to that `PBR` if no
-  stack-mutating instruction appears between them.
+  stack-mutating or control-flow instruction appears between them.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),

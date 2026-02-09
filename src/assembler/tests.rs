@@ -2543,6 +2543,37 @@ fn m65816_phk_plb_inference_is_cleared_by_stack_mutation() {
 }
 
 #[test]
+fn m65816_phk_plb_inference_is_cleared_by_control_flow() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        "    BEQ after",
+        "    PLB",
+        "after:",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xF0),
+            (0x0002, 0x01),
+            (0x0003, 0xAB),
+            (0x0004, 0xAF),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+            (0x0007, 0x12),
+        ]
+    );
+}
+
+#[test]
 fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
     let assembler = run_passes(&[
         ".module main",

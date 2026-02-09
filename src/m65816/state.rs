@@ -152,7 +152,9 @@ fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u
         BANK_PUSH_PBR
     } else if upper_mnemonic == "PHB" {
         BANK_PUSH_DBR
-    } else if mnemonic_mutates_stack(upper_mnemonic) {
+    } else if mnemonic_mutates_stack(upper_mnemonic)
+        || mnemonic_changes_control_flow(upper_mnemonic)
+    {
         BANK_PUSH_NONE
     } else {
         pending_push
@@ -187,6 +189,29 @@ fn mnemonic_mutates_stack(upper_mnemonic: &str) -> bool {
             | "COP"
             | "TCS"
             | "TXS"
+    )
+}
+
+fn mnemonic_changes_control_flow(upper_mnemonic: &str) -> bool {
+    matches!(
+        upper_mnemonic,
+        "BCC"
+            | "BCS"
+            | "BEQ"
+            | "BMI"
+            | "BNE"
+            | "BPL"
+            | "BRA"
+            | "BRL"
+            | "BVC"
+            | "BVS"
+            | "JMP"
+            | "JML"
+            | "JSR"
+            | "JSL"
+            | "RTI"
+            | "RTL"
+            | "RTS"
     )
 }
 
