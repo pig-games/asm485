@@ -19,34 +19,40 @@ ADDR    BYTES                    LINE  SOURCE
 123403  A9 34 12                   16          lda #$1234          ; A9 34 12 (A is 16-bit)
 123406  A2 78 56                   17          ldx #$5678          ; A2 78 56 (X is 16-bit)
 123409  AD 56 34                   18          lda $123456         ; AD 56 34 (DBR inferred from PHK/PLB + explicit PBR)
-----                               19          .assume dbr=$12     ; known explicit DBR
-12340C  48                         20          pha                 ; unknown stack source for PLB inference
-12340D  AB                         21          plb                 ; DBR becomes unknown (no PHK/PHB pending source)
-12340E  AF 56 34 12                22          lda $123456         ; AF 56 34 12 (unknown DBR prefers long-capable form)
-123412  A5 F0                      23          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
-123414  4C 10 32                   24          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
-----                               25  
-123417  E2 20                      26          sep #$20            ; A back to 8-bit
-123419  A9 9A                      27          lda #$9A            ; A9 9A
-----                               28  
-----                               29          .assume e=emulation ; forces A/X to 8-bit
-12341B  A2 BC                      30          ldx #$BC            ; A2 BC
-----                               31  
-12341D  60                         32          rts
+----                               19          .assume m=8         ; keep the next A immediate as a single-byte bank value
+12340C  A9 12                      20          lda #$12
+12340E  48                         21          pha
+12340F  AB                         22          plb                 ; LDA #imm + PHA + PLB infers DBR from the pushed byte
+123410  AD 56 34                   23          lda $123456         ; AD 56 34
+----                               24          .assume dbr=$12     ; known explicit DBR
+123413  48                         25          pha                 ; unknown stack source for PLB inference
+123414  AB                         26          plb                 ; DBR becomes unknown (no PHK/PHB pending source)
+123415  AF 56 34 12                27          lda $123456         ; AF 56 34 12 (unknown DBR prefers long-capable form)
+123419  A5 F0                      28          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
+12341B  4C 10 32                   29          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
+----                               30  
+12341E  E2 20                      31          sep #$20            ; A back to 8-bit
+123420  A9 9A                      32          lda #$9A            ; A9 9A
 ----                               33  
-----                               34          .end
+----                               34          .assume e=emulation ; forces A/X to 8-bit
+123422  A2 BC                      35          ldx #$BC            ; A2 BC
+----                               36  
+123424  60                         37          rts
+----                               38  
+----                               39          .end
 
-Lines: 34  Errors: 0  Warnings: 0
+Lines: 39  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 123400 (1192960)
 
-Total memory is 30 bytes
+Total memory is 37 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-123400    4B EA AB A9 34 12 A2 78 56 AD 56 34 48 AB AF 56
-123410    34 12 A5 F0 4C 10 32 E2 20 A9 9A A2 BC 60
+123400    4B EA AB A9 34 12 A2 78 56 AD 56 34 A9 12 48 AB
+123410    AD 56 34 48 AB AF 56 34 12 A5 F0 4C 10 32 E2 20
+123420    A9 9A A2 BC 60

@@ -23,10 +23,14 @@ pub const PROGRAM_BANK_EXPLICIT_KEY: &str = "m65816.program_bank_explicit";
 pub const PROGRAM_BANK_KNOWN_KEY: &str = "m65816.program_bank_known";
 pub const DIRECT_PAGE_KEY: &str = "m65816.direct_page";
 pub const BANK_PUSH_SOURCE_KEY: &str = "m65816.bank_push_source";
+pub const BANK_PUSH_VALUE_KEY: &str = "m65816.bank_push_value";
+pub const ACCUMULATOR_IMMEDIATE_KNOWN_KEY: &str = "m65816.accumulator_immediate_known";
+pub const ACCUMULATOR_IMMEDIATE_VALUE_KEY: &str = "m65816.accumulator_immediate_value";
 
 const BANK_PUSH_NONE: u32 = 0;
 const BANK_PUSH_PBR: u32 = 1;
 const BANK_PUSH_DBR: u32 = 2;
+const BANK_PUSH_A_IMM: u32 = 3;
 
 pub fn initial_state() -> HashMap<String, u32> {
     let mut state = HashMap::new();
@@ -41,6 +45,9 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(PROGRAM_BANK_KNOWN_KEY.to_string(), 1);
     state.insert(DIRECT_PAGE_KEY.to_string(), 0);
     state.insert(BANK_PUSH_SOURCE_KEY.to_string(), BANK_PUSH_NONE);
+    state.insert(BANK_PUSH_VALUE_KEY.to_string(), 0);
+    state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    state.insert(ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(), 0);
     state
 }
 
@@ -104,6 +111,7 @@ pub fn apply_runtime_directive(
 pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut HashMap<String, u32>) {
     let upper = mnemonic.to_ascii_uppercase();
     apply_mx_width_state(&upper, operands, state);
+    apply_accumulator_immediate_state(&upper, operands, state);
     apply_bank_transfer_state(&upper, state);
 }
 
@@ -145,11 +153,46 @@ fn apply_mx_width_state(
     }
 }
 
+fn apply_accumulator_immediate_state(
+    upper_mnemonic: &str,
+    operands: &[Operand],
+    state: &mut HashMap<String, u32>,
+) {
+    if upper_mnemonic == "LDA" {
+        match operands.first() {
+            Some(Operand::Immediate(value, _)) => {
+                state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(), *value as u32);
+            }
+            Some(Operand::ImmediateWord(value, _)) => {
+                state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(
+                    ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(),
+                    (*value & 0xFF) as u32,
+                );
+            }
+            _ => {
+                state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+            }
+        }
+        return;
+    }
+
+    if matches!(upper_mnemonic, "NOP" | "PHA") {
+        return;
+    }
+
+    // Conservative by design: unless we can prove A still matches a tracked immediate,
+    // clear the tracked byte used for PHA/PLB bank inference.
+    state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+}
+
 fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u32>) {
     let pending_push = state
         .get(BANK_PUSH_SOURCE_KEY)
         .copied()
         .unwrap_or(BANK_PUSH_NONE);
+    let pending_push_value = state.get(BANK_PUSH_VALUE_KEY).copied().unwrap_or(0);
 
     let next_push = if upper_mnemonic == "PLB" {
         let inferred = if pending_push == BANK_PUSH_PBR
@@ -166,6 +209,11 @@ fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u
             state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
             state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
             true
+        } else if pending_push == BANK_PUSH_A_IMM {
+            state.insert(DATA_BANK_KEY.to_string(), pending_push_value & 0xFF);
+            state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+            state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
+            true
         } else {
             false
         };
@@ -177,6 +225,23 @@ fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u
         BANK_PUSH_PBR
     } else if upper_mnemonic == "PHB" {
         BANK_PUSH_DBR
+    } else if upper_mnemonic == "PHA" {
+        if state
+            .get(ACCUMULATOR_IMMEDIATE_KNOWN_KEY)
+            .copied()
+            .unwrap_or(0)
+            != 0
+        {
+            let value = state
+                .get(ACCUMULATOR_IMMEDIATE_VALUE_KEY)
+                .copied()
+                .unwrap_or(0)
+                & 0xFF;
+            state.insert(BANK_PUSH_VALUE_KEY.to_string(), value);
+            BANK_PUSH_A_IMM
+        } else {
+            BANK_PUSH_NONE
+        }
     } else if mnemonic_mutates_stack(upper_mnemonic)
         || mnemonic_changes_control_flow(upper_mnemonic)
     {
@@ -185,6 +250,9 @@ fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u
         pending_push
     };
     state.insert(BANK_PUSH_SOURCE_KEY.to_string(), next_push);
+    if next_push != BANK_PUSH_A_IMM {
+        state.insert(BANK_PUSH_VALUE_KEY.to_string(), 0);
+    }
 }
 
 fn mnemonic_mutates_stack(upper_mnemonic: &str) -> bool {

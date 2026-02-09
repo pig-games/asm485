@@ -16,6 +16,11 @@ start:
         lda #$1234          ; A9 34 12 (A is 16-bit)
         ldx #$5678          ; A2 78 56 (X is 16-bit)
         lda $123456         ; AD 56 34 (DBR inferred from PHK/PLB + explicit PBR)
+        .assume m=8         ; keep the next A immediate as a single-byte bank value
+        lda #$12
+        pha
+        plb                 ; LDA #imm + PHA + PLB infers DBR from the pushed byte
+        lda $123456         ; AD 56 34
         .assume dbr=$12     ; known explicit DBR
         pha                 ; unknown stack source for PLB inference
         plb                 ; DBR becomes unknown (no PHK/PHB pending source)

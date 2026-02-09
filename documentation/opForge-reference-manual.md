@@ -751,6 +751,9 @@ Currently implemented 65816-specific additions in this branch:
 - when `PBR` is explicit, `PHK ... PLB` infers `DBR=PBR` for subsequent
   bank-sensitive operand resolution, unless a stack-mutating instruction
   or control-flow instruction appears between them
+- a conservative `LDA #imm ... PHA ... PLB` inference can also set `DBR`
+  from the pushed immediate byte when no non-whitelisted instruction
+  invalidates the tracked immediate value
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit

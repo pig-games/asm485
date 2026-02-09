@@ -42,6 +42,9 @@ core addressing and output/layout workflows.
 - A conservative `PHK`/`PLB` sequence inference is supported: when `PBR` is
   explicit, `PHK ... PLB` updates assumed `DBR` to that `PBR` if no
   stack-mutating or control-flow instruction appears between them.
+- A conservative `LDA #imm ... PHA ... PLB` sequence inference is supported:
+  it can infer `DBR` from the pushed immediate byte when no non-whitelisted
+  instruction invalidates the tracked immediate value.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),
