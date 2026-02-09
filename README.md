@@ -40,7 +40,6 @@ core addressing and output/layout workflows.
 
 Current limits:
 - Full banked CPU-state semantics are not implemented yet.
-- PRG output `loadaddr` must still fit in 16 bits.
 
 New 65816 examples:
 - `examples/65816_simple.asm`
