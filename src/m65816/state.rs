@@ -17,8 +17,10 @@ pub const INDEX_8BIT_KEY: &str = "m65816.index_8bit";
 pub const EMULATION_MODE_KEY: &str = "m65816.emulation_mode";
 pub const DATA_BANK_KEY: &str = "m65816.data_bank";
 pub const DATA_BANK_EXPLICIT_KEY: &str = "m65816.data_bank_explicit";
+pub const DATA_BANK_KNOWN_KEY: &str = "m65816.data_bank_known";
 pub const PROGRAM_BANK_KEY: &str = "m65816.program_bank";
 pub const PROGRAM_BANK_EXPLICIT_KEY: &str = "m65816.program_bank_explicit";
+pub const PROGRAM_BANK_KNOWN_KEY: &str = "m65816.program_bank_known";
 pub const DIRECT_PAGE_KEY: &str = "m65816.direct_page";
 pub const BANK_PUSH_SOURCE_KEY: &str = "m65816.bank_push_source";
 
@@ -33,8 +35,10 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(INDEX_8BIT_KEY.to_string(), 1);
     state.insert(DATA_BANK_KEY.to_string(), 0);
     state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+    state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
     state.insert(PROGRAM_BANK_KEY.to_string(), 0);
     state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
+    state.insert(PROGRAM_BANK_KNOWN_KEY.to_string(), 1);
     state.insert(DIRECT_PAGE_KEY.to_string(), 0);
     state.insert(BANK_PUSH_SOURCE_KEY.to_string(), BANK_PUSH_NONE);
     state
@@ -65,11 +69,19 @@ pub fn data_bank(ctx: &dyn AssemblerContext) -> u8 {
     ctx.cpu_state_flag(DATA_BANK_KEY).unwrap_or(0) as u8
 }
 
+pub fn data_bank_known(ctx: &dyn AssemblerContext) -> bool {
+    ctx.cpu_state_flag(DATA_BANK_KNOWN_KEY).unwrap_or(1) != 0
+}
+
 pub fn program_bank(ctx: &dyn AssemblerContext) -> u8 {
     if ctx.cpu_state_flag(PROGRAM_BANK_EXPLICIT_KEY).unwrap_or(0) != 0 {
         return ctx.cpu_state_flag(PROGRAM_BANK_KEY).unwrap_or(0) as u8;
     }
     ((ctx.current_address() >> 16) & 0xFF) as u8
+}
+
+pub fn program_bank_known(ctx: &dyn AssemblerContext) -> bool {
+    ctx.cpu_state_flag(PROGRAM_BANK_KNOWN_KEY).unwrap_or(1) != 0
 }
 
 pub fn direct_page(ctx: &dyn AssemblerContext) -> u16 {
@@ -140,12 +152,25 @@ fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u
         .unwrap_or(BANK_PUSH_NONE);
 
     let next_push = if upper_mnemonic == "PLB" {
-        if pending_push == BANK_PUSH_PBR
-            && state.get(PROGRAM_BANK_EXPLICIT_KEY).copied().unwrap_or(0) != 0
+        let inferred = if pending_push == BANK_PUSH_PBR
+            && state.get(PROGRAM_BANK_KNOWN_KEY).copied().unwrap_or(1) != 0
         {
             let pbr = state.get(PROGRAM_BANK_KEY).copied().unwrap_or(0) & 0xFF;
             state.insert(DATA_BANK_KEY.to_string(), pbr);
             state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+            state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
+            true
+        } else if pending_push == BANK_PUSH_DBR
+            && state.get(DATA_BANK_KNOWN_KEY).copied().unwrap_or(1) != 0
+        {
+            state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+            state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
+            true
+        } else {
+            false
+        };
+        if !inferred {
+            state.insert(DATA_BANK_KNOWN_KEY.to_string(), 0);
         }
         BANK_PUSH_NONE
     } else if upper_mnemonic == "PHK" {
@@ -332,9 +357,11 @@ fn apply_assume_directive(
             AssumeBankValue::Explicit(value) => {
                 state.insert(DATA_BANK_KEY.to_string(), value as u32);
                 state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+                state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
             }
             AssumeBankValue::Auto => {
                 state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 0);
+                state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
             }
         }
     }
@@ -343,9 +370,11 @@ fn apply_assume_directive(
             AssumeBankValue::Explicit(value) => {
                 state.insert(PROGRAM_BANK_KEY.to_string(), value as u32);
                 state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 1);
+                state.insert(PROGRAM_BANK_KNOWN_KEY.to_string(), 1);
             }
             AssumeBankValue::Auto => {
                 state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
+                state.insert(PROGRAM_BANK_KNOWN_KEY.to_string(), 1);
             }
         }
     }
