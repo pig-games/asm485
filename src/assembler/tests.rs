@@ -2234,6 +2234,54 @@ fn m65816_cpu_switch_resets_width_state() {
 }
 
 #[test]
+fn m65816_cpu_switch_resets_banked_assume_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12, pbr=$34, dp=$2000",
+        ".cpu 6502",
+        ".cpu 65816",
+        "    LDA $123456",
+        "    LDA $20F0",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xAF),
+            (0x0001, 0x56),
+            (0x0002, 0x34),
+            (0x0003, 0x12),
+            (0x0004, 0xAD),
+            (0x0005, 0xF0),
+            (0x0006, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_cpu_switch_reset_restores_default_pbr() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$34", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, ".cpu 6502", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    JMP $343210", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
 fn m65816_assume_sets_runtime_state_and_immediate_widths() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
