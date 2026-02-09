@@ -134,26 +134,60 @@ fn apply_mx_width_state(
 }
 
 fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u32>) {
-    let previous_push = state
+    let pending_push = state
         .get(BANK_PUSH_SOURCE_KEY)
         .copied()
         .unwrap_or(BANK_PUSH_NONE);
 
-    if upper_mnemonic == "PLB"
-        && previous_push == BANK_PUSH_PBR
-        && state.get(PROGRAM_BANK_EXPLICIT_KEY).copied().unwrap_or(0) != 0
-    {
-        let pbr = state.get(PROGRAM_BANK_KEY).copied().unwrap_or(0) & 0xFF;
-        state.insert(DATA_BANK_KEY.to_string(), pbr);
-        state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
-    }
-
-    let next_push = match upper_mnemonic {
-        "PHK" => BANK_PUSH_PBR,
-        "PHB" => BANK_PUSH_DBR,
-        _ => BANK_PUSH_NONE,
+    let next_push = if upper_mnemonic == "PLB" {
+        if pending_push == BANK_PUSH_PBR
+            && state.get(PROGRAM_BANK_EXPLICIT_KEY).copied().unwrap_or(0) != 0
+        {
+            let pbr = state.get(PROGRAM_BANK_KEY).copied().unwrap_or(0) & 0xFF;
+            state.insert(DATA_BANK_KEY.to_string(), pbr);
+            state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+        }
+        BANK_PUSH_NONE
+    } else if upper_mnemonic == "PHK" {
+        BANK_PUSH_PBR
+    } else if upper_mnemonic == "PHB" {
+        BANK_PUSH_DBR
+    } else if mnemonic_mutates_stack(upper_mnemonic) {
+        BANK_PUSH_NONE
+    } else {
+        pending_push
     };
     state.insert(BANK_PUSH_SOURCE_KEY.to_string(), next_push);
+}
+
+fn mnemonic_mutates_stack(upper_mnemonic: &str) -> bool {
+    matches!(
+        upper_mnemonic,
+        "PHA"
+            | "PHX"
+            | "PHY"
+            | "PHB"
+            | "PHD"
+            | "PHP"
+            | "PEA"
+            | "PEI"
+            | "PER"
+            | "PLA"
+            | "PLX"
+            | "PLY"
+            | "PLB"
+            | "PLD"
+            | "PLP"
+            | "JSR"
+            | "JSL"
+            | "RTS"
+            | "RTL"
+            | "RTI"
+            | "BRK"
+            | "COP"
+            | "TCS"
+            | "TXS"
+    )
 }
 
 fn emulation_mode_from_state(state: &HashMap<String, u32>) -> bool {

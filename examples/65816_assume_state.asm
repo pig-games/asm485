@@ -8,6 +8,7 @@ start:
         .assume e=native, m=16, x=16, dp=$2000
         .assume pbr=$12, dbr=$00 ; explicit mismatch
         phk
+        nop                     ; stack-neutral: does not clear pending PHK bank source
         plb                     ; PHK/PLB infers DBR from explicit PBR
         .assume pbr=$00        ; override
         .assume pbr=auto       ; restore inferred PBR from current .org bank

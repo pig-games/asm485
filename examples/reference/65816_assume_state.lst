@@ -11,37 +11,38 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                8          .assume e=native, m=16, x=16, dp=$2000
 ----                                9          .assume pbr=$12, dbr=$00 ; explicit mismatch
 123400  4B                         10          phk
-123401  AB                         11          plb                     ; PHK/PLB infers DBR from explicit PBR
-----                               12          .assume pbr=$00        ; override
-----                               13          .assume pbr=auto       ; restore inferred PBR from current .org bank
-----                               14  
-123402  A9 34 12                   15          lda #$1234          ; A9 34 12 (A is 16-bit)
-123405  A2 78 56                   16          ldx #$5678          ; A2 78 56 (X is 16-bit)
-123408  AD 56 34                   17          lda $123456         ; AD 56 34 (DBR inferred from PHK/PLB + explicit PBR)
-12340B  A5 F0                      18          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
-12340D  4C 10 32                   19          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
-----                               20  
-123410  E2 20                      21          sep #$20            ; A back to 8-bit
-123412  A9 9A                      22          lda #$9A            ; A9 9A
-----                               23  
-----                               24          .assume e=emulation ; forces A/X to 8-bit
-123414  A2 BC                      25          ldx #$BC            ; A2 BC
-----                               26  
-123416  60                         27          rts
-----                               28  
-----                               29          .end
+123401  EA                         11          nop                     ; stack-neutral: does not clear pending PHK bank source
+123402  AB                         12          plb                     ; PHK/PLB infers DBR from explicit PBR
+----                               13          .assume pbr=$00        ; override
+----                               14          .assume pbr=auto       ; restore inferred PBR from current .org bank
+----                               15  
+123403  A9 34 12                   16          lda #$1234          ; A9 34 12 (A is 16-bit)
+123406  A2 78 56                   17          ldx #$5678          ; A2 78 56 (X is 16-bit)
+123409  AD 56 34                   18          lda $123456         ; AD 56 34 (DBR inferred from PHK/PLB + explicit PBR)
+12340C  A5 F0                      19          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
+12340E  4C 10 32                   20          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
+----                               21  
+123411  E2 20                      22          sep #$20            ; A back to 8-bit
+123413  A9 9A                      23          lda #$9A            ; A9 9A
+----                               24  
+----                               25          .assume e=emulation ; forces A/X to 8-bit
+123415  A2 BC                      26          ldx #$BC            ; A2 BC
+----                               27  
+123417  60                         28          rts
+----                               29  
+----                               30          .end
 
-Lines: 29  Errors: 0  Warnings: 0
+Lines: 30  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 123400 (1192960)
 
-Total memory is 23 bytes
+Total memory is 24 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-123400    4B AB A9 34 12 A2 78 56 AD 56 34 A5 F0 4C 10 32
-123410    E2 20 A9 9A A2 BC 60
+123400    4B EA AB A9 34 12 A2 78 56 AD 56 34 A5 F0 4C 10
+123410    32 E2 20 A9 9A A2 BC 60
