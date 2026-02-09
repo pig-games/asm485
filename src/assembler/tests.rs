@@ -2429,6 +2429,35 @@ fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
 }
 
 #[test]
+fn m65816_assume_dbr_applies_to_non_long_mnemonics() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    LDX $123456",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x0000, 0xAE), (0x0001, 0x56), (0x0002, 0x34)]
+    );
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    LDX $123456", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=$00"));
+}
+
+#[test]
 fn m65816_assume_dp_maps_16bit_operands_to_direct_page_modes() {
     let assembler = run_passes(&[
         ".module main",
@@ -2453,6 +2482,29 @@ fn m65816_assume_dp_maps_16bit_operands_to_direct_page_modes() {
             (0x0005, 0xD0),
             (0x0006, 0x17),
             (0x0007, 0xC0),
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_dp_maps_parenthesized_direct_page_modes() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA ($20F0),Y",
+        "    LDA ($20E0,X)",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xB1),
+            (0x0001, 0xF0),
+            (0x0002, 0xA1),
+            (0x0003, 0xE0),
         ]
     );
 }
