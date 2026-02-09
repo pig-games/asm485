@@ -24,6 +24,7 @@ impl Assembler {
         registry.register_cpu(Box::new(Z80CpuModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         Self {
             symbols: SymbolTable::new(),
@@ -69,7 +70,7 @@ impl Assembler {
     pub(crate) fn pass1(&mut self, lines: &[String]) -> PassCounts {
         self.sections.clear();
         self.regions.clear();
-        let mut addr: u16 = 0;
+        let mut addr: u32 = 0;
         let mut line_num: u32 = 1;
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;
@@ -86,7 +87,19 @@ impl Assembler {
             asm_line.clear_scopes();
 
             for src in lines {
-                let line_addr = asm_line.current_addr(addr);
+                let line_addr = match asm_line.current_addr(addr) {
+                    Ok(line_addr) => line_addr,
+                    Err(()) => {
+                        if let Some(err) = asm_line.error() {
+                            diagnostics.push(
+                                Diagnostic::new(line_num, Severity::Error, err.clone())
+                                    .with_column(asm_line.error_column()),
+                            );
+                        }
+                        counts.errors += 1;
+                        addr
+                    }
+                };
                 let status = asm_line.process(src, line_num, line_addr, 1);
                 if status == LineStatus::Pass1Error || status == LineStatus::Error {
                     if let Some(err) = asm_line.error() {
@@ -97,8 +110,14 @@ impl Assembler {
                         );
                     }
                     counts.errors += 1;
-                } else {
-                    asm_line.update_addresses(&mut addr, status);
+                } else if asm_line.update_addresses(&mut addr, status).is_err() {
+                    if let Some(err) = asm_line.error() {
+                        diagnostics.push(
+                            Diagnostic::new(line_num, Severity::Error, err.clone())
+                                .with_column(asm_line.error_column()),
+                        );
+                    }
+                    counts.errors += 1;
                 }
                 line_num += 1;
             }
@@ -150,7 +169,10 @@ impl Assembler {
                 }
             }
 
-            asm_line.finalize_section_symbol_addresses();
+            for err in asm_line.finalize_section_symbol_addresses() {
+                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
+                counts.errors += 1;
+            }
 
             for (name, section) in &asm_line.sections {
                 if section.default_region.is_some() && !section.layout_placed {
@@ -212,14 +234,34 @@ impl Assembler {
         asm_line.clear_scopes();
         self.image = ImageStore::new(65536);
 
-        let mut addr: u16 = 0;
+        let mut addr: u32 = 0;
         let mut line_num: u32 = 1;
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;
         let image = &mut self.image;
 
         for src in lines {
-            let line_addr = asm_line.current_addr(addr);
+            let line_addr = match asm_line.current_addr(addr) {
+                Ok(line_addr) => line_addr,
+                Err(()) => {
+                    if let Some(err) = asm_line.error() {
+                        diagnostics.push(
+                            Diagnostic::new(line_num, Severity::Error, err.clone())
+                                .with_column(asm_line.error_column()),
+                        );
+                        listing.write_diagnostic(
+                            "ERROR",
+                            err.message(),
+                            line_num,
+                            asm_line.error_column(),
+                            lines,
+                            asm_line.parser_error_ref(),
+                        )?;
+                    }
+                    counts.errors += 1;
+                    addr
+                }
+            };
             let status = asm_line.process(src, line_num, line_addr, 2);
             let line_addr = asm_line.start_addr();
             let bytes = asm_line.bytes();
@@ -278,7 +320,23 @@ impl Assembler {
                 _ => {}
             }
 
-            asm_line.update_addresses(&mut addr, status);
+            if asm_line.update_addresses(&mut addr, status).is_err() {
+                if let Some(err) = asm_line.error() {
+                    diagnostics.push(
+                        Diagnostic::new(line_num, Severity::Error, err.clone())
+                            .with_column(asm_line.error_column()),
+                    );
+                    listing.write_diagnostic(
+                        "ERROR",
+                        err.message(),
+                        line_num,
+                        asm_line.error_column(),
+                        lines,
+                        None,
+                    )?;
+                }
+                counts.errors += 1;
+            }
             line_num += 1;
         }
 

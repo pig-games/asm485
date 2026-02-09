@@ -9,8 +9,10 @@
 
 use crate::core::assembler::expression::expr_span;
 use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
+use crate::core::parser::Expr;
 use crate::families::mos6502::{
-    has_mnemonic as has_family_mnemonic, AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand,
+    has_mnemonic as has_family_mnemonic, lookup_instruction as lookup_family_instruction,
+    AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand,
 };
 use crate::m65c02::instructions::{has_mnemonic, lookup_instruction};
 
@@ -67,6 +69,44 @@ impl M65C02CpuHandler {
             Some(0x0F + (bit << 4))
         }
     }
+
+    fn has_mode(mnemonic: &str, mode: AddressMode) -> bool {
+        lookup_instruction(mnemonic, mode).is_some()
+            || lookup_family_instruction(mnemonic, mode).is_some()
+    }
+
+    fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> bool {
+        match expr {
+            Expr::Identifier(name, _) | Expr::Register(name, _) => {
+                if !ctx.has_symbol(name) {
+                    return true;
+                }
+                ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
+            }
+            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
+                Self::expr_has_unstable_symbols(inner, ctx)
+            }
+            Expr::Tuple(items, _) => items
+                .iter()
+                .any(|item| Self::expr_has_unstable_symbols(item, ctx)),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                Self::expr_has_unstable_symbols(cond, ctx)
+                    || Self::expr_has_unstable_symbols(then_expr, ctx)
+                    || Self::expr_has_unstable_symbols(else_expr, ctx)
+            }
+            Expr::Unary { expr, .. } => Self::expr_has_unstable_symbols(expr, ctx),
+            Expr::Binary { left, right, .. } => {
+                Self::expr_has_unstable_symbols(left, ctx)
+                    || Self::expr_has_unstable_symbols(right, ctx)
+            }
+            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+        }
+    }
 }
 
 impl CpuHandler for M65C02CpuHandler {
@@ -116,8 +156,8 @@ impl CpuHandler for M65C02CpuHandler {
             }
 
             let target = ctx.eval_expr(target_expr)?;
-            let current = ctx.current_address() as i32 + 3;
-            let offset = target as i32 - current;
+            let current = ctx.current_address() as i64 + 3;
+            let offset = target - current;
             let rel = if !(-128..=127).contains(&offset) {
                 if ctx.pass() > 1 {
                     return Err(format!("Branch target out of range: offset {}", offset));
@@ -158,8 +198,8 @@ impl CpuHandler for M65C02CpuHandler {
 
                     // Branch instructions use relative addressing
                     if Self::is_branch_mnemonic(mnemonic) {
-                        let current = ctx.current_address() as i32 + 2;
-                        let offset = val as i32 - current;
+                        let current = ctx.current_address() as i64 + 2;
+                        let offset = val - current;
                         if !(-128..=127).contains(&offset) {
                             if ctx.pass() > 1 {
                                 // Only report error on pass 2
@@ -174,8 +214,14 @@ impl CpuHandler for M65C02CpuHandler {
                             Operand::Relative(offset as i8, span)
                         }
                     } else if (0..=255).contains(&val) {
-                        // Prefer zero page when possible
-                        Operand::ZeroPage(val as u8, span)
+                        if Self::expr_has_unstable_symbols(expr, ctx)
+                            && Self::has_mode(mnemonic, AddressMode::Absolute)
+                        {
+                            Operand::Absolute(val as u16, span)
+                        } else {
+                            // Prefer zero page when possible
+                            Operand::ZeroPage(val as u8, span)
+                        }
                     } else if (0..=65535).contains(&val) {
                         Operand::Absolute(val as u16, span)
                     } else {
@@ -187,7 +233,13 @@ impl CpuHandler for M65C02CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = expr_span(expr);
                     if (0..=255).contains(&val) {
-                        Operand::ZeroPageX(val as u8, span)
+                        if Self::expr_has_unstable_symbols(expr, ctx)
+                            && Self::has_mode(mnemonic, AddressMode::AbsoluteX)
+                        {
+                            Operand::AbsoluteX(val as u16, span)
+                        } else {
+                            Operand::ZeroPageX(val as u8, span)
+                        }
                     } else if (0..=65535).contains(&val) {
                         Operand::AbsoluteX(val as u16, span)
                     } else {
@@ -199,7 +251,13 @@ impl CpuHandler for M65C02CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = expr_span(expr);
                     if (0..=255).contains(&val) {
-                        Operand::ZeroPageY(val as u8, span)
+                        if Self::expr_has_unstable_symbols(expr, ctx)
+                            && Self::has_mode(mnemonic, AddressMode::AbsoluteY)
+                        {
+                            Operand::AbsoluteY(val as u16, span)
+                        } else {
+                            Operand::ZeroPageY(val as u8, span)
+                        }
                     } else if (0..=65535).contains(&val) {
                         Operand::AbsoluteY(val as u16, span)
                     } else {
@@ -270,6 +328,13 @@ impl CpuHandler for M65C02CpuHandler {
                             val
                         ));
                     }
+                }
+                FamilyOperand::IndirectLong(_)
+                | FamilyOperand::IndirectLongY(_)
+                | FamilyOperand::StackRelative(_)
+                | FamilyOperand::StackRelativeIndirectIndexedY(_)
+                | FamilyOperand::BlockMove { .. } => {
+                    return Err("65816-only addressing mode not supported on 65C02".to_string());
                 }
             };
             result.push(operand);

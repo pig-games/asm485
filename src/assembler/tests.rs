@@ -1,17 +1,23 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
     expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
-    Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputFormat,
-    ListingWriter, MapSymbolsMode, RootMetadata, Severity,
+    Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputDirective,
+    LinkerOutputFormat, ListingWriter, MapFileDirective, MapSymbolsMode, RegionState, RootMetadata,
+    SectionState, Severity,
 };
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
-use crate::core::symbol_table::SymbolTable;
+use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
 use crate::families::intel8080::module::Intel8080FamilyModule;
-use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+use crate::families::mos6502::module::{
+    M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
+};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
+use crate::m65816::module::M65816CpuModule;
+use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -26,6 +32,7 @@ fn default_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(Z80CpuModule));
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
+    registry.register_cpu(Box::new(M65816CpuModule));
     registry
 }
 
@@ -33,7 +40,7 @@ fn make_asm_line<'a>(symbols: &'a mut SymbolTable, registry: &'a ModuleRegistry)
     AsmLine::new(symbols, registry)
 }
 
-fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u16, pass: u8) -> LineStatus {
+fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineStatus {
     asm.process(line, 1, addr, pass)
 }
 
@@ -51,6 +58,20 @@ fn assemble_bytes(cpu: crate::core::cpu::CpuType, line: &str) -> Vec<u8> {
         asm.error().map(|err| err.to_string())
     );
     asm.bytes().to_vec()
+}
+
+fn assemble_line_status(
+    cpu: crate::core::cpu::CpuType,
+    line: &str,
+) -> (LineStatus, Option<String>) {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+    let status = asm.process(line, 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message)
 }
 
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
@@ -1339,6 +1360,207 @@ fn org_sets_address() {
 }
 
 #[test]
+fn org_rejects_wide_addresses_on_legacy_cpu() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .org $123456", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn org_supports_wide_addresses_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .org $123456", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    assert_eq!(asm.start_addr(), 0x123456);
+    assert_eq!(asm.aux_value(), 0x123456);
+}
+
+#[test]
+fn org_rejects_address_above_24bit_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .org $01000000", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("exceeds max $FFFFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn region_rejects_wide_addresses_on_legacy_cpu() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .region hi, $120000, $1200ff", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn region_rejects_address_above_24bit_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .region hi, $01000000, $010000ff", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("exceeds max $FFFFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn place_allows_regions_above_64k_on_65816() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 65816".to_string(),
+        ".region hi, $120000, $1200ff".to_string(),
+        ".section code".to_string(),
+        ".byte $aa, $bb".to_string(),
+        ".endsection".to_string(),
+        ".place code in hi".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 0);
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
+    assert_eq!(pass2.errors, 0);
+
+    let entries = assembler.image().entries().expect("entries");
+    assert_eq!(entries, vec![(0x120000, 0xaa), (0x120001, 0xbb)]);
+}
+
+#[test]
+fn place_rejects_wide_region_after_switching_back_to_legacy_cpu() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 65816".to_string(),
+        ".region hi, $120000, $1200ff".to_string(),
+        ".section code".to_string(),
+        ".byte $aa".to_string(),
+        ".endsection".to_string(),
+        ".cpu 6502".to_string(),
+        ".place code in hi".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error
+            .message()
+            .contains(".place/.pack address $120000 exceeds max $FFFF")
+    }));
+}
+
+#[test]
+fn align_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .align $10001", 1, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".align span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn align_supports_wide_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .align $10001", 1, 1);
+    assert_eq!(status, LineStatus::DirDs);
+    assert_eq!(asm.aux_value(), 0x10000);
+}
+
+#[test]
+fn ds_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .ds 2", 0xFFFF, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".ds span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn ds_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .ds 2", 0xFFFF, 1);
+    assert_eq!(status, LineStatus::DirDs);
+    assert_eq!(asm.aux_value(), 2);
+}
+
+#[test]
 fn place_sets_section_base_for_image_emission() {
     let lines = vec![
         ".module main".to_string(),
@@ -1404,6 +1626,25 @@ fn pack_places_sections_in_order_and_alignment() {
 }
 
 #[test]
+fn wide_alignment_options_accept_32bit_values() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".region ram, $010001, $02ffff, align=$20000",
+        ".section code, align=$10000",
+        "start:",
+        "    .byte $aa",
+        ".endsection",
+        ".place code in ram, align=$8000",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0x020000, 0xaa)]);
+    assert_eq!(assembler.symbols().lookup("main.start"), Some(0x020000));
+}
+
+#[test]
 fn section_symbols_are_finalized_from_layout_before_pass2() {
     let lines = vec![
         ".module main".to_string(),
@@ -1432,6 +1673,48 @@ fn section_symbols_are_finalized_from_layout_before_pass2() {
         .write_bin_file(&mut bin, 0x2000, 0x2001, 0xff)
         .expect("bin");
     assert_eq!(bin, vec![0x00, 0x20]);
+}
+
+#[test]
+fn section_symbol_finalize_reports_address_overflow() {
+    let mut symbols = SymbolTable::new();
+    assert_eq!(
+        symbols.add(
+            "main.start",
+            u32::MAX,
+            false,
+            SymbolVisibility::Private,
+            None
+        ),
+        SymbolTableResult::Ok
+    );
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            base_addr: Some(1),
+            ..SectionState::default()
+        },
+    );
+    asm.section_symbol_sections
+        .insert("main.start".to_string(), "code".to_string());
+
+    let errors = asm.finalize_section_symbol_addresses();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind(), AsmErrorKind::Directive);
+    assert!(
+        errors[0]
+            .message()
+            .contains("overflows address arithmetic for CPU"),
+        "unexpected message: {}",
+        errors[0].message()
+    );
+    assert!(errors[0].message().contains("main.start"));
+
+    let entry = asm.symbols.entry("main.start").expect("symbol exists");
+    assert_eq!(entry.val, u32::MAX);
+    assert!(!entry.updated);
 }
 
 #[test]
@@ -1483,6 +1766,43 @@ fn pass1_errors_when_section_overflows_region() {
             .message()
             .contains("Section placement overflows region")
     }));
+}
+
+#[test]
+fn place_reports_address_range_overflow_in_arithmetic() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.cpu_program_address_max = u32::MAX;
+    asm.regions.insert(
+        "ram".to_string(),
+        RegionState {
+            name: "ram".to_string(),
+            start: u32::MAX - 1,
+            end: u32::MAX,
+            cursor: u32::MAX - 1,
+            align: 1,
+            placed: Vec::new(),
+        },
+    );
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            max_pc: 3,
+            ..SectionState::default()
+        },
+    );
+    let status = process_line(&mut asm, ".place code in ram", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("overflows address range"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
 }
 
 #[test]
@@ -1704,18 +2024,258 @@ fn emit_overflow_is_error() {
 }
 
 #[test]
-fn res_overflow_reports_total_and_unit() {
+fn emit_rejects_span_beyond_legacy_max() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .emit byte, 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".emit span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn emit_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .emit byte, 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[1, 2]);
+}
+
+#[test]
+fn fill_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .fill byte, 2, $ff", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".fill span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn fill_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .fill byte, 2, $ff", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xFF, 0xFF]);
+}
+
+#[test]
+fn byte_list_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .byte 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains(".byte span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn byte_list_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .byte 1, 2", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[1, 2]);
+}
+
+#[test]
+fn instruction_rejects_span_beyond_legacy_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    LDA #$01", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Instruction);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("instruction LDA span"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn instruction_supports_span_on_65816() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .cpu 65816", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    LDA #$01", 0xFFFF, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xA9, 0x01]);
+}
+
+#[test]
+fn update_addresses_reports_section_address_arithmetic_overflow() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.current_section = Some("code".to_string());
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            start_pc: u32::MAX,
+            pc: 1,
+            ..SectionState::default()
+        },
+    );
+    let mut addr = 0u32;
+    let result = asm.update_addresses(&mut addr, LineStatus::Ok);
+    assert!(result.is_err());
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("overflows address arithmetic"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn update_addresses_reports_main_pc_beyond_cpu_max() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.bytes = vec![0xEA, 0xEA];
+    let mut addr = 0xFFFF;
+    let result = asm.update_addresses(&mut addr, LineStatus::Ok);
+    assert!(result.is_err());
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds max $FFFF"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn current_addr_reports_section_address_arithmetic_overflow() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.current_section = Some("code".to_string());
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            start_pc: u32::MAX,
+            pc: 1,
+            ..SectionState::default()
+        },
+    );
+    let result = asm.current_addr(0);
+    assert!(result.is_err());
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("overflows address arithmetic"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn res_allows_wide_total_and_reports_size() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, ".cpu 65816", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
 
     let status = process_line(&mut asm, ".section vars, kind=bss", 0, 1);
     assert_eq!(status, LineStatus::Ok);
     let status = process_line(&mut asm, "    .res long, 20000", 0, 1);
-    assert_eq!(status, LineStatus::Error);
-    assert!(asm.error_message().contains("total size"));
-    assert!(asm.error_message().contains("unit=4"));
-    assert!(asm.error_message().contains("count=20000"));
+    assert_eq!(status, LineStatus::DirDs);
+    assert_eq!(asm.aux_value(), 80_000);
+}
+
+#[test]
+fn res_rejects_span_beyond_legacy_max() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".section vars, kind=bss".to_string(),
+        ".org $ffff".to_string(),
+        ".res byte, 2".to_string(),
+        ".endsection".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.error.message().contains(".res span")
+            && diag.error.message().contains("exceeds max $FFFF")
+    }));
+}
+
+#[test]
+fn res_supports_span_on_65816() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".section vars, kind=bss",
+        ".org $ffff",
+        ".res byte, 2",
+        ".endsection",
+        ".endmodule",
+    ]);
+
+    assert_eq!(assembler.image().num_entries(), 0);
 }
 
 #[test]
@@ -2263,6 +2823,447 @@ fn rts_encodes_in_6502_family() {
 }
 
 #[test]
+fn cpu_65816_aliases_are_accepted() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 65c816", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu w65c816", 0, 1), LineStatus::Ok);
+}
+
+#[test]
+fn cpu_65816_can_assemble_family_instruction() {
+    let bytes = assemble_bytes(m65816_cpu_id, "    RTS");
+    assert_eq!(bytes, vec![0x60]);
+}
+
+#[test]
+fn unknown_cpu_diagnostic_lists_65816_and_aliases() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, ".cpu nope816", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+
+    let message = asm
+        .error()
+        .expect("expected unknown cpu error")
+        .message()
+        .to_string();
+    assert!(message.contains("65816"), "unexpected message: {message}");
+    assert!(message.contains("65c816"), "unexpected message: {message}");
+    assert!(message.contains("w65c816"), "unexpected message: {message}");
+}
+
+#[test]
+fn m65816_prioritized_instruction_encoding() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    BRL $0005"),
+        vec![0x82, 0x02, 0x00]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    JSL $123456"),
+        vec![0x22, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    JML [$1234]"),
+        vec![0xDC, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    MVN $01,$02"),
+        vec![0x54, 0x01, 0x02]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    PEA $1234"),
+        vec![0xF4, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    REP #$30"),
+        vec![0xC2, 0x30]
+    );
+}
+
+#[test]
+fn m65816_rep_sep_control_immediate_width_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        "    REP #$30",
+        "    LDA #$1234",
+        "    LDX #$5678",
+        "    SEP #$20",
+        "    LDA #$9A",
+        "    SEP #$10",
+        "    LDX #$BC",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x30),
+            (0x0002, 0xA9),
+            (0x0003, 0x34),
+            (0x0004, 0x12),
+            (0x0005, 0xA2),
+            (0x0006, 0x78),
+            (0x0007, 0x56),
+            (0x0008, 0xE2),
+            (0x0009, 0x20),
+            (0x000A, 0xA9),
+            (0x000B, 0x9A),
+            (0x000C, 0xE2),
+            (0x000D, 0x10),
+            (0x000E, 0xA2),
+            (0x000F, 0xBC),
+        ]
+    );
+}
+
+#[test]
+fn m65816_cpu_switch_resets_width_state() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "    REP #$30", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 6502", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA #$1234", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error()
+        .expect("expected immediate width error")
+        .message()
+        .contains("8-bit mode"));
+}
+
+#[test]
+fn m65816_stack_relative_forms_encode() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA $10,S"),
+        vec![0x03, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA ($20,S),Y"),
+        vec![0x13, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA $11,S"),
+        vec![0xA3, 0x11]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA ($21,S),Y"),
+        vec![0xB3, 0x21]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA $12,S"),
+        vec![0x83, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA ($22,S),Y"),
+        vec![0x93, 0x22]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ADC $13,S"),
+        vec![0x63, 0x13]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    AND ($24,S),Y"),
+        vec![0x33, 0x24]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    EOR $25,S"),
+        vec![0x43, 0x25]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    CMP ($26,S),Y"),
+        vec![0xD3, 0x26]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    SBC ($23,S),Y"),
+        vec![0xF3, 0x23]
+    );
+}
+
+#[test]
+fn m65816_long_memory_forms_encode() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA $123456"),
+        vec![0x0F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA $123456,X"),
+        vec![0x1F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA $123456"),
+        vec![0xAF, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA $123456,X"),
+        vec![0xBF, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA $123456"),
+        vec![0x8F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA $123456,X"),
+        vec![0x9F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ADC $123456"),
+        vec![0x6F, 0x56, 0x34, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    SBC $123456,X"),
+        vec![0xFF, 0x56, 0x34, 0x12]
+    );
+}
+
+#[test]
+fn m65816_forward_high_bank_label_uses_stable_long_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        "start:",
+        "    LDA target",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0xAF),
+            (0x123401, 0x05),
+            (0x123402, 0x34),
+            (0x123403, 0x12),
+            (0x123404, 0xEA),
+            (0x123405, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x123405));
+}
+
+#[test]
+fn bss_reserve_wide_size_places_symbol_above_64k() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".region ram, $010000, $04FFFF",
+        ".section vars, kind=bss",
+        "start:",
+        "    .res long, 20000",
+        "end_label:",
+        ".endsection",
+        ".place vars in ram",
+        ".endmodule",
+    ]);
+
+    assert_eq!(assembler.symbols().lookup("main.start"), Some(0x010000));
+    assert_eq!(assembler.symbols().lookup("main.end_label"), Some(0x023880));
+    assert_eq!(assembler.image().num_entries(), 0);
+}
+
+#[test]
+fn m6502_forward_boundary_label_uses_stable_absolute_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 6502",
+        ".org $00FD",
+        "start:",
+        "    LDA target",
+        "    NOP",
+        "target:",
+        "    RTS",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x00FD, 0xAD),
+            (0x00FE, 0x01),
+            (0x00FF, 0x01),
+            (0x0100, 0xEA),
+            (0x0101, 0x60),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0101));
+}
+
+#[test]
+fn m65c02_forward_boundary_label_uses_stable_absolute_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65c02",
+        ".org $00FD",
+        "start:",
+        "    STZ target",
+        "    NOP",
+        "target:",
+        "    RTS",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x00FD, 0x9C),
+            (0x00FE, 0x01),
+            (0x00FF, 0x01),
+            (0x0100, 0xEA),
+            (0x0101, 0x60),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0101));
+}
+
+#[test]
+fn m65816_direct_page_indirect_long_forms_encode() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA [$10]"),
+        vec![0x07, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ORA [$10],Y"),
+        vec![0x17, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA [$20]"),
+        vec![0xA7, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    LDA [$20],Y"),
+        vec![0xB7, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA [$30]"),
+        vec![0x87, 0x30]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    STA [$30],Y"),
+        vec![0x97, 0x30]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    ADC [$40],Y"),
+        vec![0x77, 0x40]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    SBC [$50]"),
+        vec![0xE7, 0x50]
+    );
+}
+
+#[test]
+fn legacy_cpus_reject_65816_mnemonics_and_modes() {
+    let (status, message) = assemble_line_status(m6502_cpu_id, "    BRL $0005");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("No instruction found for BRL"));
+
+    let (status, message) = assemble_line_status(m65c02_cpu_id, "    ORA $10,S");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("65816-only addressing mode not supported on 65C02"));
+
+    let (status, message) = assemble_line_status(m6502_cpu_id, "    JSL $123456");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("out of 16-bit range"));
+
+    let (status, message) = assemble_line_status(m65c02_cpu_id, "    MVN $01,$02");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("65816-only addressing mode not supported on 65C02"));
+
+    let (status, message) = assemble_line_status(m65c02_cpu_id, "    PEA $1234");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("No instruction found for PEA"));
+}
+
+#[test]
+fn m65816_brl_per_boundary_offsets() {
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    BRL $8002"),
+        vec![0x82, 0xFF, 0x7F]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    PER $8002"),
+        vec![0x62, 0xFF, 0x7F]
+    );
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    BRL $8003");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("Long branch target out of range"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    PER $8003");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .unwrap_or_default()
+        .contains("Long branch target out of range"));
+}
+
+#[test]
+fn mixed_cpu_switching_with_65816_aliases() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".org $1000",
+        ".cpu 6502",
+        "    RTS",
+        ".cpu 65816",
+        "    REP #$30",
+        "    ORA $10,S",
+        ".cpu 65c02",
+        "    STZ $20",
+        ".cpu 65c816",
+        "    MVN $01,$02",
+        ".cpu w65c816",
+        "    RTL",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x1000, 0x60),
+            (0x1001, 0xC2),
+            (0x1002, 0x30),
+            (0x1003, 0x03),
+            (0x1004, 0x10),
+            (0x1005, 0x64),
+            (0x1006, 0x20),
+            (0x1007, 0x54),
+            (0x1008, 0x01),
+            (0x1009, 0x02),
+            (0x100A, 0x6B),
+        ]
+    );
+}
+
+#[test]
 fn module_rejects_top_level_content_before_explicit_modules() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -2687,6 +3688,24 @@ fn root_metadata_linker_output_image_mode_is_stored() {
 }
 
 #[test]
+fn root_metadata_linker_output_wide_image_mode_is_stored() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".output \"build/rom.bin\", format=bin, image=\"$123400..$1234ff\", fill=$ff, contiguous=false, loadaddr=$123456, sections=code".to_string(),
+        ".endmodule".to_string(),
+    ];
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    let _ = assembler.pass1(&lines);
+
+    assert_eq!(assembler.root_metadata.linker_outputs.len(), 1);
+    let output = &assembler.root_metadata.linker_outputs[0];
+    assert_eq!(output.image_start, Some(0x123400));
+    assert_eq!(output.image_end, Some(0x1234ff));
+    assert_eq!(output.loadaddr, Some(0x123456));
+}
+
+#[test]
 fn linker_output_fill_requires_image() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -2831,6 +3850,83 @@ fn linker_output_prg_prefixes_default_loadaddr() {
 }
 
 #[test]
+fn linker_output_prg_rejects_wide_loadaddr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".region ram, $1000, $10ff",
+        ".section a",
+        ".byte $aa",
+        ".endsection",
+        ".place a in ram",
+        ".output \"build/out.prg\", format=prg, loadaddr=$123456, sections=a",
+        ".endmodule",
+    ]);
+    let output = assembler
+        .root_metadata
+        .linker_outputs
+        .first()
+        .expect("output directive");
+    let err = build_linker_output_payload(output, assembler.sections())
+        .expect_err("wide PRG loadaddr should fail");
+    assert_eq!(err.kind(), AsmErrorKind::Directive);
+    assert!(err
+        .message()
+        .contains("PRG load address exceeds 16-bit range"));
+}
+
+#[test]
+fn linker_output_image_mode_rejects_section_address_overflow() {
+    let output = LinkerOutputDirective {
+        path: "build/out.bin".to_string(),
+        format: LinkerOutputFormat::Bin,
+        sections: vec!["a".to_string()],
+        contiguous: false,
+        image_start: Some(u32::MAX - 1),
+        image_end: Some(u32::MAX),
+        fill: Some(0xff),
+        loadaddr: None,
+    };
+    let mut sections = HashMap::new();
+    let mut section = SectionState::default();
+    section.base_addr = Some(u32::MAX);
+    section.bytes = vec![0xaa, 0xbb];
+    sections.insert("a".to_string(), section);
+
+    let err = build_linker_output_payload(&output, &sections)
+        .expect_err("address overflow should be rejected");
+    assert_eq!(err.kind(), AsmErrorKind::Directive);
+    assert!(err
+        .message()
+        .contains("Section address range overflows in .output"));
+}
+
+#[test]
+fn linker_output_contiguous_mode_rejects_section_address_overflow() {
+    let output = LinkerOutputDirective {
+        path: "build/out.bin".to_string(),
+        format: LinkerOutputFormat::Bin,
+        sections: vec!["a".to_string()],
+        contiguous: true,
+        image_start: None,
+        image_end: None,
+        fill: None,
+        loadaddr: None,
+    };
+    let mut sections = HashMap::new();
+    let mut section = SectionState::default();
+    section.base_addr = Some(u32::MAX);
+    section.bytes = vec![0xaa, 0xbb];
+    sections.insert("a".to_string(), section);
+
+    let err = build_linker_output_payload(&output, &sections)
+        .expect_err("address overflow should be rejected");
+    assert_eq!(err.kind(), AsmErrorKind::Directive);
+    assert!(err
+        .message()
+        .contains("Section address range overflows in contiguous output"));
+}
+
+#[test]
 fn exportsections_default_excludes_bss() {
     let assembler = run_passes(&[
         ".module main",
@@ -2949,6 +4045,58 @@ fn mapfile_all_and_none_modes_control_symbol_listing() {
     assert!(all_map.contains("pub_label"));
     assert!(all_map.contains("priv_label"));
     assert!(!none_map.contains("Symbols"));
+}
+
+#[test]
+fn mapfile_formats_wide_values_without_truncation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".region hi, $FF0000, $FF00FF",
+        "wide_const .const $89ABCDEF",
+        "wide_var .var $01234567",
+        ".section code",
+        "entry: .byte $ea",
+        ".endsection",
+        ".place code in hi",
+        ".mapfile \"build/wide.map\", symbols=all",
+        ".endmodule",
+    ]);
+    let directive = assembler.root_metadata.mapfiles.first().expect("mapfile");
+    let map = build_mapfile_text(
+        directive,
+        assembler.regions(),
+        assembler.sections(),
+        assembler.symbols(),
+    );
+    assert!(map.contains("hi FF0000 FF00FF"));
+    assert!(map.contains("code FF0000 1 code hi"));
+    assert!(map.contains("main.entry FF0000 private"));
+    assert!(map.contains("main.wide_const 89ABCDEF private"));
+    assert!(map.contains("main.wide_var 01234567 private"));
+}
+
+#[test]
+fn mapfile_region_usage_supports_full_u32_span_without_saturation() {
+    let directive = MapFileDirective {
+        path: "build/full.map".to_string(),
+        symbols: MapSymbolsMode::None,
+    };
+    let mut regions = HashMap::new();
+    regions.insert(
+        "full".to_string(),
+        RegionState {
+            name: "full".to_string(),
+            start: 0,
+            end: u32::MAX,
+            cursor: u32::MAX,
+            align: 1,
+            placed: Vec::new(),
+        },
+    );
+
+    let map = build_mapfile_text(&directive, &regions, &HashMap::new(), &SymbolTable::new());
+    assert!(map.contains("full 0000 FFFFFFFF 4294967295 1 1"), "{map}");
 }
 
 #[test]
@@ -3482,7 +4630,7 @@ fn conditionals_only_emit_true_branch_bytes() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    let mut addr: u16 = 0;
+    let mut addr: u32 = 0;
     let mut out = Vec::new();
 
     let lines = [
@@ -3503,7 +4651,7 @@ fn conditionals_only_emit_true_branch_bytes() {
         match status {
             LineStatus::Ok => {
                 out.extend_from_slice(asm.bytes());
-                addr = addr.wrapping_add(asm.num_bytes() as u16);
+                addr = addr.wrapping_add(asm.num_bytes() as u32);
             }
             LineStatus::DirDs => {
                 addr = addr.wrapping_add(asm.aux_value());
@@ -3523,7 +4671,7 @@ fn match_only_emits_matching_case() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    let mut addr: u16 = 0;
+    let mut addr: u32 = 0;
     let mut out = Vec::new();
 
     let lines = [
@@ -3542,7 +4690,7 @@ fn match_only_emits_matching_case() {
         match status {
             LineStatus::Ok => {
                 out.extend_from_slice(asm.bytes());
-                addr = addr.wrapping_add(asm.num_bytes() as u16);
+                addr = addr.wrapping_add(asm.num_bytes() as u32);
             }
             LineStatus::DirDs => {
                 addr = addr.wrapping_add(asm.aux_value());

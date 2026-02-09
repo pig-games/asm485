@@ -1,0 +1,44 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 wide-address placement and output example
+----                                2  ; Exercises >64KiB region placement, wide HEX records, and wide .output metadata.
+----                                3  
+----                                4          .module main
+----                                5          .cpu 65816
+----                                6  
+----                                7          .region bank12, $123400, $12341f
+----                                8  
+----                                9          .section code  ; [section code]
+----                               10  start:  ; [section code]
+0000    C2 30                      11          rep #$30  ; [section code]
+0002    E2 10                      12          sep #$10  ; [section code]
+0004    AF 56 34 12                13          lda $123456  ; [section code]
+0008    9F 5A 34 12                14          sta $12345a,x  ; [section code]
+000C    22 56 34 12                15          jsl $123456  ; [section code]
+0010    42 42                      16          wdm #$42  ; [section code]
+0012    6B                         17          rtl  ; [section code]
+----                               18          .endsection
+----                               19  
+----                               20          .place code in bank12
+----                               21  
+----                               22          .output "build/65816-wide-image.bin", format=bin, image="$123400..$12341f", fill=$ff, contiguous=false, loadaddr=$123456, sections=code
+----                               23  
+----                               24          .endmodule
+----                               25  
+----                               26          .end
+
+Lines: 26  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+main.start      : 123400 (1192960)
+
+Total memory is 19 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+123400    C2 30 E2 10 AF 56 34 12 9F 5A 34 12 22 56 34 12
+123410    42 42 6B

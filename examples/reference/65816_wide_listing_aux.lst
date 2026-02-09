@@ -1,0 +1,30 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 wide listing auxiliary-value coverage
+----                                2  ; Ensures .equ and reserve-size listing columns keep values above 16-bit.
+----                                3  
+----                                4  .module main
+----                                5  .cpu 65816
+----                                6  
+----    EQU 123456                  7  wide_value = $123456
+----                                8  
+----                                9  .section scratch, kind=bss  ; [section scratch]
+----                               10  buffer:  ; [section scratch]
+0000    +123456                    11      .res byte, $123456  ; [section scratch]
+----                               12  .endsection
+----                               13  
+----                               14  .endmodule
+
+Lines: 14  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+main.wide_value : 123456 (1193046)
+main.buffer     : 0000 (0)
+
+Total memory is 0 bytes
+
+GENERATED OUTPUT
+
+(none)

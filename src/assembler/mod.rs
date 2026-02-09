@@ -50,6 +50,7 @@ use std::sync::Arc;
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
+use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::z80::module::Z80CpuModule;
 
@@ -276,7 +277,7 @@ fn run_one(
     }
     let mut bin_outputs = Vec::new();
     let bin_count = effective_bin_specs.len();
-    let mut auto_range: Option<Option<(u16, u16)>> = None;
+    let mut auto_range: Option<Option<(u32, u32)>> = None;
     for (index, spec) in effective_bin_specs.iter().enumerate() {
         let range = match &spec.range {
             Some(range) => Some(range.clone()),
@@ -294,7 +295,7 @@ fn run_one(
                     .as_ref()
                     .and_then(|value| value.as_ref().copied())
                     .map(|(start, end)| BinRange {
-                        start_str: format!("{:04X}", start),
+                        start_str: format_bin_suffix(start),
                         start,
                         end,
                     })
@@ -386,8 +387,28 @@ fn run_one(
 #[derive(Debug, Clone)]
 struct ResolvedLinkerSection {
     name: String,
-    base: u16,
+    base: u32,
     bytes: Vec<u8>,
+}
+
+fn format_addr(addr: u32) -> String {
+    if addr <= 0xFFFF {
+        format!("{addr:04X}")
+    } else if addr <= 0xFF_FFFF {
+        format!("{addr:06X}")
+    } else {
+        format!("{addr:08X}")
+    }
+}
+
+fn format_bin_suffix(addr: u32) -> String {
+    if addr <= 0xFFFF {
+        format!("{addr:04X}")
+    } else if addr <= 0xFF_FFFF {
+        format!("{addr:06X}")
+    } else {
+        format!("{addr:08X}")
+    }
 }
 
 fn collect_linker_sections(
@@ -425,73 +446,151 @@ fn build_linker_output_payload(
     sections: &HashMap<String, SectionState>,
 ) -> Result<Vec<u8>, AsmError> {
     let ordered = collect_linker_sections(output, sections)?;
-    let mut payload = if let (Some(image_start), Some(image_end)) =
-        (output.image_start, output.image_end)
-    {
-        let Some(fill) = output.fill else {
-            return Err(AsmError::new(
-                AsmErrorKind::Directive,
-                "image output requires fill in .output",
-                None,
-            ));
-        };
-        let span_len = image_end as u32 + 1 - image_start as u32;
-        let mut image = vec![fill; span_len as usize];
-        for section in &ordered {
-            if section.bytes.is_empty() {
-                continue;
-            }
-            let start = section.base as u32;
-            let end = start + section.bytes.len() as u32 - 1;
-            if start < image_start as u32 || end > image_end as u32 {
+    let mut payload =
+        if let (Some(image_start), Some(image_end)) = (output.image_start, output.image_end) {
+            let Some(fill) = output.fill else {
                 return Err(AsmError::new(
                     AsmErrorKind::Directive,
-                    "Section falls outside image span in .output",
-                    Some(&section.name),
+                    "image output requires fill in .output",
+                    None,
                 ));
-            }
-            let offset = (start - image_start as u32) as usize;
-            image[offset..offset + section.bytes.len()].copy_from_slice(&section.bytes);
-        }
-        image
-    } else {
-        if output.contiguous {
-            let mut expected_base: Option<u32> = None;
-            for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
-                let base = section.base as u32;
-                if let Some(expected) = expected_base {
-                    if base != expected {
-                        let message = if base > expected {
-                            format!(
-                                    "contiguous output requires adjacent sections; gap ${expected:04X}..${:04X}",
-                                    base - 1
-                                )
-                        } else {
-                            format!(
-                                    "contiguous output requires adjacent sections; overlap ${base:04X}..${:04X}",
-                                    expected - 1
-                                )
-                        };
-                        return Err(AsmError::new(
-                            AsmErrorKind::Directive,
-                            &message,
-                            Some(&section.name),
-                        ));
-                    }
+            };
+            let span_len = image_end
+                .checked_sub(image_start)
+                .and_then(|delta| delta.checked_add(1))
+                .ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Invalid image span range in .output",
+                        Some(&output.path),
+                    )
+                })?;
+            let image_len = usize::try_from(span_len).map_err(|_| {
+                AsmError::new(
+                    AsmErrorKind::Directive,
+                    "Image span is too large for this host",
+                    Some(&output.path),
+                )
+            })?;
+            let mut image = vec![fill; image_len];
+            for section in &ordered {
+                if section.bytes.is_empty() {
+                    continue;
                 }
-                expected_base = Some(base + section.bytes.len() as u32);
+                let section_len_u32 = u32::try_from(section.bytes.len()).map_err(|_| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section size is too large for address arithmetic in .output",
+                        Some(&section.name),
+                    )
+                })?;
+                let start = section.base;
+                let end = start.checked_add(section_len_u32 - 1).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section address range overflows in .output",
+                        Some(&section.name),
+                    )
+                })?;
+                if start < image_start || end > image_end {
+                    return Err(AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section falls outside image span in .output",
+                        Some(&section.name),
+                    ));
+                }
+                let offset_u32 = start.checked_sub(image_start).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section falls outside image span in .output",
+                        Some(&section.name),
+                    )
+                })?;
+                let offset = usize::try_from(offset_u32).map_err(|_| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Image offset is too large for this host",
+                        Some(&section.name),
+                    )
+                })?;
+                let end_offset = offset.checked_add(section.bytes.len()).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Image offset arithmetic overflow in .output",
+                        Some(&section.name),
+                    )
+                })?;
+                if end_offset > image.len() {
+                    return Err(AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section falls outside image span in .output",
+                        Some(&section.name),
+                    ));
+                }
+                image[offset..end_offset].copy_from_slice(&section.bytes);
             }
-        }
-        let total_len: usize = ordered.iter().map(|section| section.bytes.len()).sum();
-        let mut data = Vec::with_capacity(total_len);
-        for section in &ordered {
-            data.extend_from_slice(&section.bytes);
-        }
-        data
-    };
+            image
+        } else {
+            if output.contiguous {
+                let mut expected_base: Option<u32> = None;
+                for section in ordered.iter().filter(|section| !section.bytes.is_empty()) {
+                    let base = section.base;
+                    let section_len_u32 = u32::try_from(section.bytes.len()).map_err(|_| {
+                        AsmError::new(
+                            AsmErrorKind::Directive,
+                            "Section size is too large for address arithmetic in .output",
+                            Some(&section.name),
+                        )
+                    })?;
+                    if let Some(expected) = expected_base {
+                        if base != expected {
+                            let message = if base > expected {
+                                format!(
+                                    "contiguous output requires adjacent sections; gap ${}..${}",
+                                    format_addr(expected),
+                                    format_addr(base - 1)
+                                )
+                            } else {
+                                format!(
+                                "contiguous output requires adjacent sections; overlap ${}..${}",
+                                format_addr(base),
+                                format_addr(expected - 1)
+                            )
+                            };
+                            return Err(AsmError::new(
+                                AsmErrorKind::Directive,
+                                &message,
+                                Some(&section.name),
+                            ));
+                        }
+                    }
+                    expected_base = Some(base.checked_add(section_len_u32).ok_or_else(|| {
+                        AsmError::new(
+                            AsmErrorKind::Directive,
+                            "Section address range overflows in contiguous output",
+                            Some(&section.name),
+                        )
+                    })?);
+                }
+            }
+            let total_len = ordered.iter().try_fold(0usize, |acc, section| {
+                acc.checked_add(section.bytes.len()).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Output payload is too large for this host",
+                        Some(&output.path),
+                    )
+                })
+            })?;
+            let mut data = Vec::with_capacity(total_len);
+            for section in &ordered {
+                data.extend_from_slice(&section.bytes);
+            }
+            data
+        };
 
     if output.format == LinkerOutputFormat::Prg {
-        let loadaddr = output.loadaddr.unwrap_or_else(|| {
+        let loadaddr32 = output.loadaddr.unwrap_or_else(|| {
             ordered
                 .iter()
                 .find(|section| !section.bytes.is_empty())
@@ -499,6 +598,16 @@ fn build_linker_output_payload(
                 .map(|section| section.base)
                 .unwrap_or(0)
         });
+        let loadaddr = match u16::try_from(loadaddr32) {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(AsmError::new(
+                    AsmErrorKind::Directive,
+                    "PRG load address exceeds 16-bit range",
+                    Some(&output.path),
+                ))
+            }
+        };
         let mut prg = Vec::with_capacity(payload.len() + 2);
         prg.push((loadaddr & 0x00ff) as u8);
         prg.push((loadaddr >> 8) as u8);
@@ -646,12 +755,22 @@ fn build_mapfile_text(
     region_names.sort();
     for name in region_names {
         let region = &regions[name];
-        let capacity = region.end.saturating_sub(region.start).saturating_add(1);
-        let used = region.cursor.saturating_sub(region.start).min(capacity);
+        let capacity = u64::from(region.end)
+            .checked_sub(u64::from(region.start))
+            .and_then(|delta| delta.checked_add(1))
+            .unwrap_or(0);
+        let used = u64::from(region.cursor)
+            .saturating_sub(u64::from(region.start))
+            .min(capacity);
         let free = capacity.saturating_sub(used);
         out.push_str(&format!(
-            "{} {:04X} {:04X} {} {} {}\n",
-            region.name, region.start, region.end, used, free, region.align
+            "{} {} {} {} {} {}\n",
+            region.name,
+            format_addr(region.start),
+            format_addr(region.end),
+            used,
+            free,
+            region.align
         ));
     }
     out.push('\n');
@@ -670,7 +789,7 @@ fn build_mapfile_text(
         let section = &sections[name];
         let base_text = section
             .base_addr
-            .map(|base| format!("{base:04X}"))
+            .map(format_addr)
             .unwrap_or_else(|| "----".to_string());
         let region_name = section_region
             .get(name.as_str())
@@ -709,8 +828,10 @@ fn build_mapfile_text(
                 SymbolVisibility::Private => "private",
             };
             out.push_str(&format!(
-                "{} {:04X} {}\n",
-                entry.name, entry.val, visibility
+                "{} {} {}\n",
+                entry.name,
+                format_addr(entry.val),
+                visibility
             ));
         }
     }
@@ -779,13 +900,17 @@ struct AsmLine<'a> {
     line_end_span: Option<Span>,
     line_end_token: Option<String>,
     bytes: Vec<u8>,
-    start_addr: u16,
-    aux_value: u16,
+    start_addr: u32,
+    aux_value: u32,
     pass: u8,
     label: Option<String>,
     mnemonic: Option<String>,
     cpu: CpuType,
     register_checker: RegisterChecker,
+    cpu_program_address_max: u32,
+    cpu_word_size_bytes: u32,
+    cpu_little_endian: bool,
+    cpu_state_flags: HashMap<String, u32>,
     statement_depth: usize,
 }
 
@@ -838,6 +963,10 @@ impl<'a> AsmLine<'a> {
             mnemonic: None,
             cpu,
             register_checker: Self::build_register_checker(registry, cpu),
+            cpu_program_address_max: Self::build_cpu_program_address_max(registry, cpu),
+            cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
+            cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
+            cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
             statement_depth: 0,
         }
     }
@@ -850,6 +979,34 @@ impl<'a> AsmLine<'a> {
                 Arc::new(move |ident: &str| family.is_register(ident) || family.is_condition(ident))
             }
             Err(_) => register_checker_none(),
+        }
+    }
+
+    fn build_cpu_runtime_state(registry: &ModuleRegistry, cpu: CpuType) -> HashMap<String, u32> {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.runtime_state_defaults(),
+            Err(_) => HashMap::new(),
+        }
+    }
+
+    fn build_cpu_program_address_max(registry: &ModuleRegistry, cpu: CpuType) -> u32 {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.max_program_address(),
+            Err(_) => 0xFFFF,
+        }
+    }
+
+    fn build_cpu_word_size(registry: &ModuleRegistry, cpu: CpuType) -> u32 {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.native_word_size_bytes().max(1),
+            Err(_) => 2,
+        }
+    }
+
+    fn build_cpu_endianness(registry: &ModuleRegistry, cpu: CpuType) -> bool {
+        match registry.resolve_pipeline(cpu, None) {
+            Ok(pipeline) => pipeline.cpu.is_little_endian(),
+            Err(_) => true,
         }
     }
 
@@ -869,16 +1026,34 @@ impl<'a> AsmLine<'a> {
         std::mem::take(&mut self.regions)
     }
 
-    fn finalize_section_symbol_addresses(&mut self) {
+    fn finalize_section_symbol_addresses(&mut self) -> Vec<AsmError> {
         let section_symbols = std::mem::take(&mut self.section_symbol_sections);
+        let mut errors = Vec::new();
+        let cpu_name = self.cpu.as_str().to_string();
         for (symbol_name, section_name) in section_symbols {
             let Some(base_addr) = self.sections.get(&section_name).and_then(|s| s.base_addr) else {
                 continue;
             };
             if let Some(entry) = self.symbols.entry_mut(&symbol_name) {
-                entry.val = entry.val.saturating_add(base_addr as u32);
+                match entry.val.checked_add(base_addr) {
+                    Some(value) => {
+                        entry.val = value;
+                        entry.updated = true;
+                    }
+                    None => {
+                        let message = format!(
+                            "Section symbol address overflows address arithmetic for CPU {cpu_name}"
+                        );
+                        errors.push(AsmError::new(
+                            AsmErrorKind::Directive,
+                            &message,
+                            Some(&symbol_name),
+                        ));
+                    }
+                }
             }
         }
+        errors
     }
 
     fn error(&self) -> Option<&AsmError> {
@@ -913,11 +1088,11 @@ impl<'a> AsmLine<'a> {
         self.bytes.len()
     }
 
-    fn start_addr(&self) -> u16 {
+    fn start_addr(&self) -> u32 {
         self.start_addr
     }
 
-    fn aux_value(&self) -> u16 {
+    fn aux_value(&self) -> u32 {
         self.aux_value
     }
 
@@ -942,6 +1117,27 @@ impl<'a> AsmLine<'a> {
         self.current_section = None;
         self.saw_explicit_module = false;
         self.top_level_content_seen = false;
+        self.reset_cpu_runtime_profile();
+    }
+
+    fn reset_cpu_runtime_profile(&mut self) {
+        self.cpu_program_address_max = Self::build_cpu_program_address_max(self.registry, self.cpu);
+        self.cpu_word_size_bytes = Self::build_cpu_word_size(self.registry, self.cpu);
+        self.cpu_little_endian = Self::build_cpu_endianness(self.registry, self.cpu);
+        self.cpu_state_flags = Self::build_cpu_runtime_state(self.registry, self.cpu);
+    }
+
+    fn apply_cpu_runtime_state_after_encode(
+        &mut self,
+        cpu_handler: &dyn crate::core::registry::CpuHandlerDyn,
+        mnemonic: &str,
+        operands: &dyn crate::core::registry::OperandSet,
+    ) {
+        cpu_handler.update_runtime_state_after_encode(
+            mnemonic,
+            operands,
+            &mut self.cpu_state_flags,
+        );
     }
 
     fn cond_last(&self) -> Option<&ConditionalContext> {
@@ -969,14 +1165,32 @@ impl<'a> AsmLine<'a> {
         self.current_section.as_deref()
     }
 
-    fn current_addr(&self, main_addr: u16) -> u16 {
+    fn current_addr(&mut self, main_addr: u32) -> Result<u32, ()> {
         match self.current_section.as_deref() {
-            Some(name) => self
-                .sections
-                .get(name)
-                .map(|section| section.pc.wrapping_add(section.start_pc))
-                .unwrap_or(main_addr),
-            None => main_addr,
+            Some(name) => {
+                let Some(section) = self.sections.get(name) else {
+                    return Ok(main_addr);
+                };
+                let max = self.max_program_address();
+                let cpu_name = self.cpu.as_str().to_string();
+                let label = format!("section {name} absolute address");
+                match Self::checked_add_address(
+                    section.start_pc,
+                    section.pc,
+                    max,
+                    cpu_name.as_str(),
+                    label.as_str(),
+                ) {
+                    Ok(addr) => Ok(addr),
+                    Err(message) => {
+                        self.last_error =
+                            Some(AsmError::new(AsmErrorKind::Directive, &message, None));
+                        self.last_error_column = None;
+                        Err(())
+                    }
+                }
+            }
+            None => Ok(main_addr),
         }
     }
 
@@ -990,42 +1204,168 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    fn update_addresses(&mut self, main_addr: &mut u16, status: LineStatus) {
-        let num_bytes = self.num_bytes() as u16;
+    fn update_addresses(&mut self, main_addr: &mut u32, status: LineStatus) -> Result<(), ()> {
+        let num_bytes = match u32::try_from(self.num_bytes()) {
+            Ok(num_bytes) => num_bytes,
+            Err(_) => {
+                let message = format!(
+                    "line byte count exceeds supported range for CPU {}",
+                    self.cpu.as_str()
+                );
+                return self.fail_address_update(message);
+            }
+        };
+        let max = self.max_program_address();
+        let cpu_name = self.cpu.as_str().to_string();
         if let Some(section_name) = self.current_section.clone() {
-            if let Some(section) = self.sections.get_mut(&section_name) {
+            let update_result: Result<(), String> = (|| {
+                let Some(section) = self.sections.get_mut(&section_name) else {
+                    return Ok(());
+                };
+                let current_abs = Self::checked_add_address(
+                    section.start_pc,
+                    section.pc,
+                    max,
+                    cpu_name.as_str(),
+                    &format!("section {section_name} absolute address"),
+                )?;
                 if self.pass == 2 {
                     if status == LineStatus::DirDs && self.aux_value > 0 && !section.is_bss() {
                         section
                             .bytes
                             .extend(std::iter::repeat_n(0, self.aux_value as usize));
                     } else if status == LineStatus::DirEqu
-                        && self.start_addr > section.pc.wrapping_add(section.start_pc)
+                        && self.start_addr > current_abs
                         && !section.is_bss()
                     {
-                        let current_abs = section.pc.wrapping_add(section.start_pc);
-                        let pad = self.start_addr.wrapping_sub(current_abs) as usize;
-                        section.bytes.extend(std::iter::repeat_n(0, pad));
+                        let pad = self.start_addr - current_abs;
+                        section.bytes.extend(std::iter::repeat_n(0, pad as usize));
                     } else if !self.bytes.is_empty() && !section.is_bss() {
                         section.bytes.extend_from_slice(&self.bytes);
                     }
                 }
-                if status == LineStatus::DirDs {
-                    section.pc = section.pc.wrapping_add(self.aux_value);
+                section.pc = if status == LineStatus::DirDs {
+                    let current_abs = Self::checked_add_address(
+                        section.pc,
+                        self.aux_value,
+                        max,
+                        cpu_name.as_str(),
+                        &format!("section {section_name} program counter"),
+                    )?;
+                    current_abs
                 } else if status == LineStatus::DirEqu {
-                    section.pc = self.start_addr.wrapping_sub(section.start_pc);
+                    Self::checked_sub_address(
+                        self.start_addr,
+                        section.start_pc,
+                        max,
+                        cpu_name.as_str(),
+                        &format!("section {section_name} program counter"),
+                    )?
                 } else {
-                    section.pc = section.pc.wrapping_add(num_bytes);
-                }
+                    Self::checked_add_address(
+                        section.pc,
+                        num_bytes,
+                        max,
+                        cpu_name.as_str(),
+                        &format!("section {section_name} program counter"),
+                    )?
+                };
+                let _ = Self::checked_add_address(
+                    section.start_pc,
+                    section.pc,
+                    max,
+                    cpu_name.as_str(),
+                    &format!("section {section_name} absolute address"),
+                )?;
                 section.max_pc = section.max_pc.max(section.pc);
+                Ok(())
+            })();
+            if let Err(message) = update_result {
+                return self.fail_address_update(message);
             }
         } else if status == LineStatus::DirDs {
-            *main_addr = main_addr.wrapping_add(self.aux_value);
+            match Self::checked_add_address(
+                *main_addr,
+                self.aux_value,
+                max,
+                cpu_name.as_str(),
+                "program counter",
+            ) {
+                Ok(addr) => *main_addr = addr,
+                Err(message) => return self.fail_address_update(message),
+            }
         } else if status == LineStatus::DirEqu {
+            if self.start_addr > max {
+                let message = format!(
+                    "program counter ${} exceeds max ${} for CPU {}",
+                    format_addr(self.start_addr),
+                    format_addr(max),
+                    cpu_name
+                );
+                return self.fail_address_update(message);
+            }
             *main_addr = self.start_addr;
         } else {
-            *main_addr = main_addr.wrapping_add(num_bytes);
+            match Self::checked_add_address(
+                *main_addr,
+                num_bytes,
+                max,
+                cpu_name.as_str(),
+                "program counter",
+            ) {
+                Ok(addr) => *main_addr = addr,
+                Err(message) => return self.fail_address_update(message),
+            }
         }
+        Ok(())
+    }
+
+    fn checked_add_address(
+        start: u32,
+        delta: u32,
+        max: u32,
+        cpu_name: &str,
+        label: &str,
+    ) -> Result<u32, String> {
+        let value = start
+            .checked_add(delta)
+            .ok_or_else(|| format!("{label} overflows address arithmetic for CPU {cpu_name}"))?;
+        if value > max {
+            return Err(format!(
+                "{label} ${} exceeds max ${} for CPU {}",
+                format_addr(value),
+                format_addr(max),
+                cpu_name
+            ));
+        }
+        Ok(value)
+    }
+
+    fn checked_sub_address(
+        value: u32,
+        subtrahend: u32,
+        max: u32,
+        cpu_name: &str,
+        label: &str,
+    ) -> Result<u32, String> {
+        let result = value
+            .checked_sub(subtrahend)
+            .ok_or_else(|| format!("{label} underflows address arithmetic for CPU {cpu_name}"))?;
+        if result > max {
+            return Err(format!(
+                "{label} ${} exceeds max ${} for CPU {}",
+                format_addr(result),
+                format_addr(max),
+                cpu_name
+            ));
+        }
+        Ok(result)
+    }
+
+    fn fail_address_update(&mut self, message: String) -> Result<(), ()> {
+        self.last_error = Some(AsmError::new(AsmErrorKind::Directive, &message, None));
+        self.last_error_column = self.line_end_span.map(|span| span.col_start);
+        Err(())
     }
 
     fn is_allowed_meta_directive(&self, mnemonic: &str) -> bool {
@@ -1218,7 +1558,7 @@ impl<'a> AsmLine<'a> {
         AsmError::new(AsmErrorKind::Symbol, "Symbol is private", Some(name))
     }
 
-    fn process(&mut self, line: &str, line_num: u32, addr: u16, pass: u8) -> LineStatus {
+    fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {
         self.last_error = None;
         self.last_error_column = None;
         self.last_parser_error = None;
@@ -1475,7 +1815,7 @@ impl<'a> AsmLine<'a> {
                             let res = if self.pass == 1 {
                                 self.symbols.add(
                                     &full_name,
-                                    self.start_addr as u32,
+                                    self.start_addr,
                                     false,
                                     self.current_visibility(),
                                     self.module_active.as_deref(),
@@ -1483,7 +1823,7 @@ impl<'a> AsmLine<'a> {
                             } else if self.in_section() {
                                 crate::symbol_table::SymbolTableResult::Ok
                             } else {
-                                self.symbols.update(&full_name, self.start_addr as u32)
+                                self.symbols.update(&full_name, self.start_addr)
                             };
                             if res == crate::symbol_table::SymbolTableResult::Duplicate {
                                 return self.failure_at_span(
@@ -1517,7 +1857,7 @@ impl<'a> AsmLine<'a> {
                         let res = if self.pass == 1 {
                             self.symbols.add(
                                 &full_name,
-                                self.start_addr as u32,
+                                self.start_addr,
                                 false,
                                 self.current_visibility(),
                                 self.module_active.as_deref(),
@@ -1525,7 +1865,7 @@ impl<'a> AsmLine<'a> {
                         } else if self.in_section() {
                             crate::symbol_table::SymbolTableResult::Ok
                         } else {
-                            self.symbols.update(&full_name, self.start_addr as u32)
+                            self.symbols.update(&full_name, self.start_addr)
                         };
                         if res == crate::symbol_table::SymbolTableResult::Duplicate {
                             return self.failure_at_span(
@@ -1954,7 +2294,7 @@ impl<'a> AsmLine<'a> {
                 let full_name = self.scoped_define_name(&label.name);
                 if op == AssignOp::VarIfUndef {
                     if let Some(entry) = self.symbols.entry(&full_name) {
-                        self.aux_value = entry.val as u16;
+                        self.aux_value = entry.val;
                         return LineStatus::DirEqu;
                     }
                 }
@@ -2008,7 +2348,7 @@ impl<'a> AsmLine<'a> {
                         Some(1),
                     );
                 }
-                self.aux_value = val as u16;
+                self.aux_value = val;
                 return LineStatus::DirEqu;
             }
             _ => {}
@@ -2087,7 +2427,7 @@ impl<'a> AsmLine<'a> {
             entry.val = new_val;
             entry.updated = true;
         }
-        self.aux_value = new_val as u16;
+        self.aux_value = new_val;
         LineStatus::DirEqu
     }
 
@@ -2129,6 +2469,17 @@ impl<'a> AsmLine<'a> {
             self,
         ) {
             crate::core::family::FamilyEncodeResult::Ok(bytes) => {
+                if let Err(err) =
+                    self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.bytes.extend_from_slice(&bytes);
                 return LineStatus::Ok;
             }
@@ -2182,7 +2533,23 @@ impl<'a> AsmLine<'a> {
             .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
         {
             EncodeResult::Ok(bytes) => {
+                if let Err(err) =
+                    self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.bytes.extend_from_slice(&bytes);
+                self.apply_cpu_runtime_state_after_encode(
+                    pipeline.cpu.as_ref(),
+                    &mapped_mnemonic,
+                    resolved_operands.as_ref(),
+                );
                 LineStatus::Ok
             }
             EncodeResult::Error(msg, span_opt) => {
@@ -2204,7 +2571,23 @@ impl<'a> AsmLine<'a> {
                 self,
             ) {
                 EncodeResult::Ok(bytes) => {
+                    if let Err(err) =
+                        self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                    {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
                     self.bytes.extend_from_slice(&bytes);
+                    self.apply_cpu_runtime_state_after_encode(
+                        pipeline.cpu.as_ref(),
+                        &mapped_mnemonic,
+                        resolved_operands.as_ref(),
+                    );
                     LineStatus::Ok
                 }
                 EncodeResult::Error(msg, span_opt) => {
@@ -2237,14 +2620,102 @@ impl<'a> AsmLine<'a> {
             .map(|section| section.kind)
     }
 
+    fn max_program_address(&self) -> u32 {
+        self.cpu_program_address_max
+    }
+
+    fn validate_program_address(
+        &self,
+        value: u32,
+        directive_name: &str,
+        span: Span,
+    ) -> Result<(), AstEvalError> {
+        let max = self.max_program_address();
+        if value <= max {
+            return Ok(());
+        }
+        let message = format!(
+            "{directive_name} address ${} exceeds max ${} for CPU {}",
+            format_addr(value),
+            format_addr(max),
+            self.cpu.as_str()
+        );
+        Err(AstEvalError {
+            error: AsmError::new(AsmErrorKind::Directive, &message, None),
+            span,
+        })
+    }
+
+    fn validate_program_span(
+        &self,
+        size_bytes: u32,
+        directive_name: &str,
+        span: Span,
+    ) -> Result<(), AstEvalError> {
+        if size_bytes == 0 {
+            return Ok(());
+        }
+        let max = self.max_program_address();
+        let start = self.start_addr;
+        let end = match start.checked_add(size_bytes - 1) {
+            Some(end) => end,
+            None => {
+                let message = format!(
+                    "{directive_name} size overflows address arithmetic for CPU {}",
+                    self.cpu.as_str()
+                );
+                return Err(AstEvalError {
+                    error: AsmError::new(AsmErrorKind::Directive, &message, None),
+                    span,
+                });
+            }
+        };
+        if end <= max {
+            return Ok(());
+        }
+        let message = format!(
+            "{directive_name} span ${}..${} exceeds max ${} for CPU {}",
+            format_addr(start),
+            format_addr(end),
+            format_addr(max),
+            self.cpu.as_str()
+        );
+        Err(AstEvalError {
+            error: AsmError::new(AsmErrorKind::Directive, &message, None),
+            span,
+        })
+    }
+
+    fn validate_instruction_emit_span(
+        &self,
+        mnemonic: &str,
+        operands: &[Expr],
+        byte_count: usize,
+    ) -> Result<(), AstEvalError> {
+        let size_bytes = match u32::try_from(byte_count) {
+            Ok(size_bytes) => size_bytes,
+            Err(_) => {
+                return Err(AstEvalError {
+                    error: AsmError::new(
+                        AsmErrorKind::Instruction,
+                        "instruction size overflow exceeds supported range",
+                        None,
+                    ),
+                    span: operands.first().map(expr_span).unwrap_or_default(),
+                });
+            }
+        };
+        let span = operands.first().map(expr_span).unwrap_or_default();
+        let label = format!("instruction {}", mnemonic.to_ascii_uppercase());
+        self.validate_program_span(size_bytes, &label, span)
+    }
+
     fn current_cpu_little_endian(&self) -> bool {
-        // Current supported CPUs are little-endian (8085/Z80/6502/65C02).
-        true
+        self.cpu_little_endian
     }
 
     fn cpu_word_size_bytes(&self) -> u32 {
-        // Current supported CPUs all use 16-bit native words.
-        2
+        self.cpu_word_size_bytes
     }
 
     fn section_kind_allows_data(&self) -> bool {
@@ -2360,6 +2831,37 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
+        let emit_count = match u32::try_from(operands.len().saturating_sub(1)) {
+            Ok(count) => count,
+            Err(_) => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    ".emit operand list is too large",
+                    None,
+                )
+            }
+        };
+        let total = match unit_bytes.checked_mul(emit_count) {
+            Some(total) => total,
+            None => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    ".emit total size overflow exceeds supported range",
+                    None,
+                )
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".emit", expr_span(&operands[0])) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
 
         for expr in &operands[1..] {
             let value = match self.eval_expr_ast(expr) {
@@ -2437,15 +2939,25 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let total = unit_bytes.saturating_mul(count);
-        if total > u16::MAX as u32 {
-            let msg = format!(
-                ".res total size {total} bytes (unit={unit_bytes}, count={count}) exceeds addressable range (max {})",
-                u16::MAX
+        let total = match unit_bytes.checked_mul(count) {
+            Some(total) => total,
+            None => {
+                let msg = format!(
+                    ".res total size overflow (unit={unit_bytes}, count={count}) exceeds supported range"
+                );
+                return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".res", expr_span(&operands[1])) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
             );
-            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
         }
-        self.aux_value = total as u16;
+        self.aux_value = total;
         LineStatus::DirDs
     }
 
@@ -2510,6 +3022,24 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
+        let total = match unit_bytes.checked_mul(count) {
+            Some(total) => total,
+            None => {
+                let msg = format!(
+                    ".fill total size overflow (unit={unit_bytes}, count={count}) exceeds supported range"
+                );
+                return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".fill", expr_span(&operands[1])) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
 
         for _ in 0..count {
             if let Err(err) =
@@ -2527,7 +3057,12 @@ impl<'a> AsmLine<'a> {
         LineStatus::Ok
     }
 
-    fn store_arg_list_ast(&mut self, operands: &[Expr], size: usize) -> LineStatus {
+    fn store_arg_list_ast(
+        &mut self,
+        operands: &[Expr],
+        size: usize,
+        directive_name: &str,
+    ) -> LineStatus {
         if !self.section_kind_allows_data() {
             let msg = format!(
                 "Data emit directives are not allowed in kind=bss section (current kind={})",
@@ -2544,9 +3079,49 @@ impl<'a> AsmLine<'a> {
             );
         }
 
+        let unit_size = size as u32;
+        let mut projected_total = 0u32;
         for expr in operands {
             if let Expr::String(bytes, span) = expr {
                 if bytes.len() > 1 {
+                    let string_len = match u32::try_from(bytes.len()) {
+                        Ok(len) => len,
+                        Err(_) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Directive,
+                                "String literal too large to emit",
+                                None,
+                                *span,
+                            );
+                        }
+                    };
+                    projected_total = match projected_total.checked_add(string_len) {
+                        Some(total) => total,
+                        None => {
+                            let msg = format!(
+                                "{directive_name} total size overflow exceeds supported range"
+                            );
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Directive,
+                                &msg,
+                                None,
+                                *span,
+                            );
+                        }
+                    };
+                    if let Err(err) =
+                        self.validate_program_span(projected_total, directive_name, *span)
+                    {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            err.error.kind(),
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
                     self.bytes.extend_from_slice(bytes);
                     continue;
                 }
@@ -2559,6 +3134,31 @@ impl<'a> AsmLine<'a> {
                         *span,
                     );
                 }
+            }
+            projected_total = match projected_total.checked_add(unit_size) {
+                Some(total) => total,
+                None => {
+                    let msg =
+                        format!("{directive_name} total size overflow exceeds supported range");
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        &msg,
+                        None,
+                        expr_span(expr),
+                    );
+                }
+            };
+            if let Err(err) =
+                self.validate_program_span(projected_total, directive_name, expr_span(expr))
+            {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
             }
             let val = match self.eval_expr_ast(expr) {
                 Ok(value) => value,
@@ -2641,6 +3241,10 @@ impl<'a> AsmLine<'a> {
                 // For 6502-style indirect like ($20), evaluate the inner address expression
                 self.eval_expr_ast(inner)
             }
+            Expr::IndirectLong(inner, _span) => {
+                // For 65816-style bracketed indirect like [$20], evaluate inner expression.
+                self.eval_expr_ast(inner)
+            }
             Expr::Immediate(inner, _span) => {
                 // Immediate expressions like #$FF - evaluate the inner expression
                 self.eval_expr_ast(inner)
@@ -2653,7 +3257,7 @@ impl<'a> AsmLine<'a> {
                 ),
                 span: *span,
             }),
-            Expr::Dollar(_span) => Ok(self.start_addr as u32),
+            Expr::Dollar(_span) => Ok(self.start_addr),
             Expr::String(bytes, span) => {
                 if bytes.len() == 1 {
                     Ok(bytes[0] as u32)
@@ -2749,12 +3353,24 @@ impl<'a> AssemblerContext for AsmLine<'a> {
         self.symbols
     }
 
-    fn current_address(&self) -> u16 {
+    fn has_symbol(&self, name: &str) -> bool {
+        self.lookup_scoped_entry(name).is_some()
+    }
+
+    fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
+        self.lookup_scoped_entry(name).map(|entry| entry.updated)
+    }
+
+    fn current_address(&self) -> u32 {
         self.start_addr
     }
 
     fn pass(&self) -> u8 {
         self.pass
+    }
+
+    fn cpu_state_flag(&self, key: &str) -> Option<u32> {
+        self.cpu_state_flags.get(key).copied()
     }
 }
 

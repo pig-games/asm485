@@ -34,6 +34,10 @@ impl MOS6502FamilyHandler {
         upper.starts_with("BBR") || upper.starts_with("BBS")
     }
 
+    fn is_block_move_instruction(mnemonic: &str) -> bool {
+        matches!(mnemonic.to_ascii_uppercase().as_str(), "MVN" | "MVP")
+    }
+
     /// Parse a single expression into a FamilyOperand.
     fn parse_single_operand(&self, expr: &Expr) -> Result<FamilyOperand, FamilyParseError> {
         match expr {
@@ -51,14 +55,20 @@ impl MOS6502FamilyHandler {
                 if let Expr::Tuple(elements, _) = &**inner {
                     if elements.len() == 2 {
                         // Check second element is X
-                        let is_x = match &elements[1] {
+                        let second = match &elements[1] {
                             Expr::Register(name, _) | Expr::Identifier(name, _) => {
-                                name.eq_ignore_ascii_case("X")
+                                name.to_ascii_uppercase()
                             }
-                            _ => false,
+                            _ => String::new(),
                         };
-                        if is_x {
+                        if second == "X" {
                             return Ok(FamilyOperand::IndexedIndirectX(elements[0].clone()));
+                        }
+                        if second == "S" {
+                            return Err(FamilyParseError::new(
+                                "Stack-relative indirect must use ,Y: (d,S),Y",
+                                expr_span(expr),
+                            ));
                         }
                     }
                     return Err(FamilyParseError::new(
@@ -70,6 +80,9 @@ impl MOS6502FamilyHandler {
                 // Ordinary Indirect: ($nn) - could be JMP indirect or 65C02 ZP indirect
                 Ok(FamilyOperand::Indirect((**inner).clone()))
             }
+
+            // Bracketed long-indirect: [expr]
+            Expr::IndirectLong(inner, _) => Ok(FamilyOperand::IndirectLong((**inner).clone())),
 
             // Binary with comma - check for indexed modes
             Expr::Binary {
@@ -114,18 +127,58 @@ impl FamilyHandler for MOS6502FamilyHandler {
         // Handle indexed modes that come as separate expressions
         // e.g., "LDA $20,X" might come as [expr($20), expr(X)]
         if exprs.len() == 2 {
-            if let Expr::Register(name, _) = &exprs[1] {
-                let index = name.to_ascii_uppercase();
+            let index = match &exprs[1] {
+                Expr::Register(name, _) | Expr::Identifier(name, _) => {
+                    Some(name.to_ascii_uppercase())
+                }
+                _ => None,
+            };
+            if let Some(index) = index {
                 if index == "X" {
                     return Ok(vec![FamilyOperand::DirectX(exprs[0].clone())]);
-                } else if index == "Y" {
-                    // Check if this is indirect indexed: ($nn),Y
+                }
+                if index == "Y" {
                     if let Expr::Indirect(inner, _) = &exprs[0] {
+                        // (d,S),Y stack-relative indirect indexed addressing (65816)
+                        if let Expr::Tuple(elements, _) = &**inner {
+                            if elements.len() == 2 {
+                                let is_s = matches!(
+                                    &elements[1],
+                                    Expr::Register(name, _) | Expr::Identifier(name, _)
+                                        if name.eq_ignore_ascii_case("S")
+                                );
+                                if is_s {
+                                    return Ok(vec![FamilyOperand::StackRelativeIndirectIndexedY(
+                                        elements[0].clone(),
+                                    )]);
+                                }
+                            }
+                        }
                         return Ok(vec![FamilyOperand::IndirectIndexedY((**inner).clone())]);
+                    }
+                    if let Expr::IndirectLong(inner, _) = &exprs[0] {
+                        return Ok(vec![FamilyOperand::IndirectLongY((**inner).clone())]);
                     }
                     return Ok(vec![FamilyOperand::DirectY(exprs[0].clone())]);
                 }
+                if index == "S" {
+                    return Ok(vec![FamilyOperand::StackRelative(exprs[0].clone())]);
+                }
             }
+        }
+
+        // MVN/MVP block move source/destination bank operands
+        if exprs.len() == 2 && Self::is_block_move_instruction(mnemonic) {
+            let span = Span {
+                line: expr_span(&exprs[0]).line,
+                col_start: expr_span(&exprs[0]).col_start,
+                col_end: expr_span(&exprs[1]).col_end,
+            };
+            return Ok(vec![FamilyOperand::BlockMove {
+                src: exprs[0].clone(),
+                dst: exprs[1].clone(),
+                span,
+            }]);
         }
 
         // Single operand
@@ -172,8 +225,8 @@ impl FamilyHandler for MOS6502FamilyHandler {
             // If we have an absolute address, we need to calculate the offset
             if let Some(Operand::Absolute(addr, span)) = operands.first() {
                 if let Some(entry) = lookup_instruction(mnemonic, AddressMode::Relative) {
-                    let current = ctx.current_address() as i32 + 2; // +2 for instruction size
-                    let target = *addr as i32;
+                    let current = ctx.current_address() as i64 + 2; // +2 for instruction size
+                    let target = *addr as i64;
                     let offset = target - current;
                     if !(-128..=127).contains(&offset) {
                         return EncodeResult::error_with_span(

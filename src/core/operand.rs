@@ -104,6 +104,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Identifier(_, span) => *span,
         Expr::Register(_, span) => *span,
         Expr::Indirect(_, span) => *span,
+        Expr::IndirectLong(_, span) => *span,
         Expr::Immediate(_, span) => *span,
         Expr::Tuple(_, span) => *span,
         Expr::Dollar(span) => *span,

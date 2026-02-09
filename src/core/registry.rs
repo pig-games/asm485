@@ -95,6 +95,25 @@ pub trait CpuHandlerDyn: Send + Sync {
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>>;
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
+    fn max_program_address(&self) -> u32 {
+        0xFFFF
+    }
+    fn native_word_size_bytes(&self) -> u32 {
+        2
+    }
+    fn is_little_endian(&self) -> bool {
+        true
+    }
+    fn runtime_state_defaults(&self) -> HashMap<String, u32> {
+        HashMap::new()
+    }
+    fn update_runtime_state_after_encode(
+        &self,
+        _mnemonic: &str,
+        _operands: &dyn OperandSet,
+        _state: &mut HashMap<String, u32>,
+    ) {
+    }
 }
 
 /// Dialect mapping layer for alternate syntax (e.g. Z80 mnemonics → Intel 8080).
@@ -142,6 +161,9 @@ pub trait CpuModule: Send + Sync {
     fn cpu_id(&self) -> CpuType;
     fn family_id(&self) -> CpuFamily;
     fn cpu_name(&self) -> &'static str;
+    fn cpu_aliases(&self) -> &'static [&'static str] {
+        &[]
+    }
     fn default_dialect(&self) -> &'static str;
     fn handler(&self) -> Box<dyn CpuHandlerDyn>;
     fn validator(&self) -> Option<Box<dyn CpuValidator>> {
@@ -221,6 +243,9 @@ impl ModuleRegistry {
         let cpu_id = module.cpu_id();
         self.cpu_names
             .insert(normalize_cpu_name(module.cpu_name()), cpu_id);
+        for alias in module.cpu_aliases() {
+            self.cpu_names.insert(normalize_cpu_name(alias), cpu_id);
+        }
         self.cpus.insert(cpu_id, module);
     }
 
@@ -322,6 +347,7 @@ mod tests {
     const TEST_FAMILY: CpuFamily = CpuFamily::new("test_family");
     const TEST_CPU: CpuType = CpuType::new("test_cpu");
     const OTHER_CPU: CpuType = CpuType::new("other_cpu");
+    const TEST_RUNTIME_KEY: &str = "test.runtime";
 
     // --- Minimal stubs for testing ---
 
@@ -400,6 +426,30 @@ mod tests {
         fn supports_mnemonic(&self, _mnemonic: &str) -> bool {
             false
         }
+        fn native_word_size_bytes(&self) -> u32 {
+            3
+        }
+        fn max_program_address(&self) -> u32 {
+            0x01FF_FFFF
+        }
+        fn is_little_endian(&self) -> bool {
+            false
+        }
+        fn runtime_state_defaults(&self) -> HashMap<String, u32> {
+            let mut state = HashMap::new();
+            state.insert(TEST_RUNTIME_KEY.to_string(), 7);
+            state
+        }
+        fn update_runtime_state_after_encode(
+            &self,
+            mnemonic: &str,
+            _operands: &dyn OperandSet,
+            state: &mut HashMap<String, u32>,
+        ) {
+            if mnemonic.eq_ignore_ascii_case("PING") {
+                state.insert(TEST_RUNTIME_KEY.to_string(), 9);
+            }
+        }
     }
 
     struct StubDialect;
@@ -446,6 +496,9 @@ mod tests {
         fn cpu_name(&self) -> &'static str {
             "TestCpu"
         }
+        fn cpu_aliases(&self) -> &'static [&'static str] {
+            &["test_alias", "test16"]
+        }
         fn default_dialect(&self) -> &'static str {
             "test_dialect"
         }
@@ -476,6 +529,16 @@ mod tests {
     }
 
     #[test]
+    fn resolve_cpu_alias_name_maps_to_cpu() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        assert_eq!(reg.resolve_cpu_name("test_alias"), Some(TEST_CPU));
+        assert_eq!(reg.resolve_cpu_name("TEST16"), Some(TEST_CPU));
+    }
+
+    #[test]
     fn resolve_pipeline_succeeds() {
         let mut reg = ModuleRegistry::new();
         reg.register_family(Box::new(StubFamilyModule));
@@ -487,6 +550,23 @@ mod tests {
         assert_eq!(p.family.family_id(), TEST_FAMILY);
         assert_eq!(p.cpu.cpu_id(), TEST_CPU);
         assert_eq!(p.dialect.dialect_id(), "test_dialect");
+    }
+
+    #[test]
+    fn pipeline_exposes_cpu_runtime_hooks() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        let p = reg.resolve_pipeline(TEST_CPU, None).expect("pipeline");
+        assert_eq!(p.cpu.max_program_address(), 0x01FF_FFFF);
+        assert_eq!(p.cpu.native_word_size_bytes(), 3);
+        assert!(!p.cpu.is_little_endian());
+        let mut state = p.cpu.runtime_state_defaults();
+        assert_eq!(state.get(TEST_RUNTIME_KEY).copied(), Some(7));
+        p.cpu
+            .update_runtime_state_after_encode("PING", &StubOperandSet, &mut state);
+        assert_eq!(state.get(TEST_RUNTIME_KEY).copied(), Some(9));
     }
 
     #[test]

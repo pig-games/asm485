@@ -1,0 +1,63 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Simple 65816 test program
+----                                2  ; Tests core 65816 MVP instructions currently implemented
+----                                3  
+----                                4          .cpu 65816
+----    EQU 0400                    5          .org $0400
+----                                6  
+----                                7  start:
+0400    C2 30                       8          rep #$30        ; C2 30
+0402    E2 20                       9          sep #$20        ; E2 20
+0404    FB                         10          xce             ; FB
+0405    EB                         11          xba             ; EB
+----                               12  
+0406    F4 34 12                   13          pea $1234       ; F4 34 12
+0409    D4 20                      14          pei ($20)       ; D4 20
+040B    62 03 00                   15          per near_label  ; 62 xx xx
+040E    82 18 00                   16          brl far_label   ; 82 xx xx
+----                               17  
+----                               18  near_label:
+0411    8B                         19          phb             ; 8B
+0412    AB                         20          plb             ; AB
+0413    0B                         21          phd             ; 0B
+0414    2B                         22          pld             ; 2B
+0415    4B                         23          phk             ; 4B
+0416    5B                         24          tcd             ; 5B
+0417    7B                         25          tdc             ; 7B
+0418    1B                         26          tcs             ; 1B
+0419    3B                         27          tsc             ; 3B
+----                               28  
+041A    02 7F                      29          cop #$7F        ; 02 7F
+041C    42 42                      30          wdm #$42        ; 42 42
+----                               31  
+041E    03 10                      32          ora $10,s       ; 03 10
+0420    13 11                      33          ora ($11,s),y   ; 13 11
+----                               34  
+0422    22 56 34 12                35          jsl $123456     ; 22 56 34 12
+0426    DC 45 23                   36          jml [$2345]     ; DC 45 23
+----                               37  
+----                               38  far_label:
+0429    6B                         39          rtl             ; 6B
+042A    60                         40          rts             ; 60
+----                               41  
+----                               42          .end
+
+Lines: 42  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0400 (1024)
+near_label      : 0411 (1041)
+far_label       : 0429 (1065)
+
+Total memory is 43 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0400    C2 30 E2 20 FB EB F4 34 12 D4 20 62 03 00 82 18
+0410    00 8B AB 0B 2B 4B 5B 7B 1B 3B 02 7F 42 42 03 10
+0420    13 11 22 56 34 12 DC 45 23 6B 60

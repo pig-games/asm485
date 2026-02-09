@@ -79,6 +79,8 @@ pub enum Expr {
     Indirect(Box<Expr>, Span),
     /// Immediate value: #expr
     Immediate(Box<Expr>, Span),
+    /// Bracketed long-indirect expression: [expr]
+    IndirectLong(Box<Expr>, Span),
     /// Tuple/List: (a, b) - used for complex indirects like ($nn, X)
     Tuple(Vec<Expr>, Span),
     Dollar(Span),
@@ -1484,6 +1486,27 @@ impl Parser {
                         },
                     ))
                 }
+            }
+            Some(Token {
+                kind: TokenKind::OpenBracket,
+                span: open_span,
+            }) => {
+                let expr = self.parse_expr()?;
+                let close_span = self.current_span();
+                if !self.consume_kind(TokenKind::CloseBracket) {
+                    return Err(ParseError {
+                        message: "Missing ']'".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                Ok(Expr::IndirectLong(
+                    Box::new(expr),
+                    Span {
+                        line: open_span.line,
+                        col_start: open_span.col_start,
+                        col_end: close_span.col_end,
+                    },
+                ))
             }
             Some(token) => Err(ParseError {
                 message: "Unexpected token in expression".to_string(),

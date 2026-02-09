@@ -172,6 +172,17 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
+                if let Err(err) =
+                    self.validate_program_address(start, ".region", expr_span(&operands[1]))
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 let end = match self.eval_expr_ast(&operands[2]) {
                     Ok(value) => value,
                     Err(err) => {
@@ -184,7 +195,18 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                if start > u16::MAX as u32 || end > u16::MAX as u32 || start > end {
+                if let Err(err) =
+                    self.validate_program_address(end, ".region", expr_span(&operands[2]))
+                {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+                if start > end {
                     return self.failure(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
@@ -193,7 +215,7 @@ impl<'a> AsmLine<'a> {
                     );
                 }
 
-                let mut align: u16 = 1;
+                let mut align: u32 = 1;
                 for expr in &operands[3..] {
                     let Expr::Binary {
                         op: asm_parser::BinaryOp::Eq,
@@ -243,16 +265,16 @@ impl<'a> AsmLine<'a> {
                             )
                         }
                     };
-                    if value == 0 || value > u16::MAX as u32 {
+                    if value == 0 {
                         return self.failure_at_span(
                             LineStatus::Error,
                             AsmErrorKind::Directive,
-                            "Region align must be in range 1..65535",
+                            "Region align must be greater than zero",
                             None,
                             *span,
                         );
                     }
-                    align = value as u16;
+                    align = value;
                 }
 
                 if let Some(existing) = self.regions.get(&name) {
@@ -279,7 +301,9 @@ impl<'a> AsmLine<'a> {
                         })
                     {
                         let msg = format!(
-                            "Region range overlaps existing region '{other_name}' at ${overlap_start:04X}..${overlap_end:04X}"
+                            "Region range overlaps existing region '{other_name}' at ${}..${}",
+                            super::format_addr(overlap_start),
+                            super::format_addr(overlap_end)
                         );
                         return self.failure(
                             LineStatus::Error,
@@ -711,9 +735,18 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
+                if let Err(err) = self.validate_program_address(val, ".org", expr_span(expr)) {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 if let Some(section_name) = self.current_section.as_deref() {
                     if let Some(section) = self.sections.get(section_name) {
-                        let current_abs = section.start_pc as u32 + section.pc as u32;
+                        let current_abs = section.start_pc + section.pc;
                         if val < current_abs {
                             return self.failure(
                                 LineStatus::Error,
@@ -724,8 +757,8 @@ impl<'a> AsmLine<'a> {
                         }
                     }
                 }
-                self.start_addr = val as u16;
-                self.aux_value = val as u16;
+                self.start_addr = val;
+                self.aux_value = val;
                 LineStatus::DirEqu
             }
             "ALIGN" => {
@@ -752,7 +785,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let align = val as u16;
+                let align = val;
                 if align == 0 {
                     return self.failure(
                         LineStatus::Error,
@@ -763,6 +796,15 @@ impl<'a> AsmLine<'a> {
                 }
                 let addr = self.start_addr;
                 let pad = (align - (addr % align)) % align;
+                if let Err(err) = self.validate_program_span(pad, ".align", expr_span(expr)) {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
                 self.aux_value = pad;
                 LineStatus::DirDs
             }
@@ -839,7 +881,7 @@ impl<'a> AsmLine<'a> {
                         Some(1),
                     );
                 }
-                self.aux_value = val as u16;
+                self.aux_value = val;
                 LineStatus::DirEqu
             }
             "CPU" => {
@@ -868,6 +910,7 @@ impl<'a> AsmLine<'a> {
                 match self.registry.resolve_cpu_name(&cpu_name) {
                     Some(cpu) => {
                         self.cpu = cpu;
+                        self.reset_cpu_runtime_profile();
                         self.register_checker =
                             Self::build_register_checker(self.registry, self.cpu);
                         LineStatus::Ok
@@ -890,9 +933,9 @@ impl<'a> AsmLine<'a> {
             }
             "EMIT" => self.emit_directive_ast(operands),
             "RES" => self.res_directive_ast(operands),
-            "BYTE" | "DB" => self.store_arg_list_ast(operands, 1),
-            "WORD" | "DW" => self.store_arg_list_ast(operands, 2),
-            "LONG" => self.store_arg_list_ast(operands, 4),
+            "BYTE" | "DB" => self.store_arg_list_ast(operands, 1, ".byte"),
+            "WORD" | "DW" => self.store_arg_list_ast(operands, 2, ".word"),
+            "LONG" => self.store_arg_list_ast(operands, 4, ".long"),
             "DS" => {
                 let expr = match operands.first() {
                     Some(expr) => expr,
@@ -917,7 +960,16 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                self.aux_value = val as u16;
+                if let Err(err) = self.validate_program_span(val, ".ds", expr_span(expr)) {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+                self.aux_value = val;
                 LineStatus::DirDs
             }
             _ if self.in_meta_block && directive.starts_with("OUTPUT.") => {
@@ -1183,13 +1235,13 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    fn parse_u16_expr_value(
+    fn parse_u32_expr_value(
         &mut self,
-        directive: &str,
-        key: &str,
+        _directive: &str,
+        _key: &str,
         value_expr: &Expr,
-        span: Span,
-    ) -> Result<u16, LineStatus> {
+        _span: Span,
+    ) -> Result<u32, LineStatus> {
         let value = match self.eval_expr_ast(value_expr) {
             Ok(value) => value,
             Err(err) => {
@@ -1202,23 +1254,14 @@ impl<'a> AsmLine<'a> {
                 ))
             }
         };
-        if value > u16::MAX as u32 {
-            return Err(self.failure_at_span(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                &format!("{key} must be in range 0..65535 in {directive}"),
-                None,
-                span,
-            ));
-        }
-        Ok(value as u16)
+        Ok(value)
     }
 
     fn parse_image_span_text(
         &mut self,
         value_expr: &Expr,
         span: Span,
-    ) -> Result<(u16, u16), LineStatus> {
+    ) -> Result<(u32, u32), LineStatus> {
         let value = match self.expr_text_value(value_expr) {
             Some(value) => value,
             None => {
@@ -1265,7 +1308,7 @@ impl<'a> AsmLine<'a> {
                 ))
             }
         };
-        if start > u16::MAX as u32 || end > u16::MAX as u32 || start > end {
+        if start > end {
             return Err(self.failure_at_span(
                 LineStatus::Error,
                 AsmErrorKind::Directive,
@@ -1274,7 +1317,7 @@ impl<'a> AsmLine<'a> {
                 span,
             ));
         }
-        Ok((start as u16, end as u16))
+        Ok((start, end))
     }
 
     fn append_section_names_from_text(
@@ -1580,10 +1623,10 @@ impl<'a> AsmLine<'a> {
         let mut sections: Vec<String> = Vec::new();
         let mut contiguous = true;
         let mut saw_contiguous = false;
-        let mut image_start: Option<u16> = None;
-        let mut image_end: Option<u16> = None;
+        let mut image_start: Option<u32> = None;
+        let mut image_end: Option<u32> = None;
         let mut fill: Option<u8> = None;
-        let mut loadaddr: Option<u16> = None;
+        let mut loadaddr: Option<u32> = None;
 
         let mut idx = 1usize;
         while idx < operands.len() {
@@ -1779,7 +1822,7 @@ impl<'a> AsmLine<'a> {
                     );
                 }
                 loadaddr =
-                    match self.parse_u16_expr_value(".output", "loadaddr", value_expr, option_span)
+                    match self.parse_u32_expr_value(".output", "loadaddr", value_expr, option_span)
                     {
                         Ok(value) => Some(value),
                         Err(status) => return status,
@@ -2131,16 +2174,16 @@ impl<'a> AsmLine<'a> {
                         ))
                     }
                 };
-                if align == 0 || align > u16::MAX as u32 {
+                if align == 0 {
                     return Err(self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
-                        "Section align must be in range 1..65535",
+                        "Section align must be greater than zero",
                         None,
                         *span,
                     ));
                 }
-                options.align = Some(align as u16);
+                options.align = Some(align);
                 continue;
             }
 
@@ -2190,15 +2233,15 @@ impl<'a> AsmLine<'a> {
         Ok(options)
     }
 
-    fn align_up(value: u32, align: u32) -> u32 {
+    fn align_up(value: u32, align: u32) -> Option<u32> {
         if align <= 1 {
-            return value;
+            return Some(value);
         }
         let rem = value % align;
         if rem == 0 {
-            value
+            Some(value)
         } else {
-            value + (align - rem)
+            value.checked_add(align - rem)
         }
     }
 
@@ -2206,7 +2249,7 @@ impl<'a> AsmLine<'a> {
         &mut self,
         section_name: &str,
         region_name: &str,
-        directive_align: Option<u16>,
+        directive_align: Option<u32>,
         span: Span,
     ) -> LineStatus {
         if self.in_section() {
@@ -2277,14 +2320,56 @@ impl<'a> AsmLine<'a> {
         let align = directive_align
             .unwrap_or(1)
             .max(region_align)
-            .max(section_align) as u32;
-        let base = Self::align_up(region_cursor, align);
-        let size = section_size as u32;
+            .max(section_align);
+        let base = match Self::align_up(region_cursor, align) {
+            Some(base) => base,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Section alignment overflows address range",
+                    Some(section_name),
+                    span,
+                )
+            }
+        };
+        if let Err(err) = self.validate_program_address(base, ".place/.pack", span) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                Some(section_name),
+                err.span,
+            );
+        }
+        let size = section_size;
         let last_addr = if size == 0 {
             base
         } else {
-            base.saturating_add(size.saturating_sub(1))
+            match base.checked_add(size - 1) {
+                Some(last_addr) => last_addr,
+                None => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Section placement overflows address range",
+                        Some(section_name),
+                        span,
+                    )
+                }
+            }
         };
+        if size > 0 {
+            if let Err(err) = self.validate_program_address(last_addr, ".place/.pack", span) {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    Some(section_name),
+                    err.span,
+                );
+            }
+        }
         if size > 0 && last_addr > region_end {
             return self.failure_at_span(
                 LineStatus::Error,
@@ -2294,8 +2379,19 @@ impl<'a> AsmLine<'a> {
                 span,
             );
         }
-        let new_cursor = base.saturating_add(size);
-        if new_cursor > region_end.saturating_add(1) {
+        let new_cursor = match base.checked_add(size) {
+            Some(new_cursor) => new_cursor,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Section placement overflows address range",
+                    Some(section_name),
+                    span,
+                )
+            }
+        };
+        if u64::from(new_cursor) > (u64::from(region_end) + 1) {
             return self.failure_at_span(
                 LineStatus::Error,
                 AsmErrorKind::Directive,
@@ -2305,18 +2401,17 @@ impl<'a> AsmLine<'a> {
             );
         }
 
-        let base_u16 = base as u16;
         if let Some(region) = self.regions.get_mut(region_name) {
             region.cursor = new_cursor;
             region.placed.push(PlacedSectionInfo {
                 name: section_name.to_string(),
-                base: base_u16,
+                base,
                 size: section_size,
             });
         }
         if let Some(section) = self.sections.get_mut(section_name) {
-            section.start_pc = base_u16;
-            section.base_addr = Some(base_u16);
+            section.start_pc = base;
+            section.base_addr = Some(base);
             section.layout_placed = true;
         }
         LineStatus::Ok
@@ -2342,16 +2437,16 @@ impl<'a> AsmLine<'a> {
                     )
                 }
             };
-            if value == 0 || value > u16::MAX as u32 {
+            if value == 0 {
                 return self.failure_at_span(
                     LineStatus::Error,
                     AsmErrorKind::Directive,
-                    "Placement align must be in range 1..65535",
+                    "Placement align must be greater than zero",
                     None,
                     span,
                 );
             }
-            Some(value as u16)
+            Some(value)
         } else {
             None
         };

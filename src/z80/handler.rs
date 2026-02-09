@@ -244,8 +244,8 @@ impl CpuHandler for Z80CpuHandler {
                             bytes.push(*offset);
                         }
                         Operand::Immediate16(addr, span) => {
-                            let current = ctx.current_address() as i32 + bytes.len() as i32 + 1;
-                            let target = *addr as i32;
+                            let current = ctx.current_address() as i64 + bytes.len() as i64 + 1;
+                            let target = *addr as i64;
                             let offset = target - current;
                             if !(-128..=127).contains(&offset) {
                                 return EncodeResult::error_with_span(

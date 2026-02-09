@@ -15,10 +15,10 @@ use super::error::{build_context_lines, LineStatus, PassCounts};
 
 /// Data for a single listing line.
 pub struct ListingLine<'a> {
-    pub addr: u16,
+    pub addr: u32,
     pub bytes: &'a [u8],
     pub status: LineStatus,
-    pub aux: u16,
+    pub aux: u32,
     pub line_num: u32,
     pub source: &'a str,
     pub section: Option<&'a str>,
@@ -45,13 +45,16 @@ impl<W: Write> ListingWriter<W> {
 
     pub fn write_line(&mut self, line: ListingLine<'_>) -> std::io::Result<()> {
         let (loc, bytes_col) = match line.status {
-            LineStatus::DirEqu => (String::new(), format!("EQU {:04X}", line.aux)),
-            LineStatus::DirDs => (format!("{:04X}", line.addr), format!("+{:04X}", line.aux)),
+            LineStatus::DirEqu => (String::new(), format!("EQU {}", format_addr(line.aux))),
+            LineStatus::DirDs => (
+                format_addr(line.addr),
+                format!("+{}", format_addr(line.aux)),
+            ),
             _ => {
                 if line.bytes.is_empty() {
                     ("".to_string(), String::new())
                 } else {
-                    (format!("{:04X}", line.addr), format_bytes(line.bytes))
+                    (format_addr(line.addr), format_bytes(line.bytes))
                 }
             }
         };
@@ -120,7 +123,7 @@ impl<W: Write> ListingWriter<W> {
         counts: &PassCounts,
         symbols: &SymbolTable,
         total_mem: usize,
-        generated_output: &[(u16, u8)],
+        generated_output: &[(u32, u8)],
     ) -> std::io::Result<()> {
         writeln!(
             self.out,
@@ -134,7 +137,7 @@ impl<W: Write> ListingWriter<W> {
         Ok(())
     }
 
-    fn write_generated_output(&mut self, generated_output: &[(u16, u8)]) -> std::io::Result<()> {
+    fn write_generated_output(&mut self, generated_output: &[(u32, u8)]) -> std::io::Result<()> {
         writeln!(self.out, "\nGENERATED OUTPUT\n")?;
         if generated_output.is_empty() {
             writeln!(self.out, "(none)")?;
@@ -149,8 +152,8 @@ impl<W: Write> ListingWriter<W> {
         writeln!(self.out, "ADDR    BYTES")?;
         writeln!(self.out, "------  -----------------------")?;
 
-        let mut line_addr: Option<u16> = None;
-        let mut prev_addr: Option<u16> = None;
+        let mut line_addr: Option<u32> = None;
+        let mut prev_addr: Option<u32> = None;
         let mut line_bytes: Vec<u8> = Vec::new();
 
         for (addr, value) in resolved {
@@ -160,7 +163,12 @@ impl<W: Write> ListingWriter<W> {
             };
             if split {
                 if let Some(start) = line_addr {
-                    writeln!(self.out, "{start:04X}    {}", format_bytes(&line_bytes))?;
+                    writeln!(
+                        self.out,
+                        "{}    {}",
+                        format_addr(start),
+                        format_bytes(&line_bytes)
+                    )?;
                 }
                 line_bytes.clear();
                 line_addr = Some(addr);
@@ -173,10 +181,25 @@ impl<W: Write> ListingWriter<W> {
         }
 
         if let Some(start) = line_addr {
-            writeln!(self.out, "{start:04X}    {}", format_bytes(&line_bytes))?;
+            writeln!(
+                self.out,
+                "{}    {}",
+                format_addr(start),
+                format_bytes(&line_bytes)
+            )?;
         }
 
         Ok(())
+    }
+}
+
+fn format_addr(addr: u32) -> String {
+    if addr <= 0xFFFF {
+        format!("{addr:04X}")
+    } else if addr <= 0xFF_FFFF {
+        format!("{addr:06X}")
+    } else {
+        format!("{addr:08X}")
     }
 }
 
@@ -197,4 +220,51 @@ fn format_cond(ctx: &ConditionalContext) -> String {
         "  [{}{}{}{}]",
         matched, ctx.nest_level, ctx.skip_level, skipping
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ListingLine, ListingWriter};
+    use crate::core::assembler::error::LineStatus;
+
+    #[test]
+    fn dir_equ_listing_keeps_wide_value() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::DirEqu,
+                aux: 0x123456,
+                line_num: 1,
+                source: "value = $123456",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("EQU 123456"));
+    }
+
+    #[test]
+    fn dir_ds_listing_keeps_wide_reserve_size() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0x010000,
+                bytes: &[],
+                status: LineStatus::DirDs,
+                aux: 0x123456,
+                line_num: 2,
+                source: ".res byte, $123456",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("010000"));
+        assert!(text.contains("+123456"));
+    }
 }

@@ -85,21 +85,21 @@ pub(crate) enum SectionKind {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SectionState {
-    pub(crate) start_pc: u16,
-    pub(crate) pc: u16,
-    pub(crate) max_pc: u16,
+    pub(crate) start_pc: u32,
+    pub(crate) pc: u32,
+    pub(crate) max_pc: u32,
     pub(crate) bytes: Vec<u8>,
     pub(crate) emitted: bool,
     pub(crate) layout_placed: bool,
-    pub(crate) align: u16,
+    pub(crate) align: u32,
     pub(crate) kind: SectionKind,
     pub(crate) default_region: Option<String>,
     #[allow(dead_code)]
-    pub(crate) base_addr: Option<u16>,
+    pub(crate) base_addr: Option<u32>,
 }
 
 impl SectionState {
-    pub(crate) fn size_bytes(&self) -> u16 {
+    pub(crate) fn size_bytes(&self) -> u32 {
         // `pc`/`max_pc` track section-local offsets, while `start_pc` can be
         // rebased during placement. Size must stay section-local.
         self.max_pc
@@ -112,7 +112,7 @@ impl SectionState {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SectionOptions {
-    pub(crate) align: Option<u16>,
+    pub(crate) align: Option<u32>,
     pub(crate) kind: Option<SectionKind>,
     pub(crate) region: Option<String>,
 }
@@ -122,7 +122,7 @@ pub(crate) enum PlacementDirective {
     Place {
         section: String,
         region: String,
-        align: Option<u16>,
+        align: Option<u32>,
         span: Span,
     },
     Pack {
@@ -144,8 +144,8 @@ impl PlacementDirective {
 #[derive(Debug, Clone)]
 pub(crate) struct PlacedSectionInfo {
     pub(crate) name: String,
-    pub(crate) base: u16,
-    pub(crate) size: u16,
+    pub(crate) base: u32,
+    pub(crate) size: u32,
 }
 
 #[allow(dead_code)]
@@ -155,7 +155,7 @@ pub(crate) struct RegionState {
     pub(crate) start: u32,
     pub(crate) end: u32, // inclusive
     pub(crate) cursor: u32,
-    pub(crate) align: u16,
+    pub(crate) align: u32,
     pub(crate) placed: Vec<PlacedSectionInfo>,
 }
 
@@ -213,10 +213,10 @@ pub(crate) struct LinkerOutputDirective {
     pub(crate) format: LinkerOutputFormat,
     pub(crate) sections: Vec<String>,
     pub(crate) contiguous: bool,
-    pub(crate) image_start: Option<u16>,
-    pub(crate) image_end: Option<u16>,
+    pub(crate) image_start: Option<u32>,
+    pub(crate) image_end: Option<u32>,
     pub(crate) fill: Option<u8>,
-    pub(crate) loadaddr: Option<u16>,
+    pub(crate) loadaddr: Option<u32>,
 }
 
 impl RootMetadata {

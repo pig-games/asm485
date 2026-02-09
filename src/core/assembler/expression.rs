@@ -282,6 +282,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         | Expr::Identifier(_, span)
         | Expr::Register(_, span)
         | Expr::Indirect(_, span)
+        | Expr::IndirectLong(_, span)
         | Expr::Immediate(_, span)
         | Expr::Tuple(_, span)
         | Expr::Dollar(span)
@@ -297,6 +298,7 @@ pub fn expr_text(expr: &Expr) -> Option<String> {
         Expr::Number(text, _) => Some(text.clone()),
         Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.clone()),
         Expr::Indirect(inner, _) => expr_text(inner).map(|s| format!("({})", s)),
+        Expr::IndirectLong(inner, _) => expr_text(inner).map(|s| format!("[{}]", s)),
         Expr::Immediate(inner, _) => expr_text(inner).map(|s| format!("#{}", s)),
         Expr::Tuple(elements, _) => {
             let parts: Vec<_> = elements.iter().filter_map(expr_text).collect();

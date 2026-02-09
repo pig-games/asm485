@@ -44,12 +44,32 @@ pub enum AddressMode {
     IndirectIndexedY,
     /// Relative branch offset (8-bit signed)
     Relative,
+    /// Relative long branch offset (16-bit signed, 65816)
+    RelativeLong,
 
     // 65C02 extensions
     /// ($nn) - Zero page indirect (65C02 only)
     ZeroPageIndirect,
     /// ($nnnn,X) - Absolute indexed indirect (65C02 only, JMP)
     AbsoluteIndexedIndirect,
+
+    // 65816 extensions
+    /// d,S - Stack-relative (8-bit offset)
+    StackRelative,
+    /// (d,S),Y - Stack-relative indirect indexed by Y
+    StackRelativeIndirectIndexedY,
+    /// $llhhhh - 24-bit absolute long
+    AbsoluteLong,
+    /// $llhhhh,X - 24-bit absolute long indexed by X
+    AbsoluteLongX,
+    /// [$nn] - absolute indirect long (JML)
+    IndirectLong,
+    /// [$nn],Y - direct-page indirect long indexed by Y
+    DirectPageIndirectLongY,
+    /// [$nn] - direct-page indirect long
+    DirectPageIndirectLong,
+    /// src,dst block move operands for MVN/MVP
+    BlockMove,
 }
 
 impl AddressMode {
@@ -72,12 +92,20 @@ impl AddressMode {
             | AddressMode::IndexedIndirectX
             | AddressMode::IndirectIndexedY
             | AddressMode::Relative
-            | AddressMode::ZeroPageIndirect => 1,
+            | AddressMode::ZeroPageIndirect
+            | AddressMode::StackRelative
+            | AddressMode::StackRelativeIndirectIndexedY
+            | AddressMode::DirectPageIndirectLongY
+            | AddressMode::DirectPageIndirectLong => 1,
             AddressMode::Absolute
             | AddressMode::AbsoluteX
             | AddressMode::AbsoluteY
             | AddressMode::Indirect
-            | AddressMode::AbsoluteIndexedIndirect => 2,
+            | AddressMode::AbsoluteIndexedIndirect
+            | AddressMode::RelativeLong
+            | AddressMode::IndirectLong
+            | AddressMode::BlockMove => 2,
+            AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => 3,
         }
     }
 }
@@ -119,6 +147,21 @@ pub enum FamilyOperand {
     /// Indirect with X index: (expr,X) where expr might be 16-bit
     /// On 65C02, JMP ($nnnn,X) is valid
     IndirectX(Expr),
+
+    /// Bracketed long-indirect: [expr]
+    IndirectLong(Expr),
+
+    /// Bracketed long-indirect indexed by Y: [expr],Y
+    IndirectLongY(Expr),
+
+    /// Stack-relative: expr,S
+    StackRelative(Expr),
+
+    /// Stack-relative indirect indexed: (expr,S),Y
+    StackRelativeIndirectIndexedY(Expr),
+
+    /// Block-move source/destination bank operands: src,dst
+    BlockMove { src: Expr, dst: Expr, span: Span },
 }
 
 impl FamilyOperand {
@@ -134,6 +177,11 @@ impl FamilyOperand {
             FamilyOperand::IndirectIndexedY(expr) => expr_span(expr),
             FamilyOperand::Indirect(expr) => expr_span(expr),
             FamilyOperand::IndirectX(expr) => expr_span(expr),
+            FamilyOperand::IndirectLong(expr) => expr_span(expr),
+            FamilyOperand::IndirectLongY(expr) => expr_span(expr),
+            FamilyOperand::StackRelative(expr) => expr_span(expr),
+            FamilyOperand::StackRelativeIndirectIndexedY(expr) => expr_span(expr),
+            FamilyOperand::BlockMove { span, .. } => *span,
         }
     }
 }
@@ -149,6 +197,8 @@ pub enum Operand {
 
     /// Immediate 8-bit value
     Immediate(u8, Span),
+    /// Immediate 16-bit value (65816 width-sensitive immediate)
+    ImmediateWord(u16, Span),
 
     /// Zero page address
     ZeroPage(u8, Span),
@@ -179,6 +229,8 @@ pub enum Operand {
 
     /// Relative branch (signed offset)
     Relative(i8, Span),
+    /// Relative long branch (signed 16-bit offset)
+    RelativeLong(i16, Span),
 
     // 65C02 extensions
     /// Zero page indirect ($nn) - 65C02
@@ -186,6 +238,24 @@ pub enum Operand {
 
     /// Absolute indexed indirect ($nnnn,X) - 65C02
     AbsoluteIndexedIndirect(u16, Span),
+
+    // 65816 extensions
+    /// Stack-relative d,S
+    StackRelative(u8, Span),
+    /// Stack-relative indirect indexed (d,S),Y
+    StackRelativeIndirectIndexedY(u8, Span),
+    /// 24-bit absolute long
+    AbsoluteLong(u32, Span),
+    /// 24-bit absolute long indexed by X
+    AbsoluteLongX(u32, Span),
+    /// Bracketed absolute indirect long [$nnnn]
+    IndirectLong(u16, Span),
+    /// Direct page indirect long [$nn]
+    DirectPageIndirectLong(u8, Span),
+    /// Direct page indirect long indexed [$nn],Y
+    DirectPageIndirectLongY(u8, Span),
+    /// Block move operands for MVN/MVP
+    BlockMove { src: u8, dst: u8, span: Span },
 }
 
 impl Operand {
@@ -195,6 +265,7 @@ impl Operand {
             Operand::Implied => AddressMode::Implied,
             Operand::Accumulator(_) => AddressMode::Accumulator,
             Operand::Immediate(_, _) => AddressMode::Immediate,
+            Operand::ImmediateWord(_, _) => AddressMode::Immediate,
             Operand::ZeroPage(_, _) => AddressMode::ZeroPage,
             Operand::ZeroPageX(_, _) => AddressMode::ZeroPageX,
             Operand::ZeroPageY(_, _) => AddressMode::ZeroPageY,
@@ -205,8 +276,19 @@ impl Operand {
             Operand::IndexedIndirectX(_, _) => AddressMode::IndexedIndirectX,
             Operand::IndirectIndexedY(_, _) => AddressMode::IndirectIndexedY,
             Operand::Relative(_, _) => AddressMode::Relative,
+            Operand::RelativeLong(_, _) => AddressMode::RelativeLong,
             Operand::ZeroPageIndirect(_, _) => AddressMode::ZeroPageIndirect,
             Operand::AbsoluteIndexedIndirect(_, _) => AddressMode::AbsoluteIndexedIndirect,
+            Operand::StackRelative(_, _) => AddressMode::StackRelative,
+            Operand::StackRelativeIndirectIndexedY(_, _) => {
+                AddressMode::StackRelativeIndirectIndexedY
+            }
+            Operand::AbsoluteLong(_, _) => AddressMode::AbsoluteLong,
+            Operand::AbsoluteLongX(_, _) => AddressMode::AbsoluteLongX,
+            Operand::IndirectLong(_, _) => AddressMode::IndirectLong,
+            Operand::DirectPageIndirectLong(_, _) => AddressMode::DirectPageIndirectLong,
+            Operand::DirectPageIndirectLongY(_, _) => AddressMode::DirectPageIndirectLongY,
+            Operand::BlockMove { .. } => AddressMode::BlockMove,
         }
     }
 
@@ -216,6 +298,7 @@ impl Operand {
             Operand::Implied => Span::default(),
             Operand::Accumulator(span) => *span,
             Operand::Immediate(_, span) => *span,
+            Operand::ImmediateWord(_, span) => *span,
             Operand::ZeroPage(_, span) => *span,
             Operand::ZeroPageX(_, span) => *span,
             Operand::ZeroPageY(_, span) => *span,
@@ -226,8 +309,17 @@ impl Operand {
             Operand::IndexedIndirectX(_, span) => *span,
             Operand::IndirectIndexedY(_, span) => *span,
             Operand::Relative(_, span) => *span,
+            Operand::RelativeLong(_, span) => *span,
             Operand::ZeroPageIndirect(_, span) => *span,
             Operand::AbsoluteIndexedIndirect(_, span) => *span,
+            Operand::StackRelative(_, span) => *span,
+            Operand::StackRelativeIndirectIndexedY(_, span) => *span,
+            Operand::AbsoluteLong(_, span) => *span,
+            Operand::AbsoluteLongX(_, span) => *span,
+            Operand::IndirectLong(_, span) => *span,
+            Operand::DirectPageIndirectLong(_, span) => *span,
+            Operand::DirectPageIndirectLongY(_, span) => *span,
+            Operand::BlockMove { span, .. } => *span,
         }
     }
 
@@ -235,14 +327,20 @@ impl Operand {
     pub fn value_bytes(&self) -> Vec<u8> {
         match self {
             Operand::Implied | Operand::Accumulator(_) => vec![],
-            Operand::Immediate(v, _)
-            | Operand::ZeroPage(v, _)
+            Operand::Immediate(v, _) => vec![*v],
+            Operand::ImmediateWord(v, _) => vec![(*v & 0xFF) as u8, (*v >> 8) as u8],
+            Operand::ZeroPage(v, _)
             | Operand::ZeroPageX(v, _)
             | Operand::ZeroPageY(v, _)
             | Operand::IndexedIndirectX(v, _)
             | Operand::IndirectIndexedY(v, _)
-            | Operand::ZeroPageIndirect(v, _) => vec![*v],
+            | Operand::ZeroPageIndirect(v, _)
+            | Operand::StackRelative(v, _)
+            | Operand::StackRelativeIndirectIndexedY(v, _)
+            | Operand::DirectPageIndirectLong(v, _)
+            | Operand::DirectPageIndirectLongY(v, _) => vec![*v],
             Operand::Relative(v, _) => vec![*v as u8],
+            Operand::RelativeLong(v, _) => vec![(*v & 0xFF) as u8, ((*v >> 8) & 0xFF) as u8],
             Operand::Absolute(v, _)
             | Operand::AbsoluteX(v, _)
             | Operand::AbsoluteY(v, _)
@@ -250,6 +348,15 @@ impl Operand {
             | Operand::AbsoluteIndexedIndirect(v, _) => {
                 vec![(*v & 0xFF) as u8, (*v >> 8) as u8]
             }
+            Operand::AbsoluteLong(v, _) | Operand::AbsoluteLongX(v, _) => {
+                vec![
+                    (*v & 0xFF) as u8,
+                    ((*v >> 8) & 0xFF) as u8,
+                    ((*v >> 16) & 0xFF) as u8,
+                ]
+            }
+            Operand::IndirectLong(v, _) => vec![(*v & 0xFF) as u8, (*v >> 8) as u8],
+            Operand::BlockMove { src, dst, .. } => vec![*src, *dst],
         }
     }
 }

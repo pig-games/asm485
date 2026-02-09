@@ -128,6 +128,7 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
         )),
 
         Expr::Indirect(inner, _) => eval_expr(inner, ctx),
+        Expr::IndirectLong(inner, _) => eval_expr(inner, ctx),
 
         Expr::Tuple(_, span) => Err(EvalError::with_span(
             "Tuple cannot be evaluated as expression",

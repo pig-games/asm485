@@ -3,12 +3,12 @@
 This document describes the opForge assembler language, directives, and tooling.
 It follows a chapter layout similar to 64tass. Sections marked **Planned** describe 
 features that are not implemented yet.
-This manual is validated against opForge CLI `0.9` (crate `0.9.0`). Release notes use
+This manual is validated against opForge CLI `0.9.1` (crate `0.9.1`). Release notes use
 feature-series labels (for example `v3.1` for the linker-region milestone).
 
 ## 1. Introduction
 
-opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, and WDC 65C02 code. It supports:
+opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, WDC 65C02, and WDC 65816 code. It supports:
 - Dot-prefixed directives and conditionals.
 - A 64tass-inspired expression syntax (operators, precedence, ternary).
 - Preprocessor directives for includes and conditional compilation.
@@ -16,7 +16,7 @@ opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, a
 - Optional listing, Intel HEX, and binary outputs.
 
 The `.cpu` directive currently accepts `8080` (alias for `8085`), `8085`, `z80`,
-`6502`, `m6502`, and `65c02`.
+`6502`, `m6502`, `65c02`, `65816`, `65c816`, and `w65c816`.
 
 There is no `.dialect` directive; dialect selection follows the CPU default.
 
@@ -145,8 +145,8 @@ Linker output directives:
 
 Output mode rules:
 - Default output mode is contiguous (`contiguous=true`): selected sections must be adjacent.
-- Image output mode (`image=...` + `fill=...`) allows sparse placement within the configured span.
-- PRG output prefixes a 2-byte little-endian load address (`loadaddr=` optional).
+- Image output mode (`image=...` + `fill=...`) allows sparse placement within the configured span (wide addresses supported).
+- PRG output prefixes a 2-byte little-endian load address (`loadaddr=` optional, must fit in 16 bits).
 
 ### 4.3 Data directives
 
@@ -334,9 +334,21 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 .cpu 6502
 .cpu m6502
 .cpu 65c02
+.cpu 65816
+.cpu 65c816
+.cpu w65c816
 ```
 
-Planned (not currently supported): `65816`, `45gs02`, `68000` and related CPUs.
+Planned (not currently supported): `45gs02`, `68000` and related CPUs.
+
+65816 support includes the phase-1 instruction set and phase-2 24-bit addressing work:
+- Implements selected 65816 mnemonics and operand forms.
+- Includes long memory forms for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`).
+- Includes stack-relative forms (`d,S` and `(d,S),Y`) for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`.
+- Includes wide-address output/layout workflows (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
+- Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
+- Uses checked address arithmetic and explicit diagnostics for overflow/underflow paths in placement, linking, and image emission.
+- Does not yet implement full banked CPU-state semantics.
 
 ### 4.8 End of assembly
 
@@ -496,12 +508,12 @@ Inputs (required):
 Outputs:
 - `-l, --list [FILE]`: listing output (optional filename).
 - `-x, --hex [FILE]`: Intel HEX output (optional filename).
-- `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s), repeatable.
+- `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s), repeatable (`ssss`/`eeee` are 4-8 hex digits).
 
 Other options:
 - `-o, --outfile <BASE>`: output base name if output filename omitted.
 - `-f, --fill <hh>`: fill byte for binary output (hex). Requires binary output. Defaults to `FF`.
-- `-g, --go <aaaa>`: execution start address in HEX output. Requires HEX output.
+- `-g, --go <aaaa>`: execution start address in HEX output (4-8 hex digits). Requires HEX output.
 - `-D, --define <NAME[=VAL]>`: predefine macro (repeatable).
 - `-c, --cond-debug`: include conditional state in listing.
 - `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default `64`, minimum `1`).
@@ -516,6 +528,7 @@ Notes:
 - If no outputs are specified for a single input, opForge defaults to list+hex
     when `.meta.output.name` (or `-o`) is available.
 - `-b` without a range emits a binary that spans the emitted output.
+- `-g` writes a Start Segment Address record for 16-bit values and a Start Linear Address record for wider values.
 
 ## 8. Messages
 
@@ -560,6 +573,12 @@ Instruction mnemonics are selected by `.cpu`:
 - Standard MOS 6502/65C02 mnemonics (`LDA`, `JMP`, `BRA`, ...), including 65C02
   additions such as `STP`, `WAI`, `DEC A`/`INC A` (`DEA`/`INA` aliases), and
   extended `BIT` modes.
+- 65816 additions currently implemented include:
+  - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+  - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
+  - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
+  - block move: `MVN`, `MVP`
+  - stack-relative addressing forms used by implemented opcodes (`d,S`, `(d,S),Y`)
 
 ## 13. Appendix: quick reference
 
@@ -587,7 +606,7 @@ Instruction mnemonics are selected by `.cpu`:
 ## 14. Appendix: multi-CPU architecture
 
 This appendix describes the modular architecture that allows opForge to support
-multiple CPU targets (8085, Z80, 6502, 65C02) through a common framework.
+multiple CPU targets (8085, Z80, 6502, 65C02, 65816) through a common framework.
 
 ### Overview
 
@@ -641,10 +660,10 @@ The assembler is organized into layers with hierarchical parsing and encoding:
        │                               │
     ┌─────┴─────┐                   ┌─────┴─────┐
     ▼           ▼                   ▼           ▼
-┌───────┐  ┌───────┐           ┌───────┐  ┌───────┐
-│ 8085  │  │  Z80  │           │ 6502  │  │ 65C02 │
-│ CPU   │  │ CPU   │           │ CPU   │  │ CPU   │
-└───────┘  └───────┘           └───────┘  └───────┘
+┌───────┐  ┌───────┐           ┌───────┐  ┌───────┐  ┌───────┐
+│ 8085  │  │  Z80  │           │ 6502  │  │ 65C02 │  │ 65816 │
+│ CPU   │  │ CPU   │           │ CPU   │  │ CPU   │  │ CPU   │
+└───────┘  └───────┘           └───────┘  └───────┘  └───────┘
 ```
 
 ### Layer responsibilities
@@ -714,6 +733,20 @@ Instruction extensions:
 | `BBSn`, `BBRn` | ✗ | ✓ Branch on Bit Set/Reset |
 | `RMBn`, `SMBn` | ✗ | ✓ Reset/Set Memory Bit |
 
+**MOS 6502 Family (65816 additions)**
+
+Currently implemented 65816-specific additions in this branch:
+- `BRL`, `JML`, `JSL`, `RTL`
+- `REP`, `SEP`, `XCE`, `XBA`
+- `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
+- `PEA`, `PEI`, `PER`, `COP`, `WDM`
+- `MVN`, `MVP`
+- operand forms: `d,S`, `(d,S),Y`, bracketed indirect (`[...]`, `[...,Y]`) for supported instructions
+
+Current 65816 limits:
+- PRG load-address prefix remains 16-bit
+- full banked CPU-state semantics are still in progress
+
 **Intel 8080 Family**
 
 Operand syntax extensions:
@@ -748,7 +781,7 @@ and `IYL`.
 
 ### Core abstractions
 
-- **CpuType**: concrete processor (I8085, Z80, M6502, M65C02)
+- **CpuType**: concrete processor (I8085, Z80, M6502, M65C02, M65816)
 - **CpuFamily**: processor family (Intel8080, MOS6502)
 
 ### Handler traits (summary)

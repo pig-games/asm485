@@ -1,0 +1,27 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 wide .const/.var listing coverage
+----                                2  ; Ensures directive-form constants/variables keep values above 16-bit in listing output.
+----                                3  
+----                                4  .module main
+----                                5  .cpu 65816
+----                                6  
+----    EQU 123456                  7  const_wide .const $123456
+----    EQU 010000                  8  var_wide   .var   $010000
+----    EQU 012345                  9  var_wide   .var   var_wide + $2345
+----                               10  
+----                               11  .endmodule
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+main.const_wide : 123456 (1193046)
+main.var_wide   : 12345 (74565)
+
+Total memory is 0 bytes
+
+GENERATED OUTPUT
+
+(none)
