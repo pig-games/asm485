@@ -5,10 +5,12 @@
 
 use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
 use crate::families::mos6502::{
-    has_mnemonic as has_family_mnemonic, AddressMode, FamilyOperand, Operand,
+    has_mnemonic as has_family_mnemonic, lookup_instruction as lookup_family_instruction,
+    AddressMode, FamilyOperand, Operand,
 };
 use crate::m65816::instructions::{has_mnemonic, lookup_instruction};
 use crate::m65816::state;
+use crate::m65c02::instructions::lookup_instruction as lookup_m65c02_instruction;
 
 /// CPU handler for WDC 65816.
 #[derive(Debug)]
@@ -151,6 +153,12 @@ impl M65816CpuHandler {
         Ok(Operand::Immediate(val as u8, span))
     }
 
+    fn has_mode(mnemonic: &str, mode: AddressMode) -> bool {
+        lookup_instruction(mnemonic, mode).is_some()
+            || lookup_m65c02_instruction(mnemonic, mode).is_some()
+            || lookup_family_instruction(mnemonic, mode).is_some()
+    }
+
     fn expr_has_unresolved_symbols(
         expr: &crate::core::parser::Expr,
         ctx: &dyn AssemblerContext,
@@ -182,6 +190,87 @@ impl M65816CpuHandler {
             }
             Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
         }
+    }
+
+    fn expr_has_unstable_symbols(
+        expr: &crate::core::parser::Expr,
+        ctx: &dyn AssemblerContext,
+    ) -> bool {
+        use crate::core::parser::Expr;
+
+        match expr {
+            Expr::Identifier(name, _) | Expr::Register(name, _) => {
+                if !ctx.has_symbol(name) {
+                    return true;
+                }
+                ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
+            }
+            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
+                Self::expr_has_unstable_symbols(inner, ctx)
+            }
+            Expr::Tuple(items, _) => items
+                .iter()
+                .any(|item| Self::expr_has_unstable_symbols(item, ctx)),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                Self::expr_has_unstable_symbols(cond, ctx)
+                    || Self::expr_has_unstable_symbols(then_expr, ctx)
+                    || Self::expr_has_unstable_symbols(else_expr, ctx)
+            }
+            Expr::Unary { expr, .. } => Self::expr_has_unstable_symbols(expr, ctx),
+            Expr::Binary { left, right, .. } => {
+                Self::expr_has_unstable_symbols(left, ctx)
+                    || Self::expr_has_unstable_symbols(right, ctx)
+            }
+            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+        }
+    }
+
+    fn assumed_absolute_bank(mnemonic: &str, ctx: &dyn AssemblerContext) -> u8 {
+        if matches!(mnemonic, "JMP" | "JSR") {
+            state::program_bank(ctx)
+        } else {
+            state::data_bank(ctx)
+        }
+    }
+
+    fn assumed_absolute_bank_key(mnemonic: &str) -> &'static str {
+        if matches!(mnemonic, "JMP" | "JSR") {
+            "pbr"
+        } else {
+            "dbr"
+        }
+    }
+
+    fn direct_page_offset_for_absolute_address(
+        address: u16,
+        ctx: &dyn AssemblerContext,
+    ) -> Option<u8> {
+        if address <= 0x00FF {
+            return None;
+        }
+        let dp = state::direct_page(ctx);
+        let offset = address.wrapping_sub(dp);
+        if offset <= 0x00FF {
+            Some(offset as u8)
+        } else {
+            None
+        }
+    }
+
+    fn bank_mismatch_error(
+        address: u32,
+        actual_bank: u8,
+        assumed_bank: u8,
+        assumed_bank_key: &str,
+    ) -> String {
+        format!(
+            "Address ${address:06X} is in bank ${actual_bank:02X}, but .assume {assumed_bank_key}=${assumed_bank:02X}"
+        )
     }
 }
 
@@ -226,14 +315,45 @@ impl CpuHandler for M65816CpuHandler {
                     }
 
                     let val = ctx.eval_expr(expr)?;
-                    if (0..=0xFF_FFFF).contains(&val)
-                        && val > 65535
-                        && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLong).is_some()
+                    let span = crate::core::assembler::expression::expr_span(expr);
+
+                    if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
+                        let absolute_bank = ((val as u32) >> 16) as u8;
+                        let absolute_value = (val as u32 & 0xFFFF) as u16;
+                        let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
+                        let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
+                        if absolute_bank == assumed_bank
+                            && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
+                        {
+                            return Ok(vec![Operand::Absolute(absolute_value, span)]);
+                        }
+                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
+                            return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
+                        }
+                        if Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                absolute_bank,
+                                assumed_bank,
+                                assumed_key,
+                            ));
+                        }
+                    }
+
+                    if (0..=0xFFFF).contains(&val)
+                        && Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage)
                     {
-                        return Ok(vec![Operand::AbsoluteLong(
-                            val as u32,
-                            crate::core::assembler::expression::expr_span(expr),
-                        )]);
+                        let absolute_value = val as u16;
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
+                        {
+                            if Self::expr_has_unstable_symbols(expr, ctx)
+                                && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
+                            {
+                                return Ok(vec![Operand::Absolute(absolute_value, span)]);
+                            }
+                            return Ok(vec![Operand::ZeroPage(dp_offset, span)]);
+                        }
                     }
                 }
                 FamilyOperand::DirectX(expr) => {
@@ -250,15 +370,189 @@ impl CpuHandler for M65816CpuHandler {
                     }
 
                     let val = ctx.eval_expr(expr)?;
-                    if (0..=0xFF_FFFF).contains(&val)
-                        && val > 65535
-                        && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLongX).is_some()
-                    {
-                        return Ok(vec![Operand::AbsoluteLongX(
-                            val as u32,
-                            crate::core::assembler::expression::expr_span(expr),
-                        )]);
+                    let span = crate::core::assembler::expression::expr_span(expr);
+
+                    if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
+                        let absolute_bank = ((val as u32) >> 16) as u8;
+                        let absolute_value = (val as u32 & 0xFFFF) as u16;
+                        let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
+                        let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
+                        if absolute_bank == assumed_bank
+                            && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
+                        {
+                            return Ok(vec![Operand::AbsoluteX(absolute_value, span)]);
+                        }
+                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
+                            return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
+                        }
+                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX) {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                absolute_bank,
+                                assumed_bank,
+                                assumed_key,
+                            ));
+                        }
                     }
+
+                    if (0..=0xFFFF).contains(&val)
+                        && Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX)
+                    {
+                        let absolute_value = val as u16;
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
+                        {
+                            if Self::expr_has_unstable_symbols(expr, ctx)
+                                && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
+                            {
+                                return Ok(vec![Operand::AbsoluteX(absolute_value, span)]);
+                            }
+                            return Ok(vec![Operand::ZeroPageX(dp_offset, span)]);
+                        }
+                    }
+                }
+                FamilyOperand::DirectY(expr) => {
+                    let val = ctx.eval_expr(expr)?;
+                    let span = crate::core::assembler::expression::expr_span(expr);
+
+                    if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
+                        let absolute_bank = ((val as u32) >> 16) as u8;
+                        let absolute_value = (val as u32 & 0xFFFF) as u16;
+                        let assumed_bank = state::data_bank(ctx);
+                        if absolute_bank == assumed_bank
+                            && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
+                        {
+                            return Ok(vec![Operand::AbsoluteY(absolute_value, span)]);
+                        }
+                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY) {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                absolute_bank,
+                                assumed_bank,
+                                "dbr",
+                            ));
+                        }
+                    }
+
+                    if (0..=0xFFFF).contains(&val)
+                        && Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageY)
+                    {
+                        let absolute_value = val as u16;
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
+                        {
+                            if Self::expr_has_unstable_symbols(expr, ctx)
+                                && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
+                            {
+                                return Ok(vec![Operand::AbsoluteY(absolute_value, span)]);
+                            }
+                            return Ok(vec![Operand::ZeroPageY(dp_offset, span)]);
+                        }
+                    }
+                }
+                FamilyOperand::IndexedIndirectX(expr) => {
+                    let val = ctx.eval_expr(expr)?;
+                    let span = crate::core::assembler::expression::expr_span(expr);
+
+                    if upper_mnemonic == "JMP" {
+                        if (0..=0xFFFF).contains(&val) {
+                            return Ok(vec![Operand::AbsoluteIndexedIndirect(val as u16, span)]);
+                        }
+                        if (0..=0xFF_FFFF).contains(&val) {
+                            let absolute_bank = ((val as u32) >> 16) as u8;
+                            let assumed_bank = state::program_bank(ctx);
+                            if absolute_bank == assumed_bank {
+                                return Ok(vec![Operand::AbsoluteIndexedIndirect(
+                                    (val as u32 & 0xFFFF) as u16,
+                                    span,
+                                )]);
+                            }
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                absolute_bank,
+                                assumed_bank,
+                                "pbr",
+                            ));
+                        }
+                        return Err(format!(
+                            "Absolute indexed indirect address {} out of 24-bit range",
+                            val
+                        ));
+                    }
+
+                    if (0..=255).contains(&val) {
+                        return Ok(vec![Operand::IndexedIndirectX(val as u8, span)]);
+                    }
+                    if (0..=0xFFFF).contains(&val) {
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
+                        {
+                            return Ok(vec![Operand::IndexedIndirectX(dp_offset, span)]);
+                        }
+                    }
+                    return Err(format!(
+                        "Indexed indirect address {} out of direct-page range (0-255)",
+                        val
+                    ));
+                }
+                FamilyOperand::IndirectIndexedY(expr) => {
+                    let val = ctx.eval_expr(expr)?;
+                    let span = crate::core::assembler::expression::expr_span(expr);
+                    if (0..=255).contains(&val) {
+                        return Ok(vec![Operand::IndirectIndexedY(val as u8, span)]);
+                    }
+                    if (0..=0xFFFF).contains(&val) {
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
+                        {
+                            return Ok(vec![Operand::IndirectIndexedY(dp_offset, span)]);
+                        }
+                    }
+                    return Err(format!(
+                        "Indirect indexed address {} out of direct-page range (0-255)",
+                        val
+                    ));
+                }
+                FamilyOperand::Indirect(expr) => {
+                    let val = ctx.eval_expr(expr)?;
+                    let span = crate::core::assembler::expression::expr_span(expr);
+                    if upper_mnemonic == "JMP" {
+                        if (0..=0xFFFF).contains(&val) {
+                            return Ok(vec![Operand::Indirect(val as u16, span)]);
+                        }
+                        if (0..=0xFF_FFFF).contains(&val) {
+                            let absolute_bank = ((val as u32) >> 16) as u8;
+                            let assumed_bank = state::program_bank(ctx);
+                            if absolute_bank == assumed_bank {
+                                return Ok(vec![Operand::Indirect(
+                                    (val as u32 & 0xFFFF) as u16,
+                                    span,
+                                )]);
+                            }
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                absolute_bank,
+                                assumed_bank,
+                                "pbr",
+                            ));
+                        }
+                        return Err(format!("Indirect address {} out of 24-bit range", val));
+                    }
+
+                    if (0..=255).contains(&val) {
+                        return Ok(vec![Operand::ZeroPageIndirect(val as u8, span)]);
+                    }
+                    if (0..=0xFFFF).contains(&val) {
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
+                        {
+                            return Ok(vec![Operand::ZeroPageIndirect(dp_offset, span)]);
+                        }
+                    }
+                    return Err(format!(
+                        "Direct-page indirect address {} out of range (0-255)",
+                        val
+                    ));
                 }
                 FamilyOperand::StackRelative(expr) => {
                     let val = ctx.eval_expr(expr)?;
@@ -298,6 +592,13 @@ impl CpuHandler for M65816CpuHandler {
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::DirectPageIndirectLong(val as u8, span)]);
                     }
+                    if (0..=0xFFFF).contains(&val) {
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
+                        {
+                            return Ok(vec![Operand::DirectPageIndirectLong(dp_offset, span)]);
+                        }
+                    }
                     return Err(format!(
                         "Bracketed direct-page indirect operand {} out of range (0-255)",
                         val
@@ -305,16 +606,21 @@ impl CpuHandler for M65816CpuHandler {
                 }
                 FamilyOperand::IndirectLongY(expr) => {
                     let val = ctx.eval_expr(expr)?;
-                    if !(0..=255).contains(&val) {
-                        return Err(format!(
-                            "Bracketed direct-page indirect indexed operand {} out of range (0-255)",
-                            val
-                        ));
+                    let span = crate::core::assembler::expression::expr_span(expr);
+                    if (0..=255).contains(&val) {
+                        return Ok(vec![Operand::DirectPageIndirectLongY(val as u8, span)]);
                     }
-                    return Ok(vec![Operand::DirectPageIndirectLongY(
-                        val as u8,
-                        crate::core::assembler::expression::expr_span(expr),
-                    )]);
+                    if (0..=0xFFFF).contains(&val) {
+                        if let Some(dp_offset) =
+                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
+                        {
+                            return Ok(vec![Operand::DirectPageIndirectLongY(dp_offset, span)]);
+                        }
+                    }
+                    return Err(format!(
+                        "Bracketed direct-page indirect indexed operand {} out of range (0-255)",
+                        val
+                    ));
                 }
                 FamilyOperand::BlockMove { src, dst, span } => {
                     let src_val = ctx.eval_expr(src)?;

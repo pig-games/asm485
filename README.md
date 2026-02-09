@@ -33,7 +33,8 @@ core addressing and output/layout workflows.
   - long absolute operands for implemented long-control instructions
 - Width-sensitive immediate sizing is implemented for supported 65816 immediate
   mnemonics via `REP`/`SEP` M/X state tracking.
-- Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`.
+- Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`,
+  including bank-aware absolute-vs-long and direct-page operand resolution.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),

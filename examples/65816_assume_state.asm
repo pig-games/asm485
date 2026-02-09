@@ -9,6 +9,9 @@ start:
 
         lda #$1234          ; A9 34 12 (A is 16-bit)
         ldx #$5678          ; A2 78 56 (X is 16-bit)
+        lda $123456         ; AD 56 34 (DBR bank match uses absolute form)
+        lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
+        jmp $343210         ; 4C 10 32 (PBR bank match uses absolute JMP operand)
 
         sep #$20            ; A back to 8-bit
         lda #$9A            ; A9 9A

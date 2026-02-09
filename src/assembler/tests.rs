@@ -2344,6 +2344,101 @@ fn m65816_assume_rejects_invalid_values() {
 }
 
 #[test]
+fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x0000, 0xAD), (0x0001, 0x56), (0x0002, 0x34)]
+    );
+
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xAF),
+            (0x0001, 0x56),
+            (0x0002, 0x34),
+            (0x0003, 0x12)
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_dp_maps_16bit_operands_to_direct_page_modes() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA $20F0",
+        "    LDA $20E0,X",
+        "    ORA [$20D0]",
+        "    ORA [$20C0],Y",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA5),
+            (0x0001, 0xF0),
+            (0x0002, 0xB5),
+            (0x0003, 0xE0),
+            (0x0004, 0x07),
+            (0x0005, 0xD0),
+            (0x0006, 0x17),
+            (0x0007, 0xC0),
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_pbr_controls_24bit_jmp_operands() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12",
+        "    JMP $123456",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x0000, 0x4C), (0x0001, 0x56), (0x0002, 0x34)]
+    );
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP $123456", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
 fn m65816_stack_relative_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA $10,S"),

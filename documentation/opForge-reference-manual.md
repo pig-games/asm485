@@ -740,6 +740,8 @@ Currently implemented 65816-specific additions in this branch:
 - `MVN`, `MVP`
 - operand forms: `d,S`, `(d,S),Y`, bracketed indirect (`[...]`, `[...,Y]`) for supported instructions
 - runtime-state assumption directive: `.assume e=..., m=..., x=..., dbr=..., pbr=..., dp=...`
+- `.assume` bank/direct-page assumptions influence ambiguous mode resolution for supported forms
+  (for example absolute-vs-long and direct-page offset selection)
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit

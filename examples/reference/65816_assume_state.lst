@@ -12,27 +12,31 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                9  
 123400  A9 34 12                   10          lda #$1234          ; A9 34 12 (A is 16-bit)
 123403  A2 78 56                   11          ldx #$5678          ; A2 78 56 (X is 16-bit)
-----                               12  
-123406  E2 20                      13          sep #$20            ; A back to 8-bit
-123408  A9 9A                      14          lda #$9A            ; A9 9A
+123406  AD 56 34                   12          lda $123456         ; AD 56 34 (DBR bank match uses absolute form)
+123409  A5 F0                      13          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
+12340B  4C 10 32                   14          jmp $343210         ; 4C 10 32 (PBR bank match uses absolute JMP operand)
 ----                               15  
-----                               16          .assume e=emulation ; forces A/X to 8-bit
-12340A  A2 BC                      17          ldx #$BC            ; A2 BC
+12340E  E2 20                      16          sep #$20            ; A back to 8-bit
+123410  A9 9A                      17          lda #$9A            ; A9 9A
 ----                               18  
-12340C  60                         19          rts
-----                               20  
-----                               21          .end
+----                               19          .assume e=emulation ; forces A/X to 8-bit
+123412  A2 BC                      20          ldx #$BC            ; A2 BC
+----                               21  
+123414  60                         22          rts
+----                               23  
+----                               24          .end
 
-Lines: 21  Errors: 0  Warnings: 0
+Lines: 24  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 123400 (1192960)
 
-Total memory is 13 bytes
+Total memory is 21 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-123400    A9 34 12 A2 78 56 E2 20 A9 9A A2 BC 60
+123400    A9 34 12 A2 78 56 AD 56 34 A5 F0 4C 10 32 E2 20
+123410    A9 9A A2 BC 60
