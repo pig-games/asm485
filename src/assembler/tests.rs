@@ -2512,6 +2512,60 @@ fn m65816_forward_label_uses_dbr_for_unresolved_long_sizing() {
 }
 
 #[test]
+fn m65816_forward_label_x_index_uses_dbr_for_unresolved_long_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0100",
+        ".assume pbr=$34, dbr=$00",
+        "start:",
+        "    LDA target,X",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0100, 0xBD),
+            (0x0101, 0x04),
+            (0x0102, 0x01),
+            (0x0103, 0xEA),
+            (0x0104, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0104));
+
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0100",
+        ".assume dbr=$12",
+        "start:",
+        "    LDA target,X",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0100, 0xBF),
+            (0x0101, 0x05),
+            (0x0102, 0x01),
+            (0x0103, 0x00),
+            (0x0104, 0xEA),
+            (0x0105, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0105));
+}
+
+#[test]
 fn m65816_assume_dp_maps_16bit_operands_to_direct_page_modes() {
     let assembler = run_passes(&[
         ".module main",
