@@ -1022,17 +1022,34 @@ impl<'a> AsmLine<'a> {
         std::mem::take(&mut self.regions)
     }
 
-    fn finalize_section_symbol_addresses(&mut self) {
+    fn finalize_section_symbol_addresses(&mut self) -> Vec<AsmError> {
         let section_symbols = std::mem::take(&mut self.section_symbol_sections);
+        let mut errors = Vec::new();
+        let cpu_name = self.cpu.as_str().to_string();
         for (symbol_name, section_name) in section_symbols {
             let Some(base_addr) = self.sections.get(&section_name).and_then(|s| s.base_addr) else {
                 continue;
             };
             if let Some(entry) = self.symbols.entry_mut(&symbol_name) {
-                entry.val = entry.val.saturating_add(base_addr);
-                entry.updated = true;
+                match entry.val.checked_add(base_addr) {
+                    Some(value) => {
+                        entry.val = value;
+                        entry.updated = true;
+                    }
+                    None => {
+                        let message = format!(
+                            "Section symbol address overflows address arithmetic for CPU {cpu_name}"
+                        );
+                        errors.push(AsmError::new(
+                            AsmErrorKind::Directive,
+                            &message,
+                            Some(&symbol_name),
+                        ));
+                    }
+                }
             }
         }
+        errors
     }
 
     fn error(&self) -> Option<&AsmError> {

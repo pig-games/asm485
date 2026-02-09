@@ -2346,7 +2346,18 @@ impl<'a> AsmLine<'a> {
         let last_addr = if size == 0 {
             base
         } else {
-            base.saturating_add(size.saturating_sub(1))
+            match base.checked_add(size - 1) {
+                Some(last_addr) => last_addr,
+                None => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Section placement overflows address range",
+                        Some(section_name),
+                        span,
+                    )
+                }
+            }
         };
         if size > 0 {
             if let Err(err) = self.validate_program_address(last_addr, ".place/.pack", span) {
@@ -2368,8 +2379,19 @@ impl<'a> AsmLine<'a> {
                 span,
             );
         }
-        let new_cursor = base.saturating_add(size);
-        if new_cursor > region_end.saturating_add(1) {
+        let new_cursor = match base.checked_add(size) {
+            Some(new_cursor) => new_cursor,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Section placement overflows address range",
+                    Some(section_name),
+                    span,
+                )
+            }
+        };
+        if u64::from(new_cursor) > (u64::from(region_end) + 1) {
             return self.failure_at_span(
                 LineStatus::Error,
                 AsmErrorKind::Directive,

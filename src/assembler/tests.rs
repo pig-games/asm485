@@ -2,11 +2,12 @@ use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
     expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
     Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputDirective,
-    LinkerOutputFormat, ListingWriter, MapSymbolsMode, RootMetadata, SectionState, Severity,
+    LinkerOutputFormat, ListingWriter, MapSymbolsMode, RegionState, RootMetadata, SectionState,
+    Severity,
 };
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
-use crate::core::symbol_table::SymbolTable;
+use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
@@ -1006,6 +1007,48 @@ fn section_symbols_are_finalized_from_layout_before_pass2() {
 }
 
 #[test]
+fn section_symbol_finalize_reports_address_overflow() {
+    let mut symbols = SymbolTable::new();
+    assert_eq!(
+        symbols.add(
+            "main.start",
+            u32::MAX,
+            false,
+            SymbolVisibility::Private,
+            None
+        ),
+        SymbolTableResult::Ok
+    );
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            base_addr: Some(1),
+            ..SectionState::default()
+        },
+    );
+    asm.section_symbol_sections
+        .insert("main.start".to_string(), "code".to_string());
+
+    let errors = asm.finalize_section_symbol_addresses();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind(), AsmErrorKind::Directive);
+    assert!(
+        errors[0]
+            .message()
+            .contains("overflows address arithmetic for CPU"),
+        "unexpected message: {}",
+        errors[0].message()
+    );
+    assert!(errors[0].message().contains("main.start"));
+
+    let entry = asm.symbols.entry("main.start").expect("symbol exists");
+    assert_eq!(entry.val, u32::MAX);
+    assert!(!entry.updated);
+}
+
+#[test]
 fn section_size_uses_max_pc_with_forward_org_and_align() {
     let lines = vec![
         ".module main".to_string(),
@@ -1054,6 +1097,43 @@ fn pass1_errors_when_section_overflows_region() {
             .message()
             .contains("Section placement overflows region")
     }));
+}
+
+#[test]
+fn place_reports_address_range_overflow_in_arithmetic() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.cpu_program_address_max = u32::MAX;
+    asm.regions.insert(
+        "ram".to_string(),
+        RegionState {
+            name: "ram".to_string(),
+            start: u32::MAX - 1,
+            end: u32::MAX,
+            cursor: u32::MAX - 1,
+            align: 1,
+            placed: Vec::new(),
+        },
+    );
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            max_pc: 3,
+            ..SectionState::default()
+        },
+    );
+    let status = process_line(&mut asm, ".place code in ram", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("overflows address range"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
 }
 
 #[test]

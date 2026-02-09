@@ -155,7 +155,10 @@ impl Assembler {
                 }
             }
 
-            asm_line.finalize_section_symbol_addresses();
+            for err in asm_line.finalize_section_symbol_addresses() {
+                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
+                counts.errors += 1;
+            }
 
             for (name, section) in &asm_line.sections {
                 if section.default_region.is_some() && !section.layout_placed {
