@@ -20,6 +20,11 @@ pub const DATA_BANK_EXPLICIT_KEY: &str = "m65816.data_bank_explicit";
 pub const PROGRAM_BANK_KEY: &str = "m65816.program_bank";
 pub const PROGRAM_BANK_EXPLICIT_KEY: &str = "m65816.program_bank_explicit";
 pub const DIRECT_PAGE_KEY: &str = "m65816.direct_page";
+pub const BANK_PUSH_SOURCE_KEY: &str = "m65816.bank_push_source";
+
+const BANK_PUSH_NONE: u32 = 0;
+const BANK_PUSH_PBR: u32 = 1;
+const BANK_PUSH_DBR: u32 = 2;
 
 pub fn initial_state() -> HashMap<String, u32> {
     let mut state = HashMap::new();
@@ -31,6 +36,7 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(PROGRAM_BANK_KEY.to_string(), 0);
     state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
     state.insert(DIRECT_PAGE_KEY.to_string(), 0);
+    state.insert(BANK_PUSH_SOURCE_KEY.to_string(), BANK_PUSH_NONE);
     state
 }
 
@@ -85,7 +91,16 @@ pub fn apply_runtime_directive(
 
 pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut HashMap<String, u32>) {
     let upper = mnemonic.to_ascii_uppercase();
-    if !matches!(upper.as_str(), "REP" | "SEP") {
+    apply_mx_width_state(&upper, operands, state);
+    apply_bank_transfer_state(&upper, state);
+}
+
+fn apply_mx_width_state(
+    upper_mnemonic: &str,
+    operands: &[Operand],
+    state: &mut HashMap<String, u32>,
+) {
+    if !matches!(upper_mnemonic, "REP" | "SEP") {
         return;
     }
 
@@ -101,7 +116,7 @@ pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut Hash
         _ => return,
     };
 
-    if upper == "REP" {
+    if upper_mnemonic == "REP" {
         if mask & 0x20 != 0 {
             state.insert(ACCUMULATOR_8BIT_KEY.to_string(), 0);
         }
@@ -116,6 +131,29 @@ pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut Hash
             state.insert(INDEX_8BIT_KEY.to_string(), 1);
         }
     }
+}
+
+fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u32>) {
+    let previous_push = state
+        .get(BANK_PUSH_SOURCE_KEY)
+        .copied()
+        .unwrap_or(BANK_PUSH_NONE);
+
+    if upper_mnemonic == "PLB"
+        && previous_push == BANK_PUSH_PBR
+        && state.get(PROGRAM_BANK_EXPLICIT_KEY).copied().unwrap_or(0) != 0
+    {
+        let pbr = state.get(PROGRAM_BANK_KEY).copied().unwrap_or(0) & 0xFF;
+        state.insert(DATA_BANK_KEY.to_string(), pbr);
+        state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+    }
+
+    let next_push = match upper_mnemonic {
+        "PHK" => BANK_PUSH_PBR,
+        "PHB" => BANK_PUSH_DBR,
+        _ => BANK_PUSH_NONE,
+    };
+    state.insert(BANK_PUSH_SOURCE_KEY.to_string(), next_push);
 }
 
 fn emulation_mode_from_state(state: &HashMap<String, u32>) -> bool {

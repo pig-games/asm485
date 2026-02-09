@@ -2433,6 +2433,59 @@ fn m65816_assume_bank_auto_resets_explicit_flags() {
 }
 
 #[test]
+fn m65816_phk_plb_infers_dbr_from_explicit_pbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xAB),
+            (0x0002, 0xAD),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_does_not_infer_dbr_when_pbr_is_not_explicit() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume pbr=auto, dbr=$00",
+        "    PHK",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0x4B),
+            (0x123401, 0xAB),
+            (0x123402, 0xAF),
+            (0x123403, 0x56),
+            (0x123404, 0x34),
+            (0x123405, 0x12),
+        ]
+    );
+}
+
+#[test]
 fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
     let assembler = run_passes(&[
         ".module main",

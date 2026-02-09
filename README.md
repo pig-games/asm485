@@ -39,6 +39,8 @@ core addressing and output/layout workflows.
   clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
   assembly address bank when no explicit `.assume pbr=...` is set.
+- A conservative `PHK`/`PLB` sequence inference is supported: when `PBR` is
+  explicit, adjacent `PHK` then `PLB` updates assumed `DBR` to that `PBR`.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),

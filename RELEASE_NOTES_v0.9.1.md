@@ -54,6 +54,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     when `.assume pbr=...` is not explicitly set
   - `.assume dbr=auto` / `.assume pbr=auto` to clear explicit bank overrides
     and return to inferred-bank behavior
+  - conservative `PHK`/`PLB` bank-transfer inference when `PBR` is explicit
+    (`PHK` then `PLB` updates assumed `DBR` to `PBR`)
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`

@@ -5,13 +5,16 @@
         .org $123400
 
 start:
-        .assume e=native, m=16, x=16, dbr=$12, dp=$2000
+        .assume e=native, m=16, x=16, dp=$2000
+        .assume pbr=$12, dbr=$00 ; explicit mismatch
+        phk
+        plb                     ; PHK/PLB infers DBR from explicit PBR
         .assume pbr=$00        ; override
         .assume pbr=auto       ; restore inferred PBR from current .org bank
 
         lda #$1234          ; A9 34 12 (A is 16-bit)
         ldx #$5678          ; A2 78 56 (X is 16-bit)
-        lda $123456         ; AD 56 34 (DBR bank match uses absolute form)
+        lda $123456         ; AD 56 34 (DBR inferred from PHK/PLB + explicit PBR)
         lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
         jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
 

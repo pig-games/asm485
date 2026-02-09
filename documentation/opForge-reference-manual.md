@@ -748,6 +748,8 @@ Currently implemented 65816-specific additions in this branch:
   current assembly address bank
 - `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return
   to inferred bank behavior
+- when `PBR` is explicit, adjacent `PHK` then `PLB` infers `DBR=PBR` for
+  subsequent bank-sensitive operand resolution
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
