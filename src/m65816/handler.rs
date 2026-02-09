@@ -230,6 +230,33 @@ impl M65816CpuHandler {
         }
     }
 
+    fn expr_has_symbol_references(expr: &crate::core::parser::Expr) -> bool {
+        use crate::core::parser::Expr;
+
+        match expr {
+            Expr::Identifier(_, _) | Expr::Register(_, _) => true,
+            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
+                Self::expr_has_symbol_references(inner)
+            }
+            Expr::Tuple(items, _) => items.iter().any(Self::expr_has_symbol_references),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                Self::expr_has_symbol_references(cond)
+                    || Self::expr_has_symbol_references(then_expr)
+                    || Self::expr_has_symbol_references(else_expr)
+            }
+            Expr::Unary { expr, .. } => Self::expr_has_symbol_references(expr),
+            Expr::Binary { left, right, .. } => {
+                Self::expr_has_symbol_references(left) || Self::expr_has_symbol_references(right)
+            }
+            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+        }
+    }
+
     fn assumed_absolute_bank(mnemonic: &str, ctx: &dyn AssemblerContext) -> u8 {
         if matches!(mnemonic, "JMP" | "JSR") {
             state::program_bank(ctx)
@@ -305,7 +332,8 @@ impl CpuHandler for M65816CpuHandler {
                     let unresolved =
                         ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
                     if unresolved
-                        && (ctx.current_address() > 0xFFFF || state::program_bank(ctx) != 0)
+                        && (ctx.current_address() > 0xFFFF
+                            || Self::assumed_absolute_bank(&upper_mnemonic, ctx) != 0)
                         && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLong).is_some()
                     {
                         return Ok(vec![Operand::AbsoluteLong(
@@ -316,12 +344,21 @@ impl CpuHandler for M65816CpuHandler {
 
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
+                    let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
+                    let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
+                    let symbol_based = Self::expr_has_symbol_references(expr);
+
+                    if symbol_based
+                        && (0..=0xFFFF).contains(&val)
+                        && assumed_bank != 0
+                        && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong)
+                    {
+                        return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
+                    }
 
                     if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
                         let absolute_bank = ((val as u32) >> 16) as u8;
                         let absolute_value = (val as u32 & 0xFFFF) as u16;
-                        let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
-                        let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                         if absolute_bank == assumed_bank
                             && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
                         {
@@ -360,7 +397,8 @@ impl CpuHandler for M65816CpuHandler {
                     let unresolved =
                         ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
                     if unresolved
-                        && (ctx.current_address() > 0xFFFF || state::program_bank(ctx) != 0)
+                        && (ctx.current_address() > 0xFFFF
+                            || Self::assumed_absolute_bank(&upper_mnemonic, ctx) != 0)
                         && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLongX).is_some()
                     {
                         return Ok(vec![Operand::AbsoluteLongX(
@@ -371,12 +409,21 @@ impl CpuHandler for M65816CpuHandler {
 
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
+                    let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
+                    let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
+                    let symbol_based = Self::expr_has_symbol_references(expr);
+
+                    if symbol_based
+                        && (0..=0xFFFF).contains(&val)
+                        && assumed_bank != 0
+                        && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX)
+                    {
+                        return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
+                    }
 
                     if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
                         let absolute_bank = ((val as u32) >> 16) as u8;
                         let absolute_value = (val as u32 & 0xFFFF) as u16;
-                        let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
-                        let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                         if absolute_bank == assumed_bank
                             && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
                         {
