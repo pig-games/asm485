@@ -2647,6 +2647,53 @@ fn m65816_assume_pbr_controls_24bit_jmp_operands() {
 }
 
 #[test]
+fn m65816_assume_pbr_controls_24bit_jmp_indirect_operands() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12",
+        "    JMP ($123456)",
+        "    JMP ($123456,X)",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x6C),
+            (0x0001, 0x56),
+            (0x0002, 0x34),
+            (0x0003, 0x7C),
+            (0x0004, 0x56),
+            (0x0005, 0x34),
+        ]
+    );
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP ($123456)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP ($123456,X)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
 fn m65816_stack_relative_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA $10,S"),
