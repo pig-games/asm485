@@ -2688,6 +2688,65 @@ fn m65816_lda_imm_pha_plb_infers_dbr_across_flag_and_width_ops() {
 }
 
 #[test]
+fn m65816_pea_plb_infers_dbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    PEA $3412",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0x12),
+            (0x0002, 0x34),
+            (0x0003, 0xAB),
+            (0x0004, 0xAD),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+        ]
+    );
+}
+
+#[test]
+fn m65816_pea_plb_inference_is_cleared_by_intervening_stack_mutation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    PEA $3412",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0x12),
+            (0x0002, 0x34),
+            (0x0003, 0x48),
+            (0x0004, 0xAB),
+            (0x0005, 0xAF),
+            (0x0006, 0x56),
+            (0x0007, 0x34),
+            (0x0008, 0x12),
+        ]
+    );
+}
+
+#[test]
 fn m65816_phk_plb_inference_is_cleared_by_control_flow() {
     let assembler = run_passes(&[
         ".module main",

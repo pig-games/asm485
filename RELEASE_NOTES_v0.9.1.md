@@ -58,6 +58,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     (`PHK ... PLB` updates assumed `DBR` to `PBR` unless stack mutation or control-flow occurs between)
   - conservative `LDA #imm ... PHA ... PLB` bank-transfer inference
     (can infer `DBR` from the pushed immediate byte unless an intervening instruction invalidates the tracked immediate)
+  - conservative `PEA $nnnn ... PLB` bank-transfer inference
+    (can infer `DBR` from the pushed literal low byte unless an intervening stack mutation/control-flow step invalidates pending push provenance)
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
@@ -135,5 +137,6 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
 - checked address arithmetic now guards directive/linker/image overflow paths; descending BIN ranges are rejected
 - conservative `PHK ... PLB` and `LDA #imm ... PHA ... PLB` DBR inference sequences are supported
+- conservative `PEA $nnnn ... PLB` DBR inference is supported
 - full automatic banked CPU-state inference is still planned (`.assume` remains the explicit control for DBR/DP and other assumptions)
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics

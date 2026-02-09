@@ -754,6 +754,9 @@ Currently implemented 65816-specific additions in this branch:
 - a conservative `LDA #imm ... PHA ... PLB` inference can also set `DBR`
   from the pushed immediate byte when no non-whitelisted instruction
   invalidates the tracked immediate value
+- a conservative `PEA $nnnn ... PLB` inference can set `DBR` from the
+  pushed literal low byte when no intervening stack mutation or control-flow
+  invalidates the pending push source
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
