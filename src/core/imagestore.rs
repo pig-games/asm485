@@ -259,11 +259,13 @@ impl ImageStore {
         self.ensure_ready()?;
         let entries = self.read_entries()?;
 
-        let size_u64 = if end_addr >= start_addr {
-            end_addr as u64 - start_addr as u64 + 1
-        } else {
-            0
-        };
+        if end_addr < start_addr {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid binary range: end address is less than start address",
+            ));
+        }
+        let size_u64 = end_addr as u64 - start_addr as u64 + 1;
         let alloc_size = usize::try_from(size_u64).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -421,6 +423,19 @@ mod tests {
             .unwrap();
         assert_eq!(out.len(), 5);
         assert_eq!(out, vec![0xff, 0xaa, 0xff, 0xbb, 0xff]);
+    }
+
+    #[test]
+    fn write_bin_rejects_descending_range() {
+        let image = ImageStore::new(65536);
+        let mut out = Vec::new();
+        let err = image
+            .write_bin_file(&mut out, 0x2000, 0x1fff, 0xff)
+            .expect_err("descending range should fail");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err
+            .to_string()
+            .contains("end address is less than start address"));
     }
 
     #[test]
