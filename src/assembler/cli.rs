@@ -10,7 +10,7 @@ use clap::{ArgAction, Parser};
 
 use crate::core::assembler::error::{AsmError, AsmErrorKind, AsmRunError};
 
-pub const VERSION: &str = "0.9";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const LONG_ABOUT: &str =
     "Multi-CPU assembler supporting Intel 8080/8085, Zilog Z80, MOS 6502, and WDC 65C02.

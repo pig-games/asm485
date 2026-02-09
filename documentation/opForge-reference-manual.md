@@ -3,7 +3,7 @@
 This document describes the opForge assembler language, directives, and tooling.
 It follows a chapter layout similar to 64tass. Sections marked **Planned** describe 
 features that are not implemented yet.
-This manual is validated against opForge CLI `0.9` (crate `0.9.0`). Release notes use
+This manual is validated against opForge CLI `0.9.1` (crate `0.9.1`). Release notes use
 feature-series labels (for example `v3.1` for the linker-region milestone).
 
 ## 1. Introduction
@@ -338,12 +338,13 @@ Symbol lookup searches the current scope first, then parent scopes, then global.
 
 Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 
-65816 support is currently MVP/phase-1 scope:
+65816 support includes the phase-1 instruction set and phase-2 24-bit addressing work:
 - Implements selected 65816 mnemonics and operand forms.
 - Includes long memory forms for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`).
 - Includes stack-relative forms (`d,S` and `(d,S),Y`) for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`.
-- Includes a wide-address output/layout slice (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
+- Includes wide-address output/layout workflows (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
 - Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
+- Uses checked address arithmetic and explicit diagnostics for overflow/underflow paths in placement, linking, and image emission.
 - Does not yet implement full banked CPU-state semantics.
 
 ### 4.8 End of assembly
@@ -568,7 +569,7 @@ Instruction mnemonics are selected by `.cpu`:
 - Standard MOS 6502/65C02 mnemonics (`LDA`, `JMP`, `BRA`, ...), including 65C02
   additions such as `STP`, `WAI`, `DEC A`/`INC A` (`DEA`/`INA` aliases), and
   extended `BIT` modes.
-- 65816 MVP additions currently implemented include:
+- 65816 additions currently implemented include:
   - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
   - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
   - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
@@ -728,7 +729,7 @@ Instruction extensions:
 | `BBSn`, `BBRn` | ✗ | ✓ Branch on Bit Set/Reset |
 | `RMBn`, `SMBn` | ✗ | ✓ Reset/Set Memory Bit |
 
-**MOS 6502 Family (65816 MVP additions)**
+**MOS 6502 Family (65816 additions)**
 
 Currently implemented 65816-specific additions in this branch:
 - `BRL`, `JML`, `JSL`, `RTL`

@@ -14,10 +14,10 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 
 For all documentation on features and syntax read: [opForge Reference Manual](documentation/opForge-reference-manual.md).
 
-## 65816 Status (MVP + Wide Address Slice)
+## 65816 Status (Phase 1 + Phase 2 Addressing)
 
-Current 65816 support includes the phase-1 instruction MVP plus an initial wide-address
-phase-2 slice for placement/output workflows.
+Current 65816 support includes the phase-1 instruction set plus phase-2 24-bit
+core addressing and output/layout workflows.
 
 - CPU names: `65816` (canonical), `65c816`, `w65c816`
 - Includes 65816 instruction support currently implemented in this branch:
@@ -33,6 +33,10 @@ phase-2 slice for placement/output workflows.
   - long absolute operands for implemented long-control instructions
 - Width-sensitive immediate sizing is implemented for supported 65816 immediate
   mnemonics via `REP`/`SEP` M/X state tracking.
+- Core address arithmetic is checked end-to-end for directives, section placement,
+  linker output assembly, and image emission (overflow paths report diagnostics).
+- Wide address reporting is consistent in listing/map output (4/6/8 hex digits),
+  and binary range parsing/emission rejects descending ranges.
 
 Current limits:
 - Full banked CPU-state semantics are not implemented yet.
