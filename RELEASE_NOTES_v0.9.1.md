@@ -72,6 +72,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 - Repository policy change: `AGENTS.md` was removed from tracked sources.
 - PRG output keeps a 16-bit load address prefix and now reports a directive error
   when `loadaddr` exceeds 16 bits.
+- README cleanup: detailed 65816 implementation/status notes were moved to these
+  release notes so README stays focused on stable overview and usage.
 
 ## Fixed
 
@@ -122,6 +124,8 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - wide placement and output workflows are supported (`.org`, regions, wide image spans, wide BIN ranges, HEX ELA/start-linear records)
 - long memory encodings are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`)
 - stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
+- bracketed long-indirect forms (`[...]`, `[...,Y]`) and long absolute operands are implemented for currently supported 65816 instructions
 - checked address arithmetic now guards directive/linker/image overflow paths; descending BIN ranges are rejected
+- listing/map formatting renders addresses consistently in 4/6/8-digit hex widths, based on effective address size
 - full banked CPU-state semantics are still planned
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics
