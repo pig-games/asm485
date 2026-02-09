@@ -2625,7 +2625,42 @@ fn m65816_lda_imm_pha_plb_is_conservative_with_intervening_ops() {
         ".org $0000",
         ".assume dbr=$00",
         "    LDA #$12",
+        "    ADC #$01",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x69),
+            (0x0003, 0x01),
+            (0x0004, 0x48),
+            (0x0005, 0xAB),
+            (0x0006, 0xAF),
+            (0x0007, 0x56),
+            (0x0008, 0x34),
+            (0x0009, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm_pha_plb_infers_dbr_across_flag_and_width_ops() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA #$12",
         "    CLC",
+        "    REP #$20",
+        "    SEP #$20",
         "    PHA",
         "    PLB",
         "    LDA $123456",
@@ -2639,12 +2674,15 @@ fn m65816_lda_imm_pha_plb_is_conservative_with_intervening_ops() {
             (0x0000, 0xA9),
             (0x0001, 0x12),
             (0x0002, 0x18),
-            (0x0003, 0x48),
-            (0x0004, 0xAB),
-            (0x0005, 0xAF),
-            (0x0006, 0x56),
-            (0x0007, 0x34),
-            (0x0008, 0x12),
+            (0x0003, 0xC2),
+            (0x0004, 0x20),
+            (0x0005, 0xE2),
+            (0x0006, 0x20),
+            (0x0007, 0x48),
+            (0x0008, 0xAB),
+            (0x0009, 0xAD),
+            (0x000A, 0x56),
+            (0x000B, 0x34),
         ]
     );
 }

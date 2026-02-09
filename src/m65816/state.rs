@@ -178,13 +178,32 @@ fn apply_accumulator_immediate_state(
         return;
     }
 
-    if matches!(upper_mnemonic, "NOP" | "PHA") {
+    if mnemonic_preserves_tracked_accumulator_immediate(upper_mnemonic) {
         return;
     }
 
     // Conservative by design: unless we can prove A still matches a tracked immediate,
     // clear the tracked byte used for PHA/PLB bank inference.
     state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+}
+
+fn mnemonic_preserves_tracked_accumulator_immediate(upper_mnemonic: &str) -> bool {
+    matches!(
+        upper_mnemonic,
+        // Stack push of A keeps A unchanged and is part of the tracked PLB inference chain.
+        "PHA"
+            // Flag-only and mode-width ops keep the current A value.
+            | "NOP"
+            | "CLC"
+            | "SEC"
+            | "CLI"
+            | "SEI"
+            | "CLD"
+            | "SED"
+            | "CLV"
+            | "REP"
+            | "SEP"
+    )
 }
 
 fn apply_bank_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u32>) {
