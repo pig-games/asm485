@@ -117,7 +117,7 @@ creates:
 creates:
 * A binary image file containing the emitted output range
 
-## Linker Regions Workflow (v3.1)
+## Linker Regions Workflow
 
 Use explicit region placement and output directives for section-based builds.
 
