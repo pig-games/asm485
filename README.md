@@ -35,6 +35,8 @@ core addressing and output/layout workflows.
   mnemonics via `REP`/`SEP` M/X state tracking.
 - Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`,
   including bank-aware absolute-vs-long and direct-page operand resolution.
+- Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
+  clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
   assembly address bank when no explicit `.assume pbr=...` is set.
 - Core address arithmetic is checked end-to-end for directives, section placement,

@@ -52,6 +52,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     including bank-aware absolute-vs-long and direct-page mode resolution
   - automatic `PBR` default inference for `JMP`/`JSR` from current assembly bank
     when `.assume pbr=...` is not explicitly set
+  - `.assume dbr=auto` / `.assume pbr=auto` to clear explicit bank overrides
+    and return to inferred-bank behavior
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`

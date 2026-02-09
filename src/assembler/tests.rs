@@ -2323,9 +2323,21 @@ fn m65816_assume_sets_runtime_state_and_immediate_widths() {
     );
     assert_eq!(
         asm.cpu_state_flags
+            .get(crate::m65816::state::DATA_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(1)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
             .get(crate::m65816::state::PROGRAM_BANK_KEY)
             .copied(),
         Some(0x34)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::PROGRAM_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(1)
     );
     assert_eq!(
         asm.cpu_state_flags
@@ -2392,6 +2404,35 @@ fn m65816_assume_rejects_invalid_values() {
 }
 
 #[test]
+fn m65816_assume_bank_auto_resets_explicit_flags() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12, pbr=$34", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=auto, pbr=auto", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DATA_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::PROGRAM_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(0)
+    );
+}
+
+#[test]
 fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
     let assembler = run_passes(&[
         ".module main",
@@ -2425,6 +2466,24 @@ fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
             (0x0002, 0x34),
             (0x0003, 0x12)
         ]
+    );
+}
+
+#[test]
+fn m65816_assume_dbr_auto_uses_current_bank_for_resolution() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume dbr=auto",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x123400, 0xAD), (0x123401, 0x56), (0x123402, 0x34)]
     );
 }
 
@@ -2664,6 +2723,24 @@ fn m65816_assume_pbr_controls_24bit_jmp_operands() {
     let status = process_line(&mut asm, "    JMP $123456", 0, 2);
     assert_eq!(status, LineStatus::Error);
     assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
+fn m65816_assume_pbr_auto_restores_inferred_behavior() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $340000",
+        ".assume pbr=$00",
+        ".assume pbr=auto",
+        "    JMP $343210",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x340000, 0x4C), (0x340001, 0x10), (0x340002, 0x32)]
+    );
 }
 
 #[test]

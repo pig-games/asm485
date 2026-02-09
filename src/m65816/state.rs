@@ -16,6 +16,7 @@ pub const ACCUMULATOR_8BIT_KEY: &str = "m65816.accumulator_8bit";
 pub const INDEX_8BIT_KEY: &str = "m65816.index_8bit";
 pub const EMULATION_MODE_KEY: &str = "m65816.emulation_mode";
 pub const DATA_BANK_KEY: &str = "m65816.data_bank";
+pub const DATA_BANK_EXPLICIT_KEY: &str = "m65816.data_bank_explicit";
 pub const PROGRAM_BANK_KEY: &str = "m65816.program_bank";
 pub const PROGRAM_BANK_EXPLICIT_KEY: &str = "m65816.program_bank_explicit";
 pub const DIRECT_PAGE_KEY: &str = "m65816.direct_page";
@@ -26,6 +27,7 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(ACCUMULATOR_8BIT_KEY.to_string(), 1);
     state.insert(INDEX_8BIT_KEY.to_string(), 1);
     state.insert(DATA_BANK_KEY.to_string(), 0);
+    state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
     state.insert(PROGRAM_BANK_KEY.to_string(), 0);
     state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
     state.insert(DIRECT_PAGE_KEY.to_string(), 0);
@@ -51,6 +53,9 @@ pub fn index_is_8bit(ctx: &dyn AssemblerContext) -> bool {
 }
 
 pub fn data_bank(ctx: &dyn AssemblerContext) -> u8 {
+    if ctx.cpu_state_flag(DATA_BANK_EXPLICIT_KEY).unwrap_or(1) == 0 {
+        return ((ctx.current_address() >> 16) & 0xFF) as u8;
+    }
     ctx.cpu_state_flag(DATA_BANK_KEY).unwrap_or(0) as u8
 }
 
@@ -127,9 +132,14 @@ struct AssumeUpdate {
     emulation: Option<bool>,
     m_8bit: Option<bool>,
     x_8bit: Option<bool>,
-    dbr: Option<u8>,
-    pbr: Option<u8>,
+    dbr: Option<AssumeBankValue>,
+    pbr: Option<AssumeBankValue>,
     dp: Option<u16>,
+}
+
+enum AssumeBankValue {
+    Explicit(u8),
+    Auto,
 }
 
 fn apply_assume_directive(
@@ -178,13 +188,13 @@ fn apply_assume_directive(
                 if update.dbr.is_some() {
                     return Err("Duplicate .assume option: dbr".to_string());
                 }
-                update.dbr = Some(parse_u8_value(right, ctx, "dbr")?);
+                update.dbr = Some(parse_bank_value(right, ctx, "dbr")?);
             }
             "pbr" | "pb" => {
                 if update.pbr.is_some() {
                     return Err("Duplicate .assume option: pbr".to_string());
                 }
-                update.pbr = Some(parse_u8_value(right, ctx, "pbr")?);
+                update.pbr = Some(parse_bank_value(right, ctx, "pbr")?);
             }
             "dp" => {
                 if update.dp.is_some() {
@@ -221,11 +231,26 @@ fn apply_assume_directive(
         state.insert(INDEX_8BIT_KEY.to_string(), u32::from(x_8bit));
     }
     if let Some(dbr) = update.dbr {
-        state.insert(DATA_BANK_KEY.to_string(), dbr as u32);
+        match dbr {
+            AssumeBankValue::Explicit(value) => {
+                state.insert(DATA_BANK_KEY.to_string(), value as u32);
+                state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+            }
+            AssumeBankValue::Auto => {
+                state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 0);
+            }
+        }
     }
     if let Some(pbr) = update.pbr {
-        state.insert(PROGRAM_BANK_KEY.to_string(), pbr as u32);
-        state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 1);
+        match pbr {
+            AssumeBankValue::Explicit(value) => {
+                state.insert(PROGRAM_BANK_KEY.to_string(), value as u32);
+                state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 1);
+            }
+            AssumeBankValue::Auto => {
+                state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
+            }
+        }
     }
     if let Some(dp) = update.dp {
         state.insert(DIRECT_PAGE_KEY.to_string(), dp as u32);
@@ -282,6 +307,20 @@ fn parse_u8_value(expr: &Expr, ctx: &dyn AssemblerContext, name: &str) -> Result
         ));
     }
     Ok(value as u8)
+}
+
+fn parse_bank_value(
+    expr: &Expr,
+    ctx: &dyn AssemblerContext,
+    name: &str,
+) -> Result<AssumeBankValue, String> {
+    if let Some(text) = expr_text(expr) {
+        let lower = text.to_ascii_lowercase();
+        if lower == "auto" {
+            return Ok(AssumeBankValue::Auto);
+        }
+    }
+    Ok(AssumeBankValue::Explicit(parse_u8_value(expr, ctx, name)?))
 }
 
 fn parse_u16_value(expr: &Expr, ctx: &dyn AssemblerContext, name: &str) -> Result<u16, String> {

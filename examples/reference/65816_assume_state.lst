@@ -9,24 +9,26 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                6  
 ----                                7  start:
 ----                                8          .assume e=native, m=16, x=16, dbr=$12, dp=$2000
-----                                9  
-123400  A9 34 12                   10          lda #$1234          ; A9 34 12 (A is 16-bit)
-123403  A2 78 56                   11          ldx #$5678          ; A2 78 56 (X is 16-bit)
-123406  AD 56 34                   12          lda $123456         ; AD 56 34 (DBR bank match uses absolute form)
-123409  A5 F0                      13          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
-12340B  4C 10 32                   14          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
-----                               15  
-12340E  E2 20                      16          sep #$20            ; A back to 8-bit
-123410  A9 9A                      17          lda #$9A            ; A9 9A
-----                               18  
-----                               19          .assume e=emulation ; forces A/X to 8-bit
-123412  A2 BC                      20          ldx #$BC            ; A2 BC
-----                               21  
-123414  60                         22          rts
+----                                9          .assume pbr=$00        ; override
+----                               10          .assume pbr=auto       ; restore inferred PBR from current .org bank
+----                               11  
+123400  A9 34 12                   12          lda #$1234          ; A9 34 12 (A is 16-bit)
+123403  A2 78 56                   13          ldx #$5678          ; A2 78 56 (X is 16-bit)
+123406  AD 56 34                   14          lda $123456         ; AD 56 34 (DBR bank match uses absolute form)
+123409  A5 F0                      15          lda $20F0           ; A5 F0 (DP assumption maps absolute address to direct-page offset)
+12340B  4C 10 32                   16          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
+----                               17  
+12340E  E2 20                      18          sep #$20            ; A back to 8-bit
+123410  A9 9A                      19          lda #$9A            ; A9 9A
+----                               20  
+----                               21          .assume e=emulation ; forces A/X to 8-bit
+123412  A2 BC                      22          ldx #$BC            ; A2 BC
 ----                               23  
-----                               24          .end
+123414  60                         24          rts
+----                               25  
+----                               26          .end
 
-Lines: 24  Errors: 0  Warnings: 0
+Lines: 26  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 

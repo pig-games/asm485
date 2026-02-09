@@ -746,6 +746,8 @@ Currently implemented 65816-specific additions in this branch:
   (for example absolute-vs-long and direct-page offset selection)
 - without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
   current assembly address bank
+- `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return
+  to inferred bank behavior
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
