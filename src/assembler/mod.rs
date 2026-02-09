@@ -1164,14 +1164,32 @@ impl<'a> AsmLine<'a> {
         self.current_section.as_deref()
     }
 
-    fn current_addr(&self, main_addr: u32) -> u32 {
+    fn current_addr(&mut self, main_addr: u32) -> Result<u32, ()> {
         match self.current_section.as_deref() {
-            Some(name) => self
-                .sections
-                .get(name)
-                .and_then(|section| section.start_pc.checked_add(section.pc))
-                .unwrap_or(main_addr),
-            None => main_addr,
+            Some(name) => {
+                let Some(section) = self.sections.get(name) else {
+                    return Ok(main_addr);
+                };
+                let max = self.max_program_address();
+                let cpu_name = self.cpu.as_str().to_string();
+                let label = format!("section {name} absolute address");
+                match Self::checked_add_address(
+                    section.start_pc,
+                    section.pc,
+                    max,
+                    cpu_name.as_str(),
+                    label.as_str(),
+                ) {
+                    Ok(addr) => Ok(addr),
+                    Err(message) => {
+                        self.last_error =
+                            Some(AsmError::new(AsmErrorKind::Directive, &message, None));
+                        self.last_error_column = None;
+                        Err(())
+                    }
+                }
+            }
+            None => Ok(main_addr),
         }
     }
 

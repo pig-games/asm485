@@ -85,7 +85,19 @@ impl Assembler {
             asm_line.clear_scopes();
 
             for src in lines {
-                let line_addr = asm_line.current_addr(addr);
+                let line_addr = match asm_line.current_addr(addr) {
+                    Ok(line_addr) => line_addr,
+                    Err(()) => {
+                        if let Some(err) = asm_line.error() {
+                            diagnostics.push(
+                                Diagnostic::new(line_num, Severity::Error, err.clone())
+                                    .with_column(asm_line.error_column()),
+                            );
+                        }
+                        counts.errors += 1;
+                        addr
+                    }
+                };
                 let status = asm_line.process(src, line_num, line_addr, 1);
                 if status == LineStatus::Pass1Error || status == LineStatus::Error {
                     if let Some(err) = asm_line.error() {
@@ -227,7 +239,27 @@ impl Assembler {
         let image = &mut self.image;
 
         for src in lines {
-            let line_addr = asm_line.current_addr(addr);
+            let line_addr = match asm_line.current_addr(addr) {
+                Ok(line_addr) => line_addr,
+                Err(()) => {
+                    if let Some(err) = asm_line.error() {
+                        diagnostics.push(
+                            Diagnostic::new(line_num, Severity::Error, err.clone())
+                                .with_column(asm_line.error_column()),
+                        );
+                        listing.write_diagnostic(
+                            "ERROR",
+                            err.message(),
+                            line_num,
+                            asm_line.error_column(),
+                            lines,
+                            asm_line.parser_error_ref(),
+                        )?;
+                    }
+                    counts.errors += 1;
+                    addr
+                }
+            };
             let status = asm_line.process(src, line_num, line_addr, 2);
             let line_addr = asm_line.start_addr();
             let bytes = asm_line.bytes();

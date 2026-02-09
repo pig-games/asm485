@@ -1531,6 +1531,33 @@ fn update_addresses_reports_main_pc_beyond_cpu_max() {
 }
 
 #[test]
+fn current_addr_reports_section_address_arithmetic_overflow() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    asm.current_section = Some("code".to_string());
+    asm.sections.insert(
+        "code".to_string(),
+        SectionState {
+            start_pc: u32::MAX,
+            pc: 1,
+            ..SectionState::default()
+        },
+    );
+    let result = asm.current_addr(0);
+    assert!(result.is_err());
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("overflows address arithmetic"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
 fn res_allows_wide_total_and_reports_size() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
