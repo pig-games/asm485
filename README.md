@@ -33,19 +33,22 @@ core addressing and output/layout workflows.
   - long absolute operands for implemented long-control instructions
 - Width-sensitive immediate sizing is implemented for supported 65816 immediate
   mnemonics via `REP`/`SEP` M/X state tracking.
+- Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),
   and binary range parsing/emission rejects descending ranges.
 
 Current limits:
-- Full banked CPU-state semantics are not implemented yet.
+- Full automatic banked CPU-state inference is not implemented yet;
+  use `.assume` for bank/state-sensitive assembly assumptions.
 - PRG output `loadaddr` must still fit in 16 bits.
 
 New 65816 examples:
 - `examples/65816_simple.asm`
 - `examples/65816_allmodes.asm`
 - `examples/65816_wide_image.asm`
+- `examples/65816_assume_state.asm`
 
 
 Build:

@@ -1,0 +1,38 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 runtime state assumptions (.assume)
+----                                2  ; Demonstrates explicit E/M/X/DBR/PBR/DP assumptions.
+----                                3  
+----                                4          .cpu 65816
+----    EQU 123400                  5          .org $123400
+----                                6  
+----                                7  start:
+----                                8          .assume e=native, m=16, x=16, dbr=$12, pbr=$34, dp=$2000
+----                                9  
+123400  A9 34 12                   10          lda #$1234          ; A9 34 12 (A is 16-bit)
+123403  A2 78 56                   11          ldx #$5678          ; A2 78 56 (X is 16-bit)
+----                               12  
+123406  E2 20                      13          sep #$20            ; A back to 8-bit
+123408  A9 9A                      14          lda #$9A            ; A9 9A
+----                               15  
+----                               16          .assume e=emulation ; forces A/X to 8-bit
+12340A  A2 BC                      17          ldx #$BC            ; A2 BC
+----                               18  
+12340C  60                         19          rts
+----                               20  
+----                               21          .end
+
+Lines: 21  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 123400 (1192960)
+
+Total memory is 13 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+123400    A9 34 12 A2 78 56 E2 20 A9 9A A2 BC 60

@@ -1139,6 +1139,24 @@ impl<'a> AsmLine<'a> {
         );
     }
 
+    fn apply_cpu_runtime_directive(
+        &mut self,
+        directive: &str,
+        operands: &[Expr],
+    ) -> Result<bool, String> {
+        let pipeline = self
+            .registry
+            .resolve_pipeline(self.cpu, None)
+            .map_err(registry_error_message)?;
+        let mut state_flags = std::mem::take(&mut self.cpu_state_flags);
+        let result =
+            pipeline
+                .cpu
+                .apply_runtime_directive(directive, operands, self, &mut state_flags);
+        self.cpu_state_flags = state_flags;
+        result
+    }
+
     fn cond_last(&self) -> Option<&ConditionalContext> {
         self.cond_stack.last()
     }

@@ -216,7 +216,7 @@ impl CpuHandler for M65816CpuHandler {
                     let unresolved =
                         ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
                     if unresolved
-                        && ctx.current_address() > 0xFFFF
+                        && (ctx.current_address() > 0xFFFF || state::program_bank(ctx) != 0)
                         && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLong).is_some()
                     {
                         return Ok(vec![Operand::AbsoluteLong(
@@ -240,7 +240,7 @@ impl CpuHandler for M65816CpuHandler {
                     let unresolved =
                         ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
                     if unresolved
-                        && ctx.current_address() > 0xFFFF
+                        && (ctx.current_address() > 0xFFFF || state::program_bank(ctx) != 0)
                         && lookup_instruction(&upper_mnemonic, AddressMode::AbsoluteLongX).is_some()
                     {
                         return Ok(vec![Operand::AbsoluteLongX(

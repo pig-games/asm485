@@ -2234,6 +2234,116 @@ fn m65816_cpu_switch_resets_width_state() {
 }
 
 #[test]
+fn m65816_assume_sets_runtime_state_and_immediate_widths() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(
+            &mut asm,
+            ".assume e=native, m=16, x=16, dbr=$12, pbr=$34, dp=$2000",
+            0,
+            2
+        ),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::EMULATION_MODE_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::ACCUMULATOR_8BIT_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::INDEX_8BIT_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DATA_BANK_KEY)
+            .copied(),
+        Some(0x12)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::PROGRAM_BANK_KEY)
+            .copied(),
+        Some(0x34)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DIRECT_PAGE_KEY)
+            .copied(),
+        Some(0x2000)
+    );
+
+    assert_eq!(
+        process_line(&mut asm, "    LDA #$1234", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes().to_vec(), vec![0xA9, 0x34, 0x12]);
+    assert_eq!(
+        process_line(&mut asm, "    LDX #$5678", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes().to_vec(), vec![0xA2, 0x78, 0x56]);
+}
+
+#[test]
+fn m65816_assume_emulation_forces_8bit_mode() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume e=native, m=16, x=16", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, ".assume e=emulation", 0, 2),
+        LineStatus::Ok
+    );
+
+    let status = process_line(&mut asm, "    LDA #$1234", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error()
+        .expect("expected immediate width error")
+        .message()
+        .contains("8-bit mode"));
+}
+
+#[test]
+fn m65816_assume_rejects_invalid_values() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    let status = process_line(&mut asm, ".assume e=emulation, m=16", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains(".assume m=16 requires native mode"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    let status = process_line(&mut asm, ".assume dbr=256", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains("out of range (0-255)"));
+}
+
+#[test]
 fn m65816_stack_relative_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA $10,S"),

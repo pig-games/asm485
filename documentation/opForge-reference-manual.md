@@ -344,8 +344,9 @@ Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 - Includes stack-relative forms (`d,S` and `(d,S),Y`) for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`.
 - Includes wide-address output/layout workflows (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
 - Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
+- Includes explicit 65816 runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`.
 - Uses checked address arithmetic and explicit diagnostics for overflow/underflow paths in placement, linking, and image emission.
-- Does not yet implement full banked CPU-state semantics.
+- Does not yet implement full automatic banked-state inference.
 
 ### 4.8 End of assembly
 
@@ -738,10 +739,11 @@ Currently implemented 65816-specific additions in this branch:
 - `PEA`, `PEI`, `PER`, `COP`, `WDM`
 - `MVN`, `MVP`
 - operand forms: `d,S`, `(d,S),Y`, bracketed indirect (`[...]`, `[...,Y]`) for supported instructions
+- runtime-state assumption directive: `.assume e=..., m=..., x=..., dbr=..., pbr=..., dp=...`
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
-- full banked CPU-state semantics are still in progress
+- full automatic banked-state inference is still in progress (`.assume` provides explicit state assumptions)
 
 **Intel 8080 Family**
 

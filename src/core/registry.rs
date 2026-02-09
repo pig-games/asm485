@@ -114,6 +114,15 @@ pub trait CpuHandlerDyn: Send + Sync {
         _state: &mut HashMap<String, u32>,
     ) {
     }
+    fn apply_runtime_directive(
+        &self,
+        _directive: &str,
+        _operands: &[Expr],
+        _ctx: &dyn AssemblerContext,
+        _state: &mut HashMap<String, u32>,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 /// Dialect mapping layer for alternate syntax (e.g. Z80 mnemonics → Intel 8080).
@@ -343,6 +352,7 @@ mod tests {
     use crate::core::cpu::{CpuFamily, CpuType};
     use crate::core::family::{AssemblerContext, EncodeResult, FamilyParseError};
     use crate::core::parser::Expr;
+    use crate::core::symbol_table::SymbolTable;
 
     const TEST_FAMILY: CpuFamily = CpuFamily::new("test_family");
     const TEST_CPU: CpuType = CpuType::new("test_cpu");
@@ -449,6 +459,57 @@ mod tests {
             if mnemonic.eq_ignore_ascii_case("PING") {
                 state.insert(TEST_RUNTIME_KEY.to_string(), 9);
             }
+        }
+        fn apply_runtime_directive(
+            &self,
+            directive: &str,
+            _operands: &[Expr],
+            _ctx: &dyn AssemblerContext,
+            state: &mut HashMap<String, u32>,
+        ) -> Result<bool, String> {
+            if directive.eq_ignore_ascii_case("STATE") {
+                state.insert(TEST_RUNTIME_KEY.to_string(), 11);
+                return Ok(true);
+            }
+            Ok(false)
+        }
+    }
+
+    struct StubContext {
+        symbols: SymbolTable,
+    }
+
+    impl StubContext {
+        fn new() -> Self {
+            Self {
+                symbols: SymbolTable::new(),
+            }
+        }
+    }
+
+    impl AssemblerContext for StubContext {
+        fn eval_expr(&self, _expr: &Expr) -> Result<i64, String> {
+            Ok(0)
+        }
+
+        fn symbols(&self) -> &SymbolTable {
+            &self.symbols
+        }
+
+        fn has_symbol(&self, _name: &str) -> bool {
+            false
+        }
+
+        fn symbol_is_finalized(&self, _name: &str) -> Option<bool> {
+            None
+        }
+
+        fn current_address(&self) -> u32 {
+            0
+        }
+
+        fn pass(&self) -> u8 {
+            1
         }
     }
 
@@ -567,6 +628,13 @@ mod tests {
         p.cpu
             .update_runtime_state_after_encode("PING", &StubOperandSet, &mut state);
         assert_eq!(state.get(TEST_RUNTIME_KEY).copied(), Some(9));
+        let ctx = StubContext::new();
+        let handled = p
+            .cpu
+            .apply_runtime_directive("STATE", &[], &ctx, &mut state)
+            .expect("runtime directive");
+        assert!(handled);
+        assert_eq!(state.get(TEST_RUNTIME_KEY).copied(), Some(11));
     }
 
     #[test]

@@ -48,10 +48,12 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     - bracketed indirect forms (`[...]`, `[...,Y]`) for implemented instructions
   - width-sensitive immediate sizing for supported 65816 immediate mnemonics via `REP`/`SEP`
     M/X state tracking (including CPU-switch state reset behavior)
+  - explicit runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
   - `examples/65816_wide_image.asm`
+  - `examples/65816_assume_state.asm`
   - matching `examples/reference/65816_*.hex` and `examples/reference/65816_*.lst`
 - Phase-2 wide-address core behavior:
   - `.org`, region placement (`.region`/`.place`/`.pack`), and linker image spans support wide addresses
