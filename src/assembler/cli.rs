@@ -149,6 +149,9 @@ fn is_valid_bin_range(s: &str) -> bool {
 }
 
 pub fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
+    const RANGE_ERR: &str =
+        "Invalid -b/--bin range; must be ssss:eeee (4-8 hex digits, start <= end)";
+
     if arg.is_empty() {
         return Ok(BinOutputSpec {
             name: None,
@@ -164,8 +167,7 @@ pub fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
     }
 
     if let Some((name_part, start, end)) = split_range_suffix(arg) {
-        let range = parse_bin_range_parts(start, end)
-            .ok_or("Invalid -b/--bin range; must be ssss:eeee (4-8 hex digits)")?;
+        let range = parse_bin_range_parts(start, end).ok_or(RANGE_ERR)?;
         let name = if name_part.is_empty() {
             None
         } else {
@@ -182,6 +184,10 @@ pub fn parse_bin_output_arg(arg: &str) -> Result<BinOutputSpec, &'static str> {
             name: Some(arg.to_string()),
             range: None,
         });
+    }
+
+    if is_valid_bin_range(arg) {
+        return Err(RANGE_ERR);
     }
 
     Err("Invalid -b/--bin argument; use ssss:eeee, name:ssss:eeee, or name only (4-8 hex digits)")
@@ -213,6 +219,9 @@ fn parse_bin_range_parts(start: &str, end: &str) -> Option<BinRange> {
         Ok(v) => v,
         Err(_) => return None,
     };
+    if start > end {
+        return None;
+    }
     Some(BinRange {
         start_str,
         start,
@@ -235,6 +244,9 @@ pub fn parse_bin_range_str(s: &str) -> Option<BinRange> {
         Ok(v) => v,
         Err(_) => return None,
     };
+    if start > end {
+        return None;
+    }
     Some(BinRange {
         start_str,
         start,
@@ -680,6 +692,25 @@ mod tests {
         let range = spec.range.expect("range");
         assert_eq!(range.start, 0x123456);
         assert_eq!(range.end, 0x1234ff);
+    }
+
+    #[test]
+    fn parse_bin_range_rejects_descending_bounds() {
+        let err = parse_bin_output_arg("1000:0fff").expect_err("descending range should fail");
+        assert_eq!(
+            err,
+            "Invalid -b/--bin range; must be ssss:eeee (4-8 hex digits, start <= end)"
+        );
+    }
+
+    #[test]
+    fn parse_bin_named_range_rejects_descending_bounds() {
+        let err = parse_bin_output_arg("out.bin:2000:1fff")
+            .expect_err("descending named range should fail");
+        assert_eq!(
+            err,
+            "Invalid -b/--bin range; must be ssss:eeee (4-8 hex digits, start <= end)"
+        );
     }
 
     #[test]
