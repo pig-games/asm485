@@ -484,15 +484,13 @@ fn build_linker_output_payload(
                     )
                 })?;
                 let start = section.base;
-                let end = start
-                    .checked_add(section_len_u32.saturating_sub(1))
-                    .ok_or_else(|| {
-                        AsmError::new(
-                            AsmErrorKind::Directive,
-                            "Section address range overflows in .output",
-                            Some(&section.name),
-                        )
-                    })?;
+                let end = start.checked_add(section_len_u32 - 1).ok_or_else(|| {
+                    AsmError::new(
+                        AsmErrorKind::Directive,
+                        "Section address range overflows in .output",
+                        Some(&section.name),
+                    )
+                })?;
                 if start < image_start || end > image_end {
                     return Err(AsmError::new(
                         AsmErrorKind::Directive,
@@ -756,8 +754,13 @@ fn build_mapfile_text(
     region_names.sort();
     for name in region_names {
         let region = &regions[name];
-        let capacity = region.end.saturating_sub(region.start).saturating_add(1);
-        let used = region.cursor.saturating_sub(region.start).min(capacity);
+        let capacity = u64::from(region.end)
+            .checked_sub(u64::from(region.start))
+            .and_then(|delta| delta.checked_add(1))
+            .unwrap_or(0);
+        let used = u64::from(region.cursor)
+            .saturating_sub(u64::from(region.start))
+            .min(capacity);
         let free = capacity.saturating_sub(used);
         out.push_str(&format!(
             "{} {} {} {} {} {}\n",

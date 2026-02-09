@@ -2,8 +2,8 @@ use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
     expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
     Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputDirective,
-    LinkerOutputFormat, ListingWriter, MapSymbolsMode, RegionState, RootMetadata, SectionState,
-    Severity,
+    LinkerOutputFormat, ListingWriter, MapFileDirective, MapSymbolsMode, RegionState, RootMetadata,
+    SectionState, Severity,
 };
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
@@ -3335,6 +3335,29 @@ fn mapfile_formats_wide_values_without_truncation() {
     assert!(map.contains("main.entry FF0000 private"));
     assert!(map.contains("main.wide_const 89ABCDEF private"));
     assert!(map.contains("main.wide_var 01234567 private"));
+}
+
+#[test]
+fn mapfile_region_usage_supports_full_u32_span_without_saturation() {
+    let directive = MapFileDirective {
+        path: "build/full.map".to_string(),
+        symbols: MapSymbolsMode::None,
+    };
+    let mut regions = HashMap::new();
+    regions.insert(
+        "full".to_string(),
+        RegionState {
+            name: "full".to_string(),
+            start: 0,
+            end: u32::MAX,
+            cursor: u32::MAX,
+            align: 1,
+            placed: Vec::new(),
+        },
+    );
+
+    let map = build_mapfile_text(&directive, &regions, &HashMap::new(), &SymbolTable::new());
+    assert!(map.contains("full 0000 FFFFFFFF 4294967295 1 1"), "{map}");
 }
 
 #[test]
