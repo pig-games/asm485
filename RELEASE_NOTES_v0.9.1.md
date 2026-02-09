@@ -50,6 +50,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     M/X state tracking (including CPU-switch state reset behavior)
   - explicit runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`,
     including bank-aware absolute-vs-long and direct-page mode resolution
+  - automatic `PBR` default inference for `JMP`/`JSR` from current assembly bank
+    when `.assume pbr=...` is not explicitly set
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
@@ -126,5 +128,5 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - long memory encodings are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`)
 - stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
 - checked address arithmetic now guards directive/linker/image overflow paths; descending BIN ranges are rejected
-- full banked CPU-state semantics are still planned
+- full automatic banked CPU-state inference is still planned (`.assume` remains the explicit control for DBR/DP and other assumptions)
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics

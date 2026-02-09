@@ -345,6 +345,8 @@ Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 - Includes wide-address output/layout workflows (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
 - Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
 - Includes explicit 65816 runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`.
+- Uses current assembly address bank as the default `PBR` assumption for `JMP`/`JSR`
+  absolute-bank resolution when `.assume pbr=...` is not set.
 - Uses checked address arithmetic and explicit diagnostics for overflow/underflow paths in placement, linking, and image emission.
 - Does not yet implement full automatic banked-state inference.
 
@@ -742,10 +744,12 @@ Currently implemented 65816-specific additions in this branch:
 - runtime-state assumption directive: `.assume e=..., m=..., x=..., dbr=..., pbr=..., dp=...`
 - `.assume` bank/direct-page assumptions influence ambiguous mode resolution for supported forms
   (for example absolute-vs-long and direct-page offset selection)
+- without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
+  current assembly address bank
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
-- full automatic banked-state inference is still in progress (`.assume` provides explicit state assumptions)
+- full automatic banked-state inference is still in progress (`.assume` provides explicit DBR/DP and other state assumptions)
 
 **Intel 8080 Family**
 

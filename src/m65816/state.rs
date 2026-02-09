@@ -17,6 +17,7 @@ pub const INDEX_8BIT_KEY: &str = "m65816.index_8bit";
 pub const EMULATION_MODE_KEY: &str = "m65816.emulation_mode";
 pub const DATA_BANK_KEY: &str = "m65816.data_bank";
 pub const PROGRAM_BANK_KEY: &str = "m65816.program_bank";
+pub const PROGRAM_BANK_EXPLICIT_KEY: &str = "m65816.program_bank_explicit";
 pub const DIRECT_PAGE_KEY: &str = "m65816.direct_page";
 
 pub fn initial_state() -> HashMap<String, u32> {
@@ -26,6 +27,7 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(INDEX_8BIT_KEY.to_string(), 1);
     state.insert(DATA_BANK_KEY.to_string(), 0);
     state.insert(PROGRAM_BANK_KEY.to_string(), 0);
+    state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
     state.insert(DIRECT_PAGE_KEY.to_string(), 0);
     state
 }
@@ -53,7 +55,10 @@ pub fn data_bank(ctx: &dyn AssemblerContext) -> u8 {
 }
 
 pub fn program_bank(ctx: &dyn AssemblerContext) -> u8 {
-    ctx.cpu_state_flag(PROGRAM_BANK_KEY).unwrap_or(0) as u8
+    if ctx.cpu_state_flag(PROGRAM_BANK_EXPLICIT_KEY).unwrap_or(0) != 0 {
+        return ctx.cpu_state_flag(PROGRAM_BANK_KEY).unwrap_or(0) as u8;
+    }
+    ((ctx.current_address() >> 16) & 0xFF) as u8
 }
 
 pub fn direct_page(ctx: &dyn AssemblerContext) -> u16 {
@@ -220,6 +225,7 @@ fn apply_assume_directive(
     }
     if let Some(pbr) = update.pbr {
         state.insert(PROGRAM_BANK_KEY.to_string(), pbr as u32);
+        state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 1);
     }
     if let Some(dp) = update.dp {
         state.insert(DIRECT_PAGE_KEY.to_string(), dp as u32);

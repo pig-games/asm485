@@ -2458,6 +2458,26 @@ fn m65816_assume_dbr_applies_to_non_long_mnemonics() {
 }
 
 #[test]
+fn m65816_assume_dbr_rejects_low_bank_symbol_for_non_long_mnemonics() {
+    let mut symbols = SymbolTable::new();
+    assert_eq!(
+        symbols.add("target", 0x0040, false, SymbolVisibility::Private, None),
+        SymbolTableResult::Ok
+    );
+    assert_eq!(symbols.update("target", 0x0040), SymbolTableResult::Ok);
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    LDX target", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=$12"));
+}
+
+#[test]
 fn m65816_forward_label_uses_dbr_for_unresolved_long_sizing() {
     let assembler = run_passes(&[
         ".module main",
@@ -2644,6 +2664,82 @@ fn m65816_assume_pbr_controls_24bit_jmp_operands() {
     let status = process_line(&mut asm, "    JMP $123456", 0, 2);
     assert_eq!(status, LineStatus::Error);
     assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
+fn m65816_default_pbr_follows_current_address_bank() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $340000",
+        "    JMP $343210",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x340000, 0x4C), (0x340001, 0x10), (0x340002, 0x32)]
+    );
+}
+
+#[test]
+fn m65816_cpu_switch_reset_restores_inferred_pbr_bank() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".assume pbr=$12",
+        ".cpu 6502",
+        ".cpu 65816",
+        ".org $340000",
+        "    JMP $343210",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x340000, 0x4C), (0x340001, 0x10), (0x340002, 0x32)]
+    );
+}
+
+#[test]
+fn m65816_assume_pbr_rejects_low_bank_symbol_for_jmp_forms() {
+    let mut symbols = SymbolTable::new();
+    assert_eq!(
+        symbols.add("target", 0x0040, false, SymbolVisibility::Private, None),
+        SymbolTableResult::Ok
+    );
+    assert_eq!(symbols.update("target", 0x0040), SymbolTableResult::Ok);
+    let registry = default_registry();
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP target", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$12"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP (target)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$12"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP (target,X)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$12"));
 }
 
 #[test]

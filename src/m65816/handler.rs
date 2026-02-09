@@ -347,13 +347,22 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
                     let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                     let symbol_based = Self::expr_has_symbol_references(expr);
+                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
 
-                    if symbol_based
-                        && (0..=0xFFFF).contains(&val)
-                        && assumed_bank != 0
-                        && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong)
-                    {
-                        return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
+                    if symbol_based && (0..=0xFFFF).contains(&val) && assumed_bank != 0 {
+                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
+                            return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
+                        }
+                        if !symbol_unstable
+                            && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
+                        {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                0,
+                                assumed_bank,
+                                assumed_key,
+                            ));
+                        }
                     }
 
                     if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
@@ -412,13 +421,22 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_bank = Self::assumed_absolute_bank(&upper_mnemonic, ctx);
                     let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                     let symbol_based = Self::expr_has_symbol_references(expr);
+                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
 
-                    if symbol_based
-                        && (0..=0xFFFF).contains(&val)
-                        && assumed_bank != 0
-                        && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX)
-                    {
-                        return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
+                    if symbol_based && (0..=0xFFFF).contains(&val) && assumed_bank != 0 {
+                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
+                            return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
+                        }
+                        if !symbol_unstable
+                            && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
+                        {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                0,
+                                assumed_bank,
+                                assumed_key,
+                            ));
+                        }
                     }
 
                     if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
@@ -461,11 +479,27 @@ impl CpuHandler for M65816CpuHandler {
                 FamilyOperand::DirectY(expr) => {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
+                    let symbol_based = Self::expr_has_symbol_references(expr);
+                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+                    let assumed_bank = state::data_bank(ctx);
+
+                    if symbol_based
+                        && (0..=0xFFFF).contains(&val)
+                        && assumed_bank != 0
+                        && !symbol_unstable
+                        && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
+                    {
+                        return Err(Self::bank_mismatch_error(
+                            val as u32,
+                            0,
+                            assumed_bank,
+                            "dbr",
+                        ));
+                    }
 
                     if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
                         let absolute_bank = ((val as u32) >> 16) as u8;
                         let absolute_value = (val as u32 & 0xFFFF) as u16;
-                        let assumed_bank = state::data_bank(ctx);
                         if absolute_bank == assumed_bank
                             && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
                         {
@@ -500,14 +534,28 @@ impl CpuHandler for M65816CpuHandler {
                 FamilyOperand::IndexedIndirectX(expr) => {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
+                    let symbol_based = Self::expr_has_symbol_references(expr);
+                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
 
                     if upper_mnemonic == "JMP" {
+                        let assumed_bank = state::program_bank(ctx);
+                        if symbol_based
+                            && (0..=0xFFFF).contains(&val)
+                            && assumed_bank != 0
+                            && !symbol_unstable
+                        {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                0,
+                                assumed_bank,
+                                "pbr",
+                            ));
+                        }
                         if (0..=0xFFFF).contains(&val) {
                             return Ok(vec![Operand::AbsoluteIndexedIndirect(val as u16, span)]);
                         }
                         if (0..=0xFF_FFFF).contains(&val) {
                             let absolute_bank = ((val as u32) >> 16) as u8;
-                            let assumed_bank = state::program_bank(ctx);
                             if absolute_bank == assumed_bank {
                                 return Ok(vec![Operand::AbsoluteIndexedIndirect(
                                     (val as u32 & 0xFFFF) as u16,
@@ -563,13 +611,27 @@ impl CpuHandler for M65816CpuHandler {
                 FamilyOperand::Indirect(expr) => {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
+                    let symbol_based = Self::expr_has_symbol_references(expr);
+                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
                     if upper_mnemonic == "JMP" {
+                        let assumed_bank = state::program_bank(ctx);
+                        if symbol_based
+                            && (0..=0xFFFF).contains(&val)
+                            && assumed_bank != 0
+                            && !symbol_unstable
+                        {
+                            return Err(Self::bank_mismatch_error(
+                                val as u32,
+                                0,
+                                assumed_bank,
+                                "pbr",
+                            ));
+                        }
                         if (0..=0xFFFF).contains(&val) {
                             return Ok(vec![Operand::Indirect(val as u16, span)]);
                         }
                         if (0..=0xFF_FFFF).contains(&val) {
                             let absolute_bank = ((val as u32) >> 16) as u8;
-                            let assumed_bank = state::program_bank(ctx);
                             if absolute_bank == assumed_bank {
                                 return Ok(vec![Operand::Indirect(
                                     (val as u32 & 0xFFFF) as u16,

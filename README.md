@@ -35,6 +35,8 @@ core addressing and output/layout workflows.
   mnemonics via `REP`/`SEP` M/X state tracking.
 - Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`,
   including bank-aware absolute-vs-long and direct-page operand resolution.
+- For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
+  assembly address bank when no explicit `.assume pbr=...` is set.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),
@@ -42,7 +44,7 @@ core addressing and output/layout workflows.
 
 Current limits:
 - Full automatic banked CPU-state inference is not implemented yet;
-  use `.assume` for bank/state-sensitive assembly assumptions.
+  use `.assume` for DBR/DP and other bank/state-sensitive assumptions.
 - PRG output `loadaddr` must still fit in 16 bits.
 
 New 65816 examples:
