@@ -73,6 +73,13 @@ impl ImageStore {
         if self.write_error.is_some() {
             return;
         }
+        let Some(next_entries) = self.entries.checked_add(1) else {
+            self.write_error = Some(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Image entry count overflow",
+            ));
+            return;
+        };
         let mut buf = [0u8; 5];
         buf[..4].copy_from_slice(&addr.to_be_bytes());
         buf[4] = val;
@@ -80,7 +87,7 @@ impl ImageStore {
             self.write_error = Some(err);
             return;
         }
-        self.entries = self.entries.saturating_add(1);
+        self.entries = next_entries;
     }
 
     /// Store a contiguous slice of bytes starting at `addr`.
@@ -448,5 +455,18 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Address overflow while storing image slice"));
+    }
+
+    #[test]
+    fn store_reports_entry_count_overflow() {
+        let mut image = ImageStore::new(65536);
+        image.entries = usize::MAX;
+        image.store(0x1000, 0xaa);
+        let mut out = Vec::new();
+        let err = image
+            .write_hex_file(&mut out, None)
+            .expect_err("overflow should be reported");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("Image entry count overflow"));
     }
 }
