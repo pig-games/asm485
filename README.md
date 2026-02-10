@@ -48,6 +48,9 @@ core addressing and output/layout workflows.
 - A conservative `PEA $nnnn ... PLB` sequence inference is supported:
   it can infer `DBR` from the pushed literal low byte when no intervening
   stack mutation or control-flow invalidates the pending push source.
+- A conservative `PHB ... PLB` preservation rule is supported:
+  it keeps the existing `DBR` assumption state unchanged (including `dbr=auto`)
+  when no intervening stack mutation or control-flow invalidates the push source.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),

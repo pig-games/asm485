@@ -757,6 +757,9 @@ Currently implemented 65816-specific additions in this branch:
 - a conservative `PEA $nnnn ... PLB` inference can set `DBR` from the
   pushed literal low byte when no intervening stack mutation or control-flow
   invalidates the pending push source
+- a conservative `PHB ... PLB` preservation rule keeps existing `DBR`
+  assumption state unchanged (including `dbr=auto`) when no intervening
+  stack mutation or control-flow invalidates the push source
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit

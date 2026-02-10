@@ -2486,6 +2486,58 @@ fn m65816_phk_plb_does_not_infer_dbr_when_pbr_is_not_explicit() {
 }
 
 #[test]
+fn m65816_phb_plb_preserves_explicit_dbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    PHB",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x8B),
+            (0x0001, 0xAB),
+            (0x0002, 0xAD),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phb_plb_does_not_force_stale_bank_when_dbr_auto() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume dbr=auto",
+        "    PHB",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0x8B),
+            (0x123401, 0xAB),
+            (0x123402, 0xAD),
+            (0x123403, 0x56),
+            (0x123404, 0x34),
+        ]
+    );
+}
+
+#[test]
 fn m65816_phk_plb_infers_across_stack_neutral_instruction() {
     let assembler = run_passes(&[
         ".module main",

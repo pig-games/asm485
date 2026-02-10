@@ -242,6 +242,7 @@ fn apply_bank_transfer_state(
 
     let next_push = if upper_mnemonic == "PLB" {
         let inferred = if pending_push == BANK_PUSH_PBR
+            && state.get(PROGRAM_BANK_EXPLICIT_KEY).copied().unwrap_or(0) != 0
             && state.get(PROGRAM_BANK_KNOWN_KEY).copied().unwrap_or(1) != 0
         {
             let pbr = state.get(PROGRAM_BANK_KEY).copied().unwrap_or(0) & 0xFF;
@@ -249,11 +250,9 @@ fn apply_bank_transfer_state(
             state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
             state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
             true
-        } else if pending_push == BANK_PUSH_DBR
-            && state.get(DATA_BANK_KNOWN_KEY).copied().unwrap_or(1) != 0
-        {
-            state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
-            state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
+        } else if pending_push == BANK_PUSH_DBR {
+            // PHB...PLB with no invalidating instruction in between preserves DBR state,
+            // including explicit-vs-auto policy and known/unknown status.
             true
         } else if matches!(pending_push, BANK_PUSH_A_IMM | BANK_PUSH_LITERAL) {
             state.insert(DATA_BANK_KEY.to_string(), pending_push_value & 0xFF);
