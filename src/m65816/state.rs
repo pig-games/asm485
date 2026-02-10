@@ -498,6 +498,18 @@ fn apply_direct_page_transfer_state(
             state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 0);
         }
         pending_push
+    } else if upper_mnemonic == "TDC" {
+        if state.get(DIRECT_PAGE_KNOWN_KEY).copied().unwrap_or(1) != 0 {
+            let value = state.get(DIRECT_PAGE_KEY).copied().unwrap_or(0) & 0xFFFF;
+            state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+            state.insert(ACCUMULATOR_WORD_IMMEDIATE_VALUE_KEY.to_string(), value);
+            state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+            state.insert(ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(), value & 0xFF);
+        } else {
+            state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+            state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+        }
+        pending_push
     } else if mnemonic_mutates_stack(upper_mnemonic)
         || mnemonic_changes_control_flow(upper_mnemonic)
     {

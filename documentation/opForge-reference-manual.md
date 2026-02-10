@@ -752,6 +752,9 @@ Currently implemented 65816-specific additions in this branch:
   `PHD ... PLD` preserves DP known/unknown state unless invalidated
 - conservative `LDA #$nnnn ... PHA ... PLD` inference is supported when
   the accumulator is 16-bit at `PHA` time; 8-bit pushes do not infer DP
+- conservative `TDC` transfer chains participate in DP inference:
+  `TDC ... TCD` preserves known DP assumptions and `TDC ... PHA ... PLD`
+  can infer DP when `PHA` pushes 16-bit A
 - without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
   current assembly address bank
 - `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return

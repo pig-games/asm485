@@ -56,6 +56,8 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     (`PEA $nnnn ... PLD` can infer `DP` from pushed literal word; `PHD ... PLD` preserves current DP known/unknown state unless invalidated)
   - conservative `LDA #$nnnn ... PHA ... PLD` direct-page inference
     (infers `DP` only when accumulator width is 16-bit at `PHA` time; 8-bit pushes do not infer DP)
+  - conservative `TDC` transfer-chain direct-page inference
+    (`TDC ... TCD` preserves known DP assumptions and `TDC ... PHA ... PLD` can infer DP with 16-bit A pushes)
   - automatic `PBR` default inference for `JMP`/`JSR` from current assembly bank
     when `.assume pbr=...` is not explicitly set
   - `.assume dbr=auto` / `.assume pbr=auto` to clear explicit bank overrides
@@ -153,5 +155,6 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - conservative `TCD` direct-page inference is supported for tracked 16-bit `LDA #imm` sources
 - conservative `PEA ... PLD` and `PHD ... PLD` direct-page inference/preservation are supported
 - conservative `LDA #imm16 ... PHA ... PLD` direct-page inference is supported for 16-bit A pushes
+- conservative `TDC ... TCD` and `TDC ... PHA ... PLD` direct-page transfer chains are supported
 - full automatic banked CPU-state inference is still planned (`.assume` remains the explicit control for DBR/DP and other assumptions)
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics

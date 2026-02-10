@@ -3505,6 +3505,89 @@ fn m65816_lda_imm16_pha_pld_does_not_infer_when_sep_forces_8bit_push() {
 }
 
 #[test]
+fn m65816_tdc_tcd_preserves_known_direct_page_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$20AA",
+        "    TDC",
+        "    TCD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x7B),
+            (0x0001, 0x5B),
+            (0x0002, 0xA5),
+            (0x0003, 0x22),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tdc_tcd_does_not_restore_stale_direct_page_when_unknown() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$20AA",
+        "    LDA #$12",
+        "    TCD",
+        "    TDC",
+        "    TCD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x5B),
+            (0x0003, 0x7B),
+            (0x0004, 0x5B),
+            (0x0005, 0xAD),
+            (0x0006, 0xCC),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tdc_pha_pld_infers_direct_page_when_accumulator_is_16bit() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$20AA",
+        "    REP #$20",
+        "    TDC",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0x7B),
+            (0x0003, 0x48),
+            (0x0004, 0x2B),
+            (0x0005, 0xA5),
+            (0x0006, 0x22),
+        ]
+    );
+}
+
+#[test]
 fn m65816_assume_pbr_controls_24bit_jmp_operands() {
     let assembler = run_passes(&[
         ".module main",

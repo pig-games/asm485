@@ -43,6 +43,9 @@ core addressing and output/layout workflows.
   and `PHD ... PLD` preserves current DP known/unknown state when not invalidated.
 - Conservative `LDA #$nnnn ... PHA ... PLD` inference is supported when A is
   16-bit at push time; if A is 8-bit (for example after `SEP #$20`), DP is not inferred.
+- Conservative `TDC` transfer chains are supported for DP inference:
+  `TDC ... TCD` preserves known DP assumptions and `TDC ... PHA ... PLD`
+  can infer DP (with the same 16-bit A push requirement).
 - Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
   clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
