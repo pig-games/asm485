@@ -12,9 +12,12 @@ use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
+use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
+use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
+use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::collections::HashMap;
@@ -2157,6 +2160,10 @@ fn m65816_prioritized_instruction_encoding() {
         vec![0x22, 0x56, 0x34, 0x12]
     );
     assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    JMP [$1234]"),
+        vec![0xDC, 0x34, 0x12]
+    );
+    assert_eq!(
         assemble_bytes(m65816_cpu_id, "    JML [$1234]"),
         vec![0xDC, 0x34, 0x12]
     );
@@ -2171,6 +2178,16 @@ fn m65816_prioritized_instruction_encoding() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    REP #$30"),
         vec![0xC2, 0x30]
+    );
+    assert_eq!(assemble_bytes(m65816_cpu_id, "    TXY"), vec![0x9B]);
+    assert_eq!(assemble_bytes(m65816_cpu_id, "    TYX"), vec![0xBB]);
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    BRK #$12"),
+        vec![0x00, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    JSR ($1234,X)"),
+        vec![0xFC, 0x34, 0x12]
     );
 }
 
@@ -3983,6 +4000,89 @@ fn m65816_direct_page_indirect_long_forms_encode() {
 }
 
 #[test]
+fn m65816_effective_opcode_space_covers_all_256_opcodes() {
+    let is_disallowed_m65c02_mnemonic = |mnemonic: &str| {
+        matches!(
+            mnemonic,
+            "RMB0"
+                | "RMB1"
+                | "RMB2"
+                | "RMB3"
+                | "RMB4"
+                | "RMB5"
+                | "RMB6"
+                | "RMB7"
+                | "SMB0"
+                | "SMB1"
+                | "SMB2"
+                | "SMB3"
+                | "SMB4"
+                | "SMB5"
+                | "SMB6"
+                | "SMB7"
+                | "BBR0"
+                | "BBR1"
+                | "BBR2"
+                | "BBR3"
+                | "BBR4"
+                | "BBR5"
+                | "BBR6"
+                | "BBR7"
+                | "BBS0"
+                | "BBS1"
+                | "BBS2"
+                | "BBS3"
+                | "BBS4"
+                | "BBS5"
+                | "BBS6"
+                | "BBS7"
+        )
+    };
+
+    let mut by_mnemonic_mode: HashMap<(String, String), u8> = HashMap::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        by_mnemonic_mode.insert(
+            (entry.mnemonic.to_string(), format!("{:?}", entry.mode)),
+            entry.opcode,
+        );
+    }
+
+    for entry in M65C02_INSTRUCTION_TABLE {
+        if is_disallowed_m65c02_mnemonic(entry.mnemonic) {
+            continue;
+        }
+        by_mnemonic_mode.insert(
+            (entry.mnemonic.to_string(), format!("{:?}", entry.mode)),
+            entry.opcode,
+        );
+    }
+
+    for entry in M65816_INSTRUCTION_TABLE {
+        by_mnemonic_mode.insert(
+            (entry.mnemonic.to_string(), format!("{:?}", entry.mode)),
+            entry.opcode,
+        );
+    }
+
+    let mut covered = [false; 256];
+    for opcode in by_mnemonic_mode.values() {
+        covered[*opcode as usize] = true;
+    }
+
+    let missing: Vec<usize> = covered
+        .iter()
+        .enumerate()
+        .filter_map(|(opcode, present)| if *present { None } else { Some(opcode) })
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "missing effective 65816 opcodes: {missing:?}"
+    );
+}
+
+#[test]
 fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     let (status, message) = assemble_line_status(m6502_cpu_id, "    BRL $0005");
     assert_eq!(status, LineStatus::Error);
@@ -4011,6 +4111,25 @@ fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     assert!(message
         .unwrap_or_default()
         .contains("No instruction found for PEA"));
+}
+
+#[test]
+fn m65816_rejects_m65c02_only_bit_branch_and_bit_memory_mnemonics() {
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    RMB0 $12");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("RMB0"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    SMB7 $12");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("SMB7"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    BBR0 $12,$34");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("BBR0"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    BBS7 $12,$34");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("BBS7"));
 }
 
 #[test]

@@ -35,6 +35,44 @@ impl M65816CpuHandler {
         mnemonic.to_ascii_uppercase()
     }
 
+    fn is_m65c02_only_mnemonic_for_65816(upper_mnemonic: &str) -> bool {
+        matches!(
+            upper_mnemonic,
+            "RMB0"
+                | "RMB1"
+                | "RMB2"
+                | "RMB3"
+                | "RMB4"
+                | "RMB5"
+                | "RMB6"
+                | "RMB7"
+                | "SMB0"
+                | "SMB1"
+                | "SMB2"
+                | "SMB3"
+                | "SMB4"
+                | "SMB5"
+                | "SMB6"
+                | "SMB7"
+                | "BBR0"
+                | "BBR1"
+                | "BBR2"
+                | "BBR3"
+                | "BBR4"
+                | "BBR5"
+                | "BBR6"
+                | "BBR7"
+                | "BBS0"
+                | "BBS1"
+                | "BBS2"
+                | "BBS3"
+                | "BBS4"
+                | "BBS5"
+                | "BBS6"
+                | "BBS7"
+        )
+    }
+
     fn resolve_direct(
         &self,
         mnemonic: &str,
@@ -332,6 +370,11 @@ impl CpuHandler for M65816CpuHandler {
         ctx: &dyn AssemblerContext,
     ) -> Result<Vec<Operand>, String> {
         let upper_mnemonic = Self::upper_mnemonic(mnemonic);
+        if Self::is_m65c02_only_mnemonic_for_65816(&upper_mnemonic) {
+            return Err(format!(
+                "Mnemonic {upper_mnemonic} is not supported on CPU 65816"
+            ));
+        }
 
         if family_operands.len() == 1 {
             match &family_operands[0] {
@@ -609,7 +652,7 @@ impl CpuHandler for M65816CpuHandler {
                     let symbol_based = Self::expr_has_symbol_references(expr);
                     let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
 
-                    if upper_mnemonic == "JMP" {
+                    if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
                         let assumed_bank = state::program_bank(ctx);
                         let assumed_known = state::program_bank_known(ctx);
                         if symbol_based && (0..=0xFFFF).contains(&val) && !symbol_unstable {
@@ -774,11 +817,15 @@ impl CpuHandler for M65816CpuHandler {
                 FamilyOperand::IndirectLong(expr) => {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
-                    if Self::upper_mnemonic(mnemonic) == "JML" {
+                    if matches!(Self::upper_mnemonic(mnemonic).as_str(), "JML" | "JMP") {
                         if (0..=65535).contains(&val) {
                             return Ok(vec![Operand::IndirectLong(val as u16, span)]);
                         }
-                        return Err(format!("JML indirect operand {} out of 16-bit range", val));
+                        return Err(format!(
+                            "{} indirect operand {} out of 16-bit range",
+                            Self::upper_mnemonic(mnemonic),
+                            val
+                        ));
                     }
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::DirectPageIndirectLong(val as u8, span)]);
@@ -852,6 +899,13 @@ impl CpuHandler for M65816CpuHandler {
         operands: &[Operand],
         ctx: &dyn AssemblerContext,
     ) -> EncodeResult<Vec<u8>> {
+        let upper_mnemonic = Self::upper_mnemonic(mnemonic);
+        if Self::is_m65c02_only_mnemonic_for_65816(&upper_mnemonic) {
+            return EncodeResult::error(format!(
+                "Mnemonic {upper_mnemonic} is not supported on CPU 65816"
+            ));
+        }
+
         let mode = if operands.is_empty() {
             AddressMode::Implied
         } else {
@@ -875,6 +929,11 @@ impl CpuHandler for M65816CpuHandler {
     }
 
     fn supports_mnemonic(&self, mnemonic: &str) -> bool {
+        let upper_mnemonic = Self::upper_mnemonic(mnemonic);
+        if Self::is_m65c02_only_mnemonic_for_65816(&upper_mnemonic) {
+            return false;
+        }
+
         has_mnemonic(mnemonic)
             || <crate::m65c02::M65C02CpuHandler as CpuHandler>::supports_mnemonic(
                 &self.baseline,

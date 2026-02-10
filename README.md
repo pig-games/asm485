@@ -22,6 +22,7 @@ core addressing and output/layout workflows.
 - CPU names: `65816` (canonical), `65c816`, `w65c816`
 - Includes 65816 instruction support currently implemented in this branch:
   - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+  - long-indirect jump alias: `JMP [$nnnn]` (same encoding as `JML [$nnnn]`)
   - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
   - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
   - long memory forms: `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC` with `$llhhhh` and `$llhhhh,X`

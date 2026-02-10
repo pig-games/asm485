@@ -40,6 +40,7 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - `.cpu 65816` plus aliases `.cpu 65c816` and `.cpu w65c816`
   - implemented 65816 instruction support:
     - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+    - long-indirect jump alias: `JMP [$nnnn]` (same encoding as `JML [$nnnn]`)
     - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
     - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
     - block move: `MVN`, `MVP`

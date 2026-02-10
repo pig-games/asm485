@@ -574,6 +574,7 @@ Instruction mnemonics are selected by `.cpu`:
   extended `BIT` modes.
 - 65816 additions currently implemented include:
   - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+  - long-indirect jump alias: `JMP [$nnnn]` (same encoding as `JML [$nnnn]`)
   - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
   - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
   - block move: `MVN`, `MVP`
@@ -736,6 +737,7 @@ Instruction extensions:
 
 Currently implemented 65816-specific additions in this branch:
 - `BRL`, `JML`, `JSL`, `RTL`
+- `JMP [$nnnn]` (alias for `JML [$nnnn]`)
 - `REP`, `SEP`, `XCE`, `XBA`
 - `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
 - `PEA`, `PEI`, `PER`, `COP`, `WDM`

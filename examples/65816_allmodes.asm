@@ -12,7 +12,8 @@
 long_target:
         jml $C0FFEE         ; 5C EE FF C0
         jsl $00ABCD         ; 22 CD AB 00
-        jml [$3456]         ; DC 56 34
+        jmp [$3456]         ; DC 56 34
+        jml [$3456]         ; DC 56 34 (alias)
         rtl                 ; 6B
 
 ; ========================================
