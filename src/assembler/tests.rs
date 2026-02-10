@@ -3330,6 +3330,115 @@ fn m65816_tcd_with_unknown_a_clears_direct_page_assumption() {
 }
 
 #[test]
+fn m65816_pea_pld_infers_direct_page_from_pushed_literal() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    PEA $20AA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0xAA),
+            (0x0002, 0x20),
+            (0x0003, 0x2B),
+            (0x0004, 0xA5),
+            (0x0005, 0x22),
+        ]
+    );
+}
+
+#[test]
+fn m65816_pea_pld_inference_is_cleared_by_intervening_stack_mutation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    PEA $20AA",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0xAA),
+            (0x0002, 0x20),
+            (0x0003, 0x48),
+            (0x0004, 0x2B),
+            (0x0005, 0xAD),
+            (0x0006, 0xCC),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phd_pld_preserves_direct_page_assumption() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    PHD",
+        "    PLD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x0B),
+            (0x0001, 0x2B),
+            (0x0002, 0xA5),
+            (0x0003, 0xAA),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phd_pld_preserves_unknown_direct_page_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA #$12",
+        "    TCD",
+        "    PHD",
+        "    PLD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x5B),
+            (0x0003, 0x0B),
+            (0x0004, 0x2B),
+            (0x0005, 0xAD),
+            (0x0006, 0xAA),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
 fn m65816_assume_pbr_controls_24bit_jmp_operands() {
     let assembler = run_passes(&[
         ".module main",

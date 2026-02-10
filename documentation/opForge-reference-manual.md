@@ -747,6 +747,9 @@ Currently implemented 65816-specific additions in this branch:
 - conservative `TCD`-based direct-page inference is supported:
   `LDA #$nnnn` (tracked 16-bit immediate) followed by `TCD` updates inferred
   `DP`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions
+- conservative direct-page stack-provenance handling is also supported:
+  `PEA $nnnn ... PLD` can infer `DP` from pushed literal word and
+  `PHD ... PLD` preserves DP known/unknown state unless invalidated
 - without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
   current assembly address bank
 - `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return

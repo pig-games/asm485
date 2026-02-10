@@ -33,12 +33,17 @@ pub const INDEX_X_IMMEDIATE_KNOWN_KEY: &str = "m65816.index_x_immediate_known";
 pub const INDEX_X_IMMEDIATE_VALUE_KEY: &str = "m65816.index_x_immediate_value";
 pub const INDEX_Y_IMMEDIATE_KNOWN_KEY: &str = "m65816.index_y_immediate_known";
 pub const INDEX_Y_IMMEDIATE_VALUE_KEY: &str = "m65816.index_y_immediate_value";
+pub const DP_PUSH_SOURCE_KEY: &str = "m65816.dp_push_source";
+pub const DP_PUSH_VALUE_KEY: &str = "m65816.dp_push_value";
 
 const BANK_PUSH_NONE: u32 = 0;
 const BANK_PUSH_PBR: u32 = 1;
 const BANK_PUSH_DBR: u32 = 2;
 const BANK_PUSH_A_IMM: u32 = 3;
 const BANK_PUSH_LITERAL: u32 = 4;
+const DP_PUSH_NONE: u32 = 0;
+const DP_PUSH_DP: u32 = 1;
+const DP_PUSH_LITERAL: u32 = 2;
 
 pub fn initial_state() -> HashMap<String, u32> {
     let mut state = HashMap::new();
@@ -63,6 +68,8 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(INDEX_X_IMMEDIATE_VALUE_KEY.to_string(), 0);
     state.insert(INDEX_Y_IMMEDIATE_KNOWN_KEY.to_string(), 0);
     state.insert(INDEX_Y_IMMEDIATE_VALUE_KEY.to_string(), 0);
+    state.insert(DP_PUSH_SOURCE_KEY.to_string(), DP_PUSH_NONE);
+    state.insert(DP_PUSH_VALUE_KEY.to_string(), 0);
     state
 }
 
@@ -133,7 +140,7 @@ pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut Hash
     apply_accumulator_immediate_state(&upper, operands, state);
     apply_index_immediate_state(&upper, operands, state);
     apply_bank_transfer_state(&upper, operands, state);
-    apply_direct_page_transfer_state(&upper, state);
+    apply_direct_page_transfer_state(&upper, operands, state);
 }
 
 fn apply_mx_width_state(
@@ -413,8 +420,47 @@ fn apply_index_immediate_state(
     }
 }
 
-fn apply_direct_page_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u32>) {
-    if upper_mnemonic == "TCD" {
+fn apply_direct_page_transfer_state(
+    upper_mnemonic: &str,
+    operands: &[Operand],
+    state: &mut HashMap<String, u32>,
+) {
+    let pending_push = state
+        .get(DP_PUSH_SOURCE_KEY)
+        .copied()
+        .unwrap_or(DP_PUSH_NONE);
+    let pending_push_value = state.get(DP_PUSH_VALUE_KEY).copied().unwrap_or(0);
+
+    let next_push = if upper_mnemonic == "PLD" {
+        let inferred = if pending_push == DP_PUSH_DP {
+            // PHD...PLD with no intervening invalidation preserves DP state.
+            true
+        } else if pending_push == DP_PUSH_LITERAL {
+            state.insert(DIRECT_PAGE_KEY.to_string(), pending_push_value & 0xFFFF);
+            state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
+            true
+        } else {
+            false
+        };
+        if !inferred {
+            state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 0);
+        }
+        DP_PUSH_NONE
+    } else if upper_mnemonic == "PHD" {
+        DP_PUSH_DP
+    } else if upper_mnemonic == "PEA" {
+        let value = match operands.first() {
+            Some(Operand::Absolute(v, _)) => Some((*v as u32) & 0xFFFF),
+            Some(Operand::ImmediateWord(v, _)) => Some((*v as u32) & 0xFFFF),
+            _ => None,
+        };
+        if let Some(value) = value {
+            state.insert(DP_PUSH_VALUE_KEY.to_string(), value);
+            DP_PUSH_LITERAL
+        } else {
+            DP_PUSH_NONE
+        }
+    } else if upper_mnemonic == "TCD" {
         if state
             .get(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY)
             .copied()
@@ -431,8 +477,18 @@ fn apply_direct_page_transfer_state(upper_mnemonic: &str, state: &mut HashMap<St
         } else {
             state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 0);
         }
-    } else if upper_mnemonic == "PLD" {
-        state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 0);
+        pending_push
+    } else if mnemonic_mutates_stack(upper_mnemonic)
+        || mnemonic_changes_control_flow(upper_mnemonic)
+    {
+        DP_PUSH_NONE
+    } else {
+        pending_push
+    };
+
+    state.insert(DP_PUSH_SOURCE_KEY.to_string(), next_push);
+    if next_push != DP_PUSH_LITERAL {
+        state.insert(DP_PUSH_VALUE_KEY.to_string(), 0);
     }
 }
 

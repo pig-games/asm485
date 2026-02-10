@@ -38,6 +38,9 @@ core addressing and output/layout workflows.
 - A conservative `TCD`-based direct-page inference is supported:
   `LDA #$nnnn` (tracked 16-bit immediate) followed by `TCD` updates inferred
   `DP`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions.
+- Conservative `PEA...PLD` and `PHD...PLD` direct-page stack-provenance rules
+  are supported: `PEA $nnnn ... PLD` can infer `DP` from pushed literal word,
+  and `PHD ... PLD` preserves current DP known/unknown state when not invalidated.
 - Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
   clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
