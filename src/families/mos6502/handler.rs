@@ -8,7 +8,7 @@ use crate::core::family::{AssemblerContext, EncodeResult, FamilyHandler, FamilyP
 use crate::core::parser::Expr;
 use crate::core::tokenizer::Span;
 use crate::families::mos6502::is_register;
-use crate::families::mos6502::operand::{AddressMode, FamilyOperand, Operand};
+use crate::families::mos6502::operand::{AddressMode, FamilyOperand, Operand, OperandForce};
 use crate::families::mos6502::table::{has_mnemonic, lookup_instruction};
 
 /// Family handler for MOS 6502 family.
@@ -36,6 +36,20 @@ impl MOS6502FamilyHandler {
 
     fn is_block_move_instruction(mnemonic: &str) -> bool {
         matches!(mnemonic.to_ascii_uppercase().as_str(), "MVN" | "MVP")
+    }
+
+    fn parse_force_suffix(expr: &Expr) -> Option<OperandForce> {
+        let text = match expr {
+            Expr::Identifier(name, _) | Expr::Register(name, _) => name,
+            _ => return None,
+        };
+        match text.to_ascii_lowercase().as_str() {
+            "d" => Some(OperandForce::DirectPage),
+            "b" => Some(OperandForce::DataBank),
+            "k" => Some(OperandForce::ProgramBank),
+            "l" => Some(OperandForce::Long),
+            _ => None,
+        }
     }
 
     /// Parse a single expression into a FamilyOperand.
@@ -124,6 +138,20 @@ impl FamilyHandler for MOS6502FamilyHandler {
             ]);
         }
 
+        // MVN/MVP block move source/destination bank operands
+        if exprs.len() == 2 && Self::is_block_move_instruction(mnemonic) {
+            let span = Span {
+                line: expr_span(&exprs[0]).line,
+                col_start: expr_span(&exprs[0]).col_start,
+                col_end: expr_span(&exprs[1]).col_end,
+            };
+            return Ok(vec![FamilyOperand::BlockMove {
+                src: exprs[0].clone(),
+                dst: exprs[1].clone(),
+                span,
+            }]);
+        }
+
         // Handle indexed modes that come as separate expressions
         // e.g., "LDA $20,X" might come as [expr($20), expr(X)]
         if exprs.len() == 2 {
@@ -165,20 +193,20 @@ impl FamilyHandler for MOS6502FamilyHandler {
                     return Ok(vec![FamilyOperand::StackRelative(exprs[0].clone())]);
                 }
             }
-        }
 
-        // MVN/MVP block move source/destination bank operands
-        if exprs.len() == 2 && Self::is_block_move_instruction(mnemonic) {
-            let span = Span {
-                line: expr_span(&exprs[0]).line,
-                col_start: expr_span(&exprs[0]).col_start,
-                col_end: expr_span(&exprs[1]).col_end,
-            };
-            return Ok(vec![FamilyOperand::BlockMove {
-                src: exprs[0].clone(),
-                dst: exprs[1].clone(),
-                span,
-            }]);
+            if let Some(force) = Self::parse_force_suffix(&exprs[1]) {
+                let base = self.parse_single_operand(&exprs[0])?;
+                let span = Span {
+                    line: expr_span(&exprs[0]).line,
+                    col_start: expr_span(&exprs[0]).col_start,
+                    col_end: expr_span(&exprs[1]).col_end,
+                };
+                return Ok(vec![FamilyOperand::Forced {
+                    inner: Box::new(base),
+                    force,
+                    span,
+                }]);
+            }
         }
 
         // Single operand

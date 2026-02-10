@@ -239,6 +239,7 @@ impl CpuHandler for M6502CpuHandler {
                 | FamilyOperand::IndirectLongY(_)
                 | FamilyOperand::StackRelative(_)
                 | FamilyOperand::StackRelativeIndirectIndexedY(_)
+                | FamilyOperand::Forced { .. }
                 | FamilyOperand::BlockMove { .. } => {
                     return Err("65816-only addressing mode not supported on base 6502".to_string());
                 }

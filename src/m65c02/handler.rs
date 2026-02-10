@@ -333,6 +333,7 @@ impl CpuHandler for M65C02CpuHandler {
                 | FamilyOperand::IndirectLongY(_)
                 | FamilyOperand::StackRelative(_)
                 | FamilyOperand::StackRelativeIndirectIndexedY(_)
+                | FamilyOperand::Forced { .. }
                 | FamilyOperand::BlockMove { .. } => {
                     return Err("65816-only addressing mode not supported on 65C02".to_string());
                 }

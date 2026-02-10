@@ -40,7 +40,7 @@ mod table;
 
 pub use cpu_handler::M6502CpuHandler;
 pub use handler::MOS6502FamilyHandler;
-pub use operand::{AddressMode, FamilyOperand, Operand};
+pub use operand::{AddressMode, FamilyOperand, Operand, OperandForce};
 pub use table::{has_mnemonic, lookup_instruction, FAMILY_INSTRUCTION_TABLE};
 
 /// Check if an identifier is a register for the MOS 6502 family.

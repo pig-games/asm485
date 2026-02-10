@@ -3775,6 +3775,117 @@ fn m65816_assume_pbr_controls_24bit_jmp_indirect_operands() {
 }
 
 #[test]
+fn m65816_alias_directives_set_runtime_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $120000",
+        ".al",
+        ".xl",
+        ".databank auto",
+        ".dpage $2000",
+        "    LDA #$1234",
+        "    LDX #$5678",
+        "    LDA $123456,l",
+        "    LDA $20F0,d",
+        "    JMP $123210,k",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x120000, 0xA9),
+            (0x120001, 0x34),
+            (0x120002, 0x12),
+            (0x120003, 0xA2),
+            (0x120004, 0x78),
+            (0x120005, 0x56),
+            (0x120006, 0xAF),
+            (0x120007, 0x56),
+            (0x120008, 0x34),
+            (0x120009, 0x12),
+            (0x12000A, 0xA5),
+            (0x12000B, 0xF0),
+            (0x12000C, 0x4C),
+            (0x12000D, 0x10),
+            (0x12000E, 0x32),
+        ]
+    );
+}
+
+#[test]
+fn m65816_alias_directives_validate_operands() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, ".al 1", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".al does not accept operands"));
+
+    let status = process_line(&mut asm, ".databank", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".databank expects 1 operand"));
+}
+
+#[test]
+fn m65816_explicit_long_override_wins_over_assume_bank_choice() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $120000",
+        ".assume dbr=auto",
+        "    LDA $123456,l",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x120000, 0xAF),
+            (0x120001, 0x56),
+            (0x120002, 0x34),
+            (0x120003, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_explicit_force_rejects_invalid_context() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA $123456,k", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("Explicit addressing override ',k' is not valid"));
+
+    let status = process_line(&mut asm, "    JMP $123456,b", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("Explicit addressing override ',b' is not valid"));
+}
+
+#[test]
+fn m6502_rejects_65816_explicit_override_suffixes() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 6502", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA $10,d", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains("65816-only addressing mode"));
+}
+
+#[test]
 fn m65816_stack_relative_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA $10,S"),

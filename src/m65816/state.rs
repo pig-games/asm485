@@ -127,11 +127,61 @@ pub fn apply_runtime_directive(
     ctx: &dyn AssemblerContext,
     state: &mut HashMap<String, u32>,
 ) -> Result<bool, String> {
-    if !directive.eq_ignore_ascii_case("ASSUME") {
-        return Ok(false);
+    if directive.eq_ignore_ascii_case("ASSUME") {
+        apply_assume_directive(operands, ctx, state)?;
+        return Ok(true);
     }
-    apply_assume_directive(operands, ctx, state)?;
-    Ok(true)
+
+    if directive.eq_ignore_ascii_case("AL") {
+        ensure_no_operands("al", operands)?;
+        if emulation_mode_from_state(state) {
+            return Err(".al requires native mode (e=0)".to_string());
+        }
+        state.insert(ACCUMULATOR_8BIT_KEY.to_string(), 0);
+        return Ok(true);
+    }
+    if directive.eq_ignore_ascii_case("AS") {
+        ensure_no_operands("as", operands)?;
+        state.insert(ACCUMULATOR_8BIT_KEY.to_string(), 1);
+        return Ok(true);
+    }
+    if directive.eq_ignore_ascii_case("XL") {
+        ensure_no_operands("xl", operands)?;
+        if emulation_mode_from_state(state) {
+            return Err(".xl requires native mode (e=0)".to_string());
+        }
+        state.insert(INDEX_8BIT_KEY.to_string(), 0);
+        return Ok(true);
+    }
+    if directive.eq_ignore_ascii_case("XS") {
+        ensure_no_operands("xs", operands)?;
+        state.insert(INDEX_8BIT_KEY.to_string(), 1);
+        return Ok(true);
+    }
+    if directive.eq_ignore_ascii_case("DATABANK") || directive.eq_ignore_ascii_case("DBANK") {
+        ensure_operand_count("databank", operands, 1)?;
+        match parse_bank_value(&operands[0], ctx, "dbr")? {
+            AssumeBankValue::Explicit(value) => {
+                state.insert(DATA_BANK_KEY.to_string(), value as u32);
+                state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 1);
+                state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
+            }
+            AssumeBankValue::Auto => {
+                state.insert(DATA_BANK_EXPLICIT_KEY.to_string(), 0);
+                state.insert(DATA_BANK_KNOWN_KEY.to_string(), 1);
+            }
+        }
+        return Ok(true);
+    }
+    if directive.eq_ignore_ascii_case("DPAGE") {
+        ensure_operand_count("dpage", operands, 1)?;
+        let value = parse_u16_value(&operands[0], ctx, "dp")?;
+        state.insert(DIRECT_PAGE_KEY.to_string(), value as u32);
+        state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut HashMap<String, u32>) {
@@ -729,6 +779,23 @@ fn option_key(expr: &Expr) -> Option<String> {
         _ => return None,
     };
     Some(raw.to_ascii_lowercase())
+}
+
+fn ensure_no_operands(name: &str, operands: &[Expr]) -> Result<(), String> {
+    if operands.is_empty() {
+        return Ok(());
+    }
+    Err(format!(".{name} does not accept operands"))
+}
+
+fn ensure_operand_count(name: &str, operands: &[Expr], expected: usize) -> Result<(), String> {
+    if operands.len() == expected {
+        return Ok(());
+    }
+    Err(format!(
+        ".{name} expects {expected} operand{}",
+        if expected == 1 { "" } else { "s" }
+    ))
 }
 
 fn parse_width_value(expr: &Expr, ctx: &dyn AssemblerContext, name: &str) -> Result<bool, String> {

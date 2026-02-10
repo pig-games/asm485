@@ -11,6 +11,19 @@ use crate::core::assembler::expression::expr_span;
 use crate::core::parser::Expr;
 use crate::core::tokenizer::Span;
 
+/// Per-operand addressing override hint for 65816 ambiguous forms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperandForce {
+    /// Force direct-page addressing selection (`...,d`).
+    DirectPage,
+    /// Force 16-bit absolute/data-bank addressing selection (`...,b`).
+    DataBank,
+    /// Force program-bank (code-bank) 16-bit addressing selection (`...,k`).
+    ProgramBank,
+    /// Force long (24-bit) addressing selection (`...,l`).
+    Long,
+}
+
 /// Addressing modes for the MOS 6502 family.
 ///
 /// This enum includes all modes supported by any CPU in the family.
@@ -162,6 +175,13 @@ pub enum FamilyOperand {
 
     /// Block-move source/destination bank operands: src,dst
     BlockMove { src: Expr, dst: Expr, span: Span },
+
+    /// Per-operand addressing override wrapper (65816 explicit control).
+    Forced {
+        inner: Box<FamilyOperand>,
+        force: OperandForce,
+        span: Span,
+    },
 }
 
 impl FamilyOperand {
@@ -182,6 +202,7 @@ impl FamilyOperand {
             FamilyOperand::StackRelative(expr) => expr_span(expr),
             FamilyOperand::StackRelativeIndirectIndexedY(expr) => expr_span(expr),
             FamilyOperand::BlockMove { span, .. } => *span,
+            FamilyOperand::Forced { span, .. } => *span,
         }
     }
 }

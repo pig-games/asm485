@@ -6,7 +6,7 @@
 use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
 use crate::families::mos6502::{
     has_mnemonic as has_family_mnemonic, lookup_instruction as lookup_family_instruction,
-    AddressMode, FamilyOperand, Operand,
+    AddressMode, FamilyOperand, Operand, OperandForce,
 };
 use crate::m65816::instructions::{has_mnemonic, lookup_instruction};
 use crate::m65816::state;
@@ -354,6 +354,23 @@ impl M65816CpuHandler {
             "Unable to resolve 24-bit bank because .assume {assumed_bank_key}=... is unknown; set .assume {assumed_bank_key}=$00..$FF or {assumed_bank_key}=auto"
         )
     }
+
+    fn force_suffix(force: OperandForce) -> &'static str {
+        match force {
+            OperandForce::DirectPage => "d",
+            OperandForce::DataBank => "b",
+            OperandForce::ProgramBank => "k",
+            OperandForce::Long => "l",
+        }
+    }
+
+    fn invalid_force_error(force: OperandForce, context: &str) -> String {
+        format!(
+            "Explicit addressing override ',{}' is not valid for {}",
+            Self::force_suffix(force),
+            context
+        )
+    }
 }
 
 impl CpuHandler for M65816CpuHandler {
@@ -377,8 +394,16 @@ impl CpuHandler for M65816CpuHandler {
         }
 
         if family_operands.len() == 1 {
-            match &family_operands[0] {
+            let (single_operand, force_override) = match &family_operands[0] {
+                FamilyOperand::Forced { inner, force, .. } => (inner.as_ref(), Some(*force)),
+                other => (other, None),
+            };
+
+            match single_operand {
                 FamilyOperand::Immediate(expr) => {
+                    if let Some(force) = force_override {
+                        return Err(Self::invalid_force_error(force, "immediate operands"));
+                    }
                     return Ok(vec![self.resolve_immediate(mnemonic, expr, ctx)?]);
                 }
                 FamilyOperand::Direct(expr) => {
@@ -386,13 +411,40 @@ impl CpuHandler for M65816CpuHandler {
                         upper_mnemonic.as_str(),
                         "BRL" | "PER" | "PEA" | "JSL" | "JML"
                     ) {
+                        if let Some(force) = force_override {
+                            return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                        }
                         return Ok(vec![self.resolve_direct(mnemonic, expr, ctx)?]);
                     }
 
                     let unresolved =
                         ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
                     let assumed_known = Self::assumed_absolute_bank_known(&upper_mnemonic, ctx);
-                    if unresolved
+                    if unresolved {
+                        if let Some(force) = force_override {
+                            let span = crate::core::assembler::expression::expr_span(expr);
+                            match force {
+                                OperandForce::DirectPage => {
+                                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage) {
+                                        return Ok(vec![Operand::ZeroPage(0, span)]);
+                                    }
+                                }
+                                OperandForce::DataBank | OperandForce::ProgramBank => {
+                                    if Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
+                                        return Ok(vec![Operand::Absolute(0, span)]);
+                                    }
+                                }
+                                OperandForce::Long => {
+                                    if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
+                                        return Ok(vec![Operand::AbsoluteLong(0, span)]);
+                                    }
+                                }
+                            }
+                            return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                        }
+                    }
+                    if force_override.is_none()
+                        && unresolved
                         && (ctx.current_address() > 0xFFFF
                             || !assumed_known
                             || Self::assumed_absolute_bank(&upper_mnemonic, ctx) != 0)
@@ -411,6 +463,115 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                     let symbol_based = Self::expr_has_symbol_references(expr);
                     let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+
+                    if let Some(force) = force_override {
+                        match force {
+                            OperandForce::DirectPage => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=255).contains(&val) {
+                                    return Ok(vec![Operand::ZeroPage(val as u8, span)]);
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    let absolute_value = val as u16;
+                                    if let Some(dp_offset) =
+                                        Self::direct_page_offset_for_absolute_address(
+                                            absolute_value,
+                                            ctx,
+                                        )
+                                    {
+                                        return Ok(vec![Operand::ZeroPage(dp_offset, span)]);
+                                    }
+                                    return Err(format!(
+                                        "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
+                                    ));
+                                }
+                                return Err(format!(
+                                    "Address {} out of 16-bit range for explicit ',d'",
+                                    val
+                                ));
+                            }
+                            OperandForce::Long => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=0xFF_FFFF).contains(&val) {
+                                    return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
+                                }
+                                return Err(format!(
+                                    "Address {} out of 24-bit range for explicit ',l'",
+                                    val
+                                ));
+                            }
+                            OperandForce::DataBank => {
+                                if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    return Ok(vec![Operand::Absolute(val as u16, span)]);
+                                }
+                                if (0..=0xFF_FFFF).contains(&val) {
+                                    let absolute_bank = ((val as u32) >> 16) as u8;
+                                    if !assumed_known {
+                                        return Err(Self::bank_unknown_error(assumed_key));
+                                    }
+                                    if absolute_bank != assumed_bank {
+                                        return Err(Self::bank_mismatch_error(
+                                            val as u32,
+                                            absolute_bank,
+                                            assumed_bank,
+                                            assumed_key,
+                                        ));
+                                    }
+                                    return Ok(vec![Operand::Absolute(
+                                        (val as u32 & 0xFFFF) as u16,
+                                        span,
+                                    )]);
+                                }
+                                return Err(format!(
+                                    "Address {} out of 24-bit range for explicit ',b'",
+                                    val
+                                ));
+                            }
+                            OperandForce::ProgramBank => {
+                                if !matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    return Ok(vec![Operand::Absolute(val as u16, span)]);
+                                }
+                                if (0..=0xFF_FFFF).contains(&val) {
+                                    let absolute_bank = ((val as u32) >> 16) as u8;
+                                    if !assumed_known {
+                                        return Err(Self::bank_unknown_error(assumed_key));
+                                    }
+                                    if absolute_bank != assumed_bank {
+                                        return Err(Self::bank_mismatch_error(
+                                            val as u32,
+                                            absolute_bank,
+                                            assumed_bank,
+                                            assumed_key,
+                                        ));
+                                    }
+                                    return Ok(vec![Operand::Absolute(
+                                        (val as u32 & 0xFFFF) as u16,
+                                        span,
+                                    )]);
+                                }
+                                return Err(format!(
+                                    "Address {} out of 24-bit range for explicit ',k'",
+                                    val
+                                ));
+                            }
+                        }
+                    }
 
                     if symbol_based && (0..=0xFFFF).contains(&val) && !assumed_known {
                         if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
@@ -488,7 +649,32 @@ impl CpuHandler for M65816CpuHandler {
                     let unresolved =
                         ctx.pass() == 1 && Self::expr_has_unresolved_symbols(expr, ctx);
                     let assumed_known = Self::assumed_absolute_bank_known(&upper_mnemonic, ctx);
-                    if unresolved
+                    if unresolved {
+                        if let Some(force) = force_override {
+                            let span = crate::core::assembler::expression::expr_span(expr);
+                            match force {
+                                OperandForce::DirectPage => {
+                                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX) {
+                                        return Ok(vec![Operand::ZeroPageX(0, span)]);
+                                    }
+                                }
+                                OperandForce::DataBank => {
+                                    if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX) {
+                                        return Ok(vec![Operand::AbsoluteX(0, span)]);
+                                    }
+                                }
+                                OperandForce::Long => {
+                                    if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
+                                        return Ok(vec![Operand::AbsoluteLongX(0, span)]);
+                                    }
+                                }
+                                OperandForce::ProgramBank => {}
+                            }
+                            return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                        }
+                    }
+                    if force_override.is_none()
+                        && unresolved
                         && (ctx.current_address() > 0xFFFF
                             || !assumed_known
                             || Self::assumed_absolute_bank(&upper_mnemonic, ctx) != 0)
@@ -507,6 +693,82 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                     let symbol_based = Self::expr_has_symbol_references(expr);
                     let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+
+                    if let Some(force) = force_override {
+                        match force {
+                            OperandForce::DirectPage => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=255).contains(&val) {
+                                    return Ok(vec![Operand::ZeroPageX(val as u8, span)]);
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    let absolute_value = val as u16;
+                                    if let Some(dp_offset) =
+                                        Self::direct_page_offset_for_absolute_address(
+                                            absolute_value,
+                                            ctx,
+                                        )
+                                    {
+                                        return Ok(vec![Operand::ZeroPageX(dp_offset, span)]);
+                                    }
+                                    return Err(format!(
+                                        "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
+                                    ));
+                                }
+                                return Err(format!(
+                                    "Address {} out of 16-bit range for explicit ',d'",
+                                    val
+                                ));
+                            }
+                            OperandForce::Long => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=0xFF_FFFF).contains(&val) {
+                                    return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
+                                }
+                                return Err(format!(
+                                    "Address {} out of 24-bit range for explicit ',l'",
+                                    val
+                                ));
+                            }
+                            OperandForce::DataBank => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    return Ok(vec![Operand::AbsoluteX(val as u16, span)]);
+                                }
+                                if (0..=0xFF_FFFF).contains(&val) {
+                                    let absolute_bank = ((val as u32) >> 16) as u8;
+                                    if !assumed_known {
+                                        return Err(Self::bank_unknown_error(assumed_key));
+                                    }
+                                    if absolute_bank != assumed_bank {
+                                        return Err(Self::bank_mismatch_error(
+                                            val as u32,
+                                            absolute_bank,
+                                            assumed_bank,
+                                            assumed_key,
+                                        ));
+                                    }
+                                    return Ok(vec![Operand::AbsoluteX(
+                                        (val as u32 & 0xFFFF) as u16,
+                                        span,
+                                    )]);
+                                }
+                                return Err(format!(
+                                    "Address {} out of 24-bit range for explicit ',b'",
+                                    val
+                                ));
+                            }
+                            OperandForce::ProgramBank => {
+                                return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                            }
+                        }
+                    }
 
                     if symbol_based && (0..=0xFFFF).contains(&val) && !assumed_known {
                         if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
@@ -588,6 +850,70 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_bank = state::data_bank(ctx);
                     let assumed_known = state::data_bank_known(ctx);
 
+                    if let Some(force) = force_override {
+                        match force {
+                            OperandForce::DirectPage => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageY) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=255).contains(&val) {
+                                    return Ok(vec![Operand::ZeroPageY(val as u8, span)]);
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    let absolute_value = val as u16;
+                                    if let Some(dp_offset) =
+                                        Self::direct_page_offset_for_absolute_address(
+                                            absolute_value,
+                                            ctx,
+                                        )
+                                    {
+                                        return Ok(vec![Operand::ZeroPageY(dp_offset, span)]);
+                                    }
+                                    return Err(format!(
+                                        "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
+                                    ));
+                                }
+                                return Err(format!(
+                                    "Address {} out of 16-bit range for explicit ',d'",
+                                    val
+                                ));
+                            }
+                            OperandForce::DataBank => {
+                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY) {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    return Ok(vec![Operand::AbsoluteY(val as u16, span)]);
+                                }
+                                if (0..=0xFF_FFFF).contains(&val) {
+                                    let absolute_bank = ((val as u32) >> 16) as u8;
+                                    if !assumed_known {
+                                        return Err(Self::bank_unknown_error("dbr"));
+                                    }
+                                    if absolute_bank != assumed_bank {
+                                        return Err(Self::bank_mismatch_error(
+                                            val as u32,
+                                            absolute_bank,
+                                            assumed_bank,
+                                            "dbr",
+                                        ));
+                                    }
+                                    return Ok(vec![Operand::AbsoluteY(
+                                        (val as u32 & 0xFFFF) as u16,
+                                        span,
+                                    )]);
+                                }
+                                return Err(format!(
+                                    "Address {} out of 24-bit range for explicit ',b'",
+                                    val
+                                ));
+                            }
+                            OperandForce::Long | OperandForce::ProgramBank => {
+                                return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                            }
+                        }
+                    }
+
                     if symbol_based
                         && (0..=0xFFFF).contains(&val)
                         && !symbol_unstable
@@ -653,6 +979,45 @@ impl CpuHandler for M65816CpuHandler {
                     let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
 
                     if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
+                        if let Some(force) = force_override {
+                            match force {
+                                OperandForce::ProgramBank => {
+                                    if (0..=0xFFFF).contains(&val) {
+                                        return Ok(vec![Operand::AbsoluteIndexedIndirect(
+                                            val as u16, span,
+                                        )]);
+                                    }
+                                    if (0..=0xFF_FFFF).contains(&val) {
+                                        let assumed_bank = state::program_bank(ctx);
+                                        let assumed_known = state::program_bank_known(ctx);
+                                        let absolute_bank = ((val as u32) >> 16) as u8;
+                                        if !assumed_known {
+                                            return Err(Self::bank_unknown_error("pbr"));
+                                        }
+                                        if absolute_bank != assumed_bank {
+                                            return Err(Self::bank_mismatch_error(
+                                                val as u32,
+                                                absolute_bank,
+                                                assumed_bank,
+                                                "pbr",
+                                            ));
+                                        }
+                                        return Ok(vec![Operand::AbsoluteIndexedIndirect(
+                                            (val as u32 & 0xFFFF) as u16,
+                                            span,
+                                        )]);
+                                    }
+                                    return Err(format!(
+                                        "Absolute indexed indirect address {} out of 24-bit range",
+                                        val
+                                    ));
+                                }
+                                _ => {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                            }
+                        }
+
                         let assumed_bank = state::program_bank(ctx);
                         let assumed_known = state::program_bank_known(ctx);
                         if symbol_based && (0..=0xFFFF).contains(&val) && !symbol_unstable {
@@ -695,6 +1060,36 @@ impl CpuHandler for M65816CpuHandler {
                         ));
                     }
 
+                    if let Some(force) = force_override {
+                        match force {
+                            OperandForce::DirectPage => {
+                                if (0..=255).contains(&val) {
+                                    return Ok(vec![Operand::IndexedIndirectX(val as u8, span)]);
+                                }
+                                if (0..=0xFFFF).contains(&val) {
+                                    if let Some(dp_offset) =
+                                        Self::direct_page_offset_for_absolute_address(
+                                            val as u16, ctx,
+                                        )
+                                    {
+                                        return Ok(vec![Operand::IndexedIndirectX(
+                                            dp_offset, span,
+                                        )]);
+                                    }
+                                    return Err(format!(
+                                        "Address ${:04X} is outside the direct-page window for explicit ',d'",
+                                        val as u16
+                                    ));
+                                }
+                                return Err(format!(
+                                    "Indexed indirect address {} out of 16-bit range for explicit ',d'",
+                                    val
+                                ));
+                            }
+                            _ => return Err(Self::invalid_force_error(force, &upper_mnemonic)),
+                        }
+                    }
+
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::IndexedIndirectX(val as u8, span)]);
                     }
@@ -713,6 +1108,12 @@ impl CpuHandler for M65816CpuHandler {
                 FamilyOperand::IndirectIndexedY(expr) => {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
+                    if let Some(force) = force_override {
+                        match force {
+                            OperandForce::DirectPage => {}
+                            _ => return Err(Self::invalid_force_error(force, &upper_mnemonic)),
+                        }
+                    }
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::IndirectIndexedY(val as u8, span)]);
                     }
@@ -734,6 +1135,43 @@ impl CpuHandler for M65816CpuHandler {
                     let symbol_based = Self::expr_has_symbol_references(expr);
                     let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
                     if upper_mnemonic == "JMP" {
+                        if let Some(force) = force_override {
+                            match force {
+                                OperandForce::ProgramBank => {
+                                    if (0..=0xFFFF).contains(&val) {
+                                        return Ok(vec![Operand::Indirect(val as u16, span)]);
+                                    }
+                                    if (0..=0xFF_FFFF).contains(&val) {
+                                        let assumed_bank = state::program_bank(ctx);
+                                        let assumed_known = state::program_bank_known(ctx);
+                                        let absolute_bank = ((val as u32) >> 16) as u8;
+                                        if !assumed_known {
+                                            return Err(Self::bank_unknown_error("pbr"));
+                                        }
+                                        if absolute_bank != assumed_bank {
+                                            return Err(Self::bank_mismatch_error(
+                                                val as u32,
+                                                absolute_bank,
+                                                assumed_bank,
+                                                "pbr",
+                                            ));
+                                        }
+                                        return Ok(vec![Operand::Indirect(
+                                            (val as u32 & 0xFFFF) as u16,
+                                            span,
+                                        )]);
+                                    }
+                                    return Err(format!(
+                                        "Indirect address {} out of 24-bit range",
+                                        val
+                                    ));
+                                }
+                                _ => {
+                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                                }
+                            }
+                        }
+
                         let assumed_bank = state::program_bank(ctx);
                         let assumed_known = state::program_bank_known(ctx);
                         if symbol_based && (0..=0xFFFF).contains(&val) && !symbol_unstable {
@@ -773,6 +1211,13 @@ impl CpuHandler for M65816CpuHandler {
                         return Err(format!("Indirect address {} out of 24-bit range", val));
                     }
 
+                    if let Some(force) = force_override {
+                        match force {
+                            OperandForce::DirectPage => {}
+                            _ => return Err(Self::invalid_force_error(force, &upper_mnemonic)),
+                        }
+                    }
+
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::ZeroPageIndirect(val as u8, span)]);
                     }
@@ -789,6 +1234,9 @@ impl CpuHandler for M65816CpuHandler {
                     ));
                 }
                 FamilyOperand::StackRelative(expr) => {
+                    if let Some(force) = force_override {
+                        return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                    }
                     let val = ctx.eval_expr(expr)?;
                     if !(0..=255).contains(&val) {
                         return Err(format!(
@@ -802,6 +1250,9 @@ impl CpuHandler for M65816CpuHandler {
                     )]);
                 }
                 FamilyOperand::StackRelativeIndirectIndexedY(expr) => {
+                    if let Some(force) = force_override {
+                        return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                    }
                     let val = ctx.eval_expr(expr)?;
                     if !(0..=255).contains(&val) {
                         return Err(format!(
@@ -815,6 +1266,9 @@ impl CpuHandler for M65816CpuHandler {
                     )]);
                 }
                 FamilyOperand::IndirectLong(expr) => {
+                    if let Some(force) = force_override {
+                        return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                    }
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
                     if matches!(Self::upper_mnemonic(mnemonic).as_str(), "JML" | "JMP") {
@@ -843,6 +1297,9 @@ impl CpuHandler for M65816CpuHandler {
                     ));
                 }
                 FamilyOperand::IndirectLongY(expr) => {
+                    if let Some(force) = force_override {
+                        return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                    }
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
                     if (0..=255).contains(&val) {
@@ -861,6 +1318,9 @@ impl CpuHandler for M65816CpuHandler {
                     ));
                 }
                 FamilyOperand::BlockMove { src, dst, span } => {
+                    if let Some(force) = force_override {
+                        return Err(Self::invalid_force_error(force, &upper_mnemonic));
+                    }
                     let src_val = ctx.eval_expr(src)?;
                     let dst_val = ctx.eval_expr(dst)?;
                     if !(0..=255).contains(&src_val) {
