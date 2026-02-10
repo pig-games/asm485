@@ -193,6 +193,16 @@ fn mnemonic_preserves_tracked_accumulator_immediate(upper_mnemonic: &str) -> boo
         upper_mnemonic,
         // Stack push of A keeps A unchanged and is part of the tracked PLB inference chain.
         "PHA"
+            | "PHX"
+            | "PHY"
+            | "PHB"
+            | "PHK"
+            | "PHD"
+            | "PHP"
+            | "PLX"
+            | "PLY"
+            | "PLD"
+            | "PLP"
             // Flag-only and mode-width ops keep the current A value.
             | "NOP"
             | "CLC"
@@ -204,6 +214,18 @@ fn mnemonic_preserves_tracked_accumulator_immediate(upper_mnemonic: &str) -> boo
             | "CLV"
             | "REP"
             | "SEP"
+            // Register/control ops that do not write A.
+            | "INX"
+            | "DEX"
+            | "INY"
+            | "DEY"
+            | "TAX"
+            | "TAY"
+            | "TXS"
+            | "TSX"
+            | "TYX"
+            | "TXY"
+            | "XCE"
     )
 }
 
