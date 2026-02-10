@@ -285,6 +285,9 @@ impl M65816CpuHandler {
         address: u16,
         ctx: &dyn AssemblerContext,
     ) -> Option<u8> {
+        if !state::direct_page_known(ctx) {
+            return None;
+        }
         if address <= 0x00FF {
             return None;
         }

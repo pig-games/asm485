@@ -744,6 +744,9 @@ Currently implemented 65816-specific additions in this branch:
 - runtime-state assumption directive: `.assume e=..., m=..., x=..., dbr=..., pbr=..., dp=...`
 - `.assume` bank/direct-page assumptions influence ambiguous mode resolution for supported forms
   (for example absolute-vs-long and direct-page offset selection)
+- conservative `TCD`-based direct-page inference is supported:
+  `LDA #$nnnn` (tracked 16-bit immediate) followed by `TCD` updates inferred
+  `DP`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions
 - without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
   current assembly address bank
 - `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return
@@ -757,6 +760,9 @@ Currently implemented 65816-specific additions in this branch:
 - a conservative `PEA $nnnn ... PLB` inference can set `DBR` from the
   pushed literal low byte when no intervening stack mutation or control-flow
   invalidates the pending push source
+- conservative `LDX/LDY #imm ... PHX/PHY ... PLB` inference can set `DBR`
+  from the pushed low byte when `PHX/PHY` directly follows a tracked
+  index-immediate load
 - a conservative `PHB ... PLB` preservation rule keeps existing `DBR`
   assumption state unchanged (including `dbr=auto`) when no intervening
   stack mutation or control-flow invalidates the push source

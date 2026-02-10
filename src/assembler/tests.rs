@@ -2486,6 +2486,61 @@ fn m65816_phk_plb_does_not_infer_dbr_when_pbr_is_not_explicit() {
 }
 
 #[test]
+fn m65816_phk_plb_uses_push_time_explicit_pbr_not_later_override() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        ".assume pbr=$34",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xAB),
+            (0x0002, 0xAD),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_does_not_retroactively_use_later_pbr_explicitness() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume pbr=auto, dbr=$00",
+        "    PHK",
+        ".assume pbr=$12",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0x4B),
+            (0x123401, 0xAB),
+            (0x123402, 0xAF),
+            (0x123403, 0x56),
+            (0x123404, 0x34),
+            (0x123405, 0x12),
+        ]
+    );
+}
+
+#[test]
 fn m65816_phb_plb_preserves_explicit_dbr() {
     let assembler = run_passes(&[
         ".module main",
@@ -2832,6 +2887,100 @@ fn m65816_lda_imm_pha_plb_infers_dbr_across_a_preserving_stack_and_index_ops() {
 }
 
 #[test]
+fn m65816_ldx_imm_phx_plb_infers_dbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDX #$12",
+        "    PHX",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA2),
+            (0x0001, 0x12),
+            (0x0002, 0xDA),
+            (0x0003, 0xAB),
+            (0x0004, 0xAD),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+        ]
+    );
+}
+
+#[test]
+fn m65816_ldy_imm16_phy_plb_infers_dbr_from_low_byte() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    REP #$10",
+        "    LDY #$3412",
+        "    PHY",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x10),
+            (0x0002, 0xA0),
+            (0x0003, 0x12),
+            (0x0004, 0x34),
+            (0x0005, 0x5A),
+            (0x0006, 0xAB),
+            (0x0007, 0xAD),
+            (0x0008, 0x56),
+            (0x0009, 0x34),
+        ]
+    );
+}
+
+#[test]
+fn m65816_ldx_imm_phx_plb_inference_is_conservative_with_intervening_ops() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDX #$12",
+        "    NOP",
+        "    PHX",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA2),
+            (0x0001, 0x12),
+            (0x0002, 0xEA),
+            (0x0003, 0xDA),
+            (0x0004, 0xAB),
+            (0x0005, 0xAF),
+            (0x0006, 0x56),
+            (0x0007, 0x34),
+            (0x0008, 0x12),
+        ]
+    );
+}
+
+#[test]
 fn m65816_phk_plb_inference_is_cleared_by_control_flow() {
     let assembler = run_passes(&[
         ".module main",
@@ -3122,6 +3271,60 @@ fn m65816_assume_dp_maps_parenthesized_direct_page_modes() {
             (0x0001, 0xF0),
             (0x0002, 0xA1),
             (0x0003, 0xE0),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tcd_infers_direct_page_from_known_a_immediate_word() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        "    REP #$20",
+        "    LDA #$2000",
+        "    TCD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0xA9),
+            (0x0003, 0x00),
+            (0x0004, 0x20),
+            (0x0005, 0x5B),
+            (0x0006, 0xA5),
+            (0x0007, 0xAA),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tcd_with_unknown_a_clears_direct_page_assumption() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA #$12",
+        "    TCD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x5B),
+            (0x0003, 0xAD),
+            (0x0004, 0xAA),
+            (0x0005, 0x20),
         ]
     );
 }

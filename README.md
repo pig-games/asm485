@@ -35,6 +35,9 @@ core addressing and output/layout workflows.
   mnemonics via `REP`/`SEP` M/X state tracking.
 - Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`,
   including bank-aware absolute-vs-long and direct-page operand resolution.
+- A conservative `TCD`-based direct-page inference is supported:
+  `LDA #$nnnn` (tracked 16-bit immediate) followed by `TCD` updates inferred
+  `DP`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions.
 - Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
   clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
@@ -48,6 +51,9 @@ core addressing and output/layout workflows.
 - A conservative `PEA $nnnn ... PLB` sequence inference is supported:
   it can infer `DBR` from the pushed literal low byte when no intervening
   stack mutation or control-flow invalidates the pending push source.
+- Conservative `LDX/LDY #imm ... PHX/PHY ... PLB` sequence inference is supported:
+  it can infer `DBR` from the pushed low byte when `PHX/PHY` directly follows
+  a tracked index immediate load.
 - A conservative `PHB ... PLB` preservation rule is supported:
   it keeps the existing `DBR` assumption state unchanged (including `dbr=auto`)
   when no intervening stack mutation or control-flow invalidates the push source.

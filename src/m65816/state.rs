@@ -22,10 +22,17 @@ pub const PROGRAM_BANK_KEY: &str = "m65816.program_bank";
 pub const PROGRAM_BANK_EXPLICIT_KEY: &str = "m65816.program_bank_explicit";
 pub const PROGRAM_BANK_KNOWN_KEY: &str = "m65816.program_bank_known";
 pub const DIRECT_PAGE_KEY: &str = "m65816.direct_page";
+pub const DIRECT_PAGE_KNOWN_KEY: &str = "m65816.direct_page_known";
 pub const BANK_PUSH_SOURCE_KEY: &str = "m65816.bank_push_source";
 pub const BANK_PUSH_VALUE_KEY: &str = "m65816.bank_push_value";
 pub const ACCUMULATOR_IMMEDIATE_KNOWN_KEY: &str = "m65816.accumulator_immediate_known";
 pub const ACCUMULATOR_IMMEDIATE_VALUE_KEY: &str = "m65816.accumulator_immediate_value";
+pub const ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY: &str = "m65816.accumulator_word_immediate_known";
+pub const ACCUMULATOR_WORD_IMMEDIATE_VALUE_KEY: &str = "m65816.accumulator_word_immediate_value";
+pub const INDEX_X_IMMEDIATE_KNOWN_KEY: &str = "m65816.index_x_immediate_known";
+pub const INDEX_X_IMMEDIATE_VALUE_KEY: &str = "m65816.index_x_immediate_value";
+pub const INDEX_Y_IMMEDIATE_KNOWN_KEY: &str = "m65816.index_y_immediate_known";
+pub const INDEX_Y_IMMEDIATE_VALUE_KEY: &str = "m65816.index_y_immediate_value";
 
 const BANK_PUSH_NONE: u32 = 0;
 const BANK_PUSH_PBR: u32 = 1;
@@ -45,10 +52,17 @@ pub fn initial_state() -> HashMap<String, u32> {
     state.insert(PROGRAM_BANK_EXPLICIT_KEY.to_string(), 0);
     state.insert(PROGRAM_BANK_KNOWN_KEY.to_string(), 1);
     state.insert(DIRECT_PAGE_KEY.to_string(), 0);
+    state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
     state.insert(BANK_PUSH_SOURCE_KEY.to_string(), BANK_PUSH_NONE);
     state.insert(BANK_PUSH_VALUE_KEY.to_string(), 0);
     state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
     state.insert(ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(), 0);
+    state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    state.insert(ACCUMULATOR_WORD_IMMEDIATE_VALUE_KEY.to_string(), 0);
+    state.insert(INDEX_X_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    state.insert(INDEX_X_IMMEDIATE_VALUE_KEY.to_string(), 0);
+    state.insert(INDEX_Y_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    state.insert(INDEX_Y_IMMEDIATE_VALUE_KEY.to_string(), 0);
     state
 }
 
@@ -96,6 +110,10 @@ pub fn direct_page(ctx: &dyn AssemblerContext) -> u16 {
     ctx.cpu_state_flag(DIRECT_PAGE_KEY).unwrap_or(0) as u16
 }
 
+pub fn direct_page_known(ctx: &dyn AssemblerContext) -> bool {
+    ctx.cpu_state_flag(DIRECT_PAGE_KNOWN_KEY).unwrap_or(1) != 0
+}
+
 pub fn apply_runtime_directive(
     directive: &str,
     operands: &[Expr],
@@ -113,7 +131,9 @@ pub fn apply_after_encode(mnemonic: &str, operands: &[Operand], state: &mut Hash
     let upper = mnemonic.to_ascii_uppercase();
     apply_mx_width_state(&upper, operands, state);
     apply_accumulator_immediate_state(&upper, operands, state);
+    apply_index_immediate_state(&upper, operands, state);
     apply_bank_transfer_state(&upper, operands, state);
+    apply_direct_page_transfer_state(&upper, state);
 }
 
 fn apply_mx_width_state(
@@ -164,6 +184,7 @@ fn apply_accumulator_immediate_state(
             Some(Operand::Immediate(value, _)) => {
                 state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 1);
                 state.insert(ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(), *value as u32);
+                state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 0);
             }
             Some(Operand::ImmediateWord(value, _)) => {
                 state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 1);
@@ -171,9 +192,15 @@ fn apply_accumulator_immediate_state(
                     ACCUMULATOR_IMMEDIATE_VALUE_KEY.to_string(),
                     (*value & 0xFF) as u32,
                 );
+                state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(
+                    ACCUMULATOR_WORD_IMMEDIATE_VALUE_KEY.to_string(),
+                    *value as u32,
+                );
             }
             _ => {
                 state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+                state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 0);
             }
         }
         return;
@@ -186,6 +213,7 @@ fn apply_accumulator_immediate_state(
     // Conservative by design: unless we can prove A still matches a tracked immediate,
     // clear the tracked byte used for PHA/PLB bank inference.
     state.insert(ACCUMULATOR_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    state.insert(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY.to_string(), 0);
 }
 
 fn mnemonic_preserves_tracked_accumulator_immediate(upper_mnemonic: &str) -> bool {
@@ -225,6 +253,7 @@ fn mnemonic_preserves_tracked_accumulator_immediate(upper_mnemonic: &str) -> boo
             | "TSX"
             | "TYX"
             | "TXY"
+            | "TCD"
             | "XCE"
     )
 }
@@ -267,7 +296,15 @@ fn apply_bank_transfer_state(
         }
         BANK_PUSH_NONE
     } else if upper_mnemonic == "PHK" {
-        BANK_PUSH_PBR
+        if state.get(PROGRAM_BANK_EXPLICIT_KEY).copied().unwrap_or(0) != 0
+            && state.get(PROGRAM_BANK_KNOWN_KEY).copied().unwrap_or(1) != 0
+        {
+            let value = state.get(PROGRAM_BANK_KEY).copied().unwrap_or(0) & 0xFF;
+            state.insert(BANK_PUSH_VALUE_KEY.to_string(), value);
+            BANK_PUSH_LITERAL
+        } else {
+            BANK_PUSH_NONE
+        }
     } else if upper_mnemonic == "PHB" {
         BANK_PUSH_DBR
     } else if upper_mnemonic == "PHA" {
@@ -284,6 +321,22 @@ fn apply_bank_transfer_state(
                 & 0xFF;
             state.insert(BANK_PUSH_VALUE_KEY.to_string(), value);
             BANK_PUSH_A_IMM
+        } else {
+            BANK_PUSH_NONE
+        }
+    } else if upper_mnemonic == "PHX" {
+        if state.get(INDEX_X_IMMEDIATE_KNOWN_KEY).copied().unwrap_or(0) != 0 {
+            let value = state.get(INDEX_X_IMMEDIATE_VALUE_KEY).copied().unwrap_or(0) & 0xFF;
+            state.insert(BANK_PUSH_VALUE_KEY.to_string(), value);
+            BANK_PUSH_LITERAL
+        } else {
+            BANK_PUSH_NONE
+        }
+    } else if upper_mnemonic == "PHY" {
+        if state.get(INDEX_Y_IMMEDIATE_KNOWN_KEY).copied().unwrap_or(0) != 0 {
+            let value = state.get(INDEX_Y_IMMEDIATE_VALUE_KEY).copied().unwrap_or(0) & 0xFF;
+            state.insert(BANK_PUSH_VALUE_KEY.to_string(), value);
+            BANK_PUSH_LITERAL
         } else {
             BANK_PUSH_NONE
         }
@@ -309,6 +362,77 @@ fn apply_bank_transfer_state(
     state.insert(BANK_PUSH_SOURCE_KEY.to_string(), next_push);
     if !matches!(next_push, BANK_PUSH_A_IMM | BANK_PUSH_LITERAL) {
         state.insert(BANK_PUSH_VALUE_KEY.to_string(), 0);
+    }
+}
+
+fn apply_index_immediate_state(
+    upper_mnemonic: &str,
+    operands: &[Operand],
+    state: &mut HashMap<String, u32>,
+) {
+    if upper_mnemonic == "LDX" {
+        match operands.first() {
+            Some(Operand::Immediate(value, _)) => {
+                state.insert(INDEX_X_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(INDEX_X_IMMEDIATE_VALUE_KEY.to_string(), *value as u32);
+            }
+            Some(Operand::ImmediateWord(value, _)) => {
+                state.insert(INDEX_X_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(
+                    INDEX_X_IMMEDIATE_VALUE_KEY.to_string(),
+                    (*value & 0xFF) as u32,
+                );
+            }
+            _ => {
+                state.insert(INDEX_X_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+            }
+        }
+    } else if upper_mnemonic != "PHX" {
+        state.insert(INDEX_X_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    }
+
+    if upper_mnemonic == "LDY" {
+        match operands.first() {
+            Some(Operand::Immediate(value, _)) => {
+                state.insert(INDEX_Y_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(INDEX_Y_IMMEDIATE_VALUE_KEY.to_string(), *value as u32);
+            }
+            Some(Operand::ImmediateWord(value, _)) => {
+                state.insert(INDEX_Y_IMMEDIATE_KNOWN_KEY.to_string(), 1);
+                state.insert(
+                    INDEX_Y_IMMEDIATE_VALUE_KEY.to_string(),
+                    (*value & 0xFF) as u32,
+                );
+            }
+            _ => {
+                state.insert(INDEX_Y_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+            }
+        }
+    } else if upper_mnemonic != "PHY" {
+        state.insert(INDEX_Y_IMMEDIATE_KNOWN_KEY.to_string(), 0);
+    }
+}
+
+fn apply_direct_page_transfer_state(upper_mnemonic: &str, state: &mut HashMap<String, u32>) {
+    if upper_mnemonic == "TCD" {
+        if state
+            .get(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY)
+            .copied()
+            .unwrap_or(0)
+            != 0
+        {
+            let value = state
+                .get(ACCUMULATOR_WORD_IMMEDIATE_VALUE_KEY)
+                .copied()
+                .unwrap_or(0)
+                & 0xFFFF;
+            state.insert(DIRECT_PAGE_KEY.to_string(), value);
+            state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
+        } else {
+            state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 0);
+        }
+    } else if upper_mnemonic == "PLD" {
+        state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 0);
     }
 }
 
@@ -505,6 +629,7 @@ fn apply_assume_directive(
     }
     if let Some(dp) = update.dp {
         state.insert(DIRECT_PAGE_KEY.to_string(), dp as u32);
+        state.insert(DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
     }
 
     Ok(())
