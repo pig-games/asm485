@@ -448,6 +448,26 @@ fn apply_direct_page_transfer_state(
         DP_PUSH_NONE
     } else if upper_mnemonic == "PHD" {
         DP_PUSH_DP
+    } else if upper_mnemonic == "PHA" {
+        let accumulator_is_8bit = emulation_mode_from_state(state)
+            || state.get(ACCUMULATOR_8BIT_KEY).copied().unwrap_or(1) != 0;
+        if !accumulator_is_8bit
+            && state
+                .get(ACCUMULATOR_WORD_IMMEDIATE_KNOWN_KEY)
+                .copied()
+                .unwrap_or(0)
+                != 0
+        {
+            let value = state
+                .get(ACCUMULATOR_WORD_IMMEDIATE_VALUE_KEY)
+                .copied()
+                .unwrap_or(0)
+                & 0xFFFF;
+            state.insert(DP_PUSH_VALUE_KEY.to_string(), value);
+            DP_PUSH_LITERAL
+        } else {
+            DP_PUSH_NONE
+        }
     } else if upper_mnemonic == "PEA" {
         let value = match operands.first() {
             Some(Operand::Absolute(v, _)) => Some((*v as u32) & 0xFFFF),

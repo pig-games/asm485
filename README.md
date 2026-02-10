@@ -41,6 +41,8 @@ core addressing and output/layout workflows.
 - Conservative `PEA...PLD` and `PHD...PLD` direct-page stack-provenance rules
   are supported: `PEA $nnnn ... PLD` can infer `DP` from pushed literal word,
   and `PHD ... PLD` preserves current DP known/unknown state when not invalidated.
+- Conservative `LDA #$nnnn ... PHA ... PLD` inference is supported when A is
+  16-bit at push time; if A is 8-bit (for example after `SEP #$20`), DP is not inferred.
 - Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
   clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current

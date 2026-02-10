@@ -3439,6 +3439,72 @@ fn m65816_phd_pld_preserves_unknown_direct_page_state() {
 }
 
 #[test]
+fn m65816_lda_imm16_pha_pld_infers_direct_page_when_accumulator_is_16bit() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    REP #$20",
+        "    LDA #$20AA",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0xA9),
+            (0x0003, 0xAA),
+            (0x0004, 0x20),
+            (0x0005, 0x48),
+            (0x0006, 0x2B),
+            (0x0007, 0xA5),
+            (0x0008, 0x22),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm16_pha_pld_does_not_infer_when_sep_forces_8bit_push() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    REP #$20",
+        "    LDA #$20AA",
+        "    SEP #$20",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0xA9),
+            (0x0003, 0xAA),
+            (0x0004, 0x20),
+            (0x0005, 0xE2),
+            (0x0006, 0x20),
+            (0x0007, 0x48),
+            (0x0008, 0x2B),
+            (0x0009, 0xAD),
+            (0x000A, 0xCC),
+            (0x000B, 0x20),
+        ]
+    );
+}
+
+#[test]
 fn m65816_assume_pbr_controls_24bit_jmp_operands() {
     let assembler = run_passes(&[
         ".module main",

@@ -750,6 +750,8 @@ Currently implemented 65816-specific additions in this branch:
 - conservative direct-page stack-provenance handling is also supported:
   `PEA $nnnn ... PLD` can infer `DP` from pushed literal word and
   `PHD ... PLD` preserves DP known/unknown state unless invalidated
+- conservative `LDA #$nnnn ... PHA ... PLD` inference is supported when
+  the accumulator is 16-bit at `PHA` time; 8-bit pushes do not infer DP
 - without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
   current assembly address bank
 - `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return
