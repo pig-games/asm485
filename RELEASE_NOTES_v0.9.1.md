@@ -12,6 +12,10 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 - Removed legacy `.dsection`.
 - `.dsection` now reports an actionable diagnostic directing migration to
   `.place`/`.pack` with `.output`.
+- 65816 sequence/provenance inference chains were removed for bank/direct-page
+  state (`PHK/PLB`, `LDA #imm ... PHA ... PLB`, `PEA ... PLB`, `PHB ... PLB`,
+  and corresponding `... PLD` provenance patterns). Use explicit operand
+  overrides and/or `.assume` updates near affected call sites.
 
 ## Added
 
@@ -51,28 +55,16 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     M/X state tracking (including CPU-switch state reset behavior)
   - explicit runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`,
     including bank-aware absolute-vs-long and direct-page mode resolution
-  - conservative `TCD` direct-page inference
-    (`LDA #$nnnn` tracked 16-bit immediates can infer `DP` via `TCD`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions)
-  - conservative `PLD` stack-provenance handling for direct-page state
-    (`PEA $nnnn ... PLD` can infer `DP` from pushed literal word; `PHD ... PLD` preserves current DP known/unknown state unless invalidated)
-  - conservative `LDA #$nnnn ... PHA ... PLD` direct-page inference
-    (infers `DP` only when accumulator width is 16-bit at `PHA` time; 8-bit pushes do not infer DP)
-  - conservative `TDC` transfer-chain direct-page inference
-    (`TDC ... TCD` preserves known DP assumptions and `TDC ... PHA ... PLD` can infer DP with 16-bit A pushes)
+  - explicit per-operand mode overrides for ambiguous forms:
+    `,d`, `,b`, `,k`, and `,l`
+  - deterministic mode-selection precedence:
+    explicit override > `.assume` state > automatic fallback
   - automatic `PBR` default inference for `JMP`/`JSR` from current assembly bank
     when `.assume pbr=...` is not explicitly set
   - `.assume dbr=auto` / `.assume pbr=auto` to clear explicit bank overrides
     and return to inferred-bank behavior
-  - conservative `PHK`/`PLB` bank-transfer inference when `PBR` is explicit
-    (`PHK ... PLB` updates assumed `DBR` to `PBR` unless stack mutation or control-flow occurs between)
-  - conservative `LDA #imm ... PHA ... PLB` bank-transfer inference
-    (can infer `DBR` from the pushed immediate byte unless an intervening instruction invalidates the tracked immediate)
-  - conservative `PEA $nnnn ... PLB` bank-transfer inference
-    (can infer `DBR` from the pushed literal low byte unless an intervening stack mutation/control-flow step invalidates pending push provenance)
-  - conservative `LDX/LDY #imm ... PHX/PHY ... PLB` bank-transfer inference
-    (can infer `DBR` from the pushed low byte when `PHX/PHY` directly follows tracked index-immediate loads)
-  - conservative `PHB ... PLB` DBR-state preservation
-    (keeps existing DBR assumption state unchanged, including `dbr=auto`, unless intervening stack/control-flow invalidates push provenance)
+  - conservative state invalidation:
+    `PLB` invalidates known `DBR`, and `PLD`/`TCD` invalidate known `DP`
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
@@ -149,13 +141,8 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - long memory encodings are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC` (`$llhhhh` and `$llhhhh,X`)
 - stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
 - checked address arithmetic now guards directive/linker/image overflow paths; descending BIN ranges are rejected
-- conservative `PHK ... PLB` and `LDA #imm ... PHA ... PLB` DBR inference sequences are supported
-- conservative `PEA $nnnn ... PLB` DBR inference is supported
-- conservative `LDX/LDY #imm ... PHX/PHY ... PLB` DBR inference is supported
-- conservative `PHB ... PLB` DBR-state preservation is supported
-- conservative `TCD` direct-page inference is supported for tracked 16-bit `LDA #imm` sources
-- conservative `PEA ... PLD` and `PHD ... PLD` direct-page inference/preservation are supported
-- conservative `LDA #imm16 ... PHA ... PLD` direct-page inference is supported for 16-bit A pushes
-- conservative `TDC ... TCD` and `TDC ... PHA ... PLD` direct-page transfer chains are supported
-- full automatic banked CPU-state inference is still planned (`.assume` remains the explicit control for DBR/DP and other assumptions)
+- explicit per-operand overrides are supported for ambiguous bank/page forms (`d`, `b`, `k`, `l` suffixes)
+- deterministic mode-selection precedence is explicit override > `.assume` > automatic fallback
+- `PLB` invalidates known `DBR`; `PLD` and `TCD` invalidate known `DP`
+- full automatic banked CPU-state inference is not implemented (`.assume` plus explicit overrides remain the control surface)
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics

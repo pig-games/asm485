@@ -36,45 +36,32 @@ core addressing and output/layout workflows.
   mnemonics via `REP`/`SEP` M/X state tracking.
 - Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`,
   including bank-aware absolute-vs-long and direct-page operand resolution.
-- A conservative `TCD`-based direct-page inference is supported:
-  `LDA #$nnnn` (tracked 16-bit immediate) followed by `TCD` updates inferred
-  `DP`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions.
-- Conservative `PEA...PLD` and `PHD...PLD` direct-page stack-provenance rules
-  are supported: `PEA $nnnn ... PLD` can infer `DP` from pushed literal word,
-  and `PHD ... PLD` preserves current DP known/unknown state when not invalidated.
-- Conservative `LDA #$nnnn ... PHA ... PLD` inference is supported when A is
-  16-bit at push time; if A is 8-bit (for example after `SEP #$20`), DP is not inferred.
-- Conservative `TDC` transfer chains are supported for DP inference:
-  `TDC ... TCD` preserves known DP assumptions and `TDC ... PHA ... PLD`
-  can infer DP (with the same 16-bit A push requirement).
+- Explicit per-operand 65816 overrides are supported for ambiguous forms:
+  `,d` (direct-page), `,b` (data-bank absolute), `,k` (program-bank absolute
+  for `JMP`/`JSR`), and `,l` (long).
+- Mode-selection precedence is deterministic:
+  1) explicit operand override, 2) `.assume` state, 3) automatic fallback.
 - Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
   clear explicit overrides and return to inferred behavior.
 - For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
   assembly address bank when no explicit `.assume pbr=...` is set.
-- A conservative `PHK`/`PLB` sequence inference is supported: when `PBR` is
-  explicit, `PHK ... PLB` updates assumed `DBR` to that `PBR` if no
-  stack-mutating or control-flow instruction appears between them.
-- A conservative `LDA #imm ... PHA ... PLB` sequence inference is supported:
-  it can infer `DBR` from the pushed immediate byte when no non-whitelisted
-  instruction invalidates the tracked immediate value.
-- A conservative `PEA $nnnn ... PLB` sequence inference is supported:
-  it can infer `DBR` from the pushed literal low byte when no intervening
-  stack mutation or control-flow invalidates the pending push source.
-- Conservative `LDX/LDY #imm ... PHX/PHY ... PLB` sequence inference is supported:
-  it can infer `DBR` from the pushed low byte when `PHX/PHY` directly follows
-  a tracked index immediate load.
-- A conservative `PHB ... PLB` preservation rule is supported:
-  it keeps the existing `DBR` assumption state unchanged (including `dbr=auto`)
-  when no intervening stack mutation or control-flow invalidates the push source.
+- `PLB` conservatively invalidates known `DBR`; `PLD` and `TCD` conservatively
+  invalidate known `DP` unless state is re-established with `.assume`.
 - Core address arithmetic is checked end-to-end for directives, section placement,
   linker output assembly, and image emission (overflow paths report diagnostics).
 - Wide address reporting is consistent in listing/map output (4/6/8 hex digits),
   and binary range parsing/emission rejects descending ranges.
 
 Current limits:
-- Full automatic banked CPU-state inference is not implemented yet;
-  use `.assume` for DBR/DP and other bank/state-sensitive assumptions.
+- Full automatic banked CPU-state inference is not implemented; use `.assume`
+  and explicit operand overrides for bank/direct-page-sensitive intent.
 - PRG output `loadaddr` must still fit in 16 bits.
+
+Migration note:
+- If source previously relied on stack-sequence inference (`PHK/PLB`,
+  `LDA #imm ... PHA ... PLB`, `PEA ... PLB`, `... PLD` patterns), add
+  local explicit overrides and/or nearby `.assume` updates at the call sites
+  where mode selection matters.
 
 New 65816 examples:
 - `examples/65816_simple.asm`

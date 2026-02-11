@@ -345,10 +345,16 @@ Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 - Includes wide-address output/layout workflows (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
 - Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
 - Includes explicit 65816 runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`.
+- Includes explicit per-operand mode overrides for ambiguous bank/page forms:
+  `,d`, `,b`, `,k`, and `,l`.
 - Uses current assembly address bank as the default `PBR` assumption for `JMP`/`JSR`
   absolute-bank resolution when `.assume pbr=...` is not set.
+- Uses deterministic mode-selection precedence:
+  explicit override > `.assume` state > automatic fallback.
+- Uses conservative state invalidation:
+  `PLB` invalidates known `DBR`; `PLD` and `TCD` invalidate known `DP`.
 - Uses checked address arithmetic and explicit diagnostics for overflow/underflow paths in placement, linking, and image emission.
-- Does not yet implement full automatic banked-state inference.
+- Does not implement full automatic banked-state inference.
 
 ### 4.8 End of assembly
 
@@ -746,40 +752,37 @@ Currently implemented 65816-specific additions in this branch:
 - runtime-state assumption directive: `.assume e=..., m=..., x=..., dbr=..., pbr=..., dp=...`
 - `.assume` bank/direct-page assumptions influence ambiguous mode resolution for supported forms
   (for example absolute-vs-long and direct-page offset selection)
-- conservative `TCD`-based direct-page inference is supported:
-  `LDA #$nnnn` (tracked 16-bit immediate) followed by `TCD` updates inferred
-  `DP`; otherwise `TCD` marks inferred `DP` unknown to avoid stale assumptions
-- conservative direct-page stack-provenance handling is also supported:
-  `PEA $nnnn ... PLD` can infer `DP` from pushed literal word and
-  `PHD ... PLD` preserves DP known/unknown state unless invalidated
-- conservative `LDA #$nnnn ... PHA ... PLD` inference is supported when
-  the accumulator is 16-bit at `PHA` time; 8-bit pushes do not infer DP
-- conservative `TDC` transfer chains participate in DP inference:
-  `TDC ... TCD` preserves known DP assumptions and `TDC ... PHA ... PLD`
-  can infer DP when `PHA` pushes 16-bit A
+- explicit per-operand overrides for ambiguous forms:
+  - `,d` force direct-page
+  - `,b` force data-bank absolute
+  - `,k` force program-bank absolute (`JMP`/`JSR` forms)
+  - `,l` force long
 - without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
   current assembly address bank
 - `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return
   to inferred bank behavior
-- when `PBR` is explicit, `PHK ... PLB` infers `DBR=PBR` for subsequent
-  bank-sensitive operand resolution, unless a stack-mutating instruction
-  or control-flow instruction appears between them
-- a conservative `LDA #imm ... PHA ... PLB` inference can also set `DBR`
-  from the pushed immediate byte when no non-whitelisted instruction
-  invalidates the tracked immediate value
-- a conservative `PEA $nnnn ... PLB` inference can set `DBR` from the
-  pushed literal low byte when no intervening stack mutation or control-flow
-  invalidates the pending push source
-- conservative `LDX/LDY #imm ... PHX/PHY ... PLB` inference can set `DBR`
-  from the pushed low byte when `PHX/PHY` directly follows a tracked
-  index-immediate load
-- a conservative `PHB ... PLB` preservation rule keeps existing `DBR`
-  assumption state unchanged (including `dbr=auto`) when no intervening
-  stack mutation or control-flow invalidates the push source
+- conservative state invalidation rules:
+  - `PLB` invalidates known `DBR`
+  - `PLD` invalidates known `DP`
+  - `TCD` invalidates known `DP` unless re-established explicitly
+
+**65816 Mode-Selection Precedence**
+
+For ambiguous bank/page-sensitive operands, opForge resolves in this order:
+
+1. explicit operand override (`,d`, `,b`, `,k`, `,l`)
+2. global `.assume` state (`dbr`, `pbr`, `dp`, plus `e/m/x` for widths)
+3. automatic deterministic fallback
+
+Migration note:
+- Source that previously relied on stack-sequence inference (`PHK/PLB`,
+  `LDA #imm ... PHA ... PLB`, `PEA ... PLB`, and related `... PLD` patterns)
+  should be updated to use explicit operand overrides and/or local `.assume`
+  updates at the relevant call sites.
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
-- full automatic banked-state inference is still in progress (`.assume` provides explicit DBR/DP and other state assumptions)
+- full automatic banked-state inference is not implemented (`.assume` plus explicit overrides provide control)
 
 **Intel 8080 Family**
 
