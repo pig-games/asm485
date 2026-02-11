@@ -15,62 +15,6 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 For full documentation on features and syntax, read the [opForge Reference Manual](documentation/opForge-reference-manual.md).
 For version-specific 65816 implementation scope and limits, see [RELEASE_NOTES_v0.9.1.md](RELEASE_NOTES_v0.9.1.md).
 
-## 65816 Status (Phase 1 + Phase 2 Addressing)
-
-Current 65816 support includes the phase-1 instruction set plus phase-2 24-bit
-core addressing and output/layout workflows.
-
-- CPU names: `65816` (canonical), `65c816`, `w65c816`
-- Includes 65816 instruction support currently implemented in this branch:
-  - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
-  - long-indirect jump alias: `JMP [$nnnn]` (same encoding as `JML [$nnnn]`)
-  - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
-  - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
-  - long memory forms: `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC` with `$llhhhh` and `$llhhhh,X`
-  - block move: `MVN`, `MVP`
-- Implemented 65816-only operand forms currently include:
-  - stack-relative (`d,S`) and stack-relative indirect indexed (`(d,S),Y`) for
-    `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, `SBC`
-  - bracketed long-indirect forms (`[...]` / `[...,Y]`) used by implemented instructions
-  - long absolute operands for implemented long-control instructions
-- Width-sensitive immediate sizing is implemented for supported 65816 immediate
-  mnemonics via `REP`/`SEP` M/X state tracking.
-- Runtime state assumptions are supported via `.assume` for `E/M/X/DBR/PBR/DP`,
-  including bank-aware absolute-vs-long and direct-page operand resolution.
-- Explicit per-operand 65816 overrides are supported for ambiguous forms:
-  `,d` (direct-page), `,b` (data-bank absolute), `,k` (program-bank absolute
-  for `JMP`/`JSR`), and `,l` (long).
-- Mode-selection precedence is deterministic:
-  1) explicit operand override, 2) `.assume` state, 3) automatic fallback.
-- Bank assumptions support `.assume dbr=auto` and `.assume pbr=auto` to
-  clear explicit overrides and return to inferred behavior.
-- For `JMP`/`JSR` absolute-bank resolution, `PBR` now defaults to the current
-  assembly address bank when no explicit `.assume pbr=...` is set.
-- `PLB` conservatively invalidates known `DBR`; `PLD` and `TCD` conservatively
-  invalidate known `DP` unless state is re-established with `.assume`.
-- Core address arithmetic is checked end-to-end for directives, section placement,
-  linker output assembly, and image emission (overflow paths report diagnostics).
-- Wide address reporting is consistent in listing/map output (4/6/8 hex digits),
-  and binary range parsing/emission rejects descending ranges.
-
-Current limits:
-- Full automatic banked CPU-state inference is not implemented; use `.assume`
-  and explicit operand overrides for bank/direct-page-sensitive intent.
-- PRG output `loadaddr` must still fit in 16 bits.
-
-Migration note:
-- If source previously relied on stack-sequence inference (`PHK/PLB`,
-  `LDA #imm ... PHA ... PLB`, `PEA ... PLB`, `... PLD` patterns), add
-  local explicit overrides and/or nearby `.assume` updates at the call sites
-  where mode selection matters.
-
-New 65816 examples:
-- `examples/65816_simple.asm`
-- `examples/65816_allmodes.asm`
-- `examples/65816_wide_image.asm`
-- `examples/65816_assume_state.asm`
-
-
 Build:
 
     make

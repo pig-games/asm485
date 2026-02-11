@@ -150,3 +150,8 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - listing/map formatting renders addresses consistently in 4/6/8-digit hex widths, based on effective address size
 - full automatic banked CPU-state inference is not implemented (`.assume` plus explicit overrides remain the control surface)
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics
+- PRG output `loadaddr` must still fit in 16 bits
+
+Migration note: if source previously relied on stack-sequence inference (`PHK/PLB`,
+`LDA #imm ... PHA ... PLB`, `PEA ... PLB`, `... PLD` patterns), add local explicit
+overrides and/or nearby `.assume` updates at the call sites where mode selection matters.
