@@ -246,11 +246,8 @@ block (or `.meta.output.*` inline), `.name` sets the output base name.
 
 Notes:
 - `.use` must appear **inside a module** and **at module scope**.
-- `.use` affects runtime symbol resolution and compile-time symbol availability (`.macro`, `.segment`, `.statement`).
-- Bare `.use mod` exposes compile-time symbols as **qualified-only** names (`.mod.MACRO`, `mod.STATEMENT`).
-- Selective imports (`.use mod (NAME, ...)`) inject listed symbols as unqualified names.
-- Wildcard selective imports (`.use mod (*)`) inject all public symbols as unqualified names.
-- `.pub/.priv` visibility is enforced for both runtime symbols (labels/constants/vars) and compile-time symbols (`.macro`, `.segment`, `.statement`).
+- `.use` affects **runtime symbol resolution only**.
+- `.pub/.priv` visibility is enforced for runtime symbols (labels/constants/vars) only; macro/segment exports are not filtered by `.use`.
 
 #### 4.10.1 Root input
 
@@ -277,7 +274,7 @@ Notes:
 #### 4.10.4 Visibility rules
 
 - `.pub`/`.priv` control **runtime symbol** visibility (labels/constants/vars).
-- `.pub`/`.priv` also control compile-time symbol visibility for imported `.macro`, `.segment`, and `.statement` definitions.
+- Macro/segment exports are **not** filtered by `.use`.
 
 #### 4.10.5 Root metadata output rules
 
@@ -347,8 +344,17 @@ Planned (not currently supported): `45gs02`, `68000` and related CPUs.
 - Includes stack-relative forms (`d,S` and `(d,S),Y`) for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`.
 - Includes wide-address output/layout workflows (`.org`, `.region`, `.place`, `.output image=...`, HEX/BIN emission).
 - Includes `REP`/`SEP`-driven M/X width-state tracking for supported width-sensitive immediate mnemonics.
+- Includes explicit 65816 runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`.
+- Includes explicit per-operand mode overrides for ambiguous bank/page forms:
+  `,d`, `,b`, `,k`, and `,l`.
+- Uses current assembly address bank as the default `PBR` assumption for `JMP`/`JSR`
+  absolute-bank resolution when `.assume pbr=...` is not set.
+- Uses deterministic mode-selection precedence:
+  explicit override > `.assume` state > automatic fallback.
+- Uses conservative state invalidation:
+  `PLB` invalidates known `DBR`; `PLD` and `TCD` invalidate known `DP`.
 - Uses checked address arithmetic and explicit diagnostics for overflow/underflow paths in placement, linking, and image emission.
-- Does not yet implement full banked CPU-state semantics.
+- Does not implement full automatic banked-state inference.
 
 ### 4.8 End of assembly
 
@@ -464,7 +470,6 @@ Capture types (built-in):
 
 Expansion model:
 - `.statement` definitions are expanded by the macro processor **before parsing**.
-- Expansion runs after module graph loading, so statements from `.use`-loaded modules participate in one global statement set.
 - Statement definitions are **global** (not module-scoped).
 
 ### 5.6 Assembler pipeline (CPU family/dialect)
@@ -575,6 +580,7 @@ Instruction mnemonics are selected by `.cpu`:
   extended `BIT` modes.
 - 65816 additions currently implemented include:
   - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+  - long-indirect jump alias: `JMP [$nnnn]` (same encoding as `JML [$nnnn]`)
   - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
   - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
   - block move: `MVN`, `MVP`
@@ -737,15 +743,46 @@ Instruction extensions:
 
 Currently implemented 65816-specific additions in this branch:
 - `BRL`, `JML`, `JSL`, `RTL`
+- `JMP [$nnnn]` (alias for `JML [$nnnn]`)
 - `REP`, `SEP`, `XCE`, `XBA`
 - `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
 - `PEA`, `PEI`, `PER`, `COP`, `WDM`
 - `MVN`, `MVP`
 - operand forms: `d,S`, `(d,S),Y`, bracketed indirect (`[...]`, `[...,Y]`) for supported instructions
+- runtime-state assumption directive: `.assume e=..., m=..., x=..., dbr=..., pbr=..., dp=...`
+- `.assume` bank/direct-page assumptions influence ambiguous mode resolution for supported forms
+  (for example absolute-vs-long and direct-page offset selection)
+- explicit per-operand overrides for ambiguous forms:
+  - `,d` force direct-page
+  - `,b` force data-bank absolute
+  - `,k` force program-bank absolute (`JMP`/`JSR` forms)
+  - `,l` force long
+- without explicit `.assume pbr=...`, `JMP`/`JSR` bank assumptions default to the
+  current assembly address bank
+- `.assume dbr=auto` / `.assume pbr=auto` clear explicit bank overrides and return
+  to inferred bank behavior
+- conservative state invalidation rules:
+  - `PLB` invalidates known `DBR`
+  - `PLD` invalidates known `DP`
+  - `TCD` invalidates known `DP` unless re-established explicitly
+
+**65816 Mode-Selection Precedence**
+
+For ambiguous bank/page-sensitive operands, opForge resolves in this order:
+
+1. explicit operand override (`,d`, `,b`, `,k`, `,l`)
+2. global `.assume` state (`dbr`, `pbr`, `dp`, plus `e/m/x` for widths)
+3. automatic deterministic fallback
+
+Migration note:
+- Source that previously relied on stack-sequence inference (`PHK/PLB`,
+  `LDA #imm ... PHA ... PLB`, `PEA ... PLB`, and related `... PLD` patterns)
+  should be updated to use explicit operand overrides and/or local `.assume`
+  updates at the relevant call sites.
 
 Current 65816 limits:
 - PRG load-address prefix remains 16-bit
-- full banked CPU-state semantics are still in progress
+- full automatic banked-state inference is not implemented (`.assume` plus explicit overrides provide control)
 
 **Intel 8080 Family**
 

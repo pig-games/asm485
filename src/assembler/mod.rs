@@ -93,7 +93,8 @@ fn run_one(
     let root_path = Path::new(asm_name);
     let root_lines = expand_source_file(root_path, &cli.defines, config.pp_macro_depth)?;
     let root_module_id = root_module_id_from_lines(root_path, &root_lines)?;
-    let graph = load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
+    let graph =
+        load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
     let expanded_lines = graph.lines;
 
     let mut assembler = Assembler::new();
@@ -1138,6 +1139,24 @@ impl<'a> AsmLine<'a> {
             operands,
             &mut self.cpu_state_flags,
         );
+    }
+
+    fn apply_cpu_runtime_directive(
+        &mut self,
+        directive: &str,
+        operands: &[Expr],
+    ) -> Result<bool, String> {
+        let pipeline = self
+            .registry
+            .resolve_pipeline(self.cpu, None)
+            .map_err(registry_error_message)?;
+        let mut state_flags = std::mem::take(&mut self.cpu_state_flags);
+        let result =
+            pipeline
+                .cpu
+                .apply_runtime_directive(directive, operands, self, &mut state_flags);
+        self.cpu_state_flags = state_flags;
+        result
     }
 
     fn cond_last(&self) -> Option<&ConditionalContext> {

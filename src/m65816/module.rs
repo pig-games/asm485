@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use crate::core::cpu::{CpuFamily, CpuType};
 use crate::core::family::AssemblerContext;
+use crate::core::parser::Expr;
 use crate::core::registry::{CpuHandlerDyn, CpuModule, FamilyOperandSet, OperandSet};
 use crate::families::mos6502::module::{
     MOS6502FamilyOperands, MOS6502Operands, DIALECT_TRANSPARENT, FAMILY_ID as MOS6502_FAMILY_ID,
@@ -114,5 +115,15 @@ impl CpuHandlerDyn for M65816CpuHandler {
             return;
         };
         state::apply_after_encode(mnemonic, &mos_operands.0, state_flags);
+    }
+
+    fn apply_runtime_directive(
+        &self,
+        directive: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+        state_flags: &mut HashMap<String, u32>,
+    ) -> Result<bool, String> {
+        state::apply_runtime_directive(directive, operands, ctx, state_flags)
     }
 }

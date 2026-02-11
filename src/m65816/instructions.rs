@@ -15,6 +15,11 @@ pub struct CpuInstructionEntry {
 /// Instruction table for prioritized 65816 MVP opcodes.
 pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     CpuInstructionEntry {
+        mnemonic: "JMP",
+        mode: AddressMode::IndirectLong,
+        opcode: 0xDC,
+    },
+    CpuInstructionEntry {
         mnemonic: "BRL",
         mode: AddressMode::RelativeLong,
         opcode: 0x82,
@@ -105,6 +110,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0x3B,
     },
     CpuInstructionEntry {
+        mnemonic: "TXY",
+        mode: AddressMode::Implied,
+        opcode: 0x9B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TYX",
+        mode: AddressMode::Implied,
+        opcode: 0xBB,
+    },
+    CpuInstructionEntry {
         mnemonic: "PEA",
         mode: AddressMode::Absolute,
         opcode: 0xF4,
@@ -123,6 +138,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mnemonic: "COP",
         mode: AddressMode::Immediate,
         opcode: 0x02,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BRK",
+        mode: AddressMode::Immediate,
+        opcode: 0x00,
     },
     CpuInstructionEntry {
         mnemonic: "WDM",
@@ -379,6 +399,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mode: AddressMode::StackRelativeIndirectIndexedY,
         opcode: 0xF3,
     },
+    CpuInstructionEntry {
+        mnemonic: "JSR",
+        mode: AddressMode::AbsoluteIndexedIndirect,
+        opcode: 0xFC,
+    },
 ];
 
 /// Look up an instruction in the CPU extension table.
@@ -407,11 +432,16 @@ mod tests {
     #[test]
     fn table_contains_prioritized_entries() {
         assert!(has_mnemonic("BRL"));
+        assert!(lookup_instruction("JMP", AddressMode::IndirectLong).is_some());
         assert!(lookup_instruction("BRL", AddressMode::RelativeLong).is_some());
         assert!(lookup_instruction("JML", AddressMode::AbsoluteLong).is_some());
         assert!(lookup_instruction("LDA", AddressMode::AbsoluteLongX).is_some());
         assert!(lookup_instruction("LDA", AddressMode::DirectPageIndirectLongY).is_some());
         assert!(lookup_instruction("LDA", AddressMode::StackRelative).is_some());
         assert!(lookup_instruction("MVN", AddressMode::BlockMove).is_some());
+        assert!(lookup_instruction("TXY", AddressMode::Implied).is_some());
+        assert!(lookup_instruction("TYX", AddressMode::Implied).is_some());
+        assert!(lookup_instruction("BRK", AddressMode::Immediate).is_some());
+        assert!(lookup_instruction("JSR", AddressMode::AbsoluteIndexedIndirect).is_some());
     }
 }

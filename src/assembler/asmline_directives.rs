@@ -1103,7 +1103,13 @@ impl<'a> AsmLine<'a> {
                 LineStatus::Ok
             }
             "END" => LineStatus::Ok,
-            _ => LineStatus::NothingDone,
+            _ => match self.apply_cpu_runtime_directive(directive, operands) {
+                Ok(true) => LineStatus::Ok,
+                Ok(false) => LineStatus::NothingDone,
+                Err(message) => {
+                    self.failure(LineStatus::Error, AsmErrorKind::Directive, &message, None)
+                }
+            },
         }
     }
 

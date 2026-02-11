@@ -12,9 +12,12 @@ use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
+use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
+use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
+use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::collections::HashMap;
@@ -332,504 +335,6 @@ fn module_loader_reports_ambiguous_module_id() {
     assert!(
         err.to_string().contains("Ambiguous module"),
         "unexpected error: {err}"
-    );
-}
-
-#[test]
-fn module_loader_allows_cross_module_segment_expansion() {
-    let dir = create_temp_dir("module-segment-cross");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    .lib.EMIT $AA\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut listing_out = Vec::new();
-    let mut listing = ListingWriter::new(&mut listing_out, false);
-    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
-    assert_eq!(
-        pass2.errors, 0,
-        "pass2 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut hex = Vec::new();
-    assembler
-        .image()
-        .write_hex_file(&mut hex, None)
-        .expect("hex output");
-    let hex_text = String::from_utf8_lossy(&hex);
-    assert!(
-        hex_text.contains(":02000000AA76DE"),
-        "unexpected hex output: {hex_text}"
-    );
-}
-
-#[test]
-fn module_loader_allows_cross_module_statement_expansion() {
-    let dir = create_temp_dir("module-statement-cross");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    lib.PUSHB $5A\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut listing_out = Vec::new();
-    let mut listing = ListingWriter::new(&mut listing_out, false);
-    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
-    assert_eq!(
-        pass2.errors, 0,
-        "pass2 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut hex = Vec::new();
-    assembler
-        .image()
-        .write_hex_file(&mut hex, None)
-        .expect("hex output");
-    let hex_text = String::from_utf8_lossy(&hex);
-    assert!(
-        hex_text.contains(":020000005A762E"),
-        "unexpected hex output: {hex_text}"
-    );
-}
-
-#[test]
-fn module_loader_bare_use_allows_qualified_macro_expansion() {
-    let dir = create_temp_dir("module-macro-cross");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    .lib.EMIT_PAIR $AA, $BB\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nEMIT_PAIR .macro a, b\n    .byte .a\n    .byte .b\n.endmacro\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut listing_out = Vec::new();
-    let mut listing = ListingWriter::new(&mut listing_out, false);
-    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
-    assert_eq!(
-        pass2.errors, 0,
-        "pass2 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut hex = Vec::new();
-    assembler
-        .image()
-        .write_hex_file(&mut hex, None)
-        .expect("hex output");
-    let hex_text = String::from_utf8_lossy(&hex);
-    assert!(
-        hex_text.contains(":03000000AABB7622"),
-        "unexpected hex output: {hex_text}"
-    );
-}
-
-#[test]
-fn module_loader_bare_use_alias_allows_qualified_segment_expansion() {
-    let dir = create_temp_dir("module-segment-alias-qualified");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib as L\n    .org $0000\n    .L.EMIT $AA\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-}
-
-#[test]
-fn module_loader_selective_import_includes_segment() {
-    let dir = create_temp_dir("module-segment-selective");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (EMIT)\n    .org $0000\n    .EMIT $AA\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-
-    let mut listing_out = Vec::new();
-    let mut listing = ListingWriter::new(&mut listing_out, false);
-    let pass2 = assembler.pass2(&combined, &mut listing).expect("pass2");
-    assert_eq!(
-        pass2.errors, 0,
-        "pass2 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-}
-
-#[test]
-fn module_loader_selective_import_excludes_segment() {
-    let dir = create_temp_dir("module-segment-not-imported");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    // Only import VAL, not EMIT — segment should NOT be available
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (VAL)\n    .org $0000\n    .byte VAL\n    .EMIT $AA\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nVAL .const 7\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(
-        pass1.errors > 0,
-        "Expected errors because EMIT segment was not imported"
-    );
-}
-
-#[test]
-fn module_loader_selective_import_private_segment_emits_private_diagnostic() {
-    let dir = create_temp_dir("module-segment-private-selective");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (EMIT)\n    .org $0000\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .priv\nEMIT .segment v\n    .byte .v\n.endsegment\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(pass1.errors > 0, "Expected private import diagnostic");
-    assert!(assembler.diagnostics.iter().any(|diag| {
-        diag.error.kind() == AsmErrorKind::Symbol && diag.error.message().contains("private")
-    }));
-}
-
-#[test]
-fn module_loader_selective_import_includes_statement() {
-    let dir = create_temp_dir("module-statement-selective");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (PUSHB)\n    .org $0000\n    PUSHB $5A\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
-    );
-}
-
-#[test]
-fn module_loader_selective_import_excludes_statement() {
-    let dir = create_temp_dir("module-statement-not-imported");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    // Only import VAL, not PUSHB — statement should NOT be available
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (VAL)\n    .org $0000\n    .byte VAL\n    PUSHB $5A\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nVAL .const 7\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(
-        pass1.errors > 0,
-        "Expected errors because PUSHB statement was not imported"
-    );
-}
-
-#[test]
-fn module_loader_selective_import_private_statement_emits_private_diagnostic() {
-    let dir = create_temp_dir("module-statement-private-selective");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (PUSHB)\n    .org $0000\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .priv\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(pass1.errors > 0, "Expected private import diagnostic");
-    assert!(assembler.diagnostics.iter().any(|diag| {
-        diag.error.kind() == AsmErrorKind::Symbol && diag.error.message().contains("private")
-    }));
-}
-
-#[test]
-fn module_loader_bare_use_does_not_import_statement_unqualified() {
-    let dir = create_temp_dir("module-statement-bare-use");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    PUSHB $5A\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(
-        pass1.errors > 0,
-        "Expected errors because PUSHB statement was not imported by bare .use"
-    );
-}
-
-#[test]
-fn module_loader_bare_use_does_not_import_macro_unqualified() {
-    let dir = create_temp_dir("module-macro-bare-use");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib\n    .org $0000\n    .EMIT_PAIR $AA, $BB\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nEMIT_PAIR .macro a, b\n    .byte .a\n    .byte .b\n.endmacro\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(
-        pass1.errors > 0,
-        "Expected errors because EMIT_PAIR macro was not imported by bare .use"
-    );
-}
-
-#[test]
-fn module_loader_selective_import_private_macro_emits_private_diagnostic() {
-    let dir = create_temp_dir("module-macro-private-selective");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (EMIT_PAIR)\n    .org $0000\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .priv\nEMIT_PAIR .macro a, b\n    .byte .a\n    .byte .b\n.endmacro\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert!(pass1.errors > 0, "Expected private import diagnostic");
-    assert!(assembler.diagnostics.iter().any(|diag| {
-        diag.error.kind() == AsmErrorKind::Symbol && diag.error.message().contains("private")
-    }));
-}
-
-#[test]
-fn module_loader_wildcard_import_includes_runtime_and_statement() {
-    let dir = create_temp_dir("module-wildcard-runtime-statement");
-    let root_path = dir.join("main.asm");
-    let lib_path = dir.join("lib.asm");
-
-    write_file(
-        &root_path,
-        ".module app\n    .use lib (*)\n    .org $0000\n    .byte VAL\n    PUSHB $5A\n    hlt\n.endmodule\n",
-    );
-    write_file(
-        &lib_path,
-        ".module lib\n    .pub\nVAL .const 7\n.statement PUSHB byte:v\n    .byte .v\n.endstatement\n.endmodule\n",
-    );
-
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let graph = load_module_graph(&root_path, root_lines, &[], 32).expect("load graph");
-    let combined = graph.lines;
-
-    let mut assembler = Assembler::new();
-    assembler.root_metadata.root_module_id = Some("app".to_string());
-    assembler.module_macro_names = graph.module_macro_names;
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&combined);
-    assert_eq!(
-        pass1.errors, 0,
-        "pass1 diagnostics: {:?}",
-        assembler.diagnostics
     );
 }
 
@@ -1168,171 +673,6 @@ fn z80_cb_indexed_encode() {
 
     let bytes = assemble_bytes(z80_cpu_id, "    SRL (IX+0)");
     assert_eq!(bytes, vec![0xDD, 0xCB, 0x00, 0x3E]);
-}
-
-#[test]
-fn z80_ld_absolute_indirect_forms_encode() {
-    let bytes = assemble_bytes(z80_cpu_id, "    LD A,(1234h)");
-    assert_eq!(bytes, vec![0x3A, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (1234h),A");
-    assert_eq!(bytes, vec![0x32, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD BC,(1234h)");
-    assert_eq!(bytes, vec![0xED, 0x4B, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (1234h),BC");
-    assert_eq!(bytes, vec![0xED, 0x43, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD HL,(1234h)");
-    assert_eq!(bytes, vec![0x2A, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (1234h),HL");
-    assert_eq!(bytes, vec![0x22, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD IX,(1234h)");
-    assert_eq!(bytes, vec![0xDD, 0x2A, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (1234h),IX");
-    assert_eq!(bytes, vec![0xDD, 0x22, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD IY,(1234h)");
-    assert_eq!(bytes, vec![0xFD, 0x2A, 0x34, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (1234h),IY");
-    assert_eq!(bytes, vec![0xFD, 0x22, 0x34, 0x12]);
-}
-
-#[test]
-fn z80_ex_sp_hl_uses_xthl_opcode() {
-    let bytes = assemble_bytes(z80_cpu_id, "    EX DE,HL");
-    assert_eq!(bytes, vec![0xEB]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    EX (SP),HL");
-    assert_eq!(bytes, vec![0xE3]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    EX AF,AF'");
-    assert_eq!(bytes, vec![0x08]);
-}
-
-#[test]
-fn z80_io_forms_encode() {
-    let bytes = assemble_bytes(z80_cpu_id, "    IN A,(12h)");
-    assert_eq!(bytes, vec![0xDB, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    OUT (34h),A");
-    assert_eq!(bytes, vec![0xD3, 0x34]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    IN B,(C)");
-    assert_eq!(bytes, vec![0xED, 0x40]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    OUT (C),B");
-    assert_eq!(bytes, vec![0xED, 0x41]);
-}
-
-#[test]
-fn z80_jp_ix_iy_encode() {
-    let bytes = assemble_bytes(z80_cpu_id, "    JP IX");
-    assert_eq!(bytes, vec![0xDD, 0xE9]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    JP IY");
-    assert_eq!(bytes, vec![0xFD, 0xE9]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    JP (IX)");
-    assert_eq!(bytes, vec![0xDD, 0xE9]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    JP (IY)");
-    assert_eq!(bytes, vec![0xFD, 0xE9]);
-}
-
-#[test]
-fn z80_half_index_register_forms_encode() {
-    let bytes = assemble_bytes(z80_cpu_id, "    LD IXH,A");
-    assert_eq!(bytes, vec![0xDD, 0x67]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD A,IXL");
-    assert_eq!(bytes, vec![0xDD, 0x7D]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD IYH,12h");
-    assert_eq!(bytes, vec![0xFD, 0x26, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    INC IXH");
-    assert_eq!(bytes, vec![0xDD, 0x24]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    DEC IYL");
-    assert_eq!(bytes, vec![0xFD, 0x2D]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    ADD A,IXH");
-    assert_eq!(bytes, vec![0xDD, 0x84]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    ADC A,IYL");
-    assert_eq!(bytes, vec![0xFD, 0x8D]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    SUB IXL");
-    assert_eq!(bytes, vec![0xDD, 0x95]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    SBC A,IXH");
-    assert_eq!(bytes, vec![0xDD, 0x9C]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    AND IYL");
-    assert_eq!(bytes, vec![0xFD, 0xA5]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    XOR IXH");
-    assert_eq!(bytes, vec![0xDD, 0xAC]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    OR IXL");
-    assert_eq!(bytes, vec![0xDD, 0xB5]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    CP IYL");
-    assert_eq!(bytes, vec![0xFD, 0xBD]);
-}
-
-#[test]
-fn z80_indexed_non_cb_forms_encode() {
-    let bytes = assemble_bytes(z80_cpu_id, "    LD A,(IX+1)");
-    assert_eq!(bytes, vec![0xDD, 0x7E, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD B,(IY+2)");
-    assert_eq!(bytes, vec![0xFD, 0x46, 0x02]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (IX+1),A");
-    assert_eq!(bytes, vec![0xDD, 0x77, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (IY+2),B");
-    assert_eq!(bytes, vec![0xFD, 0x70, 0x02]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    LD (IX+1),12h");
-    assert_eq!(bytes, vec![0xDD, 0x36, 0x01, 0x12]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    INC (IX+1)");
-    assert_eq!(bytes, vec![0xDD, 0x34, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    DEC (IY+2)");
-    assert_eq!(bytes, vec![0xFD, 0x35, 0x02]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    ADD A,(IX+1)");
-    assert_eq!(bytes, vec![0xDD, 0x86, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    ADC A,(IY+2)");
-    assert_eq!(bytes, vec![0xFD, 0x8E, 0x02]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    SUB (IX+1)");
-    assert_eq!(bytes, vec![0xDD, 0x96, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    SBC A,(IY+2)");
-    assert_eq!(bytes, vec![0xFD, 0x9E, 0x02]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    AND (IX+1)");
-    assert_eq!(bytes, vec![0xDD, 0xA6, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    XOR (IY+2)");
-    assert_eq!(bytes, vec![0xFD, 0xAE, 0x02]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    OR (IX+1)");
-    assert_eq!(bytes, vec![0xDD, 0xB6, 0x01]);
-
-    let bytes = assemble_bytes(z80_cpu_id, "    CP (IY+2)");
-    assert_eq!(bytes, vec![0xFD, 0xBE, 0x02]);
 }
 
 #[test]
@@ -2425,49 +1765,6 @@ fn statement_definition_rejects_unquoted_commas() {
 }
 
 #[test]
-fn statement_dollar_hex_suffix_chars_assemble_correctly() {
-    // Regression: $BB, $AB, $0B etc. failed in statement byte-capture matching
-    // because parse_number treated the trailing B as a binary suffix before
-    // recognising the $ hex prefix.
-    let lines = vec![
-        ".statement PUSHB byte:v".to_string(),
-        "    .byte .v".to_string(),
-        ".endstatement".to_string(),
-        "    .org $0000".to_string(),
-        "    PUSHB $AA".to_string(),
-        "    PUSHB $BB".to_string(),
-        "    PUSHB $AB".to_string(),
-        "    PUSHB $0B".to_string(),
-        "    PUSHB $FB".to_string(),
-    ];
-    let mut mp = MacroProcessor::new();
-    let expanded = mp.expand(&lines).expect("expand");
-
-    let mut assembler = Assembler::new();
-    assembler.clear_diagnostics();
-    let pass1 = assembler.pass1(&expanded);
-    assert_eq!(pass1.errors, 0, "pass1 errors: {:?}", assembler.diagnostics);
-
-    let mut output = Vec::new();
-    let mut listing = ListingWriter::new(&mut output, false);
-    let _ = listing.header("test");
-    let pass2 = assembler.pass2(&expanded, &mut listing).expect("pass2");
-    assert_eq!(pass2.errors, 0, "pass2 errors: {:?}", assembler.diagnostics);
-
-    let mut hex = Vec::new();
-    assembler
-        .image()
-        .write_hex_file(&mut hex, None)
-        .expect("hex");
-    let hex_text = String::from_utf8_lossy(&hex);
-    // Expected bytes at $0000: AA BB AB 0B FB
-    assert!(
-        hex_text.contains(":05000000AABBAB0BFBE5"),
-        "unexpected hex: {hex_text}"
-    );
-}
-
-#[test]
 fn qualified_symbol_resolves_outside_scope() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -2869,6 +2166,10 @@ fn m65816_prioritized_instruction_encoding() {
         vec![0x22, 0x56, 0x34, 0x12]
     );
     assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    JMP [$1234]"),
+        vec![0xDC, 0x34, 0x12]
+    );
+    assert_eq!(
         assemble_bytes(m65816_cpu_id, "    JML [$1234]"),
         vec![0xDC, 0x34, 0x12]
     );
@@ -2883,6 +2184,16 @@ fn m65816_prioritized_instruction_encoding() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    REP #$30"),
         vec![0xC2, 0x30]
+    );
+    assert_eq!(assemble_bytes(m65816_cpu_id, "    TXY"), vec![0x9B]);
+    assert_eq!(assemble_bytes(m65816_cpu_id, "    TYX"), vec![0xBB]);
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    BRK #$12"),
+        vec![0x00, 0x12]
+    );
+    assert_eq!(
+        assemble_bytes(m65816_cpu_id, "    JSR ($1234,X)"),
+        vec![0xFC, 0x34, 0x12]
     );
 }
 
@@ -2943,6 +2254,1681 @@ fn m65816_cpu_switch_resets_width_state() {
         .expect("expected immediate width error")
         .message()
         .contains("8-bit mode"));
+}
+
+#[test]
+fn m65816_cpu_switch_resets_banked_assume_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12, pbr=$34, dp=$2000",
+        ".cpu 6502",
+        ".cpu 65816",
+        "    LDA $123456",
+        "    LDA $20F0",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xAF),
+            (0x0001, 0x56),
+            (0x0002, 0x34),
+            (0x0003, 0x12),
+            (0x0004, 0xAD),
+            (0x0005, 0xF0),
+            (0x0006, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_cpu_switch_reset_restores_default_pbr() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$34", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, ".cpu 6502", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    JMP $343210", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
+fn m65816_assume_sets_runtime_state_and_immediate_widths() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(
+            &mut asm,
+            ".assume e=native, m=16, x=16, dbr=$12, pbr=$34, dp=$2000",
+            0,
+            2
+        ),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::EMULATION_MODE_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::ACCUMULATOR_8BIT_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::INDEX_8BIT_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DATA_BANK_KEY)
+            .copied(),
+        Some(0x12)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DATA_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(1)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::PROGRAM_BANK_KEY)
+            .copied(),
+        Some(0x34)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::PROGRAM_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(1)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DIRECT_PAGE_KEY)
+            .copied(),
+        Some(0x2000)
+    );
+
+    assert_eq!(
+        process_line(&mut asm, "    LDA #$1234", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes().to_vec(), vec![0xA9, 0x34, 0x12]);
+    assert_eq!(
+        process_line(&mut asm, "    LDX #$5678", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes().to_vec(), vec![0xA2, 0x78, 0x56]);
+}
+
+#[test]
+fn m65816_assume_emulation_forces_8bit_mode() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume e=native, m=16, x=16", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, ".assume e=emulation", 0, 2),
+        LineStatus::Ok
+    );
+
+    let status = process_line(&mut asm, "    LDA #$1234", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error()
+        .expect("expected immediate width error")
+        .message()
+        .contains("8-bit mode"));
+}
+
+#[test]
+fn m65816_assume_rejects_invalid_values() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    let status = process_line(&mut asm, ".assume e=emulation, m=16", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains(".assume m=16 requires native mode"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    let status = process_line(&mut asm, ".assume dbr=256", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains("out of range (0-255)"));
+}
+
+#[test]
+fn m65816_assume_bank_auto_resets_explicit_flags() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12, pbr=$34", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=auto, pbr=auto", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::DATA_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(0)
+    );
+    assert_eq!(
+        asm.cpu_state_flags
+            .get(crate::m65816::state::PROGRAM_BANK_EXPLICIT_KEY)
+            .copied(),
+        Some(0)
+    );
+}
+
+#[test]
+fn m65816_phk_plb_invalidates_dbr_even_with_explicit_pbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xAB),
+            (0x0002, 0xAF),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+            (0x0005, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_does_not_infer_dbr_when_pbr_is_not_explicit() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume pbr=auto, dbr=$00",
+        "    PHK",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0x4B),
+            (0x123401, 0xAB),
+            (0x123402, 0xAF),
+            (0x123403, 0x56),
+            (0x123404, 0x34),
+            (0x123405, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_invalidates_dbr_even_when_pbr_changes_after_push() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        ".assume pbr=$34",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xAB),
+            (0x0002, 0xAF),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+            (0x0005, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_does_not_retroactively_use_later_pbr_explicitness() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume pbr=auto, dbr=$00",
+        "    PHK",
+        ".assume pbr=$12",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0x4B),
+            (0x123401, 0xAB),
+            (0x123402, 0xAF),
+            (0x123403, 0x56),
+            (0x123404, 0x34),
+            (0x123405, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phb_plb_invalidates_known_dbr_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    PHB",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x8B),
+            (0x0001, 0xAB),
+            (0x0002, 0xAF),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+            (0x0005, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phb_plb_keeps_dbr_unknown_when_auto() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume dbr=auto",
+        "    PHB",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x123400, 0x8B),
+            (0x123401, 0xAB),
+            (0x123402, 0xAF),
+            (0x123403, 0x56),
+            (0x123404, 0x34),
+            (0x123405, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_invalidates_dbr_across_stack_neutral_instruction() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        "    NOP",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xEA),
+            (0x0002, 0xAB),
+            (0x0003, 0xAF),
+            (0x0004, 0x56),
+            (0x0005, 0x34),
+            (0x0006, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_inference_is_cleared_by_stack_mutation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0x48),
+            (0x0002, 0xAB),
+            (0x0003, 0xAF),
+            (0x0004, 0x56),
+            (0x0005, 0x34),
+            (0x0006, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_plb_unknown_source_prefers_long_when_available() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x48),
+            (0x0001, 0xAB),
+            (0x0002, 0xAF),
+            (0x0003, 0x56),
+            (0x0004, 0x34),
+            (0x0005, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_plb_unknown_source_errors_for_non_long_mnemonics() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "    PHA", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "    PLB", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDX $123456", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=... is unknown"));
+    assert!(asm
+        .error_message()
+        .contains("update .assume near this site"));
+}
+
+#[test]
+fn m65816_unknown_dbr_diagnostic_suggests_long_override_when_supported() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "    PHA", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "    PLB", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA $123456,b", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=... is unknown"));
+    assert!(asm.error_message().contains("forced with ',l'"));
+}
+
+#[test]
+fn m65816_lda_imm_pha_plb_does_not_infer_dbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA #$12",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x48),
+            (0x0003, 0xAB),
+            (0x0004, 0xAF),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+            (0x0007, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm_pha_plb_is_conservative_with_intervening_ops() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA #$12",
+        "    ADC #$01",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x69),
+            (0x0003, 0x01),
+            (0x0004, 0x48),
+            (0x0005, 0xAB),
+            (0x0006, 0xAF),
+            (0x0007, 0x56),
+            (0x0008, 0x34),
+            (0x0009, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm_pha_plb_does_not_infer_dbr_across_flag_and_width_ops() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA #$12",
+        "    CLC",
+        "    REP #$20",
+        "    SEP #$20",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x18),
+            (0x0003, 0xC2),
+            (0x0004, 0x20),
+            (0x0005, 0xE2),
+            (0x0006, 0x20),
+            (0x0007, 0x48),
+            (0x0008, 0xAB),
+            (0x0009, 0xAF),
+            (0x000A, 0x56),
+            (0x000B, 0x34),
+            (0x000C, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_pea_plb_does_not_infer_dbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    PEA $3412",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0x12),
+            (0x0002, 0x34),
+            (0x0003, 0xAB),
+            (0x0004, 0xAF),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+            (0x0007, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_pea_plb_inference_is_cleared_by_intervening_stack_mutation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    PEA $3412",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0x12),
+            (0x0002, 0x34),
+            (0x0003, 0x48),
+            (0x0004, 0xAB),
+            (0x0005, 0xAF),
+            (0x0006, 0x56),
+            (0x0007, 0x34),
+            (0x0008, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm_pha_plb_does_not_infer_dbr_across_a_preserving_stack_and_index_ops() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA #$12",
+        "    PHX",
+        "    INX",
+        "    PHA",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0xDA),
+            (0x0003, 0xE8),
+            (0x0004, 0x48),
+            (0x0005, 0xAB),
+            (0x0006, 0xAF),
+            (0x0007, 0x56),
+            (0x0008, 0x34),
+            (0x0009, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_ldx_imm_phx_plb_does_not_infer_dbr() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDX #$12",
+        "    PHX",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA2),
+            (0x0001, 0x12),
+            (0x0002, 0xDA),
+            (0x0003, 0xAB),
+            (0x0004, 0xAF),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+            (0x0007, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_ldy_imm16_phy_plb_does_not_infer_dbr_from_low_byte() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    REP #$10",
+        "    LDY #$3412",
+        "    PHY",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x10),
+            (0x0002, 0xA0),
+            (0x0003, 0x12),
+            (0x0004, 0x34),
+            (0x0005, 0x5A),
+            (0x0006, 0xAB),
+            (0x0007, 0xAF),
+            (0x0008, 0x56),
+            (0x0009, 0x34),
+            (0x000A, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_ldx_imm_phx_plb_inference_is_conservative_with_intervening_ops() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDX #$12",
+        "    NOP",
+        "    PHX",
+        "    PLB",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA2),
+            (0x0001, 0x12),
+            (0x0002, 0xEA),
+            (0x0003, 0xDA),
+            (0x0004, 0xAB),
+            (0x0005, 0xAF),
+            (0x0006, 0x56),
+            (0x0007, 0x34),
+            (0x0008, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phk_plb_inference_is_cleared_by_control_flow() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12, dbr=$00",
+        "    PHK",
+        "    BEQ after",
+        "    PLB",
+        "after:",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x4B),
+            (0x0001, 0xF0),
+            (0x0002, 0x01),
+            (0x0003, 0xAB),
+            (0x0004, 0xAF),
+            (0x0005, 0x56),
+            (0x0006, 0x34),
+            (0x0007, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_dbr_prefers_absolute_for_matching_24bit_bank() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x0000, 0xAD), (0x0001, 0x56), (0x0002, 0x34)]
+    );
+
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$00",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xAF),
+            (0x0001, 0x56),
+            (0x0002, 0x34),
+            (0x0003, 0x12)
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_dbr_auto_uses_current_bank_for_resolution() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $123400",
+        ".assume dbr=auto",
+        "    LDA $123456",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x123400, 0xAD), (0x123401, 0x56), (0x123402, 0x34)]
+    );
+}
+
+#[test]
+fn m65816_assume_dbr_applies_to_non_long_mnemonics() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dbr=$12",
+        "    LDX $123456",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x0000, 0xAE), (0x0001, 0x56), (0x0002, 0x34)]
+    );
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    LDX $123456", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=$00"));
+}
+
+#[test]
+fn m65816_assume_dbr_rejects_low_bank_symbol_for_non_long_mnemonics() {
+    let mut symbols = SymbolTable::new();
+    assert_eq!(
+        symbols.add("target", 0x0040, false, SymbolVisibility::Private, None),
+        SymbolTableResult::Ok
+    );
+    assert_eq!(symbols.update("target", 0x0040), SymbolTableResult::Ok);
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    LDX target", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=$12"));
+}
+
+#[test]
+fn m65816_forward_label_uses_dbr_for_unresolved_long_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0100",
+        ".assume pbr=$34, dbr=$00",
+        "start:",
+        "    LDA target",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0100, 0xAD),
+            (0x0101, 0x04),
+            (0x0102, 0x01),
+            (0x0103, 0xEA),
+            (0x0104, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0104));
+
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0100",
+        ".assume dbr=$12",
+        "start:",
+        "    LDA target",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0100, 0xAF),
+            (0x0101, 0x05),
+            (0x0102, 0x01),
+            (0x0103, 0x00),
+            (0x0104, 0xEA),
+            (0x0105, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0105));
+}
+
+#[test]
+fn m65816_forward_label_x_index_uses_dbr_for_unresolved_long_sizing() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0100",
+        ".assume pbr=$34, dbr=$00",
+        "start:",
+        "    LDA target,X",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0100, 0xBD),
+            (0x0101, 0x04),
+            (0x0102, 0x01),
+            (0x0103, 0xEA),
+            (0x0104, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0104));
+
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0100",
+        ".assume dbr=$12",
+        "start:",
+        "    LDA target,X",
+        "    NOP",
+        "target:",
+        "    RTL",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0100, 0xBF),
+            (0x0101, 0x05),
+            (0x0102, 0x01),
+            (0x0103, 0x00),
+            (0x0104, 0xEA),
+            (0x0105, 0x6B),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.target"), Some(0x0105));
+}
+
+#[test]
+fn m65816_assume_dp_maps_16bit_operands_to_direct_page_modes() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA $20F0",
+        "    LDA $20E0,X",
+        "    ORA [$20D0]",
+        "    ORA [$20C0],Y",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA5),
+            (0x0001, 0xF0),
+            (0x0002, 0xB5),
+            (0x0003, 0xE0),
+            (0x0004, 0x07),
+            (0x0005, 0xD0),
+            (0x0006, 0x17),
+            (0x0007, 0xC0),
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_dp_maps_parenthesized_direct_page_modes() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA ($20F0),Y",
+        "    LDA ($20E0,X)",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xB1),
+            (0x0001, 0xF0),
+            (0x0002, 0xA1),
+            (0x0003, 0xE0),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tcd_invalidates_direct_page_without_value_tracking() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        "    REP #$20",
+        "    LDA #$2000",
+        "    TCD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0xA9),
+            (0x0003, 0x00),
+            (0x0004, 0x20),
+            (0x0005, 0x5B),
+            (0x0006, 0xAD),
+            (0x0007, 0xAA),
+            (0x0008, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tcd_with_unknown_a_clears_direct_page_assumption() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA #$12",
+        "    TCD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x5B),
+            (0x0003, 0xAD),
+            (0x0004, 0xAA),
+            (0x0005, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_pea_pld_does_not_infer_direct_page_from_pushed_literal() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    PEA $20AA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0xAA),
+            (0x0002, 0x20),
+            (0x0003, 0x2B),
+            (0x0004, 0xAD),
+            (0x0005, 0xCC),
+            (0x0006, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_pea_pld_inference_is_cleared_by_intervening_stack_mutation() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    PEA $20AA",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xF4),
+            (0x0001, 0xAA),
+            (0x0002, 0x20),
+            (0x0003, 0x48),
+            (0x0004, 0x2B),
+            (0x0005, 0xAD),
+            (0x0006, 0xCC),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phd_pld_invalidates_direct_page_assumption() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    PHD",
+        "    PLD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x0B),
+            (0x0001, 0x2B),
+            (0x0002, 0xAD),
+            (0x0003, 0xAA),
+            (0x0004, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_phd_pld_preserves_unknown_direct_page_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$2000",
+        "    LDA #$12",
+        "    TCD",
+        "    PHD",
+        "    PLD",
+        "    LDA $20AA",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x5B),
+            (0x0003, 0x0B),
+            (0x0004, 0x2B),
+            (0x0005, 0xAD),
+            (0x0006, 0xAA),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm16_pha_pld_does_not_infer_direct_page_when_accumulator_is_16bit() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    REP #$20",
+        "    LDA #$20AA",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0xA9),
+            (0x0003, 0xAA),
+            (0x0004, 0x20),
+            (0x0005, 0x48),
+            (0x0006, 0x2B),
+            (0x0007, 0xAD),
+            (0x0008, 0xCC),
+            (0x0009, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_lda_imm16_pha_pld_does_not_infer_when_sep_forces_8bit_push() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$0000",
+        "    REP #$20",
+        "    LDA #$20AA",
+        "    SEP #$20",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0xA9),
+            (0x0003, 0xAA),
+            (0x0004, 0x20),
+            (0x0005, 0xE2),
+            (0x0006, 0x20),
+            (0x0007, 0x48),
+            (0x0008, 0x2B),
+            (0x0009, 0xAD),
+            (0x000A, 0xCC),
+            (0x000B, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tdc_tcd_does_not_preserve_known_direct_page_state_without_inference() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$20AA",
+        "    TDC",
+        "    TCD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x7B),
+            (0x0001, 0x5B),
+            (0x0002, 0xAD),
+            (0x0003, 0xCC),
+            (0x0004, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tdc_tcd_does_not_restore_stale_direct_page_when_unknown() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$20AA",
+        "    LDA #$12",
+        "    TCD",
+        "    TDC",
+        "    TCD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xA9),
+            (0x0001, 0x12),
+            (0x0002, 0x5B),
+            (0x0003, 0x7B),
+            (0x0004, 0x5B),
+            (0x0005, 0xAD),
+            (0x0006, 0xCC),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_tdc_pha_pld_does_not_infer_direct_page_when_accumulator_is_16bit() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume dp=$20AA",
+        "    REP #$20",
+        "    TDC",
+        "    PHA",
+        "    PLD",
+        "    LDA $20CC",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0xC2),
+            (0x0001, 0x20),
+            (0x0002, 0x7B),
+            (0x0003, 0x48),
+            (0x0004, 0x2B),
+            (0x0005, 0xAD),
+            (0x0006, 0xCC),
+            (0x0007, 0x20),
+        ]
+    );
+}
+
+#[test]
+fn m65816_assume_pbr_controls_24bit_jmp_operands() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12",
+        "    JMP $123456",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x0000, 0x4C), (0x0001, 0x56), (0x0002, 0x34)]
+    );
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP $123456", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
+fn m65816_assume_pbr_auto_restores_inferred_behavior() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $340000",
+        ".assume pbr=$00",
+        ".assume pbr=auto",
+        "    JMP $343210",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x340000, 0x4C), (0x340001, 0x10), (0x340002, 0x32)]
+    );
+}
+
+#[test]
+fn m65816_default_pbr_follows_current_address_bank() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $340000",
+        "    JMP $343210",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x340000, 0x4C), (0x340001, 0x10), (0x340002, 0x32)]
+    );
+}
+
+#[test]
+fn m65816_cpu_switch_reset_restores_inferred_pbr_bank() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".assume pbr=$12",
+        ".cpu 6502",
+        ".cpu 65816",
+        ".org $340000",
+        "    JMP $343210",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![(0x340000, 0x4C), (0x340001, 0x10), (0x340002, 0x32)]
+    );
+}
+
+#[test]
+fn m65816_assume_pbr_rejects_low_bank_symbol_for_jmp_forms() {
+    let mut symbols = SymbolTable::new();
+    assert_eq!(
+        symbols.add("target", 0x0040, false, SymbolVisibility::Private, None),
+        SymbolTableResult::Ok
+    );
+    assert_eq!(symbols.update("target", 0x0040), SymbolTableResult::Ok);
+    let registry = default_registry();
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP target", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$12"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP (target)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$12"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP (target,X)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$12"));
+}
+
+#[test]
+fn m65816_assume_pbr_controls_24bit_jmp_indirect_operands() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $0000",
+        ".assume pbr=$12",
+        "    JMP ($123456)",
+        "    JMP ($123456,X)",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0000, 0x6C),
+            (0x0001, 0x56),
+            (0x0002, 0x34),
+            (0x0003, 0x7C),
+            (0x0004, 0x56),
+            (0x0005, 0x34),
+        ]
+    );
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP ($123456)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume pbr=$00", 0, 2),
+        LineStatus::Ok
+    );
+    let status = process_line(&mut asm, "    JMP ($123456,X)", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume pbr=$00"));
+}
+
+#[test]
+fn m65816_alias_directives_set_runtime_state() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $120000",
+        ".al",
+        ".xl",
+        ".databank auto",
+        ".dpage $2000",
+        "    LDA #$1234",
+        "    LDX #$5678",
+        "    LDA $123456,l",
+        "    LDA $20F0,d",
+        "    JMP $123210,k",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x120000, 0xA9),
+            (0x120001, 0x34),
+            (0x120002, 0x12),
+            (0x120003, 0xA2),
+            (0x120004, 0x78),
+            (0x120005, 0x56),
+            (0x120006, 0xAF),
+            (0x120007, 0x56),
+            (0x120008, 0x34),
+            (0x120009, 0x12),
+            (0x12000A, 0xA5),
+            (0x12000B, 0xF0),
+            (0x12000C, 0x4C),
+            (0x12000D, 0x10),
+            (0x12000E, 0x32),
+        ]
+    );
+}
+
+#[test]
+fn m65816_alias_directives_validate_operands() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, ".al 1", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".al does not accept operands"));
+
+    let status = process_line(&mut asm, ".databank", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".databank expects 1 operand"));
+}
+
+#[test]
+fn m65816_explicit_long_override_wins_over_assume_bank_choice() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 65816",
+        ".org $120000",
+        ".assume dbr=auto",
+        "    LDA $123456,l",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x120000, 0xAF),
+            (0x120001, 0x56),
+            (0x120002, 0x34),
+            (0x120003, 0x12),
+        ]
+    );
+}
+
+#[test]
+fn m65816_explicit_force_rejects_invalid_context() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA $123456,k", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("Explicit addressing override ',k' is not valid"));
+
+    let status = process_line(&mut asm, "    JMP $123456,b", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("Explicit addressing override ',b' is not valid"));
+}
+
+#[test]
+fn m6502_rejects_65816_explicit_override_suffixes() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    assert_eq!(process_line(&mut asm, ".cpu 6502", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA $10,d", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains("65816-only addressing mode"));
 }
 
 #[test]
@@ -3171,6 +4157,89 @@ fn m65816_direct_page_indirect_long_forms_encode() {
 }
 
 #[test]
+fn m65816_effective_opcode_space_covers_all_256_opcodes() {
+    let is_disallowed_m65c02_mnemonic = |mnemonic: &str| {
+        matches!(
+            mnemonic,
+            "RMB0"
+                | "RMB1"
+                | "RMB2"
+                | "RMB3"
+                | "RMB4"
+                | "RMB5"
+                | "RMB6"
+                | "RMB7"
+                | "SMB0"
+                | "SMB1"
+                | "SMB2"
+                | "SMB3"
+                | "SMB4"
+                | "SMB5"
+                | "SMB6"
+                | "SMB7"
+                | "BBR0"
+                | "BBR1"
+                | "BBR2"
+                | "BBR3"
+                | "BBR4"
+                | "BBR5"
+                | "BBR6"
+                | "BBR7"
+                | "BBS0"
+                | "BBS1"
+                | "BBS2"
+                | "BBS3"
+                | "BBS4"
+                | "BBS5"
+                | "BBS6"
+                | "BBS7"
+        )
+    };
+
+    let mut by_mnemonic_mode: HashMap<(String, String), u8> = HashMap::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        by_mnemonic_mode.insert(
+            (entry.mnemonic.to_string(), format!("{:?}", entry.mode)),
+            entry.opcode,
+        );
+    }
+
+    for entry in M65C02_INSTRUCTION_TABLE {
+        if is_disallowed_m65c02_mnemonic(entry.mnemonic) {
+            continue;
+        }
+        by_mnemonic_mode.insert(
+            (entry.mnemonic.to_string(), format!("{:?}", entry.mode)),
+            entry.opcode,
+        );
+    }
+
+    for entry in M65816_INSTRUCTION_TABLE {
+        by_mnemonic_mode.insert(
+            (entry.mnemonic.to_string(), format!("{:?}", entry.mode)),
+            entry.opcode,
+        );
+    }
+
+    let mut covered = [false; 256];
+    for opcode in by_mnemonic_mode.values() {
+        covered[*opcode as usize] = true;
+    }
+
+    let missing: Vec<usize> = covered
+        .iter()
+        .enumerate()
+        .filter_map(|(opcode, present)| if *present { None } else { Some(opcode) })
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "missing effective 65816 opcodes: {missing:?}"
+    );
+}
+
+#[test]
 fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     let (status, message) = assemble_line_status(m6502_cpu_id, "    BRL $0005");
     assert_eq!(status, LineStatus::Error);
@@ -3199,6 +4268,25 @@ fn legacy_cpus_reject_65816_mnemonics_and_modes() {
     assert!(message
         .unwrap_or_default()
         .contains("No instruction found for PEA"));
+}
+
+#[test]
+fn m65816_rejects_m65c02_only_bit_branch_and_bit_memory_mnemonics() {
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    RMB0 $12");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("RMB0"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    SMB7 $12");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("SMB7"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    BBR0 $12,$34");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("BBR0"));
+
+    let (status, message) = assemble_line_status(m65816_cpu_id, "    BBS7 $12,$34");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.unwrap_or_default().contains("BBS7"));
 }
 
 #[test]

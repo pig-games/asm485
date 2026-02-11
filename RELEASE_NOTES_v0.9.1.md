@@ -12,6 +12,10 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 - Removed legacy `.dsection`.
 - `.dsection` now reports an actionable diagnostic directing migration to
   `.place`/`.pack` with `.output`.
+- 65816 sequence/provenance inference chains were removed for bank/direct-page
+  state (`PHK/PLB`, `LDA #imm ... PHA ... PLB`, `PEA ... PLB`, `PHB ... PLB`,
+  and corresponding `... PLD` provenance patterns). Use explicit operand
+  overrides and/or `.assume` updates near affected call sites.
 
 ## Added
 
@@ -40,6 +44,7 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - `.cpu 65816` plus aliases `.cpu 65c816` and `.cpu w65c816`
   - implemented 65816 instruction support:
     - control flow/control: `BRL`, `JML`, `JSL`, `RTL`, `REP`, `SEP`, `XCE`, `XBA`
+    - long-indirect jump alias: `JMP [$nnnn]` (same encoding as `JML [$nnnn]`)
     - stack/register control: `PHB`, `PLB`, `PHD`, `PLD`, `PHK`, `TCD`, `TDC`, `TCS`, `TSC`
     - memory/control: `PEA`, `PEI`, `PER`, `COP`, `WDM`
     - block move: `MVN`, `MVP`
@@ -48,10 +53,23 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
     - bracketed indirect forms (`[...]`, `[...,Y]`) for implemented instructions
   - width-sensitive immediate sizing for supported 65816 immediate mnemonics via `REP`/`SEP`
     M/X state tracking (including CPU-switch state reset behavior)
+  - explicit runtime-state assumptions via `.assume` for `E/M/X/DBR/PBR/DP`,
+    including bank-aware absolute-vs-long and direct-page mode resolution
+  - explicit per-operand mode overrides for ambiguous forms:
+    `,d`, `,b`, `,k`, and `,l`
+  - deterministic mode-selection precedence:
+    explicit override > `.assume` state > automatic fallback
+  - automatic `PBR` default inference for `JMP`/`JSR` from current assembly bank
+    when `.assume pbr=...` is not explicitly set
+  - `.assume dbr=auto` / `.assume pbr=auto` to clear explicit bank overrides
+    and return to inferred-bank behavior
+  - conservative state invalidation:
+    `PLB` invalidates known `DBR`, and `PLD`/`TCD` invalidate known `DP`
 - New 65816 examples and golden references:
   - `examples/65816_simple.asm`
   - `examples/65816_allmodes.asm`
   - `examples/65816_wide_image.asm`
+  - `examples/65816_assume_state.asm`
   - matching `examples/reference/65816_*.hex` and `examples/reference/65816_*.lst`
 - Phase-2 wide-address core behavior:
   - `.org`, region placement (`.region`/`.place`/`.pack`), and linker image spans support wide addresses
@@ -126,6 +144,9 @@ Current 65816 coverage includes phase-1 instruction support plus phase-2 24-bit 
 - stack-relative forms (`d,S` and `(d,S),Y`) are supported for `ORA`, `AND`, `EOR`, `ADC`, `STA`, `LDA`, `CMP`, and `SBC`
 - bracketed long-indirect forms (`[...]`, `[...,Y]`) and long absolute operands are implemented for currently supported 65816 instructions
 - checked address arithmetic now guards directive/linker/image overflow paths; descending BIN ranges are rejected
+- explicit per-operand overrides are supported for ambiguous bank/page forms (`d`, `b`, `k`, `l` suffixes)
+- deterministic mode-selection precedence is explicit override > `.assume` > automatic fallback
+- `PLB` invalidates known `DBR`; `PLD` and `TCD` invalidate known `DP`
 - listing/map formatting renders addresses consistently in 4/6/8-digit hex widths, based on effective address size
-- full banked CPU-state semantics are still planned
+- full automatic banked CPU-state inference is not implemented (`.assume` plus explicit overrides remain the control surface)
 - width-sensitive immediate sizing via M/X state tracking is implemented for supported immediate mnemonics

@@ -1,0 +1,52 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 65816 runtime state assumptions (.assume) + explicit operand overrides
+----                                2  ; Demonstrates precedence: explicit override > .assume > automatic fallback.
+----                                3  
+----                                4          .cpu 65816
+----    EQU 123400                  5          .org $123400
+----                                6  
+----                                7  start:
+----                                8          .assume e=native, m=16, x=16, dp=$2000, dbr=$12, pbr=auto
+----                                9  
+123400  A9 34 12                   10          lda #$1234          ; A9 34 12 (A is 16-bit)
+123403  A2 78 56                   11          ldx #$5678          ; A2 78 56 (X is 16-bit)
+123406  AD 56 34                   12          lda $123456         ; AD 56 34 (.assume dbr=$12 resolves to absolute)
+123409  AF 56 34 12                13          lda $123456,l       ; AF 56 34 12 (explicit long override wins)
+----                               14  
+12340D  A5 F0                      15          lda $20F0           ; A5 F0 (.assume dp=$2000 resolves to direct-page)
+12340F  AD F0 20                   16          lda $20F0,b         ; AD F0 20 (explicit data-bank absolute override)
+123412  A5 F0                      17          lda $20F0,d         ; A5 F0 (explicit direct-page override)
+----                               18  
+123414  4C 10 32                   19          jmp $123210         ; 4C 10 32 (PBR defaults to current .org bank $12)
+123417  4C 10 32                   20          jmp $123210,k       ; 4C 10 32 (explicit program-bank absolute override)
+----                               21  
+----                               22          .assume dbr=$00
+12341A  AF 56 34 12                23          lda $123456,l       ; AF 56 34 12 (explicit long avoids DBR mismatch)
+----                               24  
+12341E  E2 20                      25          sep #$20            ; A back to 8-bit
+123420  A9 9A                      26          lda #$9A            ; A9 9A
+----                               27  
+----                               28          .assume e=emulation ; forces A/X to 8-bit
+123422  A2 BC                      29          ldx #$BC            ; A2 BC
+----                               30  
+123424  60                         31          rts
+----                               32  
+----                               33          .end
+
+Lines: 33  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 123400 (1192960)
+
+Total memory is 37 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+123400    A9 34 12 A2 78 56 AD 56 34 AF 56 34 12 A5 F0 AD
+123410    F0 20 A5 F0 4C 10 32 4C 10 32 AF 56 34 12 E2 20
+123420    A9 9A A2 BC 60
