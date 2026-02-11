@@ -2450,7 +2450,7 @@ fn m65816_assume_bank_auto_resets_explicit_flags() {
 }
 
 #[test]
-fn m65816_phk_plb_infers_dbr_from_explicit_pbr() {
+fn m65816_phk_plb_invalidates_dbr_even_with_explicit_pbr() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2468,9 +2468,10 @@ fn m65816_phk_plb_infers_dbr_from_explicit_pbr() {
         vec![
             (0x0000, 0x4B),
             (0x0001, 0xAB),
-            (0x0002, 0xAD),
+            (0x0002, 0xAF),
             (0x0003, 0x56),
             (0x0004, 0x34),
+            (0x0005, 0x12),
         ]
     );
 }
@@ -2503,7 +2504,7 @@ fn m65816_phk_plb_does_not_infer_dbr_when_pbr_is_not_explicit() {
 }
 
 #[test]
-fn m65816_phk_plb_uses_push_time_explicit_pbr_not_later_override() {
+fn m65816_phk_plb_invalidates_dbr_even_when_pbr_changes_after_push() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2522,9 +2523,10 @@ fn m65816_phk_plb_uses_push_time_explicit_pbr_not_later_override() {
         vec![
             (0x0000, 0x4B),
             (0x0001, 0xAB),
-            (0x0002, 0xAD),
+            (0x0002, 0xAF),
             (0x0003, 0x56),
             (0x0004, 0x34),
+            (0x0005, 0x12),
         ]
     );
 }
@@ -2558,7 +2560,7 @@ fn m65816_phk_plb_does_not_retroactively_use_later_pbr_explicitness() {
 }
 
 #[test]
-fn m65816_phb_plb_preserves_explicit_dbr() {
+fn m65816_phb_plb_invalidates_known_dbr_state() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2576,15 +2578,16 @@ fn m65816_phb_plb_preserves_explicit_dbr() {
         vec![
             (0x0000, 0x8B),
             (0x0001, 0xAB),
-            (0x0002, 0xAD),
+            (0x0002, 0xAF),
             (0x0003, 0x56),
             (0x0004, 0x34),
+            (0x0005, 0x12),
         ]
     );
 }
 
 #[test]
-fn m65816_phb_plb_does_not_force_stale_bank_when_dbr_auto() {
+fn m65816_phb_plb_keeps_dbr_unknown_when_auto() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2602,15 +2605,16 @@ fn m65816_phb_plb_does_not_force_stale_bank_when_dbr_auto() {
         vec![
             (0x123400, 0x8B),
             (0x123401, 0xAB),
-            (0x123402, 0xAD),
+            (0x123402, 0xAF),
             (0x123403, 0x56),
             (0x123404, 0x34),
+            (0x123405, 0x12),
         ]
     );
 }
 
 #[test]
-fn m65816_phk_plb_infers_across_stack_neutral_instruction() {
+fn m65816_phk_plb_invalidates_dbr_across_stack_neutral_instruction() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2630,9 +2634,10 @@ fn m65816_phk_plb_infers_across_stack_neutral_instruction() {
             (0x0000, 0x4B),
             (0x0001, 0xEA),
             (0x0002, 0xAB),
-            (0x0003, 0xAD),
+            (0x0003, 0xAF),
             (0x0004, 0x56),
             (0x0005, 0x34),
+            (0x0006, 0x12),
         ]
     );
 }
@@ -2713,7 +2718,7 @@ fn m65816_plb_unknown_source_errors_for_non_long_mnemonics() {
 }
 
 #[test]
-fn m65816_lda_imm_pha_plb_infers_dbr() {
+fn m65816_lda_imm_pha_plb_does_not_infer_dbr() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2734,9 +2739,10 @@ fn m65816_lda_imm_pha_plb_infers_dbr() {
             (0x0001, 0x12),
             (0x0002, 0x48),
             (0x0003, 0xAB),
-            (0x0004, 0xAD),
+            (0x0004, 0xAF),
             (0x0005, 0x56),
             (0x0006, 0x34),
+            (0x0007, 0x12),
         ]
     );
 }
@@ -2775,7 +2781,7 @@ fn m65816_lda_imm_pha_plb_is_conservative_with_intervening_ops() {
 }
 
 #[test]
-fn m65816_lda_imm_pha_plb_infers_dbr_across_flag_and_width_ops() {
+fn m65816_lda_imm_pha_plb_does_not_infer_dbr_across_flag_and_width_ops() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2804,15 +2810,16 @@ fn m65816_lda_imm_pha_plb_infers_dbr_across_flag_and_width_ops() {
             (0x0006, 0x20),
             (0x0007, 0x48),
             (0x0008, 0xAB),
-            (0x0009, 0xAD),
+            (0x0009, 0xAF),
             (0x000A, 0x56),
             (0x000B, 0x34),
+            (0x000C, 0x12),
         ]
     );
 }
 
 #[test]
-fn m65816_pea_plb_infers_dbr() {
+fn m65816_pea_plb_does_not_infer_dbr() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2832,9 +2839,10 @@ fn m65816_pea_plb_infers_dbr() {
             (0x0001, 0x12),
             (0x0002, 0x34),
             (0x0003, 0xAB),
-            (0x0004, 0xAD),
+            (0x0004, 0xAF),
             (0x0005, 0x56),
             (0x0006, 0x34),
+            (0x0007, 0x12),
         ]
     );
 }
@@ -2871,7 +2879,7 @@ fn m65816_pea_plb_inference_is_cleared_by_intervening_stack_mutation() {
 }
 
 #[test]
-fn m65816_lda_imm_pha_plb_infers_dbr_across_a_preserving_stack_and_index_ops() {
+fn m65816_lda_imm_pha_plb_does_not_infer_dbr_across_a_preserving_stack_and_index_ops() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2896,15 +2904,16 @@ fn m65816_lda_imm_pha_plb_infers_dbr_across_a_preserving_stack_and_index_ops() {
             (0x0003, 0xE8),
             (0x0004, 0x48),
             (0x0005, 0xAB),
-            (0x0006, 0xAD),
+            (0x0006, 0xAF),
             (0x0007, 0x56),
             (0x0008, 0x34),
+            (0x0009, 0x12),
         ]
     );
 }
 
 #[test]
-fn m65816_ldx_imm_phx_plb_infers_dbr() {
+fn m65816_ldx_imm_phx_plb_does_not_infer_dbr() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2925,15 +2934,16 @@ fn m65816_ldx_imm_phx_plb_infers_dbr() {
             (0x0001, 0x12),
             (0x0002, 0xDA),
             (0x0003, 0xAB),
-            (0x0004, 0xAD),
+            (0x0004, 0xAF),
             (0x0005, 0x56),
             (0x0006, 0x34),
+            (0x0007, 0x12),
         ]
     );
 }
 
 #[test]
-fn m65816_ldy_imm16_phy_plb_infers_dbr_from_low_byte() {
+fn m65816_ldy_imm16_phy_plb_does_not_infer_dbr_from_low_byte() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -2958,9 +2968,10 @@ fn m65816_ldy_imm16_phy_plb_infers_dbr_from_low_byte() {
             (0x0004, 0x34),
             (0x0005, 0x5A),
             (0x0006, 0xAB),
-            (0x0007, 0xAD),
+            (0x0007, 0xAF),
             (0x0008, 0x56),
             (0x0009, 0x34),
+            (0x000A, 0x12),
         ]
     );
 }
@@ -3293,7 +3304,7 @@ fn m65816_assume_dp_maps_parenthesized_direct_page_modes() {
 }
 
 #[test]
-fn m65816_tcd_infers_direct_page_from_known_a_immediate_word() {
+fn m65816_tcd_invalidates_direct_page_without_value_tracking() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -3314,8 +3325,9 @@ fn m65816_tcd_infers_direct_page_from_known_a_immediate_word() {
             (0x0003, 0x00),
             (0x0004, 0x20),
             (0x0005, 0x5B),
-            (0x0006, 0xA5),
+            (0x0006, 0xAD),
             (0x0007, 0xAA),
+            (0x0008, 0x20),
         ]
     );
 }
@@ -3347,7 +3359,7 @@ fn m65816_tcd_with_unknown_a_clears_direct_page_assumption() {
 }
 
 #[test]
-fn m65816_pea_pld_infers_direct_page_from_pushed_literal() {
+fn m65816_pea_pld_does_not_infer_direct_page_from_pushed_literal() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -3366,8 +3378,9 @@ fn m65816_pea_pld_infers_direct_page_from_pushed_literal() {
             (0x0001, 0xAA),
             (0x0002, 0x20),
             (0x0003, 0x2B),
-            (0x0004, 0xA5),
-            (0x0005, 0x22),
+            (0x0004, 0xAD),
+            (0x0005, 0xCC),
+            (0x0006, 0x20),
         ]
     );
 }
@@ -3402,7 +3415,7 @@ fn m65816_pea_pld_inference_is_cleared_by_intervening_stack_mutation() {
 }
 
 #[test]
-fn m65816_phd_pld_preserves_direct_page_assumption() {
+fn m65816_phd_pld_invalidates_direct_page_assumption() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -3419,8 +3432,9 @@ fn m65816_phd_pld_preserves_direct_page_assumption() {
         vec![
             (0x0000, 0x0B),
             (0x0001, 0x2B),
-            (0x0002, 0xA5),
+            (0x0002, 0xAD),
             (0x0003, 0xAA),
+            (0x0004, 0x20),
         ]
     );
 }
@@ -3456,7 +3470,7 @@ fn m65816_phd_pld_preserves_unknown_direct_page_state() {
 }
 
 #[test]
-fn m65816_lda_imm16_pha_pld_infers_direct_page_when_accumulator_is_16bit() {
+fn m65816_lda_imm16_pha_pld_does_not_infer_direct_page_when_accumulator_is_16bit() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -3480,8 +3494,9 @@ fn m65816_lda_imm16_pha_pld_infers_direct_page_when_accumulator_is_16bit() {
             (0x0004, 0x20),
             (0x0005, 0x48),
             (0x0006, 0x2B),
-            (0x0007, 0xA5),
-            (0x0008, 0x22),
+            (0x0007, 0xAD),
+            (0x0008, 0xCC),
+            (0x0009, 0x20),
         ]
     );
 }
@@ -3522,7 +3537,7 @@ fn m65816_lda_imm16_pha_pld_does_not_infer_when_sep_forces_8bit_push() {
 }
 
 #[test]
-fn m65816_tdc_tcd_preserves_known_direct_page_state() {
+fn m65816_tdc_tcd_does_not_preserve_known_direct_page_state_without_inference() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -3539,8 +3554,9 @@ fn m65816_tdc_tcd_preserves_known_direct_page_state() {
         vec![
             (0x0000, 0x7B),
             (0x0001, 0x5B),
-            (0x0002, 0xA5),
-            (0x0003, 0x22),
+            (0x0002, 0xAD),
+            (0x0003, 0xCC),
+            (0x0004, 0x20),
         ]
     );
 }
@@ -3576,7 +3592,7 @@ fn m65816_tdc_tcd_does_not_restore_stale_direct_page_when_unknown() {
 }
 
 #[test]
-fn m65816_tdc_pha_pld_infers_direct_page_when_accumulator_is_16bit() {
+fn m65816_tdc_pha_pld_does_not_infer_direct_page_when_accumulator_is_16bit() {
     let assembler = run_passes(&[
         ".module main",
         ".cpu 65816",
@@ -3598,8 +3614,9 @@ fn m65816_tdc_pha_pld_infers_direct_page_when_accumulator_is_16bit() {
             (0x0002, 0x7B),
             (0x0003, 0x48),
             (0x0004, 0x2B),
-            (0x0005, 0xA5),
-            (0x0006, 0x22),
+            (0x0005, 0xAD),
+            (0x0006, 0xCC),
+            (0x0007, 0x20),
         ]
     );
 }
