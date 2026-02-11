@@ -349,10 +349,20 @@ impl M65816CpuHandler {
         )
     }
 
-    fn bank_unknown_error(assumed_bank_key: &str) -> String {
-        format!(
+    fn bank_unknown_error(assumed_bank_key: &str, mnemonic: &str) -> String {
+        let mut message = format!(
             "Unable to resolve 24-bit bank because .assume {assumed_bank_key}=... is unknown; set .assume {assumed_bank_key}=$00..$FF or {assumed_bank_key}=auto"
-        )
+        );
+        message.push_str(
+            ". If this source relied on removed stack-sequence inference, update .assume near this site",
+        );
+        if Self::has_mode(mnemonic, AddressMode::AbsoluteLong)
+            || Self::has_mode(mnemonic, AddressMode::AbsoluteLongX)
+        {
+            message.push_str("; long-capable operands can be forced with ',l'");
+        }
+        message.push('.');
+        message
     }
 
     fn force_suffix(force: OperandForce) -> &'static str {
@@ -517,7 +527,10 @@ impl CpuHandler for M65816CpuHandler {
                                 if (0..=0xFF_FFFF).contains(&val) {
                                     let absolute_bank = ((val as u32) >> 16) as u8;
                                     if !assumed_known {
-                                        return Err(Self::bank_unknown_error(assumed_key));
+                                        return Err(Self::bank_unknown_error(
+                                            assumed_key,
+                                            &upper_mnemonic,
+                                        ));
                                     }
                                     if absolute_bank != assumed_bank {
                                         return Err(Self::bank_mismatch_error(
@@ -550,7 +563,10 @@ impl CpuHandler for M65816CpuHandler {
                                 if (0..=0xFF_FFFF).contains(&val) {
                                     let absolute_bank = ((val as u32) >> 16) as u8;
                                     if !assumed_known {
-                                        return Err(Self::bank_unknown_error(assumed_key));
+                                        return Err(Self::bank_unknown_error(
+                                            assumed_key,
+                                            &upper_mnemonic,
+                                        ));
                                     }
                                     if absolute_bank != assumed_bank {
                                         return Err(Self::bank_mismatch_error(
@@ -580,7 +596,7 @@ impl CpuHandler for M65816CpuHandler {
                         if !symbol_unstable
                             && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
                         {
-                            return Err(Self::bank_unknown_error(assumed_key));
+                            return Err(Self::bank_unknown_error(assumed_key, &upper_mnemonic));
                         }
                     }
 
@@ -618,7 +634,7 @@ impl CpuHandler for M65816CpuHandler {
                         }
                         if Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error(assumed_key));
+                                return Err(Self::bank_unknown_error(assumed_key, &upper_mnemonic));
                             }
                             return Err(Self::bank_mismatch_error(
                                 val as u32,
@@ -744,7 +760,10 @@ impl CpuHandler for M65816CpuHandler {
                                 if (0..=0xFF_FFFF).contains(&val) {
                                     let absolute_bank = ((val as u32) >> 16) as u8;
                                     if !assumed_known {
-                                        return Err(Self::bank_unknown_error(assumed_key));
+                                        return Err(Self::bank_unknown_error(
+                                            assumed_key,
+                                            &upper_mnemonic,
+                                        ));
                                     }
                                     if absolute_bank != assumed_bank {
                                         return Err(Self::bank_mismatch_error(
@@ -777,7 +796,7 @@ impl CpuHandler for M65816CpuHandler {
                         if !symbol_unstable
                             && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
                         {
-                            return Err(Self::bank_unknown_error(assumed_key));
+                            return Err(Self::bank_unknown_error(assumed_key, &upper_mnemonic));
                         }
                     }
 
@@ -815,7 +834,7 @@ impl CpuHandler for M65816CpuHandler {
                         }
                         if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX) {
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error(assumed_key));
+                                return Err(Self::bank_unknown_error(assumed_key, &upper_mnemonic));
                             }
                             return Err(Self::bank_mismatch_error(
                                 val as u32,
@@ -888,7 +907,10 @@ impl CpuHandler for M65816CpuHandler {
                                 if (0..=0xFF_FFFF).contains(&val) {
                                     let absolute_bank = ((val as u32) >> 16) as u8;
                                     if !assumed_known {
-                                        return Err(Self::bank_unknown_error("dbr"));
+                                        return Err(Self::bank_unknown_error(
+                                            "dbr",
+                                            &upper_mnemonic,
+                                        ));
                                     }
                                     if absolute_bank != assumed_bank {
                                         return Err(Self::bank_mismatch_error(
@@ -920,7 +942,7 @@ impl CpuHandler for M65816CpuHandler {
                         && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
                     {
                         if !assumed_known {
-                            return Err(Self::bank_unknown_error("dbr"));
+                            return Err(Self::bank_unknown_error("dbr", &upper_mnemonic));
                         }
                         if assumed_bank == 0 {
                             // In matching low bank we can keep absolute Y as-is.
@@ -945,7 +967,7 @@ impl CpuHandler for M65816CpuHandler {
                         }
                         if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY) {
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error("dbr"));
+                                return Err(Self::bank_unknown_error("dbr", &upper_mnemonic));
                             }
                             return Err(Self::bank_mismatch_error(
                                 val as u32,
@@ -992,7 +1014,10 @@ impl CpuHandler for M65816CpuHandler {
                                         let assumed_known = state::program_bank_known(ctx);
                                         let absolute_bank = ((val as u32) >> 16) as u8;
                                         if !assumed_known {
-                                            return Err(Self::bank_unknown_error("pbr"));
+                                            return Err(Self::bank_unknown_error(
+                                                "pbr",
+                                                &upper_mnemonic,
+                                            ));
                                         }
                                         if absolute_bank != assumed_bank {
                                             return Err(Self::bank_mismatch_error(
@@ -1022,7 +1047,7 @@ impl CpuHandler for M65816CpuHandler {
                         let assumed_known = state::program_bank_known(ctx);
                         if symbol_based && (0..=0xFFFF).contains(&val) && !symbol_unstable {
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error("pbr"));
+                                return Err(Self::bank_unknown_error("pbr", &upper_mnemonic));
                             }
                             if assumed_bank != 0 {
                                 return Err(Self::bank_mismatch_error(
@@ -1045,7 +1070,7 @@ impl CpuHandler for M65816CpuHandler {
                                 )]);
                             }
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error("pbr"));
+                                return Err(Self::bank_unknown_error("pbr", &upper_mnemonic));
                             }
                             return Err(Self::bank_mismatch_error(
                                 val as u32,
@@ -1146,7 +1171,10 @@ impl CpuHandler for M65816CpuHandler {
                                         let assumed_known = state::program_bank_known(ctx);
                                         let absolute_bank = ((val as u32) >> 16) as u8;
                                         if !assumed_known {
-                                            return Err(Self::bank_unknown_error("pbr"));
+                                            return Err(Self::bank_unknown_error(
+                                                "pbr",
+                                                &upper_mnemonic,
+                                            ));
                                         }
                                         if absolute_bank != assumed_bank {
                                             return Err(Self::bank_mismatch_error(
@@ -1176,7 +1204,7 @@ impl CpuHandler for M65816CpuHandler {
                         let assumed_known = state::program_bank_known(ctx);
                         if symbol_based && (0..=0xFFFF).contains(&val) && !symbol_unstable {
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error("pbr"));
+                                return Err(Self::bank_unknown_error("pbr", &upper_mnemonic));
                             }
                             if assumed_bank != 0 {
                                 return Err(Self::bank_mismatch_error(
@@ -1199,7 +1227,7 @@ impl CpuHandler for M65816CpuHandler {
                                 )]);
                             }
                             if !assumed_known {
-                                return Err(Self::bank_unknown_error("pbr"));
+                                return Err(Self::bank_unknown_error("pbr", &upper_mnemonic));
                             }
                             return Err(Self::bank_mismatch_error(
                                 val as u32,

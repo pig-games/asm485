@@ -2715,6 +2715,29 @@ fn m65816_plb_unknown_source_errors_for_non_long_mnemonics() {
     let status = process_line(&mut asm, "    LDX $123456", 0, 2);
     assert_eq!(status, LineStatus::Error);
     assert!(asm.error_message().contains(".assume dbr=... is unknown"));
+    assert!(asm
+        .error_message()
+        .contains("update .assume near this site"));
+}
+
+#[test]
+fn m65816_unknown_dbr_diagnostic_suggests_long_override_when_supported() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu 65816", 0, 2), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".assume dbr=$12", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "    PHA", 0, 2), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "    PLB", 0, 2), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    LDA $123456,b", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm.error_message().contains(".assume dbr=... is unknown"));
+    assert!(asm.error_message().contains("forced with ',l'"));
 }
 
 #[test]
