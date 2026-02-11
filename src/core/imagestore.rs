@@ -11,6 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static IMAGE_STORE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// On-disk entry size: 4 bytes big-endian address + 1 byte value.
+const ENTRY_SIZE: usize = 5;
+
 #[derive(Clone, Copy)]
 struct ImageStoreEntry {
     addr: u32,
@@ -51,15 +54,23 @@ impl ImageStore {
                 entries: 0,
                 write_error: None,
             },
-            Err(err) => Self {
-                path,
-                file: File::open("/dev/null").unwrap_or_else(|_| {
-                    // Fallback: create a file struct that will report errors on use
-                    File::open(".").unwrap()
-                }),
-                entries: 0,
-                write_error: Some(err),
-            },
+            Err(err) => {
+                // The file handle is never actually used when write_error is set
+                // (store/store_slice early-return), but we need a valid File value
+                // to satisfy the struct. Use a platform-appropriate null device.
+                let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
+                let file = File::open(null_path).unwrap_or_else(|_| {
+                    // Last resort: open current directory (read-only is fine since
+                    // we never write through this handle when write_error is Some).
+                    File::open(".").expect("BUG: cannot open fallback file handle")
+                });
+                Self {
+                    path,
+                    file,
+                    entries: 0,
+                    write_error: Some(err),
+                }
+            }
         }
     }
 
@@ -80,7 +91,7 @@ impl ImageStore {
             ));
             return;
         };
-        let mut buf = [0u8; 5];
+        let mut buf = [0u8; ENTRY_SIZE];
         buf[..4].copy_from_slice(&addr.to_be_bytes());
         buf[4] = val;
         if let Err(err) = self.file.write_all(&buf) {
@@ -115,7 +126,7 @@ impl ImageStore {
         let mut reader = BufReader::new(File::open(&self.path)?);
         let mut entries = Vec::new();
         loop {
-            let mut buf = [0u8; 5];
+            let mut buf = [0u8; ENTRY_SIZE];
             match reader.read_exact(&mut buf) {
                 Ok(()) => {
                     let addr = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);

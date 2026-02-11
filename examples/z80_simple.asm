@@ -21,6 +21,18 @@
         or 80h
         xor a           ; clear A (same as XOR A,A)
 
+; Logic — 2-operand forms with indexed memory
+        and a, (ix+3)   ; DD A6 03
+        or a, (iy+1)    ; FD B6 01
+        xor a, (ix+0)   ; DD AE 00
+        cp a, (iy-2)    ; FD BE FE
+
+; Logic — 2-operand forms with half-index registers (undocumented)
+        and a, ixh      ; DD A4
+        or a, iyl       ; FD B5
+        xor a, iyh      ; FD AC
+        cp a, ixl       ; DD BD
+
 ; Jumps
         jp 1000h        ; unconditional jump
         jp nz, 2000h    ; conditional jump

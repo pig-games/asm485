@@ -204,6 +204,13 @@ pub fn map_zilog_to_canonical(
         }
     }
 
+    // ADC HL,rp and SBC HL,rp are Z80-only 16-bit operations (ED prefix).
+    // They must NOT be dialect-mapped; return None so they fall through
+    // to the Z80 extension table.
+    if (upper == "ADC" || upper == "SBC") && is_16bit_hl_regpair(operands) {
+        return None;
+    }
+
     let (num_regs, has_imm) = count_regs_and_immediate(operands)?;
     let entry = find_mapping(&upper, num_regs, has_imm)?;
     let (mut canonical_mnemonic, mut canonical_operands) = apply_entry_mapping(entry, operands)?;
@@ -443,6 +450,14 @@ fn map_inc_dec(mnemonic: &str, operands: &[FamilyOperand]) -> Option<(String, Ve
     }
 
     None
+}
+
+/// Check if operands represent a 16-bit `HL, rp` pattern (for ADC/SBC HL).
+fn is_16bit_hl_regpair(operands: &[FamilyOperand]) -> bool {
+    if operands.len() != 2 {
+        return false;
+    }
+    is_register_named(&operands[0], "HL") && operand_class(&operands[1]) == OperandClass::Reg16
 }
 
 fn map_add_hl(operands: &[FamilyOperand]) -> Option<(String, Vec<FamilyOperand>)> {

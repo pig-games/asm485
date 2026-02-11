@@ -4,6 +4,7 @@
 //! Error types, diagnostics, and reporting for the assembler.
 
 use std::fmt;
+use std::sync::Arc;
 
 use crate::core::parser::ParseError;
 use crate::core::parser_reporter::format_parse_error;
@@ -16,7 +17,6 @@ pub enum LineStatus {
     DirDs = 2,
     NothingDone = 3,
     Skip = 4,
-    #[allow(dead_code)]
     Warning = 5,
     Error = 6,
     Pass1Error = 7,
@@ -165,14 +165,14 @@ impl Diagnostic {
 /// Report from a successful assembly run.
 pub struct AsmRunReport {
     diagnostics: Vec<Diagnostic>,
-    source_lines: Vec<String>,
+    source_lines: Arc<Vec<String>>,
 }
 
 impl AsmRunReport {
-    pub fn new(diagnostics: Vec<Diagnostic>, source_lines: Vec<String>) -> Self {
+    pub fn new(diagnostics: Vec<Diagnostic>, source_lines: impl Into<Arc<Vec<String>>>) -> Self {
         Self {
             diagnostics,
-            source_lines,
+            source_lines: source_lines.into(),
         }
     }
 
@@ -204,15 +204,19 @@ impl AsmRunReport {
 pub struct AsmRunError {
     error: AsmError,
     diagnostics: Vec<Diagnostic>,
-    source_lines: Vec<String>,
+    source_lines: Arc<Vec<String>>,
 }
 
 impl AsmRunError {
-    pub fn new(error: AsmError, diagnostics: Vec<Diagnostic>, source_lines: Vec<String>) -> Self {
+    pub fn new(
+        error: AsmError,
+        diagnostics: Vec<Diagnostic>,
+        source_lines: impl Into<Arc<Vec<String>>>,
+    ) -> Self {
         Self {
             error,
             diagnostics,
-            source_lines,
+            source_lines: source_lines.into(),
         }
     }
 

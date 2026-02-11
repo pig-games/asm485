@@ -6,7 +6,7 @@
 use crate::core::parser::{UseItem, UseParam};
 use crate::core::tokenizer::Span;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 #[derive(Debug, Clone)]
@@ -292,7 +292,7 @@ impl SymbolTable {
         }
 
         let mut visiting = Vec::new();
-        let mut visited = Vec::new();
+        let mut visited = HashSet::new();
         for module in &self.module_info {
             self.detect_import_cycles(
                 module.name.as_str(),
@@ -309,10 +309,11 @@ impl SymbolTable {
         &self,
         module: &str,
         visiting: &mut Vec<String>,
-        visited: &mut Vec<String>,
+        visited: &mut HashSet<String>,
         issues: &mut Vec<ImportIssue>,
     ) {
-        if visited.iter().any(|name| name.eq_ignore_ascii_case(module)) {
+        let module_upper = module.to_ascii_uppercase();
+        if visited.contains(&module_upper) {
             return;
         }
         if let Some(pos) = visiting
@@ -338,7 +339,7 @@ impl SymbolTable {
             }
         }
         visiting.pop();
-        visited.push(module.to_string());
+        visited.insert(module_upper);
     }
 
     fn push_cycle_issue(&self, from: &str, to: &str, issues: &mut Vec<ImportIssue>) {

@@ -78,7 +78,12 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
             .ok_or_else(|| EvalError::with_span("Current address ($) not available", *span)),
 
         Expr::String(bytes, span) => {
-            if bytes.len() == 1 {
+            if bytes.is_empty() {
+                Err(EvalError::with_span(
+                    "Empty string not allowed in expression",
+                    *span,
+                ))
+            } else if bytes.len() == 1 {
                 Ok(bytes[0] as i64)
             } else if bytes.len() == 2 {
                 Ok(((bytes[0] as i64) << 8) | (bytes[1] as i64))
@@ -193,8 +198,10 @@ pub fn apply_binary(op: BinaryOp, l: i64, r: i64, span: Span) -> Result<i64, Eva
         BinaryOp::BitAnd => l & r,
         BinaryOp::BitOr => l | r,
         BinaryOp::BitXor => l ^ r,
-        BinaryOp::Shl => l << (r & 0x3f),
-        BinaryOp::Shr => ((l as u64) >> (r & 0x3f)) as i64,
+        // Mask shift amount to 0x1f (0–31) to match the assembler's 32-bit value
+        // domain and align with core::assembler::expression::eval_binary_op.
+        BinaryOp::Shl => l.wrapping_shl((r & 0x1f) as u32),
+        BinaryOp::Shr => ((l as u64).wrapping_shr((r & 0x1f) as u32)) as i64,
         BinaryOp::Eq => (l == r) as i64,
         BinaryOp::Ne => (l != r) as i64,
         BinaryOp::Lt => (l < r) as i64,

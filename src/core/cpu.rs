@@ -41,27 +41,6 @@ impl CpuType {
     }
 }
 
-/// Argument type for instruction encoding (shared between CPUs).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ArgType {
-    /// No immediate argument
-    None,
-    /// 8-bit immediate value
-    Byte,
-    /// 16-bit immediate value
-    Word,
-}
-
-/// A generic instruction entry (for 8085-style single-byte opcodes).
-pub struct InstructionEntry {
-    pub mnemonic: &'static str,
-    pub reg1: &'static str,
-    pub reg2: &'static str,
-    pub num_regs: u8,
-    pub opcode: u8,
-    pub arg_type: ArgType,
-}
-
 /// Error returned by operand parsing.
 #[derive(Debug, Clone)]
 pub struct OperandParseError {
@@ -75,6 +54,8 @@ impl std::fmt::Display for OperandParseError {
     }
 }
 
+impl std::error::Error for OperandParseError {}
+
 /// Error returned by instruction encoding.
 #[derive(Debug, Clone)]
 pub struct EncodeError {
@@ -87,6 +68,8 @@ impl std::fmt::Display for EncodeError {
         write!(f, "{}", self.message)
     }
 }
+
+impl std::error::Error for EncodeError {}
 
 impl EncodeError {
     pub fn new(message: impl Into<String>) -> Self {

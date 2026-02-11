@@ -2,6 +2,13 @@
 // Copyright (C) 2026 Erik van der Tier
 
 //! Expression evaluation for the assembler.
+//!
+//! This module provides `u32`-based expression evaluation used by the main
+//! assembler pipeline (`eval_expr_ast` in `mod.rs`).  A parallel evaluator
+//! exists in `core::expr` (`i64`-based) used by CPU handlers via
+//! `AssemblerContext::eval_expr`.  The two evaluators share the same operator
+//! semantics: signed comparisons, 0x1f shift mask, validated power exponents,
+//! and the same B-suffix heuristic for number parsing.
 
 use crate::core::parser::{AssignOp, BinaryOp, Expr, UnaryOp};
 use crate::core::tokenizer::Span;
@@ -25,7 +32,16 @@ pub fn parse_number_text(text: &str, span: Span) -> Result<u32, AstEvalError> {
     } else {
         match cleaned.chars().last() {
             Some('H') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 16),
-            Some('B') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 2),
+            Some('B') => {
+                // Use same heuristic as core::expr::parse_number: treat as binary
+                // only if all digits are 0/1, otherwise treat as hex (e.g. "ABh" vs "101B").
+                let inner = &cleaned[..cleaned.len().saturating_sub(1)];
+                if inner.chars().all(|c| c == '0' || c == '1') {
+                    (inner.to_string(), 2)
+                } else {
+                    (inner.to_string(), 16)
+                }
+            }
             Some('O') | Some('Q') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 8),
             Some('D') => (cleaned[..cleaned.len().saturating_sub(1)].to_string(), 10),
             _ => (cleaned, 10),
@@ -134,7 +150,19 @@ pub fn apply_assignment_op(
             }
             left % right
         }
-        AssignOp::Pow => left.wrapping_pow(right),
+        AssignOp::Pow => {
+            if right > 63 {
+                return Err(AstEvalError {
+                    error: AsmError::new(
+                        AsmErrorKind::Expression,
+                        "Exponent out of range for integer power",
+                        None,
+                    ),
+                    span,
+                });
+            }
+            left.wrapping_pow(right)
+        }
         AssignOp::BitOr => left | right,
         AssignOp::BitXor => left ^ right,
         AssignOp::BitAnd => left & right,
@@ -218,7 +246,21 @@ pub fn eval_binary_op(
             }
             left_val % right_val
         }
-        BinaryOp::Power => left_val.wrapping_pow(right_val),
+        BinaryOp::Power => {
+            // Guard against excessively large exponents (align with core::expr).
+            if right_val > 63 {
+                let span = line_end_span.unwrap_or(span);
+                return Err(AstEvalError {
+                    error: AsmError::new(
+                        AsmErrorKind::Expression,
+                        "Exponent out of range for integer power",
+                        None,
+                    ),
+                    span,
+                });
+            }
+            left_val.wrapping_pow(right_val)
+        }
         BinaryOp::Shl => {
             let shift = right_val & 0x1f;
             left_val.wrapping_shl(shift)
@@ -230,13 +272,19 @@ pub fn eval_binary_op(
         BinaryOp::Add => left_val.wrapping_add(right_val),
         BinaryOp::Subtract => left_val.wrapping_sub(right_val),
         BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Ge | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Lt => {
+            // Use signed (i32) comparisons to align with core::expr::apply_binary
+            // which operates on i64.  This ensures that values like 0xFFFF are treated
+            // as -1 when compared, giving consistent results across both evaluators
+            // for conditional expressions (.if, .elseif, ternary).
+            let l = left_val as i32;
+            let r = right_val as i32;
             let result = match op {
-                BinaryOp::Eq => left_val == right_val,
-                BinaryOp::Ne => left_val != right_val,
-                BinaryOp::Ge => left_val >= right_val,
-                BinaryOp::Gt => left_val > right_val,
-                BinaryOp::Le => left_val <= right_val,
-                BinaryOp::Lt => left_val < right_val,
+                BinaryOp::Eq => l == r,
+                BinaryOp::Ne => l != r,
+                BinaryOp::Ge => l >= r,
+                BinaryOp::Gt => l > r,
+                BinaryOp::Le => l <= r,
+                BinaryOp::Lt => l < r,
                 _ => false,
             };
             if result {

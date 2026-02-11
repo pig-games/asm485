@@ -3,7 +3,7 @@
 
 //! 65816 CPU handler implementation.
 
-use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
+use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, CpuHandler, EncodeResult};
 use crate::families::mos6502::{
     has_mnemonic as has_family_mnemonic, lookup_instruction as lookup_family_instruction,
     AddressMode, FamilyOperand, Operand, OperandForce,
@@ -230,44 +230,6 @@ impl M65816CpuHandler {
         }
     }
 
-    fn expr_has_unstable_symbols(
-        expr: &crate::core::parser::Expr,
-        ctx: &dyn AssemblerContext,
-    ) -> bool {
-        use crate::core::parser::Expr;
-
-        match expr {
-            Expr::Identifier(name, _) | Expr::Register(name, _) => {
-                if !ctx.has_symbol(name) {
-                    return true;
-                }
-                ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
-            }
-            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
-                Self::expr_has_unstable_symbols(inner, ctx)
-            }
-            Expr::Tuple(items, _) => items
-                .iter()
-                .any(|item| Self::expr_has_unstable_symbols(item, ctx)),
-            Expr::Ternary {
-                cond,
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                Self::expr_has_unstable_symbols(cond, ctx)
-                    || Self::expr_has_unstable_symbols(then_expr, ctx)
-                    || Self::expr_has_unstable_symbols(else_expr, ctx)
-            }
-            Expr::Unary { expr, .. } => Self::expr_has_unstable_symbols(expr, ctx),
-            Expr::Binary { left, right, .. } => {
-                Self::expr_has_unstable_symbols(left, ctx)
-                    || Self::expr_has_unstable_symbols(right, ctx)
-            }
-            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
-        }
-    }
-
     fn expr_has_symbol_references(expr: &crate::core::parser::Expr) -> bool {
         use crate::core::parser::Expr;
 
@@ -472,7 +434,7 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_known = Self::assumed_absolute_bank_known(&upper_mnemonic, ctx);
                     let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                     let symbol_based = Self::expr_has_symbol_references(expr);
-                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+                    let symbol_unstable = expr_has_unstable_symbols(expr, ctx);
 
                     if let Some(force) = force_override {
                         match force {
@@ -652,7 +614,7 @@ impl CpuHandler for M65816CpuHandler {
                         if let Some(dp_offset) =
                             Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
                         {
-                            if Self::expr_has_unstable_symbols(expr, ctx)
+                            if expr_has_unstable_symbols(expr, ctx)
                                 && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
                             {
                                 return Ok(vec![Operand::Absolute(absolute_value, span)]);
@@ -708,7 +670,7 @@ impl CpuHandler for M65816CpuHandler {
                     let assumed_known = Self::assumed_absolute_bank_known(&upper_mnemonic, ctx);
                     let assumed_key = Self::assumed_absolute_bank_key(&upper_mnemonic);
                     let symbol_based = Self::expr_has_symbol_references(expr);
-                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+                    let symbol_unstable = expr_has_unstable_symbols(expr, ctx);
 
                     if let Some(force) = force_override {
                         match force {
@@ -852,7 +814,7 @@ impl CpuHandler for M65816CpuHandler {
                         if let Some(dp_offset) =
                             Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
                         {
-                            if Self::expr_has_unstable_symbols(expr, ctx)
+                            if expr_has_unstable_symbols(expr, ctx)
                                 && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
                             {
                                 return Ok(vec![Operand::AbsoluteX(absolute_value, span)]);
@@ -865,7 +827,7 @@ impl CpuHandler for M65816CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
                     let symbol_based = Self::expr_has_symbol_references(expr);
-                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+                    let symbol_unstable = expr_has_unstable_symbols(expr, ctx);
                     let assumed_bank = state::data_bank(ctx);
                     let assumed_known = state::data_bank_known(ctx);
 
@@ -985,7 +947,7 @@ impl CpuHandler for M65816CpuHandler {
                         if let Some(dp_offset) =
                             Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
                         {
-                            if Self::expr_has_unstable_symbols(expr, ctx)
+                            if expr_has_unstable_symbols(expr, ctx)
                                 && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
                             {
                                 return Ok(vec![Operand::AbsoluteY(absolute_value, span)]);
@@ -998,7 +960,7 @@ impl CpuHandler for M65816CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
                     let symbol_based = Self::expr_has_symbol_references(expr);
-                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+                    let symbol_unstable = expr_has_unstable_symbols(expr, ctx);
 
                     if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
                         if let Some(force) = force_override {
@@ -1158,7 +1120,7 @@ impl CpuHandler for M65816CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
                     let symbol_based = Self::expr_has_symbol_references(expr);
-                    let symbol_unstable = Self::expr_has_unstable_symbols(expr, ctx);
+                    let symbol_unstable = expr_has_unstable_symbols(expr, ctx);
                     if upper_mnemonic == "JMP" {
                         if let Some(force) = force_override {
                             match force {

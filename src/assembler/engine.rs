@@ -128,9 +128,9 @@ impl Assembler {
                     "Found .if without .endif in pass 1",
                     None,
                 );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Warning, err));
+                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
                 asm_line.clear_conditionals();
-                counts.warnings += 1;
+                counts.errors += 1;
             }
 
             if asm_line.in_module() {

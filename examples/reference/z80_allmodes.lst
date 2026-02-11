@@ -1,0 +1,366 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Z80 All Instruction Modes Test
+----                                2  ; Comprehensive test of Z80-specific instructions and addressing modes
+----                                3  ; including undocumented half-index registers and 2-operand logic forms.
+----                                4  
+----                                5          .cpu z80
+----    EQU 0000                    6          .org 0000h
+----                                7  
+----                                8  ; ========================================
+----                                9  ; LD — INDEX REGISTER LOADS
+----                               10  ; ========================================
+0000    DD 21 34 12                11          ld ix, 1234h    ; DD 21 34 12
+0004    FD 21 78 56                12          ld iy, 5678h    ; FD 21 78 56
+0008    DD F9                      13          ld sp, ix       ; DD F9
+000A    FD F9                      14          ld sp, iy       ; FD F9
+----                               15  
+----                               16  ; ========================================
+----                               17  ; LD — INDEXED MEMORY (IX+d / IY+d)
+----                               18  ; ========================================
+000C    DD 7E 05                   19          ld a, (ix+5)    ; DD 7E 05
+000F    FD 46 FD                   20          ld b, (iy-3)    ; FD 46 FD
+0012    DD 71 0A                   21          ld (ix+10), c   ; DD 71 0A
+0015    FD 72 00                   22          ld (iy+0), d    ; FD 72 00
+0018    DD 36 01 42                23          ld (ix+1), 42h  ; DD 36 01 42
+----                               24  
+----                               25  ; ========================================
+----                               26  ; LD — INDIRECT 16-BIT LOADS
+----                               27  ; ========================================
+001C    ED 4B 00 40                28          ld bc, (4000h)  ; ED 4B 00 40
+0020    ED 5B 02 40                29          ld de, (4002h)  ; ED 5B 02 40
+0024    DD 2A 06 40                30          ld ix, (4006h)  ; DD 2A 06 40
+0028    FD 2A 08 40                31          ld iy, (4008h)  ; FD 2A 08 40
+002C    ED 43 00 50                32          ld (5000h), bc  ; ED 43 00 50
+0030    ED 53 02 50                33          ld (5002h), de  ; ED 53 02 50
+0034    DD 22 06 50                34          ld (5006h), ix  ; DD 22 06 50
+0038    FD 22 08 50                35          ld (5008h), iy  ; FD 22 08 50
+----                               36  
+----                               37  ; ========================================
+----                               38  ; LD — SPECIAL REGISTERS
+----                               39  ; ========================================
+003C    ED 57                      40          ld a, i         ; ED 57
+003E    ED 5F                      41          ld a, r         ; ED 5F
+0040    ED 47                      42          ld i, a         ; ED 47
+0042    ED 4F                      43          ld r, a         ; ED 4F
+----                               44  
+----                               45  ; ========================================
+----                               46  ; PUSH / POP INDEX REGISTERS
+----                               47  ; ========================================
+0044    DD E5                      48          push ix         ; DD E5
+0046    FD E5                      49          push iy         ; FD E5
+0048    DD E1                      50          pop ix          ; DD E1
+004A    FD E1                      51          pop iy          ; FD E1
+----                               52  
+----                               53  ; ========================================
+----                               54  ; EXCHANGE INSTRUCTIONS
+----                               55  ; ========================================
+004C    08                         56          ex af, af'      ; 08
+004D    D9                         57          exx             ; D9
+004E    DD E3                      58          ex (sp), ix     ; DD E3
+0050    FD E3                      59          ex (sp), iy     ; FD E3
+----                               60  
+----                               61  ; ========================================
+----                               62  ; INDEX REGISTER ARITHMETIC (16-BIT)
+----                               63  ; ========================================
+0052    DD 09                      64          add ix, bc      ; DD 09
+0054    DD 19                      65          add ix, de      ; DD 19
+0056    DD 29                      66          add ix, ix      ; DD 29
+0058    DD 39                      67          add ix, sp      ; DD 39
+005A    FD 09                      68          add iy, bc      ; FD 09
+005C    FD 19                      69          add iy, de      ; FD 19
+005E    FD 29                      70          add iy, iy      ; FD 29
+0060    FD 39                      71          add iy, sp      ; FD 39
+0062    DD 23                      72          inc ix          ; DD 23
+0064    DD 2B                      73          dec ix          ; DD 2B
+0066    FD 23                      74          inc iy          ; FD 23
+0068    FD 2B                      75          dec iy          ; FD 2B
+----                               76  
+----                               77  ; ========================================
+----                               78  ; 16-BIT ARITHMETIC WITH CARRY (ED PREFIX)
+----                               79  ; ========================================
+006A    ED 4A                      80          adc hl, bc      ; ED 4A
+006C    ED 5A                      81          adc hl, de      ; ED 5A
+006E    ED 6A                      82          adc hl, hl      ; ED 6A
+0070    ED 7A                      83          adc hl, sp      ; ED 7A
+0072    ED 42                      84          sbc hl, bc      ; ED 42
+0074    ED 52                      85          sbc hl, de      ; ED 52
+0076    ED 62                      86          sbc hl, hl      ; ED 62
+0078    ED 72                      87          sbc hl, sp      ; ED 72
+----                               88  
+----                               89  ; ========================================
+----                               90  ; INDEXED MEMORY INC / DEC
+----                               91  ; ========================================
+007A    DD 34 03                   92          inc (ix+3)      ; DD 34 03
+007D    DD 35 03                   93          dec (ix+3)      ; DD 35 03
+0080    FD 34 FF                   94          inc (iy-1)      ; FD 34 FF
+0083    FD 35 FF                   95          dec (iy-1)      ; FD 35 FF
+----                               96  
+----                               97  ; ========================================
+----                               98  ; INDEXED MEMORY ARITHMETIC — 1-OPERAND FORMS
+----                               99  ; ========================================
+0086    DD 86 02                  100          add a, (ix+2)   ; DD 86 02
+0089    DD 8E 02                  101          adc a, (ix+2)   ; DD 8E 02
+008C    DD 96 02                  102          sub (ix+2)      ; DD 96 02
+008F    DD 9E 02                  103          sbc a, (ix+2)   ; DD 9E 02
+0092    DD A6 02                  104          and (ix+2)      ; DD A6 02
+0095    DD AE 02                  105          xor (ix+2)      ; DD AE 02
+0098    DD B6 02                  106          or (ix+2)       ; DD B6 02
+009B    DD BE 02                  107          cp (ix+2)       ; DD BE 02
+----                              108  
+----                              109  ; ========================================
+----                              110  ; INDEXED MEMORY LOGIC — 2-OPERAND FORMS
+----                              111  ; These are the explicit A,<src> forms:
+----                              112  ; ========================================
+009E    DD A6 04                  113          and a, (ix+4)   ; DD A6 04
+00A1    DD B6 04                  114          or a, (ix+4)    ; DD B6 04
+00A4    DD AE 04                  115          xor a, (ix+4)   ; DD AE 04
+00A7    DD BE 04                  116          cp a, (ix+4)    ; DD BE 04
+00AA    FD A6 04                  117          and a, (iy+4)   ; FD A6 04
+00AD    FD B6 04                  118          or a, (iy+4)    ; FD B6 04
+00B0    FD AE 04                  119          xor a, (iy+4)   ; FD AE 04
+00B3    FD BE 04                  120          cp a, (iy+4)    ; FD BE 04
+00B6    DD 96 04                  121          sub a, (ix+4)   ; DD 96 04
+00B9    FD 96 04                  122          sub a, (iy+4)   ; FD 96 04
+----                              123  
+----                              124  ; ========================================
+----                              125  ; HALF-INDEX REGISTERS (UNDOCUMENTED)
+----                              126  ; IXH, IXL, IYH, IYL
+----                              127  ; ========================================
+----                              128  
+----                              129  ; --- Loads ---
+00BC    DD 7C                     130          ld a, ixh       ; DD 7C
+00BE    DD 7D                     131          ld a, ixl       ; DD 7D
+00C0    DD 44                     132          ld b, ixh       ; DD 44
+00C2    DD 4D                     133          ld c, ixl       ; DD 4D
+00C4    DD 26 10                  134          ld ixh, 10h     ; DD 26 10
+00C7    DD 2E 20                  135          ld ixl, 20h     ; DD 2E 20
+00CA    FD 26 30                  136          ld iyh, 30h     ; FD 26 30
+00CD    FD 2E 40                  137          ld iyl, 40h     ; FD 2E 40
+----                              138  
+----                              139  ; --- Inc / Dec ---
+00D0    DD 24                     140          inc ixh         ; DD 24
+00D2    DD 25                     141          dec ixh         ; DD 25
+00D4    DD 2C                     142          inc ixl         ; DD 2C
+00D6    DD 2D                     143          dec ixl         ; DD 2D
+00D8    FD 24                     144          inc iyh         ; FD 24
+00DA    FD 25                     145          dec iyh         ; FD 25
+00DC    FD 2C                     146          inc iyl         ; FD 2C
+00DE    FD 2D                     147          dec iyl         ; FD 2D
+----                              148  
+----                              149  ; --- Arithmetic — 1-operand forms ---
+00E0    DD 84                     150          add a, ixh      ; DD 84
+00E2    DD 8D                     151          adc a, ixl      ; DD 8D
+00E4    DD 94                     152          sub ixh         ; DD 94
+00E6    DD 9D                     153          sbc a, ixl      ; DD 9D
+00E8    DD A4                     154          and ixh         ; DD A4
+00EA    DD AD                     155          xor ixl         ; DD AD
+00EC    FD B4                     156          or iyh          ; FD B4
+00EE    FD BD                     157          cp iyl          ; FD BD
+----                              158  
+----                              159  ; --- Arithmetic — 2-operand forms (A,<half>) ---
+----                              160  ;     Explicit A,<src> forms for logic operations:
+00F0    DD A4                     161          and a, ixh      ; DD A4
+00F2    DD A5                     162          and a, ixl      ; DD A5
+00F4    DD B4                     163          or a, ixh       ; DD B4
+00F6    DD B5                     164          or a, ixl       ; DD B5
+00F8    DD AC                     165          xor a, ixh      ; DD AC
+00FA    DD AD                     166          xor a, ixl      ; DD AD
+00FC    DD BC                     167          cp a, ixh       ; DD BC
+00FE    DD BD                     168          cp a, ixl       ; DD BD
+0100    FD A4                     169          and a, iyh      ; FD A4
+0102    FD A5                     170          and a, iyl      ; FD A5
+0104    FD B4                     171          or a, iyh       ; FD B4
+0106    FD B5                     172          or a, iyl       ; FD B5
+0108    FD AC                     173          xor a, iyh      ; FD AC
+010A    FD AD                     174          xor a, iyl      ; FD AD
+010C    FD BC                     175          cp a, iyh       ; FD BC
+010E    FD BD                     176          cp a, iyl       ; FD BD
+0110    DD 94                     177          sub a, ixh      ; DD 94
+0112    DD 95                     178          sub a, ixl      ; DD 95
+----                              179  
+----                              180  ; ========================================
+----                              181  ; CB-PREFIX — ROTATE / SHIFT (REGISTERS)
+----                              182  ; ========================================
+0114    CB 00                     183          rlc b           ; CB 00
+0116    CB 09                     184          rrc c           ; CB 09
+0118    CB 12                     185          rl d            ; CB 12
+011A    CB 1B                     186          rr e            ; CB 1B
+011C    CB 24                     187          sla h           ; CB 24
+011E    CB 2D                     188          sra l           ; CB 2D
+0120    CB 37                     189          sll a           ; CB 37  (undocumented)
+0122    CB 38                     190          srl b           ; CB 38
+----                              191  
+----                              192  ; ========================================
+----                              193  ; CB-PREFIX — ROTATE / SHIFT ON (HL)
+----                              194  ; ========================================
+0124    07                        195          rlc (hl)        ; CB 06
+0125    0F                        196          rrc (hl)        ; CB 0E
+0126    CB 16                     197          rl (hl)         ; CB 16
+0128    CB 1E                     198          rr (hl)         ; CB 1E
+012A    CB 26                     199          sla (hl)        ; CB 26
+012C    CB 2E                     200          sra (hl)        ; CB 2E
+012E    CB 36                     201          sll (hl)        ; CB 36  (undocumented)
+0130    CB 3E                     202          srl (hl)        ; CB 3E
+----                              203  
+----                              204  ; ========================================
+----                              205  ; CB-PREFIX — BIT / SET / RES
+----                              206  ; ========================================
+0132    CB 47                     207          bit 0, a        ; CB 47
+0134    CB 58                     208          bit 3, b        ; CB 58
+0136    CB 7E                     209          bit 7, (hl)     ; CB 7E
+0138    CB C1                     210          set 0, c        ; CB C1
+013A    CB EE                     211          set 5, (hl)     ; CB EE
+013C    CB 8F                     212          res 1, a        ; CB 8F
+013E    CB B2                     213          res 6, d        ; CB B2
+----                              214  
+----                              215  ; ========================================
+----                              216  ; CB-PREFIX — INDEXED ROTATE / SHIFT
+----                              217  ; ========================================
+0140    DD CB 05 06               218          rlc (ix+5)      ; DD CB 05 06
+0144    FD CB FE 0E               219          rrc (iy-2)      ; FD CB FE 0E
+0148    DD CB 01 16               220          rl (ix+1)       ; DD CB 01 16
+014C    FD CB 03 1E               221          rr (iy+3)       ; FD CB 03 1E
+0150    DD CB 00 26               222          sla (ix+0)      ; DD CB 00 26
+0154    FD CB 07 2E               223          sra (iy+7)      ; FD CB 07 2E
+0158    DD CB 02 36               224          sll (ix+2)      ; DD CB 02 36  (undocumented)
+015C    FD CB FF 3E               225          srl (iy-1)      ; FD CB FF 3E
+----                              226  
+----                              227  ; ========================================
+----                              228  ; CB-PREFIX — INDEXED BIT / SET / RES
+----                              229  ; ========================================
+0160    DD CB 05 56               230          bit 2, (ix+5)   ; DD CB 05 56
+0164    FD CB FD 66               231          bit 4, (iy-3)   ; FD CB FD 66
+0168    DD CB 00 FE               232          set 7, (ix+0)   ; DD CB 00 FE
+016C    FD CB 06 CE               233          set 1, (iy+6)   ; FD CB 06 CE
+0170    DD CB FF 9E               234          res 3, (ix-1)   ; DD CB FF 9E
+0174    FD CB 02 86               235          res 0, (iy+2)   ; FD CB 02 86
+----                              236  
+----                              237  ; ========================================
+----                              238  ; RELATIVE JUMPS
+----                              239  ; ========================================
+0178    18 FE                     240  loop:   jr loop         ; 18 FE  (self-loop)
+017A    28 FC                     241          jr z, loop      ; 28 FC  (backward)
+017C    20 FE                     242          jr nz, $        ; 20 FE  (self-loop via $)
+017E    38 FE                     243          jr c, $         ; 38 FE
+0180    30 FE                     244          jr nc, $        ; 30 FE
+0182    10 F4                     245          djnz loop       ; 10 F4  (backward)
+----                              246  
+----                              247  ; ========================================
+----                              248  ; JP / CALL VIA INDEX REGISTER
+----                              249  ; ========================================
+0184    DD E9                     250          jp (ix)         ; DD E9
+0186    FD E9                     251          jp (iy)         ; FD E9
+----                              252  
+----                              253  ; ========================================
+----                              254  ; IM — INTERRUPT MODES
+----                              255  ; ========================================
+0188    ED 46                     256          im 0            ; ED 46
+018A    ED 56                     257          im 1            ; ED 56
+018C    ED 5E                     258          im 2            ; ED 5E
+----                              259  
+----                              260  ; ========================================
+----                              261  ; RETURN VARIANTS
+----                              262  ; ========================================
+018E    ED 4D                     263          reti            ; ED 4D
+0190    ED 45                     264          retn            ; ED 45
+----                              265  
+----                              266  ; ========================================
+----                              267  ; BLOCK TRANSFER
+----                              268  ; ========================================
+0192    ED A0                     269          ldi             ; ED A0
+0194    ED B0                     270          ldir            ; ED B0
+0196    ED A8                     271          ldd             ; ED A8
+0198    ED B8                     272          lddr            ; ED B8
+----                              273  
+----                              274  ; ========================================
+----                              275  ; BLOCK COMPARE
+----                              276  ; ========================================
+019A    ED B1                     277          cpir            ; ED B1
+019C    ED A9                     278          cpd             ; ED A9
+019E    ED B9                     279          cpdr            ; ED B9
+----                              280  
+----                              281  ; ========================================
+----                              282  ; BLOCK I/O
+----                              283  ; ========================================
+01A0    ED A2                     284          ini             ; ED A2
+01A2    ED B2                     285          inir            ; ED B2
+01A4    ED AA                     286          ind             ; ED AA
+01A6    ED BA                     287          indr            ; ED BA
+01A8    ED A3                     288          outi            ; ED A3
+01AA    ED B3                     289          otir            ; ED B3
+01AC    ED AB                     290          outd            ; ED AB
+01AE    ED BB                     291          otdr            ; ED BB
+----                              292  
+----                              293  ; ========================================
+----                              294  ; EXTENDED I/O
+----                              295  ; ========================================
+01B0    DB C0                     296          in a, (0C0h)    ; DB C0   (basic I/O)
+01B2    D3 80                     297          out (080h), a   ; D3 80   (basic I/O)
+01B4    ED 40                     298          in b, (c)       ; ED 40
+01B6    ED 48                     299          in c, (c)       ; ED 48
+01B8    ED 50                     300          in d, (c)       ; ED 50
+01BA    ED 58                     301          in e, (c)       ; ED 58
+01BC    ED 60                     302          in h, (c)       ; ED 60
+01BE    ED 68                     303          in l, (c)       ; ED 68
+01C0    ED 78                     304          in a, (c)       ; ED 78
+01C2    ED 41                     305          out (c), b      ; ED 41
+01C4    ED 49                     306          out (c), c      ; ED 49
+01C6    ED 51                     307          out (c), d      ; ED 51
+01C8    ED 59                     308          out (c), e      ; ED 59
+01CA    ED 61                     309          out (c), h      ; ED 61
+01CC    ED 69                     310          out (c), l      ; ED 69
+01CE    ED 79                     311          out (c), a      ; ED 79
+----                              312  
+----                              313  ; ========================================
+----                              314  ; MISC ED-PREFIX
+----                              315  ; ========================================
+01D0    ED 44                     316          neg             ; ED 44
+01D2    ED 6F                     317          rld             ; ED 6F
+01D4    ED 67                     318          rrd             ; ED 67
+----                              319  
+----                              320          .end
+
+Lines: 320  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+loop            : 0178 (376)
+
+Total memory is 470 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    DD 21 34 12 FD 21 78 56 DD F9 FD F9 DD 7E 05 FD
+0010    46 FD DD 71 0A FD 72 00 DD 36 01 42 ED 4B 00 40
+0020    ED 5B 02 40 DD 2A 06 40 FD 2A 08 40 ED 43 00 50
+0030    ED 53 02 50 DD 22 06 50 FD 22 08 50 ED 57 ED 5F
+0040    ED 47 ED 4F DD E5 FD E5 DD E1 FD E1 08 D9 DD E3
+0050    FD E3 DD 09 DD 19 DD 29 DD 39 FD 09 FD 19 FD 29
+0060    FD 39 DD 23 DD 2B FD 23 FD 2B ED 4A ED 5A ED 6A
+0070    ED 7A ED 42 ED 52 ED 62 ED 72 DD 34 03 DD 35 03
+0080    FD 34 FF FD 35 FF DD 86 02 DD 8E 02 DD 96 02 DD
+0090    9E 02 DD A6 02 DD AE 02 DD B6 02 DD BE 02 DD A6
+00A0    04 DD B6 04 DD AE 04 DD BE 04 FD A6 04 FD B6 04
+00B0    FD AE 04 FD BE 04 DD 96 04 FD 96 04 DD 7C DD 7D
+00C0    DD 44 DD 4D DD 26 10 DD 2E 20 FD 26 30 FD 2E 40
+00D0    DD 24 DD 25 DD 2C DD 2D FD 24 FD 25 FD 2C FD 2D
+00E0    DD 84 DD 8D DD 94 DD 9D DD A4 DD AD FD B4 FD BD
+00F0    DD A4 DD A5 DD B4 DD B5 DD AC DD AD DD BC DD BD
+0100    FD A4 FD A5 FD B4 FD B5 FD AC FD AD FD BC FD BD
+0110    DD 94 DD 95 CB 00 CB 09 CB 12 CB 1B CB 24 CB 2D
+0120    CB 37 CB 38 07 0F CB 16 CB 1E CB 26 CB 2E CB 36
+0130    CB 3E CB 47 CB 58 CB 7E CB C1 CB EE CB 8F CB B2
+0140    DD CB 05 06 FD CB FE 0E DD CB 01 16 FD CB 03 1E
+0150    DD CB 00 26 FD CB 07 2E DD CB 02 36 FD CB FF 3E
+0160    DD CB 05 56 FD CB FD 66 DD CB 00 FE FD CB 06 CE
+0170    DD CB FF 9E FD CB 02 86 18 FE 28 FC 20 FE 38 FE
+0180    30 FE 10 F4 DD E9 FD E9 ED 46 ED 56 ED 5E ED 4D
+0190    ED 45 ED A0 ED B0 ED A8 ED B8 ED B1 ED A9 ED B9
+01A0    ED A2 ED B2 ED AA ED BA ED A3 ED B3 ED AB ED BB
+01B0    DB C0 D3 80 ED 40 ED 48 ED 50 ED 58 ED 60 ED 68
+01C0    ED 78 ED 41 ED 49 ED 51 ED 59 ED 61 ED 69 ED 79
+01D0    ED 44 ED 6F ED 67

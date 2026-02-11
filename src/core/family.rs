@@ -45,6 +45,8 @@ impl std::fmt::Display for FamilyParseError {
     }
 }
 
+impl std::error::Error for FamilyParseError {}
+
 /// Error returned when encoding fails.
 #[derive(Debug, Clone)]
 pub enum EncodeResult<T> {
@@ -253,4 +255,42 @@ pub trait CpuHandler: Send + Sync {
 
     /// Check if this CPU supports a specific instruction.
     fn supports_mnemonic(&self, mnemonic: &str) -> bool;
+}
+
+/// Check whether an expression tree contains symbols that are not yet stable.
+///
+/// A symbol is "unstable" if it has not been defined yet (unknown in the
+/// current pass) or, in pass 2+, its address has not been finalized by the
+/// linker/section placement.  CPU handlers use this to decide whether
+/// speculative sizing (e.g. zero-page vs absolute) can be trusted.
+pub fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> bool {
+    match expr {
+        Expr::Identifier(name, _) | Expr::Register(name, _) => {
+            if !ctx.has_symbol(name) {
+                return true;
+            }
+            ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
+        }
+        Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
+            expr_has_unstable_symbols(inner, ctx)
+        }
+        Expr::Tuple(items, _) => items
+            .iter()
+            .any(|item| expr_has_unstable_symbols(item, ctx)),
+        Expr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+            ..
+        } => {
+            expr_has_unstable_symbols(cond, ctx)
+                || expr_has_unstable_symbols(then_expr, ctx)
+                || expr_has_unstable_symbols(else_expr, ctx)
+        }
+        Expr::Unary { expr, .. } => expr_has_unstable_symbols(expr, ctx),
+        Expr::Binary { left, right, .. } => {
+            expr_has_unstable_symbols(left, ctx) || expr_has_unstable_symbols(right, ctx)
+        }
+        Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+    }
 }

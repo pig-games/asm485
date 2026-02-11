@@ -52,6 +52,9 @@ impl Z80CpuHandler {
     }
 
     /// Check if a mnemonic uses CB-prefixed encoding forms.
+    ///
+    /// Includes SLL which is an undocumented Z80 opcode (CB 30+r).
+    /// SLL shifts left and sets bit 0 to 1 (unlike SLA which clears it).
     fn is_cb_prefixed_instruction(mnemonic: &str) -> bool {
         matches!(
             mnemonic.to_ascii_uppercase().as_str(),
@@ -464,21 +467,26 @@ impl Z80CpuHandler {
         base_opcode: u8,
         mnemonic: &str,
     ) -> EncodeResult<Vec<u8>> {
-        if operands.len() != 1 {
-            return EncodeResult::error(format!(
-                "{mnemonic} IXH/IXL/IYH/IYL form requires one operand"
-            ));
-        }
-
-        match &operands[0] {
-            Operand::Register(src, _) => {
+        match operands {
+            [Operand::Register(src, _)] => {
                 let code = match Self::half_index_parts(src) {
                     Some((reg_prefix, reg_code)) if reg_prefix == prefix => reg_code,
                     _ => return EncodeResult::NotFound,
                 };
                 EncodeResult::Ok(vec![prefix, base_opcode | code])
             }
-            _ => EncodeResult::NotFound,
+            [Operand::Register(acc, _), Operand::Register(src, _)]
+                if acc.eq_ignore_ascii_case("A") =>
+            {
+                let code = match Self::half_index_parts(src) {
+                    Some((reg_prefix, reg_code)) if reg_prefix == prefix => reg_code,
+                    _ => return EncodeResult::NotFound,
+                };
+                EncodeResult::Ok(vec![prefix, base_opcode | code])
+            }
+            _ => EncodeResult::error(format!(
+                "{mnemonic} IXH/IXL/IYH/IYL form requires one operand (or A,<src>)"
+            )),
         }
     }
 
@@ -793,14 +801,19 @@ impl Z80CpuHandler {
         opcode: u8,
         mnemonic: &str,
     ) -> EncodeResult<Vec<u8>> {
-        if operands.len() != 1 {
-            return EncodeResult::error(format!("{mnemonic} indexed form requires one operand"));
+        match operands {
+            [Operand::Indexed { .. }] if indexed_pos == 0 => {
+                EncodeResult::Ok(vec![prefix, opcode, displacement as u8])
+            }
+            [Operand::Register(acc, _), Operand::Indexed { .. }]
+                if indexed_pos == 1 && acc.eq_ignore_ascii_case("A") =>
+            {
+                EncodeResult::Ok(vec![prefix, opcode, displacement as u8])
+            }
+            _ => EncodeResult::error(format!(
+                "{mnemonic} indexed form requires one operand (or A,<src>)"
+            )),
         }
-        if indexed_pos != 0 {
-            return EncodeResult::NotFound;
-        }
-
-        EncodeResult::Ok(vec![prefix, opcode, displacement as u8])
     }
 
     fn indexed_reg_code(name: &str) -> Option<u8> {
@@ -876,7 +889,7 @@ impl Z80CpuHandler {
             "RR" => 0x18,
             "SLA" => 0x20,
             "SRA" => 0x28,
-            "SLL" => 0x30,
+            "SLL" => 0x30, // undocumented: shift left, set bit 0 to 1
             "SRL" => 0x38,
             _ => {
                 return Some(EncodeResult::error(format!(

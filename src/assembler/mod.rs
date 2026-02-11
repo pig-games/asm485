@@ -93,9 +93,8 @@ fn run_one(
     let root_path = Path::new(asm_name);
     let root_lines = expand_source_file(root_path, &cli.defines, config.pp_macro_depth)?;
     let root_module_id = root_module_id_from_lines(root_path, &root_lines)?;
-    let graph =
-        load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
-    let expanded_lines = graph.lines;
+    let graph = load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
+    let expanded_lines = Arc::new(graph.lines);
 
     let mut assembler = Assembler::new();
     assembler.root_metadata.root_module_id = Some(root_module_id);
@@ -296,7 +295,7 @@ fn run_one(
                     .as_ref()
                     .and_then(|value| value.as_ref().copied())
                     .map(|(start, end)| BinRange {
-                        start_str: format_bin_suffix(start),
+                        start_str: format_addr(start),
                         start,
                         end,
                     })
@@ -393,16 +392,6 @@ struct ResolvedLinkerSection {
 }
 
 fn format_addr(addr: u32) -> String {
-    if addr <= 0xFFFF {
-        format!("{addr:04X}")
-    } else if addr <= 0xFF_FFFF {
-        format!("{addr:06X}")
-    } else {
-        format!("{addr:08X}")
-    }
-}
-
-fn format_bin_suffix(addr: u32) -> String {
     if addr <= 0xFFFF {
         format!("{addr:04X}")
     } else if addr <= 0xFF_FFFF {

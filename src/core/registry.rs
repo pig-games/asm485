@@ -204,6 +204,8 @@ impl std::fmt::Display for RegistryError {
     }
 }
 
+impl std::error::Error for RegistryError {}
+
 /// A fully-resolved assembly pipeline: family handler + CPU handler + dialect + validator.
 pub struct ResolvedPipeline<'a> {
     pub family: Box<dyn FamilyHandlerDyn>,

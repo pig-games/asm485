@@ -8,8 +8,7 @@
 //! extended addressing modes like zero page indirect or 65C02-only instructions.
 
 use crate::core::assembler::expression::expr_span;
-use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
-use crate::core::parser::Expr;
+use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, CpuHandler, EncodeResult};
 use crate::families::mos6502::{
     has_mnemonic, lookup_instruction, AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand,
 };
@@ -44,39 +43,6 @@ impl M6502CpuHandler {
 
     fn has_mode(mnemonic: &str, mode: AddressMode) -> bool {
         lookup_instruction(mnemonic, mode).is_some()
-    }
-
-    fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> bool {
-        match expr {
-            Expr::Identifier(name, _) | Expr::Register(name, _) => {
-                if !ctx.has_symbol(name) {
-                    return true;
-                }
-                ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
-            }
-            Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
-                Self::expr_has_unstable_symbols(inner, ctx)
-            }
-            Expr::Tuple(items, _) => items
-                .iter()
-                .any(|item| Self::expr_has_unstable_symbols(item, ctx)),
-            Expr::Ternary {
-                cond,
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                Self::expr_has_unstable_symbols(cond, ctx)
-                    || Self::expr_has_unstable_symbols(then_expr, ctx)
-                    || Self::expr_has_unstable_symbols(else_expr, ctx)
-            }
-            Expr::Unary { expr, .. } => Self::expr_has_unstable_symbols(expr, ctx),
-            Expr::Binary { left, right, .. } => {
-                Self::expr_has_unstable_symbols(left, ctx)
-                    || Self::expr_has_unstable_symbols(right, ctx)
-            }
-            Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
-        }
     }
 }
 
@@ -134,7 +100,7 @@ impl CpuHandler for M6502CpuHandler {
                             Operand::Relative(offset as i8, span)
                         }
                     } else if (0..=255).contains(&val) {
-                        if Self::expr_has_unstable_symbols(expr, ctx)
+                        if expr_has_unstable_symbols(expr, ctx)
                             && Self::has_mode(mnemonic, AddressMode::Absolute)
                         {
                             Operand::Absolute(val as u16, span)
@@ -153,7 +119,7 @@ impl CpuHandler for M6502CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = expr_span(expr);
                     if (0..=255).contains(&val) {
-                        if Self::expr_has_unstable_symbols(expr, ctx)
+                        if expr_has_unstable_symbols(expr, ctx)
                             && Self::has_mode(mnemonic, AddressMode::AbsoluteX)
                         {
                             Operand::AbsoluteX(val as u16, span)
@@ -171,7 +137,7 @@ impl CpuHandler for M6502CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = expr_span(expr);
                     if (0..=255).contains(&val) {
-                        if Self::expr_has_unstable_symbols(expr, ctx)
+                        if expr_has_unstable_symbols(expr, ctx)
                             && Self::has_mode(mnemonic, AddressMode::AbsoluteY)
                         {
                             Operand::AbsoluteY(val as u16, span)

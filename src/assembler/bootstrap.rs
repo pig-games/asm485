@@ -67,11 +67,8 @@ pub(crate) struct RootMetadata {
     pub(crate) version: Option<String>,
     pub(crate) output_default: OutputConfig,
     pub(crate) output_by_target: HashMap<String, OutputConfig>,
-    #[allow(dead_code)]
     pub(crate) linker_outputs: Vec<LinkerOutputDirective>,
-    #[allow(dead_code)]
     pub(crate) mapfiles: Vec<MapFileDirective>,
-    #[allow(dead_code)]
     pub(crate) export_sections: Vec<ExportSectionsDirective>,
 }
 
@@ -94,7 +91,6 @@ pub(crate) struct SectionState {
     pub(crate) align: u32,
     pub(crate) kind: SectionKind,
     pub(crate) default_region: Option<String>,
-    #[allow(dead_code)]
     pub(crate) base_addr: Option<u32>,
 }
 
@@ -140,15 +136,15 @@ impl PlacementDirective {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct PlacedSectionInfo {
     pub(crate) name: String,
+    #[allow(dead_code)] // reserved for future mapfile use
     pub(crate) base: u32,
+    #[allow(dead_code)] // reserved for future mapfile use
     pub(crate) size: u32,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct RegionState {
     pub(crate) name: String,
@@ -159,7 +155,6 @@ pub(crate) struct RegionState {
     pub(crate) placed: Vec<PlacedSectionInfo>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum MapSymbolsMode {
     All,
@@ -168,21 +163,18 @@ pub(crate) enum MapSymbolsMode {
     None,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct MapFileDirective {
     pub(crate) path: String,
     pub(crate) symbols: MapSymbolsMode,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ExportSectionsFormat {
     #[default]
     Bin,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ExportSectionsInclude {
     Bss,
@@ -190,15 +182,14 @@ pub(crate) enum ExportSectionsInclude {
     NoBss,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct ExportSectionsDirective {
     pub(crate) dir: String,
+    #[allow(dead_code)] // reserved for future multi-format support
     pub(crate) format: ExportSectionsFormat,
     pub(crate) include: ExportSectionsInclude,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LinkerOutputFormat {
     #[default]
@@ -206,7 +197,6 @@ pub(crate) enum LinkerOutputFormat {
     Prg,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct LinkerOutputDirective {
     pub(crate) path: String,

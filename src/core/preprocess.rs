@@ -761,12 +761,14 @@ fn dirname(path: &str) -> String {
 }
 
 fn join_path(base: &str, rel: &str) -> String {
-    match rel {
-        "" => base.to_string(),
-        _ if std::path::Path::new(rel).is_absolute() => rel.to_string(),
-        _ if base.is_empty() => rel.to_string(),
-        _ => format!("{base}/{rel}"),
+    if rel.is_empty() {
+        return base.to_string();
     }
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() || base.is_empty() {
+        return rel.to_string();
+    }
+    Path::new(base).join(rel).to_string_lossy().into_owned()
 }
 
 #[cfg(test)]

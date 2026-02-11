@@ -300,15 +300,15 @@ impl MacroProcessor {
 
         for (idx, line) in lines.iter().enumerate() {
             let line_num = idx as u32 + 1;
-            let (code, _) = split_comment(line);
+            let (code, _) = crate::core::text_utils::split_comment(line);
 
             if current.is_none() && current_statement.is_none() && !skip_statement_body {
-                if let Some(directive) = parse_visibility_directive(&code) {
+                if let Some(directive) = parse_visibility_directive(code) {
                     self.apply_visibility_directive(directive);
                 }
             }
 
-            if let Some((name, params, kind)) = parse_macro_def_line(&code, line_num)? {
+            if let Some((name, params, kind)) = parse_macro_def_line(code, line_num)? {
                 if current.is_some() {
                     return Err(MacroError::new(
                         "Nested .macro/.segment definitions are not supported",
@@ -352,7 +352,7 @@ impl MacroProcessor {
                 continue;
             }
 
-            if let Some(kind) = parse_macro_end_line(&code) {
+            if let Some(kind) = parse_macro_end_line(code) {
                 let Some((name, def, active_kind)) = current.take() else {
                     let message = match kind {
                         MacroKind::Macro => ".endmacro found without matching .macro",
@@ -372,13 +372,13 @@ impl MacroProcessor {
             }
 
             if skip_statement_body {
-                if let Some(StatementDirective::End) = parse_statement_directive(&code) {
+                if let Some(StatementDirective::End) = parse_statement_directive(code) {
                     skip_statement_body = false;
                 }
                 continue;
             }
 
-            if let Some(kind) = parse_statement_directive(&code) {
+            if let Some(kind) = parse_statement_directive(code) {
                 match kind {
                     StatementDirective::Def => {
                         if current_statement.is_some() {
@@ -395,7 +395,7 @@ impl MacroProcessor {
                                 Some(1),
                             ));
                         }
-                        match parse_statement_def_line(&code, line_num) {
+                        match parse_statement_def_line(code, line_num) {
                             Ok((keyword, signature)) => {
                                 current_statement = Some(StatementDef {
                                     keyword,
@@ -433,7 +433,7 @@ impl MacroProcessor {
                 continue;
             }
 
-            if let Some(inv) = parse_macro_invocation(&code, &self.macros, line_num)? {
+            if let Some(inv) = parse_macro_invocation(code, &self.macros, line_num)? {
                 let def = self
                     .macros
                     .get(&to_upper(&inv.name))
@@ -466,7 +466,7 @@ impl MacroProcessor {
                 continue;
             }
 
-            if let Some(expanded) = expand_statement_invocation(&code, line_num, depth, self)? {
+            if let Some(expanded) = expand_statement_invocation(code, line_num, depth, self)? {
                 out.extend(expanded);
                 continue;
             }
@@ -1254,35 +1254,6 @@ fn lookup_named<'a>(args: &'a MacroArgs, name: &str) -> &'a str {
 fn has_named(args: &MacroArgs, name: &str) -> bool {
     let key = to_upper(name);
     args.named.contains_key(&key)
-}
-
-fn split_comment(line: &str) -> (String, String) {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escape = false;
-    for (idx, c) in line.char_indices() {
-        match c {
-            _ if escape => {
-                escape = false;
-                continue;
-            }
-            '\\' if in_single || in_double => {
-                escape = true;
-                continue;
-            }
-            '\'' if !in_double => {
-                in_single = !in_single;
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-            }
-            ';' if !in_single && !in_double => {
-                return (line[..idx].to_string(), line[idx..].to_string());
-            }
-            _ => {}
-        }
-    }
-    (line.to_string(), String::new())
 }
 
 fn parse_label(line: &str) -> (Option<String>, usize, String) {

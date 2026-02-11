@@ -187,6 +187,14 @@ pub struct TokenizeError {
     pub span: Span,
 }
 
+impl std::fmt::Display for TokenizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for TokenizeError {}
+
 pub struct Tokenizer<'a> {
     line_num: u32,
     input: &'a [u8],
@@ -431,6 +439,11 @@ impl<'a> Tokenizer<'a> {
         })
     }
 
+    /// Scan a number literal using Intel-style suffix notation
+    /// (H=hex, B=bin, O/Q=octal, D=decimal).
+    ///
+    /// Called only when the current byte is a digit, so at least one character
+    /// is consumed.  Digit validation is deferred to the expression evaluator.
     fn scan_number(&mut self) -> Result<Token, TokenizeError> {
         let start = self.cursor;
         while is_num_char(self.current_byte()) {
@@ -613,7 +626,11 @@ fn hex_digit(c: u8) -> u8 {
     match c {
         b'0'..=b'9' => c - b'0',
         b'A'..=b'F' => c - b'A' + 10,
-        _ => c - b'a' + 10,
+        b'a'..=b'f' => c - b'a' + 10,
+        _ => {
+            debug_assert!(false, "hex_digit called with non-hex byte: {c:#04x}");
+            0
+        }
     }
 }
 

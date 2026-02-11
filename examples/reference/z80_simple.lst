@@ -24,44 +24,58 @@ ADDR    BYTES                    LINE  SOURCE
 0013    F6 80                      21          or 80h
 0015    AF                         22          xor a           ; clear A (same as XOR A,A)
 ----                               23  
-----                               24  ; Jumps
-0016    C3 00 10                   25          jp 1000h        ; unconditional jump
-0019    C2 00 20                   26          jp nz, 2000h    ; conditional jump
-001C    18 02                      27          jr skip         ; relative jump
-001E    30 00                      28          jr nc, skip     ; conditional relative
-----                               29  skip:
-0020    00                         30          nop
-----                               31  
-----                               32  ; Z80-specific
-0021    10 FD                      33          djnz skip       ; decrement B and jump if not zero
-0023    ED B0                      34          ldir            ; block transfer
-0025    ED B1                      35          cpir            ; block search
-----                               36  
-----                               37  ; CB-prefix bit/shift/rotate operations
-0027    CB 58                      38          bit 3, b        ; CB 58
-0029    CB EE                      39          set 5, (hl)     ; CB EE
-002B    CB 8F                      40          res 1, a        ; CB 8F
-002D    CB 01                      41          rlc c           ; CB 01
-002F    CB 2E                      42          sra (hl)        ; CB 2E
-0031    DD CB 05 56                43          bit 2, (ix+5)   ; DD CB 05 56
-0035    FD CB FE FE                44          set 7, (iy-2)   ; FD CB FE FE
-0039    DD CB 00 3E                45          srl (ix+0)      ; DD CB 00 3E
-----                               46          
-----                               47          .end
+----                               24  ; Logic — 2-operand forms with indexed memory
+0016    DD A6 03                   25          and a, (ix+3)   ; DD A6 03
+0019    FD B6 01                   26          or a, (iy+1)    ; FD B6 01
+001C    DD AE 00                   27          xor a, (ix+0)   ; DD AE 00
+001F    FD BE FE                   28          cp a, (iy-2)    ; FD BE FE
+----                               29  
+----                               30  ; Logic — 2-operand forms with half-index registers (undocumented)
+0022    DD A4                      31          and a, ixh      ; DD A4
+0024    FD B5                      32          or a, iyl       ; FD B5
+0026    FD AC                      33          xor a, iyh      ; FD AC
+0028    DD BD                      34          cp a, ixl       ; DD BD
+----                               35  
+----                               36  ; Jumps
+002A    C3 00 10                   37          jp 1000h        ; unconditional jump
+002D    C2 00 20                   38          jp nz, 2000h    ; conditional jump
+0030    18 02                      39          jr skip         ; relative jump
+0032    30 00                      40          jr nc, skip     ; conditional relative
+----                               41  skip:
+0034    00                         42          nop
+----                               43  
+----                               44  ; Z80-specific
+0035    10 FD                      45          djnz skip       ; decrement B and jump if not zero
+0037    ED B0                      46          ldir            ; block transfer
+0039    ED B1                      47          cpir            ; block search
+----                               48  
+----                               49  ; CB-prefix bit/shift/rotate operations
+003B    CB 58                      50          bit 3, b        ; CB 58
+003D    CB EE                      51          set 5, (hl)     ; CB EE
+003F    CB 8F                      52          res 1, a        ; CB 8F
+0041    CB 01                      53          rlc c           ; CB 01
+0043    CB 2E                      54          sra (hl)        ; CB 2E
+0045    DD CB 05 56                55          bit 2, (ix+5)   ; DD CB 05 56
+0049    FD CB FE FE                56          set 7, (iy-2)   ; FD CB FE FE
+004D    DD CB 00 3E                57          srl (ix+0)      ; DD CB 00 3E
+----                               58          
+----                               59          .end
 
-Lines: 47  Errors: 0  Warnings: 0
+Lines: 59  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
-skip            : 0020 (32)
+skip            : 0034 (52)
 
-Total memory is 61 bytes
+Total memory is 81 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
 0000    3E 00 06 55 21 34 12 78 77 77 C6 05 80 D6 10 3C
-0010    05 E6 0F F6 80 AF C3 00 10 C2 00 20 18 02 30 00
-0020    00 10 FD ED B0 ED B1 CB 58 CB EE CB 8F CB 01 CB
-0030    2E DD CB 05 56 FD CB FE FE DD CB 00 3E
+0010    05 E6 0F F6 80 AF DD A6 03 FD B6 01 DD AE 00 FD
+0020    BE FE DD A4 FD B5 FD AC DD BD C3 00 10 C2 00 20
+0030    18 02 30 00 00 10 FD ED B0 ED B1 CB 58 CB EE CB
+0040    8F CB 01 CB 2E DD CB 05 56 FD CB FE FE DD CB 00
+0050    3E
