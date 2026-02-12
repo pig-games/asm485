@@ -347,7 +347,11 @@ The match expression is evaluated once; the first matching `.case` wins, and
 
 ### 4.6 Scopes
 
-Scopes are introduced by `.block` and closed by `.endblock`:
+Scopes are introduced by `.block`/`.namespace` and closed by matching scope
+closers:
+
+- `.block` -> `.endblock` (or `.bend` alias)
+- `.namespace <name>` -> `.endn` or `.endnamespace`
 
 ```
 OUTER .block
@@ -636,7 +640,7 @@ Instruction mnemonics are selected by `.cpu`:
 .const  .var  .set
 .if  .elseif  .else  .endif  .match  .case  .default  .endmatch
 .ifdef  .ifndef  .include
-.module  .endmodule  .use  .pub  .priv  .block  .endblock
+.module  .endmodule  .use  .pub  .priv  .block  .endblock  .bend  .namespace  .endn  .endnamespace
 .macro  .endmacro  .endm  .segment  .endsegment  .ends  .statement  .endstatement
 .meta  .endmeta  .name  .version  .output  .endoutput  .list  .hex  .bin  .mapfile  .exportsections
 .meta.name  .meta.version

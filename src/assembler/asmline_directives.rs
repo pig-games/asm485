@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Erik van der Tier
 
 use super::*;
+use crate::core::assembler::scope::{ScopeKind, ScopePopError};
 
 impl<'a> AsmLine<'a> {
     pub(crate) fn process_directive_ast(
@@ -576,7 +577,10 @@ impl<'a> AsmLine<'a> {
                 } else if !self.symbols.has_module(&module_id) {
                     let _ = self.symbols.register_module(&module_id);
                 }
-                if let Err(message) = self.scope_stack.push_named(&module_id) {
+                if let Err(message) = self
+                    .scope_stack
+                    .push_named_with_kind(&module_id, ScopeKind::Module)
+                {
                     return self.failure(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
@@ -662,7 +666,10 @@ impl<'a> AsmLine<'a> {
                     );
                 }
                 if let Some(label) = self.label.clone() {
-                    if let Err(message) = self.scope_stack.push_named(&label) {
+                    if let Err(message) = self
+                        .scope_stack
+                        .push_named_with_kind(&label, ScopeKind::Block)
+                    {
                         return self.failure(
                             LineStatus::Error,
                             AsmErrorKind::Directive,
@@ -671,30 +678,88 @@ impl<'a> AsmLine<'a> {
                         );
                     }
                 } else {
-                    self.scope_stack.push_anonymous();
+                    self.scope_stack.push_anonymous_with_kind(ScopeKind::Block);
                 }
                 self.push_visibility();
                 LineStatus::Ok
             }
-            "ENDBLOCK" => {
+            "ENDBLOCK" | "BEND" => {
                 if !operands.is_empty() {
                     return self.failure(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
-                        "Unexpected operands for .endblock",
+                        "Unexpected operands for block close directive",
                         None,
                     );
                 }
-                if !self.scope_stack.pop() {
+                self.close_scope(
+                    ScopeKind::Block,
+                    ".endblock",
+                    ".block",
+                    ".endblock found without matching .block",
+                )
+            }
+            "NAMESPACE" => {
+                let namespace_name = match operands {
+                    [] => {
+                        if let Some(label) = self.label.clone() {
+                            label
+                        } else {
+                            return self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Directive,
+                                "Missing namespace id for .namespace",
+                                None,
+                            );
+                        }
+                    }
+                    [Expr::Identifier(name, _)] => name.clone(),
+                    [_] => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            "Invalid namespace id for .namespace",
+                            None,
+                        );
+                    }
+                    _ => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            "Expected .namespace <name>",
+                            None,
+                        );
+                    }
+                };
+                if let Err(message) = self
+                    .scope_stack
+                    .push_named_with_kind(&namespace_name, ScopeKind::Namespace)
+                {
                     return self.failure(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
-                        ".endblock found without matching .block",
+                        message,
+                        Some(&namespace_name),
+                    );
+                }
+                self.push_visibility();
+                LineStatus::Ok
+            }
+            "ENDN" | "ENDNAMESPACE" => {
+                if !operands.is_empty() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Unexpected operands for namespace close directive",
                         None,
                     );
                 }
-                self.pop_visibility();
-                LineStatus::Ok
+                self.close_scope(
+                    ScopeKind::Namespace,
+                    ".endnamespace",
+                    ".namespace",
+                    ".endnamespace found without matching .namespace",
+                )
             }
             "PUB" => {
                 if !operands.is_empty() {
@@ -1163,6 +1228,38 @@ impl<'a> AsmLine<'a> {
             }
         }
         None
+    }
+
+    fn close_scope(
+        &mut self,
+        expected: ScopeKind,
+        close_directive: &str,
+        open_directive: &str,
+        missing_message: &str,
+    ) -> LineStatus {
+        match self.scope_stack.pop_expected(expected) {
+            Ok(()) => {
+                self.pop_visibility();
+                LineStatus::Ok
+            }
+            Err(ScopePopError::Empty) => self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                missing_message,
+                None,
+            ),
+            Err(ScopePopError::KindMismatch { found, .. }) => self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                &format!(
+                    "{} found but current scope was opened by {} (expected {})",
+                    close_directive,
+                    found.opening_directive(),
+                    open_directive
+                ),
+                None,
+            ),
+        }
     }
 
     fn expr_text_value(&self, expr: &Expr) -> Option<String> {

@@ -4164,6 +4164,10 @@ fn is_scope_directive(mnemonic: &str) -> bool {
         mnemonic.to_ascii_uppercase().as_str(),
         ".BLOCK"
             | ".ENDBLOCK"
+            | ".BEND"
+            | ".NAMESPACE"
+            | ".ENDN"
+            | ".ENDNAMESPACE"
             | ".MODULE"
             | ".ENDMODULE"
             | ".META"

@@ -521,8 +521,10 @@ fn parse_visibility_directive(code: &str) -> Option<VisibilityDirective> {
     match directive.as_str() {
         "PUB" => Some(VisibilityDirective::SetPublic),
         "PRIV" => Some(VisibilityDirective::SetPrivate),
-        "BLOCK" | "MODULE" => Some(VisibilityDirective::PushScope),
-        "ENDBLOCK" | "ENDMODULE" => Some(VisibilityDirective::PopScope),
+        "BLOCK" | "MODULE" | "NAMESPACE" => Some(VisibilityDirective::PushScope),
+        "ENDBLOCK" | "BEND" | "ENDMODULE" | "ENDN" | "ENDNAMESPACE" => {
+            Some(VisibilityDirective::PopScope)
+        }
         _ => None,
     }
 }

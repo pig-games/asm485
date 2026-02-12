@@ -1,0 +1,40 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Namespace scopes and 64tass-compatible close aliases
+----                                2  
+----    EQU 1000                    3          .org 1000h
+----                                4  
+----    EQU 0001                    5  VALUE   .const 1
+----                                6  
+----                                7          .namespace outer
+----                                8          .namespace inner
+----    EQU 0005                    9  VALUE   .const 5
+----                               10          .endn
+----                               11          .endnamespace
+----                               12  
+----                               13  SCOPE   .block
+----    EQU 0009                   14  LOCAL   .const 9
+----                               15          .bend
+----                               16  
+1000    01 00                      17          .word VALUE
+1002    05 00                      18          .word outer.inner.VALUE
+1004    09 00                      19          .word SCOPE.LOCAL
+----                               20          .end
+
+Lines: 20  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+VALUE           : 0001 (1)
+outer.inner.VALUE: 0005 (5)
+SCOPE           : 1000 (4096)
+SCOPE.LOCAL     : 0009 (9)
+
+Total memory is 6 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    01 00 05 00 09 00

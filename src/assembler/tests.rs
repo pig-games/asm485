@@ -2103,6 +2103,103 @@ fn module_scopes_qualify_symbols() {
 }
 
 #[test]
+fn namespace_scopes_qualify_symbols() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, ".namespace outer", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, ".namespace inner", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "VAL .const 9", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    let status = process_line(&mut asm, ".endn", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, ".endnamespace", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .word outer.inner.VAL", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[9, 0]);
+}
+
+#[test]
+fn namespace_shadowing_prefers_inner_scope() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "VAL .const 1", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    let status = process_line(&mut asm, ".namespace scope", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "VAL .const 2", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    let status = process_line(&mut asm, "    .word VAL", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[2, 0]);
+    let status = process_line(&mut asm, ".endn", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .word VAL", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[1, 0]);
+}
+
+#[test]
+fn bend_alias_closes_block_scope() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "SCOPE .block", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "VAL .const 3", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    let status = process_line(&mut asm, ".bend", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .word SCOPE.VAL", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[3, 0]);
+}
+
+#[test]
+fn namespace_close_rejects_mismatched_scope_kind() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "SCOPE .block", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, ".endnamespace", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains(".endnamespace found but current scope was opened by .block"));
+}
+
+#[test]
+fn block_close_rejects_mismatched_scope_kind() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, ".namespace scope", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, ".endblock", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains(".endblock found but current scope was opened by .namespace"));
+}
+
+#[test]
+fn endn_without_namespace_errors() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, ".endn", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains(".endnamespace found without matching .namespace"));
+}
+
+#[test]
 fn module_duplicate_ids_error() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

@@ -3,9 +3,36 @@
 
 //! Scope management for symbol namespacing.
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeKind {
+    Module,
+    Block,
+    Namespace,
+}
+
+impl ScopeKind {
+    pub fn opening_directive(self) -> &'static str {
+        match self {
+            ScopeKind::Module => ".module",
+            ScopeKind::Block => ".block",
+            ScopeKind::Namespace => ".namespace",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopePopError {
+    Empty,
+    KindMismatch {
+        expected: ScopeKind,
+        found: ScopeKind,
+    },
+}
+
 /// A frame in the scope stack tracking segment count.
 struct ScopeFrame {
     segment_count: usize,
+    kind: ScopeKind,
 }
 
 /// Stack of scopes for qualified symbol names.
@@ -46,7 +73,11 @@ impl ScopeStack {
         }
     }
 
-    pub fn push_named(&mut self, name: &str) -> Result<(), &'static str> {
+    pub fn push_named_with_kind(
+        &mut self,
+        name: &str,
+        kind: ScopeKind,
+    ) -> Result<(), &'static str> {
         if name.is_empty() {
             return Err("Scope name cannot be empty");
         }
@@ -59,15 +90,31 @@ impl ScopeStack {
         }
         self.frames.push(ScopeFrame {
             segment_count: parts.len(),
+            kind,
         });
         Ok(())
     }
 
-    pub fn push_anonymous(&mut self) {
+    pub fn push_named(&mut self, name: &str) -> Result<(), &'static str> {
+        self.push_named_with_kind(name, ScopeKind::Block)
+    }
+
+    pub fn push_anonymous_with_kind(&mut self, kind: ScopeKind) {
         self.anon_counter = self.anon_counter.saturating_add(1);
         let name = format!("__scope{}", self.anon_counter);
         self.segments.push(name);
-        self.frames.push(ScopeFrame { segment_count: 1 });
+        self.frames.push(ScopeFrame {
+            segment_count: 1,
+            kind,
+        });
+    }
+
+    pub fn push_anonymous(&mut self) {
+        self.push_anonymous_with_kind(ScopeKind::Block);
+    }
+
+    pub fn top_kind(&self) -> Option<ScopeKind> {
+        self.frames.last().map(|frame| frame.kind)
     }
 
     pub fn pop(&mut self) -> bool {
@@ -78,6 +125,20 @@ impl ScopeStack {
             self.segments.pop();
         }
         true
+    }
+
+    pub fn pop_expected(&mut self, expected: ScopeKind) -> Result<(), ScopePopError> {
+        let Some(top) = self.top_kind() else {
+            return Err(ScopePopError::Empty);
+        };
+        if top != expected {
+            return Err(ScopePopError::KindMismatch {
+                expected,
+                found: top,
+            });
+        }
+        let _ = self.pop();
+        Ok(())
     }
 }
 
