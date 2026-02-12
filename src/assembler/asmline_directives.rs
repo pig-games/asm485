@@ -615,6 +615,14 @@ impl<'a> AsmLine<'a> {
                         None,
                     );
                 }
+                if self.has_open_encoding_scope() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Cannot close module with open .encode block",
+                        None,
+                    );
+                }
                 if !self.in_module() {
                     return self.failure(
                         LineStatus::Error,
@@ -932,8 +940,13 @@ impl<'a> AsmLine<'a> {
                     }
                 }
             }
+            "ENCODE" => self.begin_encode_directive_ast(operands),
+            "ENDENCODE" => self.end_encode_directive_ast(operands),
             "ENC" => self.set_text_encoding_directive_ast(".enc", operands),
             "ENCODING" => self.set_text_encoding_directive_ast(".encoding", operands),
+            "CDEF" => self.cdef_directive_ast(operands),
+            "TDEF" => self.tdef_directive_ast(operands),
+            "EDEF" => self.edef_directive_ast(operands),
             "EMIT" => self.emit_directive_ast(operands),
             "RES" => self.res_directive_ast(operands),
             "BYTE" | "DB" => self.store_arg_list_ast(operands, 1, ".byte"),

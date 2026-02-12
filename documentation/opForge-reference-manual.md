@@ -54,7 +54,7 @@ Strings are quoted with `'` or `"` and are usable in data directives:
 ```
 
 String bytes are encoded using the active text encoding (default `ascii`).
-Use `.encoding` or `.enc` to switch encodings (currently `ascii` and `petscii`).
+Use `.encoding` or `.enc` to switch encodings, and `.encode`/`.cdef`/`.tdef`/`.edef` to define custom encodings in-source.
 
 ### 3.3 Booleans
 
@@ -180,11 +180,31 @@ Notes:
 ```
 .encoding name
 .enc name                 ; alias for .encoding
+.encode name[, base]
+.endencode
+.cdef start, end, value
+.tdef chars, value[, value...]
+.edef pattern, replacement[, replacement...]
 ```
 
 Built-in encodings:
 - `ascii` (default)
 - `petscii`
+
+Definition rules:
+- `.encode` starts an encoding-definition scope and sets that encoding active.
+- Optional `.encode name, base` clones `base` into `name` before applying new definitions.
+- `.endencode` closes the scope and restores the previously active encoding.
+- `.cdef` maps an inclusive source-byte range to consecutive output bytes.
+- `.tdef` maps bytes from a source string:
+  - two-operand form (`.tdef "abc", 32`) maps sequentially from the start value
+  - multi-value form (`.tdef "abc", 1, 2, 3`) maps explicitly per character
+- `.edef` defines escape substitutions evaluated before per-byte character mapping. Longest escape match wins.
+- `.cdef`/`.tdef`/`.edef` are only valid inside `.encode ... .endencode`.
+
+Compatibility notes:
+- opForge follows 64tass-style encoding-definition directives, but keeps `.byte` string operands encoding-aware (no split behavior between `.byte` and `.text`).
+- `.null` is strict: if encoded input already contains `0`, assembly fails.
 
 ### 4.4 Symbols and assignments
 
@@ -611,7 +631,7 @@ Instruction mnemonics are selected by `.cpu`:
 
 ```
 .org  .align  .region  .place  .pack  .section  .endsection  .cpu  .end
-.encoding  .enc
+.encoding  .enc  .encode  .endencode  .cdef  .tdef  .edef
 .byte  .db  .word  .dw  .long  .text  .null  .ptext  .ds  .emit  .res  .fill
 .const  .var  .set
 .if  .elseif  .else  .endif  .match  .case  .default  .endmatch

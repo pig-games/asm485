@@ -46,5 +46,5 @@ pub use family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler, Fami
 pub use operand::{Operand, SizeSuffix};
 pub use parser::ParseError;
 pub use symbol_table::SymbolTable;
-pub use text_encoding::{TextEncodingError, TextEncodingId, TextEncodingRegistry};
+pub use text_encoding::{TextEncodingError, TextEncodingRegistry};
 pub use tokenizer::{RegisterChecker, Span, Token, TokenKind, TokenizeError, Tokenizer};

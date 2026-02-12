@@ -1476,6 +1476,124 @@ fn module_entry_resets_text_encoding_to_default() {
 }
 
 #[test]
+fn encode_definition_directives_build_custom_encoding() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .encode custom", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .cdef \"A\", \"Z\", 1", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .tdef \"xy\", 60", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .edef \"{cr}\", 13", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .endencode", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .enc custom", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    .byte \"A{cr}xy\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[1, 13, 60, 61]);
+}
+
+#[test]
+fn encode_can_clone_from_base_encoding() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .encode clone, petscii", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .endencode", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .enc clone", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .byte \"Az\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xC1, 0x5A]);
+}
+
+#[test]
+fn tdef_accepts_explicit_value_lists() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .encode custom", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .tdef \"ab\", 10, 20", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .endencode", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .enc custom", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .byte \"ab\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[10, 20]);
+}
+
+#[test]
+fn cdef_requires_encode_scope() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .cdef \"A\", \"Z\", 1", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("inside .encode"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn endencode_requires_matching_encode() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .endencode", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("without matching .encode"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn endmodule_rejects_open_encode_scope() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, ".module main", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .encode custom", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, ".endmodule", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("open .encode block"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
 fn emit_supports_word_and_long_units() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

@@ -43,7 +43,7 @@ use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
-use crate::core::text_encoding::{TextEncodingId, TextEncodingRegistry};
+use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
 use std::sync::Arc;
@@ -864,6 +864,12 @@ fn emit_mapfiles(
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+struct EncodingScopeState {
+    definition_name: String,
+    previous_active_encoding: String,
+}
+
 /// Per-line assembler state.
 struct AsmLine<'a> {
     symbols: &'a mut SymbolTable,
@@ -903,7 +909,8 @@ struct AsmLine<'a> {
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
     text_encoding_registry: TextEncodingRegistry,
-    active_text_encoding: TextEncodingId,
+    active_text_encoding: String,
+    encoding_scope_stack: Vec<EncodingScopeState>,
     statement_depth: usize,
 }
 
@@ -924,7 +931,7 @@ impl<'a> AsmLine<'a> {
         root_metadata: RootMetadata,
     ) -> Self {
         let text_encoding_registry = TextEncodingRegistry::new();
-        let active_text_encoding = text_encoding_registry.default_encoding();
+        let active_text_encoding = text_encoding_registry.default_encoding_name().to_string();
         Self {
             symbols,
             registry,
@@ -964,6 +971,7 @@ impl<'a> AsmLine<'a> {
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
             text_encoding_registry,
             active_text_encoding,
+            encoding_scope_stack: Vec::new(),
             statement_depth: 0,
         }
     }
@@ -1126,7 +1134,343 @@ impl<'a> AsmLine<'a> {
     }
 
     fn reset_text_encoding_profile(&mut self) {
-        self.active_text_encoding = self.text_encoding_registry.default_encoding();
+        self.active_text_encoding = self
+            .text_encoding_registry
+            .default_encoding_name()
+            .to_string();
+        self.encoding_scope_stack.clear();
+    }
+
+    fn has_open_encoding_scope(&self) -> bool {
+        !self.encoding_scope_stack.is_empty()
+    }
+
+    fn current_encoding_definition_name(&self) -> Option<&str> {
+        self.encoding_scope_stack
+            .last()
+            .map(|scope| scope.definition_name.as_str())
+    }
+
+    fn begin_encode_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.is_empty() || operands.len() > 2 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .encode <name> [, <base>]",
+                None,
+            );
+        }
+        let (name, name_span) = match self.encoding_name_operand(&operands[0], ".encode") {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        let normalized = if operands.len() == 2 {
+            let (base, base_span) = match self.encoding_name_operand(&operands[1], ".encode") {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+            };
+            match self
+                .text_encoding_registry
+                .ensure_encoding_from_base(&name, &base)
+            {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        &format!(".encode: {err}"),
+                        None,
+                        base_span,
+                    );
+                }
+            }
+        } else {
+            match self.text_encoding_registry.ensure_encoding(&name) {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        &format!(".encode: {err}"),
+                        None,
+                        name_span,
+                    );
+                }
+            }
+        };
+        self.encoding_scope_stack.push(EncodingScopeState {
+            definition_name: normalized.clone(),
+            previous_active_encoding: self.active_text_encoding.clone(),
+        });
+        self.active_text_encoding = normalized;
+        LineStatus::Ok
+    }
+
+    fn end_encode_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if !operands.is_empty() {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Unexpected operands for .endencode",
+                None,
+            );
+        }
+        let Some(scope) = self.encoding_scope_stack.pop() else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".endencode found without matching .encode",
+                None,
+            );
+        };
+        self.active_text_encoding = scope.previous_active_encoding;
+        LineStatus::Ok
+    }
+
+    fn cdef_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.len() != 3 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .cdef <start>, <end>, <value>",
+                None,
+            );
+        }
+        let Some(encoding) = self.current_encoding_definition_name().map(str::to_string) else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".cdef is only valid inside .encode ... .endencode",
+                None,
+            );
+        };
+        let (start, start_span) = match self.source_byte_operand(&operands[0], ".cdef") {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        let (end, end_span) = match self.source_byte_operand(&operands[1], ".cdef") {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        let coded = match self.eval_expr_ast(&operands[2]) {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        let err_span = Span {
+            line: start_span.line,
+            col_start: start_span.col_start.min(end_span.col_start),
+            col_end: start_span.col_end.max(end_span.col_end),
+        };
+        match self
+            .text_encoding_registry
+            .define_cdef_range(&encoding, start, end, coded)
+        {
+            Ok(()) => LineStatus::Ok,
+            Err(err) => self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                &format!(".cdef: {err}"),
+                None,
+                err_span,
+            ),
+        }
+    }
+
+    fn tdef_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.len() < 2 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .tdef <chars>, <value...>",
+                None,
+            );
+        }
+        let Some(encoding) = self.current_encoding_definition_name().map(str::to_string) else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".tdef is only valid inside .encode ... .endencode",
+                None,
+            );
+        };
+        let (chars, chars_span) = match self.string_literal_operand(&operands[0], ".tdef", "chars")
+        {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        if operands.len() == 2 {
+            let start_value = match self.eval_expr_ast(&operands[1]) {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+            };
+            return match self.text_encoding_registry.define_tdef_increment(
+                &encoding,
+                &chars,
+                start_value,
+            ) {
+                Ok(()) => LineStatus::Ok,
+                Err(err) => self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    &format!(".tdef: {err}"),
+                    None,
+                    chars_span,
+                ),
+            };
+        }
+
+        let mut values = Vec::with_capacity(operands.len().saturating_sub(1));
+        for expr in &operands[1..] {
+            let (value, _) = match self.byte_operand(expr, ".tdef") {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+            };
+            values.push(value);
+        }
+
+        match self
+            .text_encoding_registry
+            .define_tdef_values(&encoding, &chars, &values)
+        {
+            Ok(()) => LineStatus::Ok,
+            Err(err) => self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                &format!(".tdef: {err}"),
+                None,
+                chars_span,
+            ),
+        }
+    }
+
+    fn edef_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if operands.len() < 2 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .edef <pattern>, <replacement...>",
+                None,
+            );
+        }
+        let Some(encoding) = self.current_encoding_definition_name().map(str::to_string) else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".edef is only valid inside .encode ... .endencode",
+                None,
+            );
+        };
+        let (pattern, span) =
+            match self.string_literal_operand(&operands[0], ".edef", "escape pattern") {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+            };
+        let mut replacement = Vec::new();
+        for expr in &operands[1..] {
+            if let Expr::String(bytes, _) = expr {
+                replacement.extend_from_slice(bytes);
+                continue;
+            }
+            let (value, _) = match self.byte_operand(expr, ".edef") {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+            };
+            replacement.push(value);
+        }
+
+        match self
+            .text_encoding_registry
+            .define_edef(&encoding, &pattern, &replacement)
+        {
+            Ok(()) => LineStatus::Ok,
+            Err(err) => self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                &format!(".edef: {err}"),
+                None,
+                span,
+            ),
+        }
     }
 
     fn set_text_encoding_directive_ast(
@@ -1172,6 +1516,81 @@ impl<'a> AsmLine<'a> {
         LineStatus::Ok
     }
 
+    fn encoding_name_operand(
+        &self,
+        expr: &Expr,
+        directive_name: &str,
+    ) -> Result<(String, Span), AstEvalError> {
+        let span = expr_span(expr);
+        let name = Self::expr_text_value_core(expr).ok_or_else(|| AstEvalError {
+            error: AsmError::new(
+                AsmErrorKind::Directive,
+                &format!("Invalid encoding name for {directive_name}"),
+                None,
+            ),
+            span,
+        })?;
+        Ok((name, span))
+    }
+
+    fn byte_operand(&self, expr: &Expr, directive_name: &str) -> Result<(u8, Span), AstEvalError> {
+        let span = expr_span(expr);
+        let value = self.eval_expr_ast(expr)?;
+        if value > u8::MAX as u32 {
+            return Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Directive,
+                    &format!("{directive_name} value ${value:X} does not fit in a byte"),
+                    None,
+                ),
+                span,
+            });
+        }
+        Ok((value as u8, span))
+    }
+
+    fn source_byte_operand(
+        &self,
+        expr: &Expr,
+        directive_name: &str,
+    ) -> Result<(u8, Span), AstEvalError> {
+        match expr {
+            Expr::String(bytes, span) => {
+                if bytes.len() != 1 {
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Directive,
+                            &format!("{directive_name} character operand must be one byte"),
+                            None,
+                        ),
+                        span: *span,
+                    });
+                }
+                Ok((bytes[0], *span))
+            }
+            _ => self.byte_operand(expr, directive_name),
+        }
+    }
+
+    fn string_literal_operand(
+        &self,
+        expr: &Expr,
+        directive_name: &str,
+        context: &str,
+    ) -> Result<(Vec<u8>, Span), AstEvalError> {
+        match expr {
+            Expr::String(bytes, span) => Ok((bytes.clone(), *span)),
+            _ => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Directive,
+                    &format!("{directive_name} expects string literal for {context}"),
+                    None,
+                ),
+                span: expr_span(expr),
+            }),
+        }
+    }
+
     fn expr_text_value_core(expr: &Expr) -> Option<String> {
         match expr {
             Expr::Identifier(value, _) | Expr::Register(value, _) | Expr::Number(value, _) => {
@@ -1190,7 +1609,7 @@ impl<'a> AsmLine<'a> {
         error_kind: AsmErrorKind,
     ) -> Result<Vec<u8>, AstEvalError> {
         self.text_encoding_registry
-            .encode_bytes(self.active_text_encoding, input)
+            .encode_bytes(&self.active_text_encoding, input)
             .map_err(|err| AstEvalError {
                 error: AsmError::new(error_kind, &format!("{context}: {err}"), None),
                 span,

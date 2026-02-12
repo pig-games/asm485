@@ -1,0 +1,44 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; In-source text encoding definitions (.encode/.cdef/.tdef/.edef).
+----                                2  
+----                                3  .module main
+----    EQU 1200                    4      .org $1200
+----                                5  
+----                                6      ; Built-in encoding selection still works.
+----                                7      .enc petscii
+1200    C1 5A 00                    8      .byte "Az", 0
+----                                9  
+----                               10      ; Define a custom encoding from scratch.
+----                               11      .encode gamefont
+----                               12          .cdef "A", "Z", 1
+----                               13          .tdef "xy", $40
+----                               14          .tdef "!?", $80, $81
+----                               15          .edef "{cr}", 13
+----                               16      .endencode
+----                               17  
+----                               18      .enc gamefont
+1203    01 0D 40 41 80 81 00       19      .byte "A{cr}xy!?", 0
+----                               20  
+----                               21      ; Clone an existing encoding and extend it with an escape sequence.
+----                               22      .encode shifted, petscii
+----                               23          .edef "{home}", 19
+----                               24      .endencode
+----                               25  
+----                               26      .enc shifted
+120A    C1 5A 13 00                27      .byte "Az{home}", 0
+----                               28  .endmodule
+
+Lines: 28  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 14 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1200    C1 5A 00 01 0D 40 41 80 81 00 C1 5A 13 00
