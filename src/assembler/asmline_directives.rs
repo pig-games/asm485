@@ -587,6 +587,7 @@ impl<'a> AsmLine<'a> {
                 self.push_visibility();
                 self.module_active = Some(module_id);
                 self.module_scope_depth = self.scope_stack.depth();
+                self.reset_text_encoding_profile();
                 LineStatus::Ok
             }
             "ENDMODULE" => {
@@ -931,11 +932,16 @@ impl<'a> AsmLine<'a> {
                     }
                 }
             }
+            "ENC" => self.set_text_encoding_directive_ast(".enc", operands),
+            "ENCODING" => self.set_text_encoding_directive_ast(".encoding", operands),
             "EMIT" => self.emit_directive_ast(operands),
             "RES" => self.res_directive_ast(operands),
             "BYTE" | "DB" => self.store_arg_list_ast(operands, 1, ".byte"),
             "WORD" | "DW" => self.store_arg_list_ast(operands, 2, ".word"),
             "LONG" => self.store_arg_list_ast(operands, 4, ".long"),
+            "TEXT" => self.text_directive_ast(operands),
+            "NULL" => self.null_directive_ast(operands),
+            "PTEXT" => self.ptext_directive_ast(operands),
             "DS" => {
                 let expr = match operands.first() {
                     Some(expr) => expr,

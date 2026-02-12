@@ -53,6 +53,9 @@ Strings are quoted with `'` or `"` and are usable in data directives:
 .byte "HELLO", 0
 ```
 
+String bytes are encoded using the active text encoding (default `ascii`).
+Use `.encoding` or `.enc` to switch encodings (currently `ascii` and `petscii`).
+
 ### 3.3 Booleans
 
 Logical operators treat non-zero as true. Logical operators return `0` or `1`.
@@ -156,6 +159,9 @@ Output mode rules:
 .word expr[, expr...]
 .dw expr[, expr...]          ; alias for .word
 .long expr[, expr...]
+.text "string"[, "string"...]
+.null "string"
+.ptext "string"
 .ds expr
 .emit unit, expr[, expr...]  ; unit = byte|word|long or numeric size
 .res unit, count             ; BSS-only reservation
@@ -166,6 +172,19 @@ Notes:
 - `.emit` and `.fill` are data-emitting directives and are not allowed in `kind=bss` sections.
 - `.res` is only allowed in `kind=bss` sections.
 - For `word`, unit size follows current CPU word size.
+- String operands in `.byte`/`.db` are encoded using the active text encoding.
+- `.null` is strict: it errors if the encoded source text already contains byte `0`.
+
+### 4.3.1 Text encoding directives
+
+```
+.encoding name
+.enc name                 ; alias for .encoding
+```
+
+Built-in encodings:
+- `ascii` (default)
+- `petscii`
 
 ### 4.4 Symbols and assignments
 
@@ -592,7 +611,8 @@ Instruction mnemonics are selected by `.cpu`:
 
 ```
 .org  .align  .region  .place  .pack  .section  .endsection  .cpu  .end
-.byte  .db  .word  .dw  .long  .ds  .emit  .res  .fill
+.encoding  .enc
+.byte  .db  .word  .dw  .long  .text  .null  .ptext  .ds  .emit  .res  .fill
 .const  .var  .set
 .if  .elseif  .else  .endif  .match  .case  .default  .endmatch
 .ifdef  .ifndef  .include

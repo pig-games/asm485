@@ -17,6 +17,7 @@
 //! - [`preprocess`] - Preprocessor (macros, conditionals, includes)
 //! - [`macro_processor`] - Assembler macro expansion
 //! - [`assembler`] - Core assembler components (conditionals, scopes, expressions)
+//! - [`text_encoding`] - Text encoding tables for directive string emission
 
 pub mod assembler;
 pub mod cpu;
@@ -31,6 +32,7 @@ pub mod preprocess;
 pub mod registry;
 pub mod report;
 pub mod symbol_table;
+pub mod text_encoding;
 pub mod text_utils;
 pub mod token_value;
 pub mod tokenizer;
@@ -44,4 +46,5 @@ pub use family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler, Fami
 pub use operand::{Operand, SizeSuffix};
 pub use parser::ParseError;
 pub use symbol_table::SymbolTable;
+pub use text_encoding::{TextEncodingError, TextEncodingId, TextEncodingRegistry};
 pub use tokenizer::{RegisterChecker, Span, Token, TokenKind, TokenizeError, Tokenizer};

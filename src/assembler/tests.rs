@@ -1328,6 +1328,154 @@ fn db_and_dw_emit_bytes() {
 }
 
 #[test]
+fn byte_strings_use_active_encoding() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .byte \"Az\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x41, 0x7A]);
+
+    let status = process_line(&mut asm, "    .enc petscii", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    .byte \"Az\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xC1, 0x5A]);
+}
+
+#[test]
+fn encoding_directive_accepts_alias_and_string_name() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .encoding \"petscii\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .byte \"a\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x41]);
+
+    let status = process_line(&mut asm, "    .enc ascii", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .byte \"a\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x61]);
+}
+
+#[test]
+fn encoding_directive_rejects_unknown_encoding() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .enc unknown", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("Unknown encoding"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("ascii"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+    assert!(
+        asm.error().unwrap().message().contains("petscii"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn text_directives_emit_encoded_bytes() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .enc petscii", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+
+    let status = process_line(&mut asm, "    .text \"Az\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xC1, 0x5A]);
+
+    let status = process_line(&mut asm, "    .null \"OK\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xCF, 0xCB, 0x00]);
+
+    let status = process_line(&mut asm, "    .ptext \"dog\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x03, 0x44, 0x4F, 0x47]);
+}
+
+#[test]
+fn null_directive_is_strict_for_zero_byte_input() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .null \"\\0\"", 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("zero byte"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn ptext_rejects_encoded_strings_over_255_bytes() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let long_text = "a".repeat(256);
+    let line = format!("    .ptext \"{long_text}\"");
+    let status = process_line(&mut asm, &line, 0, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("exceeds 255 bytes"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
+fn string_expressions_use_active_encoding() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "    .enc petscii", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+
+    let status = process_line(&mut asm, "VAL .const 'a'", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    assert_eq!(asm.symbols().lookup("VAL"), Some(0x41));
+}
+
+#[test]
+fn module_entry_resets_text_encoding_to_default() {
+    let assembler = run_passes(&[
+        ".module first",
+        "    .enc petscii",
+        "    .byte \"a\"",
+        ".endmodule",
+        ".module second",
+        "    .byte \"a\"",
+        ".endmodule",
+    ]);
+    let entries = assembler.image().entries().expect("entries");
+    assert_eq!(entries, vec![(0x0000, 0x41), (0x0001, 0x61)]);
+}
+
+#[test]
 fn emit_supports_word_and_long_units() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

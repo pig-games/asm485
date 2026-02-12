@@ -43,6 +43,7 @@ use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
+use crate::core::text_encoding::{TextEncodingId, TextEncodingRegistry};
 use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
 use std::sync::Arc;
@@ -901,6 +902,8 @@ struct AsmLine<'a> {
     cpu_word_size_bytes: u32,
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
+    text_encoding_registry: TextEncodingRegistry,
+    active_text_encoding: TextEncodingId,
     statement_depth: usize,
 }
 
@@ -920,6 +923,8 @@ impl<'a> AsmLine<'a> {
         registry: &'a ModuleRegistry,
         root_metadata: RootMetadata,
     ) -> Self {
+        let text_encoding_registry = TextEncodingRegistry::new();
+        let active_text_encoding = text_encoding_registry.default_encoding();
         Self {
             symbols,
             registry,
@@ -957,6 +962,8 @@ impl<'a> AsmLine<'a> {
             cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
+            text_encoding_registry,
+            active_text_encoding,
             statement_depth: 0,
         }
     }
@@ -1108,6 +1115,7 @@ impl<'a> AsmLine<'a> {
         self.saw_explicit_module = false;
         self.top_level_content_seen = false;
         self.reset_cpu_runtime_profile();
+        self.reset_text_encoding_profile();
     }
 
     fn reset_cpu_runtime_profile(&mut self) {
@@ -1115,6 +1123,314 @@ impl<'a> AsmLine<'a> {
         self.cpu_word_size_bytes = Self::build_cpu_word_size(self.registry, self.cpu);
         self.cpu_little_endian = Self::build_cpu_endianness(self.registry, self.cpu);
         self.cpu_state_flags = Self::build_cpu_runtime_state(self.registry, self.cpu);
+    }
+
+    fn reset_text_encoding_profile(&mut self) {
+        self.active_text_encoding = self.text_encoding_registry.default_encoding();
+    }
+
+    fn set_text_encoding_directive_ast(
+        &mut self,
+        directive_name: &str,
+        operands: &[Expr],
+    ) -> LineStatus {
+        if operands.len() != 1 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                &format!("Expected {directive_name} <name>"),
+                None,
+            );
+        }
+        let operand = &operands[0];
+        let name = match Self::expr_text_value_core(operand) {
+            Some(value) => value,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    &format!("Invalid encoding name for {directive_name}"),
+                    None,
+                    expr_span(operand),
+                )
+            }
+        };
+        let encoding = match self.text_encoding_registry.resolve_name(&name) {
+            Some(encoding) => encoding,
+            None => {
+                let known = self.text_encoding_registry.known_names().join(", ");
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    &format!("Unknown encoding '{name}'. Use: {known}"),
+                    None,
+                    expr_span(operand),
+                );
+            }
+        };
+        self.active_text_encoding = encoding;
+        LineStatus::Ok
+    }
+
+    fn expr_text_value_core(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Identifier(value, _) | Expr::Register(value, _) | Expr::Number(value, _) => {
+                Some(value.clone())
+            }
+            Expr::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),
+            _ => None,
+        }
+    }
+
+    fn encode_text_bytes(
+        &self,
+        input: &[u8],
+        span: Span,
+        context: &str,
+        error_kind: AsmErrorKind,
+    ) -> Result<Vec<u8>, AstEvalError> {
+        self.text_encoding_registry
+            .encode_bytes(self.active_text_encoding, input)
+            .map_err(|err| AstEvalError {
+                error: AsmError::new(error_kind, &format!("{context}: {err}"), None),
+                span,
+            })
+    }
+
+    fn parse_text_operand(
+        &self,
+        expr: &Expr,
+        directive_name: &str,
+    ) -> Result<(Vec<u8>, Span), AstEvalError> {
+        match expr {
+            Expr::String(raw, span) => {
+                let encoded =
+                    self.encode_text_bytes(raw, *span, directive_name, AsmErrorKind::Directive)?;
+                Ok((encoded, *span))
+            }
+            _ => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Directive,
+                    &format!("{directive_name} expects string operand"),
+                    None,
+                ),
+                span: expr_span(expr),
+            }),
+        }
+    }
+
+    fn text_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if !self.section_kind_allows_data() {
+            let msg = format!(
+                ".text is not allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+        if operands.is_empty() {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Missing string in .text list",
+                None,
+            );
+        }
+
+        let mut projected_total = 0u32;
+        let mut encoded_chunks: Vec<Vec<u8>> = Vec::with_capacity(operands.len());
+        for expr in operands {
+            let (encoded, span) = match self.parse_text_operand(expr, ".text") {
+                Ok(value) => value,
+                Err(err) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        err.error.kind(),
+                        err.error.message(),
+                        None,
+                        err.span,
+                    );
+                }
+            };
+            let chunk_len = match u32::try_from(encoded.len()) {
+                Ok(value) => value,
+                Err(_) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "String literal too large to emit",
+                        None,
+                        span,
+                    );
+                }
+            };
+            projected_total = match projected_total.checked_add(chunk_len) {
+                Some(total) => total,
+                None => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        ".text total size overflow exceeds supported range",
+                        None,
+                        span,
+                    );
+                }
+            };
+            if let Err(err) = self.validate_program_span(projected_total, ".text", span) {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+            encoded_chunks.push(encoded);
+        }
+        for chunk in encoded_chunks {
+            self.bytes.extend_from_slice(&chunk);
+        }
+        LineStatus::Ok
+    }
+
+    fn null_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if !self.section_kind_allows_data() {
+            let msg = format!(
+                ".null is not allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+        if operands.len() != 1 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .null <string>",
+                None,
+            );
+        }
+
+        let (encoded, span) = match self.parse_text_operand(&operands[0], ".null") {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        if encoded.contains(&0) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".null source contains zero byte after encoding",
+                None,
+                span,
+            );
+        }
+        let text_len = match u32::try_from(encoded.len()) {
+            Ok(value) => value,
+            Err(_) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "String literal too large to emit",
+                    None,
+                    span,
+                );
+            }
+        };
+        let total = match text_len.checked_add(1) {
+            Some(value) => value,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    ".null total size overflow exceeds supported range",
+                    None,
+                    span,
+                );
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".null", span) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
+        self.bytes.extend_from_slice(&encoded);
+        self.bytes.push(0);
+        LineStatus::Ok
+    }
+
+    fn ptext_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if !self.section_kind_allows_data() {
+            let msg = format!(
+                ".ptext is not allowed in kind=bss section (current kind={})",
+                self.current_section_kind_label()
+            );
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &msg, None);
+        }
+        if operands.len() != 1 {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Expected .ptext <string>",
+                None,
+            );
+        }
+
+        let (encoded, span) = match self.parse_text_operand(&operands[0], ".ptext") {
+            Ok(value) => value,
+            Err(err) => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    err.error.kind(),
+                    err.error.message(),
+                    None,
+                    err.span,
+                );
+            }
+        };
+        if encoded.len() > u8::MAX as usize {
+            return self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".ptext encoded string length exceeds 255 bytes",
+                None,
+                span,
+            );
+        }
+        let text_len = encoded.len() as u32;
+        let total = match text_len.checked_add(1) {
+            Some(value) => value,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    ".ptext total size overflow exceeds supported range",
+                    None,
+                    span,
+                );
+            }
+        };
+        if let Err(err) = self.validate_program_span(total, ".ptext", span) {
+            return self.failure_at_span(
+                LineStatus::Error,
+                err.error.kind(),
+                err.error.message(),
+                None,
+                err.span,
+            );
+        }
+        self.bytes.push(encoded.len() as u8);
+        self.bytes.extend_from_slice(&encoded);
+        LineStatus::Ok
     }
 
     fn apply_cpu_runtime_state_after_encode(
@@ -3090,9 +3406,26 @@ impl<'a> AsmLine<'a> {
         let unit_size = size as u32;
         let mut projected_total = 0u32;
         for expr in operands {
-            if let Expr::String(bytes, span) = expr {
-                if bytes.len() > 1 {
-                    let string_len = match u32::try_from(bytes.len()) {
+            if let Expr::String(raw_bytes, span) = expr {
+                let encoded_bytes = match self.encode_text_bytes(
+                    raw_bytes,
+                    *span,
+                    directive_name,
+                    AsmErrorKind::Directive,
+                ) {
+                    Ok(bytes) => bytes,
+                    Err(err) => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            err.error.kind(),
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
+                };
+                if encoded_bytes.len() > 1 {
+                    let string_len = match u32::try_from(encoded_bytes.len()) {
                         Ok(len) => len,
                         Err(_) => {
                             return self.failure_at_span(
@@ -3130,10 +3463,10 @@ impl<'a> AsmLine<'a> {
                             err.span,
                         );
                     }
-                    self.bytes.extend_from_slice(bytes);
+                    self.bytes.extend_from_slice(&encoded_bytes);
                     continue;
                 }
-                if bytes.is_empty() {
+                if encoded_bytes.is_empty() {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
@@ -3267,10 +3600,16 @@ impl<'a> AsmLine<'a> {
             }),
             Expr::Dollar(_span) => Ok(self.start_addr),
             Expr::String(bytes, span) => {
-                if bytes.len() == 1 {
-                    Ok(bytes[0] as u32)
-                } else if bytes.len() == 2 {
-                    Ok(((bytes[0] as u32) << 8) | (bytes[1] as u32))
+                let encoded_bytes = self.encode_text_bytes(
+                    bytes,
+                    *span,
+                    "String expression",
+                    AsmErrorKind::Expression,
+                )?;
+                if encoded_bytes.len() == 1 {
+                    Ok(encoded_bytes[0] as u32)
+                } else if encoded_bytes.len() == 2 {
+                    Ok(((encoded_bytes[0] as u32) << 8) | (encoded_bytes[1] as u32))
                 } else {
                     Err(AstEvalError {
                         error: AsmError::new(

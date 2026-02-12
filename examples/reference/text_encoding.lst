@@ -1,0 +1,36 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Text encoding directives and text helper directives.
+----                                2  
+----                                3  .module main
+----    EQU 1000                    4      .org $1000
+----                                5  
+----                                6      ; Default encoding is ASCII.
+1000    41 5A 61 7A 00              7      .byte "AZaz", 0
+----                                8  
+----                                9      ; Switch to PETSCII for text emission.
+----                               10      .enc petscii
+1005    C1 DA 41 5A 00             11      .byte "AZaz", 0
+100A    C1 5A                      12      .text "Az"
+100C    CF CB 00                   13      .null "OK"
+100F    03 44 4F 47                14      .ptext "dog"
+----                               15  
+----                               16      ; Switch back using the long-form alias.
+----                               17      .encoding ascii
+1013    64 6F 6E 65 00             18      .byte "done", 0
+----                               19  .endmodule
+
+Lines: 19  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 24 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    41 5A 61 7A 00 C1 DA 41 5A 00 C1 5A CF CB 00 03
+1010    44 4F 47 64 6F 6E 65 00
