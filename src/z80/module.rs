@@ -19,6 +19,16 @@ const CPU_REGISTER_IDS: &[&str] = &[
     "AF", "AF'", "I", "R", "IX", "IY", "IXH", "IXL", "IYH", "IYL",
 ];
 
+fn cpu_form_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = super::Z80_EXTENSION_TABLE
+        .iter()
+        .map(|entry| entry.mnemonic.to_ascii_lowercase())
+        .collect();
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
+
 impl CpuModule for Z80CpuModule {
     fn cpu_id(&self) -> CpuType {
         CPU_ID
@@ -38,6 +48,10 @@ impl CpuModule for Z80CpuModule {
 
     fn register_ids(&self) -> &'static [&'static str] {
         CPU_REGISTER_IDS
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        cpu_form_mnemonics()
     }
 
     fn handler(&self) -> Box<dyn CpuHandlerDyn> {

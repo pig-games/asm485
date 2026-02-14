@@ -8,12 +8,13 @@
 //! - `CPUS` (cpu descriptors)
 //! - `DIAL` (dialect descriptors)
 //! - `REGS` (scoped register descriptors)
+//! - `FORM` (scoped form descriptors)
 
 use std::collections::HashMap;
 
 use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
-    ScopedOwner, ScopedRegisterDescriptor,
+    ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 
 pub const OPCPU_MAGIC: [u8; 4] = *b"OPCP";
@@ -27,6 +28,7 @@ const CHUNK_FAMS: [u8; 4] = *b"FAMS";
 const CHUNK_CPUS: [u8; 4] = *b"CPUS";
 const CHUNK_DIAL: [u8; 4] = *b"DIAL";
 const CHUNK_REGS: [u8; 4] = *b"REGS";
+const CHUNK_FORM: [u8; 4] = *b"FORM";
 
 /// Decoded hierarchy-chunk payload set.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,6 +37,7 @@ pub struct HierarchyChunks {
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
     pub registers: Vec<ScopedRegisterDescriptor>,
+    pub forms: Vec<ScopedFormDescriptor>,
 }
 
 /// Deterministic package codec errors for malformed container/schema data.
@@ -178,6 +181,7 @@ pub fn encode_hierarchy_chunks(
     cpus: &[CpuDescriptor],
     dialects: &[DialectDescriptor],
     registers: &[ScopedRegisterDescriptor],
+    forms: &[ScopedFormDescriptor],
 ) -> Result<Vec<u8>, OpcpuCodecError> {
     // Validate cross references and compatibility before encoding.
     HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
@@ -234,11 +238,44 @@ pub fn encode_hierarchy_chunks(
             }
     });
 
+    let mut forms = forms.to_vec();
+    for entry in &mut forms {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+        entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
+    }
+    forms.sort_by_key(|entry| {
+        let owner_kind = match entry.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let owner_id = match &entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        (owner_kind, owner_id, entry.mnemonic.to_ascii_lowercase())
+    });
+    forms.dedup_by(|left, right| {
+        left.mnemonic == right.mnemonic
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+
     let chunks = vec![
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
         (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
         (CHUNK_DIAL, encode_dial_chunk(&dials)?),
         (CHUNK_REGS, encode_regs_chunk(&regs)?),
+        (CHUNK_FORM, encode_form_chunk(&forms)?),
     ];
 
     encode_container(&chunks)
@@ -250,12 +287,14 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
     let regs_bytes = slice_for_chunk(bytes, &toc, CHUNK_REGS)?;
+    let form_bytes = slice_for_chunk(bytes, &toc, CHUNK_FORM)?;
 
     Ok(HierarchyChunks {
         families: decode_fams_chunk(fams_bytes)?,
         cpus: decode_cpus_chunk(cpus_bytes)?,
         dialects: decode_dial_chunk(dial_bytes)?,
         registers: decode_regs_chunk(regs_bytes)?,
+        forms: decode_form_chunk(form_bytes)?,
     })
 }
 
@@ -633,6 +672,47 @@ fn decode_regs_chunk(bytes: &[u8]) -> Result<Vec<ScopedRegisterDescriptor>, Opcp
     Ok(entries)
 }
 
+fn encode_form_chunk(forms: &[ScopedFormDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(forms.len(), "FORM count")?);
+    for form in forms {
+        let (owner_tag, owner_id) = match &form.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "FORM", owner_id)?;
+        write_string(&mut out, "FORM", &form.mnemonic)?;
+    }
+    Ok(out)
+}
+
+fn decode_form_chunk(bytes: &[u8]) -> Result<Vec<ScopedFormDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "FORM");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let mnemonic = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "FORM".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        entries.push(ScopedFormDescriptor { owner, mnemonic });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -798,6 +878,23 @@ mod tests {
         ]
     }
 
+    fn sample_forms() -> Vec<ScopedFormDescriptor> {
+        vec![
+            ScopedFormDescriptor {
+                owner: ScopedOwner::Family("intel8080".to_string()),
+                mnemonic: "mov".to_string(),
+            },
+            ScopedFormDescriptor {
+                owner: ScopedOwner::Family("intel8080".to_string()),
+                mnemonic: "MOV".to_string(),
+            },
+            ScopedFormDescriptor {
+                owner: ScopedOwner::Cpu("z80".to_string()),
+                mnemonic: "djnz".to_string(),
+            },
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
         let bytes = encode_hierarchy_chunks(
@@ -805,6 +902,7 @@ mod tests {
             &sample_cpus(),
             &sample_dialects(),
             &sample_registers(),
+            &sample_forms(),
         )
         .expect("encode should succeed");
         let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
@@ -813,6 +911,7 @@ mod tests {
             &decoded.cpus,
             &decoded.dialects,
             &decoded.registers,
+            &decoded.forms,
         )
         .expect("re-encode should succeed");
         assert_eq!(bytes, reencoded);
@@ -825,6 +924,7 @@ mod tests {
             &sample_cpus(),
             &sample_dialects(),
             &sample_registers(),
+            &sample_forms(),
         )
         .expect("encode should succeed");
         let package = load_hierarchy_package(&bytes).expect("load should succeed");
@@ -850,15 +950,18 @@ mod tests {
         dialects.reverse();
         let mut registers = sample_registers();
         registers.reverse();
+        let mut forms = sample_forms();
+        forms.reverse();
 
         let a = encode_hierarchy_chunks(
             &sample_families(),
             &sample_cpus(),
             &sample_dialects(),
             &sample_registers(),
+            &sample_forms(),
         )
         .expect("ordered encode should succeed");
-        let b = encode_hierarchy_chunks(&families, &cpus, &dialects, &registers)
+        let b = encode_hierarchy_chunks(&families, &cpus, &dialects, &registers, &forms)
             .expect("shuffled encode should succeed");
         assert_eq!(a, b);
     }
@@ -878,6 +981,7 @@ mod tests {
             &sample_cpus(),
             &sample_dialects(),
             &sample_registers(),
+            &sample_forms(),
         )
         .expect("encode should succeed");
         bytes.pop();
@@ -895,6 +999,7 @@ mod tests {
             &sample_cpus(),
             &sample_dialects(),
             &sample_registers(),
+            &sample_forms(),
         )
         .expect("encode should succeed");
         bytes[6] = 0x78;
@@ -928,6 +1033,7 @@ mod tests {
             (CHUNK_CPUS, encode_cpus_chunk(&cpus).expect("cpus")),
             (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
             (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
         ];
         let bytes = encode_container(&chunks).expect("container");
 

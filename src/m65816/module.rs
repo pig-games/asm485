@@ -21,6 +21,16 @@ pub const CPU_ID: CpuType = CpuType::new("65816");
 const CPU_ALIASES: &[&str] = &["65c816", "w65c816"];
 const MAX_PROGRAM_ADDRESS: u32 = 0x00FF_FFFF;
 
+fn cpu_form_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = super::instructions::CPU_INSTRUCTION_TABLE
+        .iter()
+        .map(|entry| entry.mnemonic.to_ascii_lowercase())
+        .collect();
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
+
 impl CpuModule for M65816CpuModule {
     fn cpu_id(&self) -> CpuType {
         CPU_ID
@@ -40,6 +50,10 @@ impl CpuModule for M65816CpuModule {
 
     fn default_dialect(&self) -> &'static str {
         DIALECT_TRANSPARENT
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        cpu_form_mnemonics()
     }
 
     fn handler(&self) -> Box<dyn CpuHandlerDyn> {

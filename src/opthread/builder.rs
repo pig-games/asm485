@@ -6,7 +6,7 @@
 use crate::core::registry::ModuleRegistry;
 use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
-    ScopedOwner, ScopedRegisterDescriptor,
+    ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::package::{encode_hierarchy_chunks, HierarchyChunks, OpcpuCodecError};
 
@@ -48,7 +48,7 @@ impl From<OpcpuCodecError> for HierarchyBuildError {
     }
 }
 
-/// Build `FAMS`/`CPUS`/`DIAL`/`REGS` chunks from registry metadata.
+/// Build `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM` chunks from registry metadata.
 pub fn build_hierarchy_chunks_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<HierarchyChunks, HierarchyBuildError> {
@@ -114,6 +114,24 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
 
+    let mut forms = Vec::new();
+    for family in &family_ids {
+        for mnemonic in registry.family_form_mnemonics(*family) {
+            forms.push(ScopedFormDescriptor {
+                owner: ScopedOwner::Family(family.as_str().to_string()),
+                mnemonic,
+            });
+        }
+    }
+    for cpu in registry.cpu_ids() {
+        for mnemonic in registry.cpu_form_mnemonics(cpu) {
+            forms.push(ScopedFormDescriptor {
+                owner: ScopedOwner::Cpu(cpu.as_str().to_string()),
+                mnemonic,
+            });
+        }
+    }
+
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
 
@@ -122,6 +140,7 @@ pub fn build_hierarchy_chunks_from_registry(
         cpus,
         dialects,
         registers,
+        forms,
     })
 }
 
@@ -135,6 +154,7 @@ pub fn build_hierarchy_package_from_registry(
         &chunks.cpus,
         &chunks.dialects,
         &chunks.registers,
+        &chunks.forms,
     )
     .map_err(Into::into)
 }
@@ -178,6 +198,14 @@ mod tests {
         }));
         assert!(chunks.registers.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80") && entry.id == "IX"
+        }));
+        assert!(chunks.forms.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")
+                && entry.mnemonic == "mov"
+        }));
+        assert!(chunks.forms.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "djnz"
         }));
 
         assert!(chunks

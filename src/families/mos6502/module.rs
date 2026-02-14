@@ -21,6 +21,16 @@ pub const CPU_ID: CpuType = CpuType::new("m6502");
 const FAMILY_CPU_NAME: &str = "6502";
 const FAMILY_REGISTER_IDS: &[&str] = &["A", "X", "Y"];
 
+fn family_form_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = super::table::FAMILY_INSTRUCTION_TABLE
+        .iter()
+        .map(|entry| entry.mnemonic.to_ascii_lowercase())
+        .collect();
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
+
 pub struct MOS6502FamilyModule;
 
 impl FamilyModule for MOS6502FamilyModule {
@@ -42,6 +52,10 @@ impl FamilyModule for MOS6502FamilyModule {
 
     fn register_ids(&self) -> &'static [&'static str] {
         FAMILY_REGISTER_IDS
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        family_form_mnemonics()
     }
 
     fn dialects(&self) -> Vec<Box<dyn DialectModule>> {

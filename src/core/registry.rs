@@ -164,6 +164,9 @@ pub trait FamilyModule: Send + Sync {
     fn register_ids(&self) -> &'static [&'static str] {
         &[]
     }
+    fn form_mnemonics(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn dialects(&self) -> Vec<Box<dyn DialectModule>>;
     fn handler(&self) -> Box<dyn FamilyHandlerDyn>;
 }
@@ -179,6 +182,9 @@ pub trait CpuModule: Send + Sync {
     fn default_dialect(&self) -> &'static str;
     fn register_ids(&self) -> &'static [&'static str] {
         &[]
+    }
+    fn form_mnemonics(&self) -> Vec<String> {
+        Vec::new()
     }
     fn handler(&self) -> Box<dyn CpuHandlerDyn>;
     fn validator(&self) -> Option<Box<dyn CpuValidator>> {
@@ -364,6 +370,26 @@ impl ModuleRegistry {
             .iter()
             .map(|id| (*id).to_string())
             .collect();
+        ids.sort_by_key(|id| id.to_ascii_lowercase());
+        ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        ids
+    }
+
+    pub fn family_form_mnemonics(&self, family: CpuFamily) -> Vec<String> {
+        let Some(module) = self.families.get(&family) else {
+            return Vec::new();
+        };
+        let mut ids = module.form_mnemonics();
+        ids.sort_by_key(|id| id.to_ascii_lowercase());
+        ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        ids
+    }
+
+    pub fn cpu_form_mnemonics(&self, cpu: CpuType) -> Vec<String> {
+        let Some(module) = self.cpus.get(&cpu) else {
+            return Vec::new();
+        };
+        let mut ids = module.form_mnemonics();
         ids.sort_by_key(|id| id.to_ascii_lowercase());
         ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
         ids
@@ -615,6 +641,9 @@ mod tests {
         fn register_ids(&self) -> &'static [&'static str] {
             &["B", "a", "A"]
         }
+        fn form_mnemonics(&self) -> Vec<String> {
+            vec!["mov".to_string(), "MOV".to_string(), "add".to_string()]
+        }
         fn dialects(&self) -> Vec<Box<dyn DialectModule>> {
             vec![Box::new(StubDialect)]
         }
@@ -642,6 +671,9 @@ mod tests {
         }
         fn register_ids(&self) -> &'static [&'static str] {
             &["Z", "ix", "IX"]
+        }
+        fn form_mnemonics(&self) -> Vec<String> {
+            vec!["rim".to_string(), "RIM".to_string(), "sim".to_string()]
         }
         fn handler(&self) -> Box<dyn CpuHandlerDyn> {
             Box::new(StubCpuHandler)
@@ -779,6 +811,14 @@ mod tests {
             reg.cpu_register_ids(TEST_CPU),
             vec!["ix".to_string(), "Z".to_string()]
         );
+        assert_eq!(
+            reg.family_form_mnemonics(TEST_FAMILY),
+            vec!["add".to_string(), "mov".to_string()]
+        );
+        assert_eq!(
+            reg.cpu_form_mnemonics(TEST_CPU),
+            vec!["rim".to_string(), "sim".to_string()]
+        );
 
         assert!(reg
             .canonical_dialect_for_family(CpuFamily::new("none"))
@@ -790,6 +830,8 @@ mod tests {
         assert!(reg.cpu_family_id(OTHER_CPU).is_none());
         assert!(reg.family_register_ids(CpuFamily::new("none")).is_empty());
         assert!(reg.cpu_register_ids(OTHER_CPU).is_empty());
+        assert!(reg.family_form_mnemonics(CpuFamily::new("none")).is_empty());
+        assert!(reg.cpu_form_mnemonics(OTHER_CPU).is_empty());
     }
 
     #[test]
