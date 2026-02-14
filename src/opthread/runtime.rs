@@ -5,7 +5,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::core::registry::{ModuleRegistry, OperandSet};
+use crate::core::family::{expr_has_unstable_symbols, AssemblerContext};
+use crate::core::parser::{BinaryOp, Expr};
+use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
@@ -19,6 +21,7 @@ pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
     Build(HierarchyBuildError),
     Hierarchy(HierarchyError),
+    Resolve(String),
     Vm(VmError),
 }
 
@@ -28,6 +31,7 @@ impl std::fmt::Display for RuntimeBridgeError {
             Self::ActiveCpuNotSet => write!(f, "active cpu is not set"),
             Self::Build(err) => write!(f, "runtime model build error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
+            Self::Resolve(err) => write!(f, "runtime operand resolve error: {}", err),
             Self::Vm(err) => write!(f, "VM encode error: {}", err),
         }
     }
@@ -240,6 +244,37 @@ impl HierarchyExecutionModel {
         if candidates.is_empty() {
             return Ok(None);
         }
+        self.encode_candidates(&resolved, mnemonic, &candidates)
+    }
+
+    pub fn encode_instruction_from_exprs(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        if !resolved.family_id.eq_ignore_ascii_case("mos6502")
+            || !resolved.cpu_id.eq_ignore_ascii_case("m6502")
+        {
+            return Ok(None);
+        }
+        let Some(candidates) = m6502_vm_encode_candidates_from_exprs(mnemonic, operands, ctx)
+            .map_err(RuntimeBridgeError::Resolve)?
+        else {
+            return Ok(None);
+        };
+        self.encode_candidates(&resolved, mnemonic, &candidates)
+    }
+
+    fn encode_candidates(
+        &self,
+        resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        candidates: &[VmEncodeCandidate],
+    ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
         let normalized_mnemonic = mnemonic.to_ascii_lowercase();
         let owner_order = [
             (2u8, resolved.dialect_id.as_str()),
@@ -267,6 +302,216 @@ impl HierarchyExecutionModel {
         }
         Ok(None)
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum M6502OperandExprShape<'a> {
+    Implied,
+    Accumulator,
+    Immediate(&'a Expr),
+    Direct(&'a Expr),
+    DirectX(&'a Expr),
+    DirectY(&'a Expr),
+    IndexedIndirectX(&'a Expr),
+    IndirectIndexedY(&'a Expr),
+    Indirect(&'a Expr),
+}
+
+fn m6502_vm_encode_candidates_from_exprs(
+    mnemonic: &str,
+    operands: &[Expr],
+    ctx: &dyn AssemblerContext,
+) -> Result<Option<Vec<VmEncodeCandidate>>, String> {
+    let Some(shape) = parse_m6502_operand_expr_shape(operands) else {
+        return Ok(None);
+    };
+    let upper_mnemonic = mnemonic.to_ascii_uppercase();
+    let mut out = Vec::new();
+
+    match shape {
+        M6502OperandExprShape::Implied => out.push(vm_candidate("implied", Vec::new())),
+        M6502OperandExprShape::Accumulator => {
+            out.push(vm_candidate("accumulator", Vec::new()));
+        }
+        M6502OperandExprShape::Immediate(expr) => {
+            let value = ctx.eval_expr(expr)?;
+            if !(0..=255).contains(&value) {
+                return Err(format!("Immediate value {} out of range (0-255)", value));
+            }
+            out.push(vm_candidate("immediate", vec![vec![value as u8]]));
+        }
+        M6502OperandExprShape::Direct(expr) => {
+            let value = ctx.eval_expr(expr)?;
+            if is_m6502_branch_mnemonic(&upper_mnemonic) {
+                let current = ctx.current_address() as i64 + 2;
+                let offset = value - current;
+                if !(-128..=127).contains(&offset) {
+                    if ctx.pass() > 1 {
+                        return Err(format!("Branch target out of range: offset {}", offset));
+                    }
+                    out.push(vm_candidate("relative", vec![vec![0]]));
+                } else {
+                    out.push(vm_candidate("relative", vec![vec![offset as i8 as u8]]));
+                }
+            } else if (0..=255).contains(&value) {
+                let zp_bytes = vec![vec![value as u8]];
+                let abs_bytes = vec![u16le_bytes(value as u16)];
+                if expr_has_unstable_symbols(expr, ctx) {
+                    out.push(vm_candidate("absolute", abs_bytes));
+                    out.push(vm_candidate("zeropage", zp_bytes));
+                } else {
+                    out.push(vm_candidate("zeropage", zp_bytes));
+                    out.push(vm_candidate("absolute", abs_bytes));
+                }
+            } else if (0..=65535).contains(&value) {
+                out.push(vm_candidate("absolute", vec![u16le_bytes(value as u16)]));
+            } else {
+                return Err(format!("Address {} out of 16-bit range", value));
+            }
+        }
+        M6502OperandExprShape::DirectX(expr) => {
+            let value = ctx.eval_expr(expr)?;
+            if (0..=255).contains(&value) {
+                let zp_bytes = vec![vec![value as u8]];
+                let abs_bytes = vec![u16le_bytes(value as u16)];
+                if expr_has_unstable_symbols(expr, ctx) {
+                    out.push(vm_candidate("absolutex", abs_bytes));
+                    out.push(vm_candidate("zeropagex", zp_bytes));
+                } else {
+                    out.push(vm_candidate("zeropagex", zp_bytes));
+                    out.push(vm_candidate("absolutex", abs_bytes));
+                }
+            } else if (0..=65535).contains(&value) {
+                out.push(vm_candidate("absolutex", vec![u16le_bytes(value as u16)]));
+            } else {
+                return Err(format!("Address {} out of 16-bit range", value));
+            }
+        }
+        M6502OperandExprShape::DirectY(expr) => {
+            let value = ctx.eval_expr(expr)?;
+            if (0..=255).contains(&value) {
+                let zp_bytes = vec![vec![value as u8]];
+                let abs_bytes = vec![u16le_bytes(value as u16)];
+                if expr_has_unstable_symbols(expr, ctx) {
+                    out.push(vm_candidate("absolutey", abs_bytes));
+                    out.push(vm_candidate("zeropagey", zp_bytes));
+                } else {
+                    out.push(vm_candidate("zeropagey", zp_bytes));
+                    out.push(vm_candidate("absolutey", abs_bytes));
+                }
+            } else if (0..=65535).contains(&value) {
+                out.push(vm_candidate("absolutey", vec![u16le_bytes(value as u16)]));
+            } else {
+                return Err(format!("Address {} out of 16-bit range", value));
+            }
+        }
+        M6502OperandExprShape::IndexedIndirectX(expr) => {
+            let value = ctx.eval_expr(expr)?;
+            if !(0..=255).contains(&value) {
+                return Err(format!(
+                    "Indexed indirect address {} out of zero page range",
+                    value
+                ));
+            }
+            out.push(vm_candidate("indexedindirectx", vec![vec![value as u8]]));
+        }
+        M6502OperandExprShape::IndirectIndexedY(expr) => {
+            let value = ctx.eval_expr(expr)?;
+            if !(0..=255).contains(&value) {
+                return Err(format!(
+                    "Indirect indexed address {} out of zero page range",
+                    value
+                ));
+            }
+            out.push(vm_candidate("indirectindexedy", vec![vec![value as u8]]));
+        }
+        M6502OperandExprShape::Indirect(expr) => {
+            if !upper_mnemonic.eq_ignore_ascii_case("JMP") {
+                return Ok(None);
+            }
+            let value = ctx.eval_expr(expr)?;
+            if !(0..=65535).contains(&value) {
+                return Err(format!("Indirect address {} out of 16-bit range", value));
+            }
+            out.push(vm_candidate("indirect", vec![u16le_bytes(value as u16)]));
+        }
+    }
+
+    Ok(Some(out))
+}
+
+fn parse_m6502_operand_expr_shape(operands: &[Expr]) -> Option<M6502OperandExprShape<'_>> {
+    match operands {
+        [] => Some(M6502OperandExprShape::Implied),
+        [single] => match single {
+            Expr::Register(name, _) if name.eq_ignore_ascii_case("a") => {
+                Some(M6502OperandExprShape::Accumulator)
+            }
+            Expr::Immediate(inner, _) => Some(M6502OperandExprShape::Immediate(inner.as_ref())),
+            Expr::Indirect(inner, _) => parse_indirect_single_shape(inner),
+            _ => Some(M6502OperandExprShape::Direct(single)),
+        },
+        [base, index] => {
+            let index_name = expr_identifier(index)?;
+            if index_name.eq_ignore_ascii_case("x") {
+                return Some(M6502OperandExprShape::DirectX(base));
+            }
+            if index_name.eq_ignore_ascii_case("y") {
+                if let Expr::Indirect(inner, _) = base {
+                    return Some(M6502OperandExprShape::IndirectIndexedY(inner.as_ref()));
+                }
+                return Some(M6502OperandExprShape::DirectY(base));
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn parse_indirect_single_shape(expr: &Expr) -> Option<M6502OperandExprShape<'_>> {
+    if let Expr::Tuple(elements, _) = expr {
+        if elements.len() == 2 {
+            let index = expr_identifier(&elements[1])?;
+            if index.eq_ignore_ascii_case("x") {
+                return Some(M6502OperandExprShape::IndexedIndirectX(&elements[0]));
+            }
+            return None;
+        }
+        return None;
+    }
+    Some(M6502OperandExprShape::Indirect(expr))
+}
+
+fn expr_identifier(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.as_str()),
+        Expr::Unary { expr, .. } => expr_identifier(expr),
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+            ..
+        } => expr_identifier(left).or_else(|| expr_identifier(right)),
+        _ => None,
+    }
+}
+
+fn vm_candidate(mode_key: &str, operand_bytes: Vec<Vec<u8>>) -> VmEncodeCandidate {
+    VmEncodeCandidate {
+        mode_key: mode_key.to_string(),
+        operand_bytes,
+    }
+}
+
+fn u16le_bytes(value: u16) -> Vec<u8> {
+    vec![(value & 0xFF) as u8, (value >> 8) as u8]
+}
+
+fn is_m6502_branch_mnemonic(upper_mnemonic: &str) -> bool {
+    matches!(
+        upper_mnemonic,
+        "BCC" | "BCS" | "BEQ" | "BNE" | "BMI" | "BPL" | "BVC" | "BVS"
+    )
 }
 
 fn owner_key_parts(owner: &ScopedOwner) -> (u8, String) {
