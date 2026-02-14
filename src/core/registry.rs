@@ -129,6 +129,9 @@ pub trait CpuHandlerDyn: Send + Sync {
 pub trait DialectModule: Send + Sync {
     fn dialect_id(&self) -> &'static str;
     fn family_id(&self) -> CpuFamily;
+    fn form_mnemonics(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn map_mnemonic(
         &self,
         mnemonic: &str,
@@ -395,6 +398,17 @@ impl ModuleRegistry {
         ids
     }
 
+    pub fn dialect_form_mnemonics(&self, family: CpuFamily, dialect: &str) -> Vec<String> {
+        let key = (family, normalize_dialect(dialect));
+        let Some(module) = self.dialects.get(&key) else {
+            return Vec::new();
+        };
+        let mut ids = module.form_mnemonics();
+        ids.sort_by_key(|id| id.to_ascii_lowercase());
+        ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        ids
+    }
+
     pub fn resolve_pipeline(
         &self,
         cpu: CpuType,
@@ -621,6 +635,9 @@ mod tests {
         fn family_id(&self) -> CpuFamily {
             TEST_FAMILY
         }
+        fn form_mnemonics(&self) -> Vec<String> {
+            vec!["alt".to_string(), "ALT".to_string()]
+        }
         fn map_mnemonic(
             &self,
             _mnemonic: &str,
@@ -819,6 +836,10 @@ mod tests {
             reg.cpu_form_mnemonics(TEST_CPU),
             vec!["rim".to_string(), "sim".to_string()]
         );
+        assert_eq!(
+            reg.dialect_form_mnemonics(TEST_FAMILY, "TEST_DIALECT"),
+            vec!["alt".to_string()]
+        );
 
         assert!(reg
             .canonical_dialect_for_family(CpuFamily::new("none"))
@@ -832,6 +853,9 @@ mod tests {
         assert!(reg.cpu_register_ids(OTHER_CPU).is_empty());
         assert!(reg.family_form_mnemonics(CpuFamily::new("none")).is_empty());
         assert!(reg.cpu_form_mnemonics(OTHER_CPU).is_empty());
+        assert!(reg
+            .dialect_form_mnemonics(CpuFamily::new("none"), "none")
+            .is_empty());
     }
 
     #[test]

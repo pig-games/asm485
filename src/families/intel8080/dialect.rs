@@ -134,6 +134,17 @@ pub enum OperandTransform {
 
 pub use crate::z80::dialect::ZILOG_DIALECT_MAP;
 
+/// Distinct mnemonic surface supported by the Zilog dialect mapper.
+pub fn zilog_dialect_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = ZILOG_DIALECT_MAP
+        .iter()
+        .map(|entry| entry.from.to_ascii_lowercase())
+        .collect();
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
+
 /// Find a dialect mapping for a mnemonic in the Zilog dialect.
 pub fn find_mapping(mnemonic: &str, num_regs: u8, has_imm: bool) -> Option<&'static DialectEntry> {
     let upper = mnemonic.to_ascii_uppercase();

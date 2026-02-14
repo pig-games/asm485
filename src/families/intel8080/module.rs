@@ -14,7 +14,7 @@ use crate::core::registry::{
     DialectModule, FamilyHandlerDyn, FamilyModule, FamilyOperandSet, OperandSet,
 };
 
-use super::dialect::map_zilog_to_canonical;
+use super::dialect::{map_zilog_to_canonical, zilog_dialect_mnemonics};
 use super::{FamilyOperand, Intel8080FamilyHandler, Operand};
 
 pub const DIALECT_INTEL8080: &str = "intel8080";
@@ -132,6 +132,10 @@ impl DialectModule for ZilogDialect {
 
     fn family_id(&self) -> CpuFamily {
         FAMILY_ID
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        zilog_dialect_mnemonics()
     }
 
     fn map_mnemonic(

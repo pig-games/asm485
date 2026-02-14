@@ -892,6 +892,10 @@ mod tests {
                 owner: ScopedOwner::Cpu("z80".to_string()),
                 mnemonic: "djnz".to_string(),
             },
+            ScopedFormDescriptor {
+                owner: ScopedOwner::Dialect("zilog".to_string()),
+                mnemonic: "ld".to_string(),
+            },
         ]
     }
 

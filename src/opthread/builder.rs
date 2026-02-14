@@ -131,6 +131,16 @@ pub fn build_hierarchy_chunks_from_registry(
             });
         }
     }
+    for family in &family_ids {
+        for dialect_id in registry.dialect_ids_for_family(*family) {
+            for mnemonic in registry.dialect_form_mnemonics(*family, &dialect_id) {
+                forms.push(ScopedFormDescriptor {
+                    owner: ScopedOwner::Dialect(dialect_id.clone()),
+                    mnemonic,
+                });
+            }
+        }
+    }
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
@@ -206,6 +216,10 @@ mod tests {
         assert!(chunks.forms.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
                 && entry.mnemonic == "djnz"
+        }));
+        assert!(chunks.forms.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Dialect(owner) if owner == "zilog")
+                && entry.mnemonic == "ld"
         }));
 
         assert!(chunks
