@@ -3363,7 +3363,7 @@ impl<'a> AsmLine<'a> {
         #[cfg(feature = "opthread-runtime")]
         if self.opthread_runtime_enabled {
             if let Some(model) = self.opthread_execution_model.as_ref() {
-                match model.encode_mos6502_instruction(
+                match model.encode_instruction(
                     self.cpu.as_str(),
                     None,
                     &mapped_mnemonic,

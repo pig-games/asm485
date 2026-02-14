@@ -34,12 +34,22 @@ impl Clone for Box<dyn FamilyOperandSet> {
 pub trait OperandSet: Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn clone_box(&self) -> Box<dyn OperandSet>;
+    fn vm_encode_candidates(&self) -> Vec<VmEncodeCandidate> {
+        Vec::new()
+    }
 }
 
 impl Clone for Box<dyn OperandSet> {
     fn clone(&self) -> Self {
         self.clone_box()
     }
+}
+
+/// Generic VM encode candidate extracted from resolved operands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VmEncodeCandidate {
+    pub mode_key: String,
+    pub operand_bytes: Vec<Vec<u8>>,
 }
 
 /// Type-erased family instruction handler.

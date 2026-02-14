@@ -10,7 +10,7 @@ use crate::core::family::{AssemblerContext, EncodeResult, FamilyHandler, FamilyP
 use crate::core::parser::Expr;
 use crate::core::registry::{
     CpuHandlerDyn, CpuModule, DialectModule, FamilyHandlerDyn, FamilyModule, FamilyOperandSet,
-    OperandSet,
+    OperandSet, VmEncodeCandidate,
 };
 
 use super::{FamilyOperand, M6502CpuHandler, MOS6502FamilyHandler, Operand};
@@ -91,6 +91,56 @@ impl OperandSet for MOS6502Operands {
     fn clone_box(&self) -> Box<dyn OperandSet> {
         Box::new(self.clone())
     }
+
+    fn vm_encode_candidates(&self) -> Vec<VmEncodeCandidate> {
+        vm_encode_candidates_for_operands(&self.0)
+    }
+}
+
+fn vm_encode_candidates_for_operands(operands: &[Operand]) -> Vec<VmEncodeCandidate> {
+    if operands.is_empty() {
+        return vec![VmEncodeCandidate {
+            mode_key: "implied".to_string(),
+            operand_bytes: Vec::new(),
+        }];
+    }
+
+    let base_bytes: Vec<Vec<u8>> = operands.iter().map(Operand::value_bytes).collect();
+    let mut candidates = Vec::new();
+    candidates.push(VmEncodeCandidate {
+        mode_key: format!("{:?}", operands[0].mode()).to_ascii_lowercase(),
+        operand_bytes: base_bytes.clone(),
+    });
+
+    match operands[0] {
+        Operand::ZeroPage(value, span) => {
+            let mut promoted = base_bytes;
+            promoted[0] = Operand::Absolute(value as u16, span).value_bytes();
+            candidates.push(VmEncodeCandidate {
+                mode_key: "absolute".to_string(),
+                operand_bytes: promoted,
+            });
+        }
+        Operand::ZeroPageX(value, span) => {
+            let mut promoted = base_bytes;
+            promoted[0] = Operand::AbsoluteX(value as u16, span).value_bytes();
+            candidates.push(VmEncodeCandidate {
+                mode_key: "absolutex".to_string(),
+                operand_bytes: promoted,
+            });
+        }
+        Operand::ZeroPageY(value, span) => {
+            let mut promoted = base_bytes;
+            promoted[0] = Operand::AbsoluteY(value as u16, span).value_bytes();
+            candidates.push(VmEncodeCandidate {
+                mode_key: "absolutey".to_string(),
+                operand_bytes: promoted,
+            });
+        }
+        _ => {}
+    }
+
+    candidates
 }
 
 pub struct M6502CpuModule;

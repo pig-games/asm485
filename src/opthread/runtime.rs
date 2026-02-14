@@ -6,16 +6,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::core::registry::{ModuleRegistry, OperandSet};
-use crate::families::mos6502::module::{
-    MOS6502Operands, CPU_ID as M6502_CPU_ID, FAMILY_ID as MOS6502_FAMILY_ID,
-};
-use crate::families::mos6502::Operand;
 use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 use crate::opthread::package::HierarchyChunks;
-use crate::opthread::vm6502::{Mos6502VmProgramSet, Vm6502Error};
+use crate::opthread::vm::{execute_program, VmError};
 
 /// Errors emitted by the opThread host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,7 +19,7 @@ pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
     Build(HierarchyBuildError),
     Hierarchy(HierarchyError),
-    Vm6502(Vm6502Error),
+    Vm(VmError),
 }
 
 impl std::fmt::Display for RuntimeBridgeError {
@@ -32,7 +28,7 @@ impl std::fmt::Display for RuntimeBridgeError {
             Self::ActiveCpuNotSet => write!(f, "active cpu is not set"),
             Self::Build(err) => write!(f, "runtime model build error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
-            Self::Vm6502(err) => write!(f, "mos6502 VM encode error: {}", err),
+            Self::Vm(err) => write!(f, "VM encode error: {}", err),
         }
     }
 }
@@ -51,9 +47,9 @@ impl From<HierarchyBuildError> for RuntimeBridgeError {
     }
 }
 
-impl From<Vm6502Error> for RuntimeBridgeError {
-    fn from(value: Vm6502Error) -> Self {
-        Self::Vm6502(value)
+impl From<VmError> for RuntimeBridgeError {
+    fn from(value: VmError) -> Self {
+        Self::Vm(value)
     }
 }
 
@@ -138,7 +134,7 @@ pub struct HierarchyExecutionModel {
     family_forms: HashMap<String, HashSet<String>>,
     cpu_forms: HashMap<String, HashSet<String>>,
     dialect_forms: HashMap<String, HashSet<String>>,
-    mos6502_vm: Mos6502VmProgramSet,
+    vm_programs: HashMap<(u8, String, String, String), Vec<u8>>,
 }
 
 impl HierarchyExecutionModel {
@@ -149,17 +145,19 @@ impl HierarchyExecutionModel {
 
     pub fn from_chunks(chunks: HierarchyChunks) -> Result<Self, RuntimeBridgeError> {
         let package = HierarchyPackage::new(chunks.families, chunks.cpus, chunks.dialects)?;
-        let mos6502_vm =
-            Mos6502VmProgramSet::from_programs(chunks.tables.into_iter().filter_map(|entry| {
-                match entry.owner {
-                    ScopedOwner::Cpu(owner)
-                        if owner.eq_ignore_ascii_case(M6502_CPU_ID.as_str()) =>
-                    {
-                        Some((entry.mnemonic, entry.mode_key, entry.program))
-                    }
-                    _ => None,
-                }
-            }));
+        let mut vm_programs = HashMap::new();
+        for entry in chunks.tables {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            vm_programs.insert(
+                (
+                    owner_tag,
+                    owner_id,
+                    entry.mnemonic.to_ascii_lowercase(),
+                    entry.mode_key.to_ascii_lowercase(),
+                ),
+                entry.program,
+            );
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -192,7 +190,7 @@ impl HierarchyExecutionModel {
             family_forms,
             cpu_forms,
             dialect_forms,
-            mos6502_vm,
+            vm_programs,
         })
     }
 
@@ -230,7 +228,7 @@ impl HierarchyExecutionModel {
         ))
     }
 
-    pub fn encode_mos6502_instruction(
+    pub fn encode_instruction(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
@@ -238,42 +236,44 @@ impl HierarchyExecutionModel {
         operands: &dyn OperandSet,
     ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        if !resolved
-            .family_id
-            .eq_ignore_ascii_case(MOS6502_FAMILY_ID.as_str())
-            || !resolved.cpu_id.eq_ignore_ascii_case(M6502_CPU_ID.as_str())
-        {
+        let candidates = operands.vm_encode_candidates();
+        if candidates.is_empty() {
             return Ok(None);
         }
+        let normalized_mnemonic = mnemonic.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, resolved.dialect_id.as_str()),
+            (1u8, resolved.cpu_id.as_str()),
+            (0u8, resolved.family_id.as_str()),
+        ];
 
-        let Some(mos_operands) = operands.as_any().downcast_ref::<MOS6502Operands>() else {
-            return Ok(None);
-        };
-        self.mos6502_vm
-            .encode_instruction(mnemonic, mos_operands.0.as_slice())
-            .map(Some)
-            .map_err(Into::into)
+        for candidate in candidates {
+            let mode_key = candidate.mode_key.to_ascii_lowercase();
+            let operand_views: Vec<&[u8]> =
+                candidate.operand_bytes.iter().map(Vec::as_slice).collect();
+            for (owner_tag, owner_id) in &owner_order {
+                let key = (
+                    *owner_tag,
+                    owner_id.to_ascii_lowercase(),
+                    normalized_mnemonic.clone(),
+                    mode_key.clone(),
+                );
+                if let Some(program) = self.vm_programs.get(&key) {
+                    return execute_program(program, operand_views.as_slice())
+                        .map(Some)
+                        .map_err(Into::into);
+                }
+            }
+        }
+        Ok(None)
     }
+}
 
-    pub fn encode_mos6502_operands(
-        &self,
-        cpu_id: &str,
-        dialect_override: Option<&str>,
-        mnemonic: &str,
-        operands: &[Operand],
-    ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
-        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        if !resolved
-            .family_id
-            .eq_ignore_ascii_case(MOS6502_FAMILY_ID.as_str())
-            || !resolved.cpu_id.eq_ignore_ascii_case(M6502_CPU_ID.as_str())
-        {
-            return Ok(None);
-        }
-        self.mos6502_vm
-            .encode_instruction(mnemonic, operands)
-            .map(Some)
-            .map_err(Into::into)
+fn owner_key_parts(owner: &ScopedOwner) -> (u8, String) {
+    match owner {
+        ScopedOwner::Family(id) => (0u8, id.to_ascii_lowercase()),
+        ScopedOwner::Cpu(id) => (1u8, id.to_ascii_lowercase()),
+        ScopedOwner::Dialect(id) => (2u8, id.to_ascii_lowercase()),
     }
 }
 
@@ -287,7 +287,7 @@ mod tests {
     use super::*;
     use crate::core::registry::ModuleRegistry;
     use crate::core::tokenizer::Span;
-    use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+    use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
     use crate::families::mos6502::Operand;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::builder::build_hierarchy_chunks_from_registry;
@@ -420,13 +420,9 @@ mod tests {
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
         let bytes = model
-            .encode_mos6502_operands(
-                "m6502",
-                None,
-                "LDA",
-                &[Operand::Immediate(0x42, Span::default())],
-            )
+            .encode_instruction("m6502", None, "LDA", &operands)
             .expect("vm encode should succeed");
         assert_eq!(bytes, Some(vec![0xA9, 0x42]));
     }
@@ -440,13 +436,9 @@ mod tests {
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
         let bytes = model
-            .encode_mos6502_operands(
-                "65c02",
-                None,
-                "LDA",
-                &[Operand::Immediate(0x42, Span::default())],
-            )
+            .encode_instruction("65c02", None, "LDA", &operands)
             .expect("vm encode should resolve");
         assert!(bytes.is_none());
     }
@@ -478,20 +470,16 @@ mod tests {
         );
 
         let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
         let bytes = model
-            .encode_mos6502_operands(
-                "m6502",
-                None,
-                "LDA",
-                &[Operand::Immediate(0x42, Span::default())],
-            )
+            .encode_instruction("m6502", None, "LDA", &operands)
             .expect("vm encode should succeed")
             .expect("m6502 vm program should be available");
         assert_eq!(bytes, vec![0xEA, 0x42]);
     }
 
     #[test]
-    fn execution_model_reports_missing_program_when_tabl_is_empty() {
+    fn execution_model_returns_none_when_target_has_no_tabl_programs() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
@@ -502,17 +490,10 @@ mod tests {
         chunks.tables.clear();
 
         let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
-        let err = model
-            .encode_mos6502_operands(
-                "m6502",
-                None,
-                "LDA",
-                &[Operand::Immediate(0x42, Span::default())],
-            )
-            .expect_err("missing TABL program should fail");
-        assert!(matches!(
-            err,
-            RuntimeBridgeError::Vm6502(Vm6502Error::MissingProgram { .. })
-        ));
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
+        let bytes = model
+            .encode_instruction("m6502", None, "LDA", &operands)
+            .expect("vm encode should resolve");
+        assert!(bytes.is_none());
     }
 }
