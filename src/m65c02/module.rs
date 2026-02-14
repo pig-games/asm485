@@ -21,6 +21,10 @@ fn cpu_form_mnemonics() -> Vec<String> {
         .iter()
         .map(|entry| entry.mnemonic.to_ascii_lowercase())
         .collect();
+    for bit in 0u8..=7 {
+        mnemonics.push(format!("bbr{bit}"));
+        mnemonics.push(format!("bbs{bit}"));
+    }
     mnemonics.sort();
     mnemonics.dedup();
     mnemonics

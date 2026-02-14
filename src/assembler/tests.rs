@@ -6424,6 +6424,31 @@ fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    for cpu in [m6502_cpu_id, m65c02_cpu_id, m65816_cpu_id] {
+        let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, true);
+        assert!(
+            asm.opthread_execution_model.is_some(),
+            "expected runtime execution model for {}",
+            cpu.as_str()
+        );
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_model_stays_disabled_for_non_mos6502_family_cpu() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
+    assert!(asm.opthread_execution_model.is_none());
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
     let corpus = [
         "    LDA #$10",

@@ -1042,8 +1042,14 @@ impl<'a> AsmLine<'a> {
         registry: &ModuleRegistry,
         cpu: CpuType,
     ) -> Option<HierarchyExecutionModel> {
-        // Start with the pilot integration surface only: MOS family base 6502 path.
-        if cpu != crate::families::mos6502::module::CPU_ID {
+        let Ok(pipeline) = registry.resolve_pipeline(cpu, None) else {
+            return None;
+        };
+        if !pipeline
+            .family_id
+            .as_str()
+            .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str())
+        {
             return None;
         }
         HierarchyExecutionModel::from_registry(registry).ok()
@@ -1939,13 +1945,6 @@ impl<'a> AsmLine<'a> {
             .family_id
             .as_str()
             .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str())
-        {
-            return Ok(true);
-        }
-        if !pipeline
-            .cpu_id
-            .as_str()
-            .eq_ignore_ascii_case(crate::families::mos6502::module::CPU_ID.as_str())
         {
             return Ok(true);
         }
