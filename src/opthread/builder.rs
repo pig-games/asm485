@@ -8,7 +8,9 @@ use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
-use crate::opthread::package::{encode_hierarchy_chunks, HierarchyChunks, OpcpuCodecError};
+use crate::opthread::package::{
+    canonicalize_hierarchy_metadata, encode_hierarchy_chunks, HierarchyChunks, OpcpuCodecError,
+};
 
 /// Errors emitted while building hierarchy package data from registry metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +144,14 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
 
+    canonicalize_hierarchy_metadata(
+        &mut families,
+        &mut cpus,
+        &mut dialects,
+        &mut registers,
+        &mut forms,
+    );
+
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
 
@@ -204,10 +214,10 @@ mod tests {
         assert_eq!(chunks.dialects.len(), 3);
         assert!(chunks.registers.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")
-                && entry.id == "A"
+                && entry.id == "a"
         }));
         assert!(chunks.registers.iter().any(|entry| {
-            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80") && entry.id == "IX"
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80") && entry.id == "ix"
         }));
         assert!(chunks.forms.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")

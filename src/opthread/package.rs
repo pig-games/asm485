@@ -187,27 +187,47 @@ pub fn encode_hierarchy_chunks(
     HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
 
     let mut fams = families.to_vec();
-    fams.sort_by_key(|entry| entry.id.to_ascii_lowercase());
-
     let mut cpus = cpus.to_vec();
+    let mut dials = dialects.to_vec();
+    let mut regs = registers.to_vec();
+    let mut forms = forms.to_vec();
+    canonicalize_hierarchy_metadata(&mut fams, &mut cpus, &mut dials, &mut regs, &mut forms);
+
+    let chunks = vec![
+        (CHUNK_FAMS, encode_fams_chunk(&fams)?),
+        (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
+        (CHUNK_DIAL, encode_dial_chunk(&dials)?),
+        (CHUNK_REGS, encode_regs_chunk(&regs)?),
+        (CHUNK_FORM, encode_form_chunk(&forms)?),
+    ];
+
+    encode_container(&chunks)
+}
+
+pub(crate) fn canonicalize_hierarchy_metadata(
+    families: &mut [FamilyDescriptor],
+    cpus: &mut [CpuDescriptor],
+    dialects: &mut [DialectDescriptor],
+    registers: &mut Vec<ScopedRegisterDescriptor>,
+    forms: &mut Vec<ScopedFormDescriptor>,
+) {
+    families.sort_by_key(|entry| entry.id.to_ascii_lowercase());
     cpus.sort_by_key(|entry| entry.id.to_ascii_lowercase());
 
-    let mut dials = dialects.to_vec();
-    for entry in &mut dials {
+    for entry in dialects.iter_mut() {
         if let Some(allow) = entry.cpu_allow_list.as_mut() {
             allow.sort_by_key(|cpu| cpu.to_ascii_lowercase());
             allow.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
         }
     }
-    dials.sort_by_key(|entry| {
+    dialects.sort_by_key(|entry| {
         (
             entry.family_id.to_ascii_lowercase(),
             entry.id.to_ascii_lowercase(),
         )
     });
 
-    let mut regs = registers.to_vec();
-    for entry in &mut regs {
+    for entry in registers.iter_mut() {
         match &mut entry.owner {
             ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
                 *id = id.to_ascii_lowercase();
@@ -215,7 +235,7 @@ pub fn encode_hierarchy_chunks(
         }
         entry.id = entry.id.to_ascii_lowercase();
     }
-    regs.sort_by_key(|entry| {
+    registers.sort_by_key(|entry| {
         let owner_kind = match entry.owner {
             ScopedOwner::Family(_) => 0u8,
             ScopedOwner::Cpu(_) => 1u8,
@@ -228,7 +248,7 @@ pub fn encode_hierarchy_chunks(
         };
         (owner_kind, owner_id, entry.id.to_ascii_lowercase())
     });
-    regs.dedup_by(|left, right| {
+    registers.dedup_by(|left, right| {
         left.id == right.id
             && match (&left.owner, &right.owner) {
                 (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
@@ -238,8 +258,7 @@ pub fn encode_hierarchy_chunks(
             }
     });
 
-    let mut forms = forms.to_vec();
-    for entry in &mut forms {
+    for entry in forms.iter_mut() {
         match &mut entry.owner {
             ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
                 *id = id.to_ascii_lowercase();
@@ -269,16 +288,6 @@ pub fn encode_hierarchy_chunks(
                 _ => false,
             }
     });
-
-    let chunks = vec![
-        (CHUNK_FAMS, encode_fams_chunk(&fams)?),
-        (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
-        (CHUNK_DIAL, encode_dial_chunk(&dials)?),
-        (CHUNK_REGS, encode_regs_chunk(&regs)?),
-        (CHUNK_FORM, encode_form_chunk(&forms)?),
-    ];
-
-    encode_container(&chunks)
 }
 
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
@@ -968,6 +977,100 @@ mod tests {
         let b = encode_hierarchy_chunks(&families, &cpus, &dialects, &registers, &forms)
             .expect("shuffled encode should succeed");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn metadata_snapshot_is_stable() {
+        let bytes = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+            &sample_forms(),
+        )
+        .expect("encode should succeed");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+
+        let family_snapshot: Vec<String> = decoded
+            .families
+            .iter()
+            .map(|entry| format!("{}->{}", entry.id, entry.canonical_dialect))
+            .collect();
+        assert_eq!(family_snapshot, vec!["intel8080->intel", "mos6502->mos"]);
+
+        let cpu_snapshot: Vec<String> = decoded
+            .cpus
+            .iter()
+            .map(|entry| {
+                format!(
+                    "{}:{}:{}",
+                    entry.id,
+                    entry.family_id,
+                    entry.default_dialect.as_deref().unwrap_or("-")
+                )
+            })
+            .collect();
+        assert_eq!(
+            cpu_snapshot,
+            vec![
+                "6502:mos6502:mos",
+                "8085:intel8080:intel",
+                "z80:intel8080:zilog"
+            ]
+        );
+
+        let dialect_snapshot: Vec<String> = decoded
+            .dialects
+            .iter()
+            .map(|entry| format!("{}:{}", entry.family_id, entry.id))
+            .collect();
+        assert_eq!(
+            dialect_snapshot,
+            vec!["intel8080:intel", "intel8080:zilog", "mos6502:mos"]
+        );
+    }
+
+    #[test]
+    fn toc_snapshot_is_stable() {
+        let bytes = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+            &sample_forms(),
+        )
+        .expect("encode should succeed");
+
+        let toc_count = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+        let mut toc_entries = Vec::new();
+        for idx in 0..toc_count {
+            let base = HEADER_SIZE + idx * TOC_ENTRY_SIZE;
+            let chunk_id = String::from_utf8_lossy(&bytes[base..base + 4]).to_string();
+            let offset = u32::from_le_bytes([
+                bytes[base + 4],
+                bytes[base + 5],
+                bytes[base + 6],
+                bytes[base + 7],
+            ]);
+            let length = u32::from_le_bytes([
+                bytes[base + 8],
+                bytes[base + 9],
+                bytes[base + 10],
+                bytes[base + 11],
+            ]);
+            toc_entries.push(format!("{}@{}+{}", chunk_id, offset, length));
+        }
+
+        assert_eq!(
+            toc_entries,
+            vec![
+                "FAMS@72+44",
+                "CPUS@116+92",
+                "DIAL@208+80",
+                "REGS@288+57",
+                "FORM@345+57"
+            ]
+        );
     }
 
     #[test]

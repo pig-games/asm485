@@ -77,8 +77,8 @@ Execution must preserve opForge-compatible resolution semantics:
 - [x] family base forms
 - [x] CPU extension/override forms
 - [x] optional dialect overlays
-- [ ] Emit stable indices and deterministic ordering for reproducible package bytes.
-- [ ] Add snapshot tests for package metadata and table determinism.
+- [x] Emit stable indices and deterministic ordering for reproducible package bytes. (`canonicalize_hierarchy_metadata`, shared by builder + codec)
+- [x] Add snapshot tests for package metadata and table determinism. (`opthread::package::tests::{metadata_snapshot_is_stable,toc_snapshot_is_stable}`)
 
 ## Phase 5 - VM Runtime Integration
 
