@@ -3390,7 +3390,21 @@ impl<'a> AsmLine<'a> {
                         );
                         return LineStatus::Ok;
                     }
-                    Ok(None) => {}
+                    Ok(None) => {
+                        if pipeline.family_id.as_str().eq_ignore_ascii_case(
+                            crate::families::mos6502::module::FAMILY_ID.as_str(),
+                        ) {
+                            return self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &format!(
+                                    "missing opThread VM program for {}",
+                                    mapped_mnemonic.to_ascii_uppercase()
+                                ),
+                                None,
+                            );
+                        }
+                    }
                     Err(err) => {
                         return self.failure(
                             LineStatus::Error,

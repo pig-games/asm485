@@ -33,10 +33,10 @@ Deliver a MOS6502-family runtime path where opThread package execution is author
 
 ## Phase 1 - MOS runtime VM-only enforcement
 
-- [ ] In runtime mode, enforce MOS-family VM encode path as authoritative.
-- [ ] For MOS-family instructions, remove native encode fallback when VM program lookup fails.
-- [ ] Add deterministic diagnostics for missing VM programs in MOS runtime mode.
-- [ ] Add regression tests proving missing TABL entries fail instead of silently falling back.
+- [x] In runtime mode, enforce MOS-family VM encode path as authoritative.
+- [x] For MOS-family instructions, remove native encode fallback when VM program lookup fails.
+- [x] Add deterministic diagnostics for missing VM programs in MOS runtime mode.
+- [x] Add regression tests proving missing TABL entries fail instead of silently falling back.
 
 ## Phase 2 - Package metadata completeness gates (MOS)
 

@@ -19,6 +19,12 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
+#[cfg(feature = "opthread-runtime")]
+use crate::opthread::builder::build_hierarchy_chunks_from_registry;
+#[cfg(feature = "opthread-runtime")]
+use crate::opthread::hierarchy::ScopedOwner;
+#[cfg(feature = "opthread-runtime")]
+use crate::opthread::runtime::HierarchyExecutionModel;
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -6445,6 +6451,35 @@ fn opthread_runtime_model_stays_disabled_for_non_mos6502_family_cpu() {
     let registry = default_registry();
     let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
     assert!(asm.opthread_execution_model.is_none());
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.tables.retain(|program| {
+        let is_mos6502_owner =
+            matches!(&program.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(is_mos6502_owner
+            && program.mnemonic.eq_ignore_ascii_case("lda")
+            && program.mode_key.eq_ignore_ascii_case("immediate"))
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("missing opthread vm program"));
 }
 
 #[cfg(feature = "opthread-runtime")]
