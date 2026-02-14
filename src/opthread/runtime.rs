@@ -149,7 +149,7 @@ impl HierarchyExecutionModel {
 
     pub fn from_chunks(chunks: HierarchyChunks) -> Result<Self, RuntimeBridgeError> {
         let package = HierarchyPackage::new(chunks.families, chunks.cpus, chunks.dialects)?;
-        let mut mos6502_vm =
+        let mos6502_vm =
             Mos6502VmProgramSet::from_programs(chunks.tables.into_iter().filter_map(|entry| {
                 match entry.owner {
                     ScopedOwner::Cpu(owner)
@@ -160,9 +160,6 @@ impl HierarchyExecutionModel {
                     _ => None,
                 }
             }));
-        if mos6502_vm.is_empty() {
-            mos6502_vm = Mos6502VmProgramSet::from_family_table();
-        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -491,5 +488,31 @@ mod tests {
             .expect("vm encode should succeed")
             .expect("m6502 vm program should be available");
         assert_eq!(bytes, vec![0xEA, 0x42]);
+    }
+
+    #[test]
+    fn execution_model_reports_missing_program_when_tabl_is_empty() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.tables.clear();
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .encode_mos6502_operands(
+                "m6502",
+                None,
+                "LDA",
+                &[Operand::Immediate(0x42, Span::default())],
+            )
+            .expect_err("missing TABL program should fail");
+        assert!(matches!(
+            err,
+            RuntimeBridgeError::Vm6502(Vm6502Error::MissingProgram { .. })
+        ));
     }
 }

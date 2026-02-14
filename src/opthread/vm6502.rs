@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use crate::families::mos6502::{AddressMode, Operand, FAMILY_INSTRUCTION_TABLE};
-use crate::opthread::vm::{execute_program, VmError, OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+use crate::families::mos6502::{AddressMode, Operand};
+use crate::opthread::vm::{execute_program, VmError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Vm6502Error {
@@ -51,26 +51,6 @@ impl Mos6502VmProgramSet {
             );
         }
         Self { programs: out }
-    }
-
-    pub fn from_family_table() -> Self {
-        Self::from_programs(FAMILY_INSTRUCTION_TABLE.iter().map(|entry| {
-            let mut code = vec![OP_EMIT_U8, entry.opcode];
-            if entry.mode.operand_size() > 0 {
-                code.push(OP_EMIT_OPERAND);
-                code.push(0x00);
-            }
-            code.push(OP_END);
-            (
-                entry.mnemonic.to_string(),
-                format!("{:?}", entry.mode).to_ascii_lowercase(),
-                code,
-            )
-        }))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.programs.is_empty()
     }
 
     pub fn encode_instruction(
@@ -141,10 +121,26 @@ fn modes_to_try(operand: &Operand) -> Vec<Operand> {
 mod tests {
     use super::*;
     use crate::core::tokenizer::Span;
+    use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+
+    fn sample_programs() -> Mos6502VmProgramSet {
+        Mos6502VmProgramSet::from_programs([
+            (
+                "LDA".to_string(),
+                "immediate".to_string(),
+                vec![OP_EMIT_U8, 0xA9, OP_EMIT_OPERAND, 0x00, OP_END],
+            ),
+            (
+                "JMP".to_string(),
+                "absolute".to_string(),
+                vec![OP_EMIT_U8, 0x4C, OP_EMIT_OPERAND, 0x00, OP_END],
+            ),
+        ])
+    }
 
     #[test]
     fn vm_encodes_lda_immediate() {
-        let vm = Mos6502VmProgramSet::from_family_table();
+        let vm = sample_programs();
         let bytes = vm
             .encode_instruction("LDA", &[Operand::Immediate(0x42, Span::default())])
             .expect("encode should succeed");
@@ -153,7 +149,7 @@ mod tests {
 
     #[test]
     fn vm_encodes_jmp_absolute() {
-        let vm = Mos6502VmProgramSet::from_family_table();
+        let vm = sample_programs();
         let bytes = vm
             .encode_instruction("JMP", &[Operand::Absolute(0x1234, Span::default())])
             .expect("encode should succeed");
@@ -162,7 +158,7 @@ mod tests {
 
     #[test]
     fn vm_promotes_jmp_zero_page_to_absolute() {
-        let vm = Mos6502VmProgramSet::from_family_table();
+        let vm = sample_programs();
         let bytes = vm
             .encode_instruction("JMP", &[Operand::ZeroPage(0x10, Span::default())])
             .expect("encode should succeed");
