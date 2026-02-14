@@ -34,25 +34,25 @@ Move instruction operand parsing/resolution responsibility into the package/vm r
 
 ### Phase 1 - Runtime parse/resolve surface
 
-- [ ] Add runtime API that accepts mnemonic + host `Expr` operands + context and attempts package-driven parse/resolve/encode.
-- [ ] Keep deterministic error plumbing and avoid changing non-MOS families.
+- [x] Add runtime API that accepts mnemonic + host `Expr` operands + context and attempts package-driven parse/resolve/encode.
+- [x] Keep deterministic error plumbing and avoid changing non-MOS families.
 
 ### Phase 2 - `m6502` parse/resolve implementation
 
-- [ ] Implement `m6502` operand shape parsing from host `Expr` AST.
-- [ ] Implement candidate mode/operand-byte resolution and package `TABL` lookup.
-- [ ] Preserve pass behavior for branch-relative and unresolved symbol cases.
+- [x] Implement `m6502` operand shape parsing from host `Expr` AST.
+- [x] Implement candidate mode/operand-byte resolution and package `TABL` lookup.
+- [x] Preserve pass behavior for branch-relative and unresolved symbol cases.
 
 ### Phase 3 - Assembler wiring and fallback policy
 
-- [ ] Prefer package parse/resolve path for `m6502` in runtime mode.
-- [ ] Fall back to existing native parse/resolve path only when runtime parse/resolve reports unsupported shape.
+- [x] Prefer package parse/resolve path for `m6502` in runtime mode.
+- [x] Fall back to existing native parse/resolve path only when runtime parse/resolve reports unsupported shape.
 
 ### Phase 4 - Validation and parity hardening
 
-- [ ] Add targeted tests proving package parse/resolve path is exercised for `m6502`.
-- [ ] Keep parity corpus and example-program parity green.
-- [ ] Run full validation clean.
+- [x] Add targeted tests proving package parse/resolve path is exercised for `m6502`.
+- [x] Keep parity corpus and example-program parity green.
+- [x] Run full validation clean.
 
 ## Follow-up after this iteration
 
