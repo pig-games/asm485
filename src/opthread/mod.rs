@@ -9,4 +9,3 @@ pub mod package;
 pub mod rewrite;
 pub mod runtime;
 pub mod vm;
-pub mod vm6502;

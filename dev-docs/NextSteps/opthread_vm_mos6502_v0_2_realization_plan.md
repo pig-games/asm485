@@ -52,9 +52,15 @@ Deliver a MOS6502-family runtime path where opThread package execution is author
 
 ## Phase 4 - Runtime bridge cleanup (MOS)
 
-- [ ] Remove remaining MOS-specific assumptions that are no longer required in assembler/runtime glue.
-- [ ] Keep VM core generic (`src/opthread/vm.rs`) and MOS logic package-driven.
-- [ ] Document residual native dependencies that remain intentionally host-side for v0.2.
+- [x] Remove remaining MOS-specific assumptions that are no longer required in assembler/runtime glue.
+- [x] Keep VM core generic (`src/opthread/vm.rs`) and MOS logic package-driven.
+- [x] Document residual native dependencies that remain intentionally host-side for v0.2.
+
+### Residual native dependencies (intentional in v0.2 scope)
+
+- Host-native tokenizer/parser still owns source parsing and expression evaluation.
+- Host-native CPU operand resolution still produces resolved operand values consumed by VM encode dispatch.
+- Host-native directive, macro, linker, listing, and output pipelines remain unchanged by MOS v0.2 VM work.
 
 ## Phase 5 - Readiness gate
 
