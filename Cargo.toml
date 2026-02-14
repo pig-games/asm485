@@ -11,6 +11,7 @@ clap = { version = "4", features = ["derive"] }
 
 [features]
 default = []
+opthread-runtime = []
 opthread-parity = []
 
 [profile.release]

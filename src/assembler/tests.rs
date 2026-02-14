@@ -77,6 +77,23 @@ fn assemble_line_status(
     (status, message)
 }
 
+#[cfg(feature = "opthread-runtime")]
+fn assemble_line_with_runtime_mode(
+    cpu: crate::core::cpu::CpuType,
+    line: &str,
+    enable_opthread_runtime: bool,
+) -> (LineStatus, Option<String>, Vec<u8>) {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm =
+        AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, enable_opthread_runtime);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+    let status = asm.process(line, 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec())
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()
@@ -6345,5 +6362,46 @@ fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
                 vector_path.display()
             ),
         }
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
+    let bytes = assemble_bytes(m6502_cpu_id, "    LDA #$10");
+    assert_eq!(bytes, vec![0xA9, 0x10]);
+
+    let (status, message) = assemble_line_status(m6502_cpu_id, "    BRA $0000");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .contains("no instruction found"));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
+    let corpus = [
+        "    LDA #$10",
+        "    STA $2000",
+        "    ADC ($10),Y",
+        "    JMP $1234",
+        "    BNE $0004",
+        "    BRA $0004",
+        "    JMP missing_label",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
+        let package_mode = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
+        assert_eq!(package_mode.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(
+            package_mode.1, native.1,
+            "diagnostic mismatch for '{}'",
+            line
+        );
+        assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
     }
 }

@@ -3,14 +3,20 @@
 
 //! Host/runtime bridge helpers for hierarchy-aware target selection.
 
+use std::collections::{HashMap, HashSet};
+
+use crate::core::registry::ModuleRegistry;
+use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
-    HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext,
+    HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
+use crate::opthread::package::HierarchyChunks;
 
 /// Errors emitted by the opThread host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
+    Build(HierarchyBuildError),
     Hierarchy(HierarchyError),
 }
 
@@ -18,6 +24,7 @@ impl std::fmt::Display for RuntimeBridgeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ActiveCpuNotSet => write!(f, "active cpu is not set"),
+            Self::Build(err) => write!(f, "runtime model build error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
         }
     }
@@ -28,6 +35,12 @@ impl std::error::Error for RuntimeBridgeError {}
 impl From<HierarchyError> for RuntimeBridgeError {
     fn from(value: HierarchyError) -> Self {
         Self::Hierarchy(value)
+    }
+}
+
+impl From<HierarchyBuildError> for RuntimeBridgeError {
+    fn from(value: HierarchyBuildError) -> Self {
+        Self::Build(value)
     }
 }
 
@@ -105,9 +118,104 @@ impl HierarchyRuntimeBridge {
     }
 }
 
+/// Runtime view with resolved hierarchy bridge and scoped FORM ownership sets.
+#[derive(Debug)]
+pub struct HierarchyExecutionModel {
+    bridge: HierarchyRuntimeBridge,
+    family_forms: HashMap<String, HashSet<String>>,
+    cpu_forms: HashMap<String, HashSet<String>>,
+    dialect_forms: HashMap<String, HashSet<String>>,
+}
+
+impl HierarchyExecutionModel {
+    pub fn from_registry(registry: &ModuleRegistry) -> Result<Self, RuntimeBridgeError> {
+        let chunks = build_hierarchy_chunks_from_registry(registry)?;
+        Self::from_chunks(chunks)
+    }
+
+    pub fn from_chunks(chunks: HierarchyChunks) -> Result<Self, RuntimeBridgeError> {
+        let package = HierarchyPackage::new(chunks.families, chunks.cpus, chunks.dialects)?;
+        let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
+        for form in chunks.forms {
+            let mnemonic = form.mnemonic.to_ascii_lowercase();
+            match form.owner {
+                ScopedOwner::Family(owner) => {
+                    family_forms
+                        .entry(owner.to_ascii_lowercase())
+                        .or_default()
+                        .insert(mnemonic);
+                }
+                ScopedOwner::Cpu(owner) => {
+                    cpu_forms
+                        .entry(owner.to_ascii_lowercase())
+                        .or_default()
+                        .insert(mnemonic);
+                }
+                ScopedOwner::Dialect(owner) => {
+                    dialect_forms
+                        .entry(owner.to_ascii_lowercase())
+                        .or_default()
+                        .insert(mnemonic);
+                }
+            }
+        }
+
+        Ok(Self {
+            bridge: HierarchyRuntimeBridge::new(package),
+            family_forms,
+            cpu_forms,
+            dialect_forms,
+        })
+    }
+
+    pub fn set_active_cpu(&mut self, cpu_id: &str) -> Result<(), RuntimeBridgeError> {
+        self.bridge.set_active_cpu(cpu_id)
+    }
+
+    pub fn resolve_pipeline(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<ResolvedHierarchy, RuntimeBridgeError> {
+        self.bridge.resolve_pipeline(cpu_id, dialect_override)
+    }
+
+    pub fn supports_mnemonic(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        mnemonic: &str,
+    ) -> Result<bool, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        let needle = mnemonic.to_ascii_lowercase();
+
+        if contains_form(&self.dialect_forms, &resolved.dialect_id, &needle) {
+            return Ok(true);
+        }
+        if contains_form(&self.cpu_forms, &resolved.cpu_id, &needle) {
+            return Ok(true);
+        }
+        Ok(contains_form(
+            &self.family_forms,
+            &resolved.family_id,
+            &needle,
+        ))
+    }
+}
+
+fn contains_form(map: &HashMap<String, HashSet<String>>, owner_id: &str, mnemonic: &str) -> bool {
+    map.get(&owner_id.to_ascii_lowercase())
+        .is_some_and(|forms| forms.contains(mnemonic))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::registry::ModuleRegistry;
+    use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+    use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::hierarchy::{CpuDescriptor, DialectDescriptor, FamilyDescriptor};
 
     fn sample_package() -> HierarchyPackage {
@@ -205,5 +313,25 @@ mod tests {
             .set_dialect_override(Some("intel"))
             .expect("intel override should pass");
         assert_eq!(bridge.dialect_override(), Some("intel"));
+    }
+
+    #[test]
+    fn execution_model_supports_family_and_cpu_forms() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        assert!(model
+            .supports_mnemonic("m6502", None, "lda")
+            .expect("resolve lda"));
+        assert!(!model
+            .supports_mnemonic("m6502", None, "bra")
+            .expect("resolve bra"));
+        assert!(model
+            .supports_mnemonic("65c02", None, "bra")
+            .expect("resolve bra for 65c02"));
     }
 }

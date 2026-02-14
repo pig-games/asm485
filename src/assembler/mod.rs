@@ -53,6 +53,8 @@ use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
+#[cfg(feature = "opthread-runtime")]
+use crate::opthread::runtime::HierarchyExecutionModel;
 use crate::z80::module::Z80CpuModule;
 
 use cli::{
@@ -908,6 +910,10 @@ struct AsmLine<'a> {
     cpu_word_size_bytes: u32,
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
+    #[cfg(feature = "opthread-runtime")]
+    opthread_execution_model: Option<HierarchyExecutionModel>,
+    #[cfg(feature = "opthread-runtime")]
+    opthread_runtime_enabled: bool,
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
     encoding_scope_stack: Vec<EncodingScopeState>,
@@ -922,6 +928,18 @@ impl<'a> AsmLine<'a> {
 
     fn with_cpu(symbols: &'a mut SymbolTable, cpu: CpuType, registry: &'a ModuleRegistry) -> Self {
         Self::with_cpu_and_metadata(symbols, cpu, registry, RootMetadata::default())
+    }
+
+    #[cfg(all(test, feature = "opthread-runtime"))]
+    fn with_cpu_runtime_mode(
+        symbols: &'a mut SymbolTable,
+        cpu: CpuType,
+        registry: &'a ModuleRegistry,
+        enable_opthread_runtime: bool,
+    ) -> Self {
+        let mut asm = Self::with_cpu(symbols, cpu, registry);
+        asm.opthread_runtime_enabled = enable_opthread_runtime;
+        asm
     }
 
     fn with_cpu_and_metadata(
@@ -969,6 +987,10 @@ impl<'a> AsmLine<'a> {
             cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
+            #[cfg(feature = "opthread-runtime")]
+            opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
+            #[cfg(feature = "opthread-runtime")]
+            opthread_runtime_enabled: true,
             text_encoding_registry,
             active_text_encoding,
             encoding_scope_stack: Vec::new(),
@@ -1013,6 +1035,18 @@ impl<'a> AsmLine<'a> {
             Ok(pipeline) => pipeline.cpu.is_little_endian(),
             Err(_) => true,
         }
+    }
+
+    #[cfg(feature = "opthread-runtime")]
+    fn build_opthread_execution_model(
+        registry: &ModuleRegistry,
+        cpu: CpuType,
+    ) -> Option<HierarchyExecutionModel> {
+        // Start with the pilot integration surface only: MOS family base 6502 path.
+        if cpu != crate::families::mos6502::module::CPU_ID {
+            return None;
+        }
+        HierarchyExecutionModel::from_registry(registry).ok()
     }
 
     fn take_root_metadata(&mut self) -> RootMetadata {
@@ -1887,6 +1921,37 @@ impl<'a> AsmLine<'a> {
                 .apply_runtime_directive(directive, operands, self, &mut state_flags);
         self.cpu_state_flags = state_flags;
         result
+    }
+
+    #[cfg(feature = "opthread-runtime")]
+    fn opthread_form_allows_mnemonic(
+        &self,
+        pipeline: &crate::core::registry::ResolvedPipeline<'_>,
+        mapped_mnemonic: &str,
+    ) -> Result<bool, String> {
+        if !self.opthread_runtime_enabled {
+            return Ok(true);
+        }
+        let Some(model) = self.opthread_execution_model.as_ref() else {
+            return Ok(true);
+        };
+        if !pipeline
+            .family_id
+            .as_str()
+            .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str())
+        {
+            return Ok(true);
+        }
+        if !pipeline
+            .cpu_id
+            .as_str()
+            .eq_ignore_ascii_case(crate::families::mos6502::module::CPU_ID.as_str())
+        {
+            return Ok(true);
+        }
+        model
+            .supports_mnemonic(self.cpu.as_str(), None, mapped_mnemonic)
+            .map_err(|err| err.to_string())
     }
 
     fn cond_last(&self) -> Option<&ConditionalContext> {
@@ -3205,6 +3270,29 @@ impl<'a> AsmLine<'a> {
             .dialect
             .map_mnemonic(mnemonic, family_operands.as_ref())
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
+
+        #[cfg(feature = "opthread-runtime")]
+        {
+            let allow = match self.opthread_form_allows_mnemonic(&pipeline, &mapped_mnemonic) {
+                Ok(allow) => allow,
+                Err(message) => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &message,
+                        None,
+                    )
+                }
+            };
+            if !allow {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &format!("No instruction found for {}", mnemonic.to_ascii_uppercase()),
+                    None,
+                );
+            }
+        }
 
         match pipeline.family.encode_family_operands(
             &mapped_mnemonic,

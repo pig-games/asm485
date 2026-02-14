@@ -40,6 +40,14 @@ Run opThread parity smoke checks (feature-gated):
 
     make test-opthread-parity
 
+Run MOS6502 runtime/package parity checks (feature-gated):
+
+    make test-opthread-runtime
+
+Run the local MOS6502 CI gate bundle:
+
+    make ci-opthread-mos6502
+
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
     make reference
