@@ -72,7 +72,7 @@ Execution must preserve opForge-compatible resolution semantics:
 ## Phase 4 - Builder/Compiler for Hierarchical Packages
 
 - [x] Implement package builder that emits `FAMS`, `CPUS`, `DIAL` from opForge source model. (`src/opthread/builder.rs`)
-- [ ] Generate scoped register banks into `REGS`.
+- [x] Generate scoped register banks into `REGS`. (`HierarchyChunks::registers`, `REGS` codec chunk)
 - [ ] Generate scoped form sets into `FORM`:
 - [ ] family base forms
 - [ ] CPU extension/override forms

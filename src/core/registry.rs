@@ -161,6 +161,9 @@ pub trait FamilyModule: Send + Sync {
         registry.family_cpu_names(self.family_id())
     }
     fn canonical_dialect(&self) -> &'static str;
+    fn register_ids(&self) -> &'static [&'static str] {
+        &[]
+    }
     fn dialects(&self) -> Vec<Box<dyn DialectModule>>;
     fn handler(&self) -> Box<dyn FamilyHandlerDyn>;
 }
@@ -174,6 +177,9 @@ pub trait CpuModule: Send + Sync {
         &[]
     }
     fn default_dialect(&self) -> &'static str;
+    fn register_ids(&self) -> &'static [&'static str] {
+        &[]
+    }
     fn handler(&self) -> Box<dyn CpuHandlerDyn>;
     fn validator(&self) -> Option<Box<dyn CpuValidator>> {
         None
@@ -333,6 +339,34 @@ impl ModuleRegistry {
 
     pub fn cpu_family_id(&self, cpu: CpuType) -> Option<CpuFamily> {
         self.cpus.get(&cpu).map(|module| module.family_id())
+    }
+
+    pub fn family_register_ids(&self, family: CpuFamily) -> Vec<String> {
+        let Some(module) = self.families.get(&family) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = module
+            .register_ids()
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect();
+        ids.sort_by_key(|id| id.to_ascii_lowercase());
+        ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        ids
+    }
+
+    pub fn cpu_register_ids(&self, cpu: CpuType) -> Vec<String> {
+        let Some(module) = self.cpus.get(&cpu) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = module
+            .register_ids()
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect();
+        ids.sort_by_key(|id| id.to_ascii_lowercase());
+        ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        ids
     }
 
     pub fn resolve_pipeline(
@@ -578,6 +612,9 @@ mod tests {
         fn canonical_dialect(&self) -> &'static str {
             "test_dialect"
         }
+        fn register_ids(&self) -> &'static [&'static str] {
+            &["B", "a", "A"]
+        }
         fn dialects(&self) -> Vec<Box<dyn DialectModule>> {
             vec![Box::new(StubDialect)]
         }
@@ -602,6 +639,9 @@ mod tests {
         }
         fn default_dialect(&self) -> &'static str {
             "test_dialect"
+        }
+        fn register_ids(&self) -> &'static [&'static str] {
+            &["Z", "ix", "IX"]
         }
         fn handler(&self) -> Box<dyn CpuHandlerDyn> {
             Box::new(StubCpuHandler)
@@ -731,6 +771,14 @@ mod tests {
         );
         assert_eq!(reg.cpu_default_dialect(TEST_CPU), Some("test_dialect"));
         assert_eq!(reg.cpu_family_id(TEST_CPU), Some(TEST_FAMILY));
+        assert_eq!(
+            reg.family_register_ids(TEST_FAMILY),
+            vec!["a".to_string(), "B".to_string()]
+        );
+        assert_eq!(
+            reg.cpu_register_ids(TEST_CPU),
+            vec!["ix".to_string(), "Z".to_string()]
+        );
 
         assert!(reg
             .canonical_dialect_for_family(CpuFamily::new("none"))
@@ -740,6 +788,8 @@ mod tests {
             .is_empty());
         assert!(reg.cpu_default_dialect(OTHER_CPU).is_none());
         assert!(reg.cpu_family_id(OTHER_CPU).is_none());
+        assert!(reg.family_register_ids(CpuFamily::new("none")).is_empty());
+        assert!(reg.cpu_register_ids(OTHER_CPU).is_empty());
     }
 
     #[test]

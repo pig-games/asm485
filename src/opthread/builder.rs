@@ -6,6 +6,7 @@
 use crate::core::registry::ModuleRegistry;
 use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
+    ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::package::{encode_hierarchy_chunks, HierarchyChunks, OpcpuCodecError};
 
@@ -47,7 +48,7 @@ impl From<OpcpuCodecError> for HierarchyBuildError {
     }
 }
 
-/// Build `FAMS`/`CPUS`/`DIAL` chunks from registry metadata.
+/// Build `FAMS`/`CPUS`/`DIAL`/`REGS` chunks from registry metadata.
 pub fn build_hierarchy_chunks_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<HierarchyChunks, HierarchyBuildError> {
@@ -95,6 +96,24 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
 
+    let mut registers = Vec::new();
+    for family in &family_ids {
+        for register_id in registry.family_register_ids(*family) {
+            registers.push(ScopedRegisterDescriptor {
+                owner: ScopedOwner::Family(family.as_str().to_string()),
+                id: register_id,
+            });
+        }
+    }
+    for cpu in registry.cpu_ids() {
+        for register_id in registry.cpu_register_ids(cpu) {
+            registers.push(ScopedRegisterDescriptor {
+                owner: ScopedOwner::Cpu(cpu.as_str().to_string()),
+                id: register_id,
+            });
+        }
+    }
+
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
 
@@ -102,6 +121,7 @@ pub fn build_hierarchy_chunks_from_registry(
         families,
         cpus,
         dialects,
+        registers,
     })
 }
 
@@ -110,7 +130,13 @@ pub fn build_hierarchy_package_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<Vec<u8>, HierarchyBuildError> {
     let chunks = build_hierarchy_chunks_from_registry(registry)?;
-    encode_hierarchy_chunks(&chunks.families, &chunks.cpus, &chunks.dialects).map_err(Into::into)
+    encode_hierarchy_chunks(
+        &chunks.families,
+        &chunks.cpus,
+        &chunks.dialects,
+        &chunks.registers,
+    )
+    .map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -146,6 +172,13 @@ mod tests {
         assert_eq!(chunks.families.len(), 2);
         assert_eq!(chunks.cpus.len(), 5);
         assert_eq!(chunks.dialects.len(), 3);
+        assert!(chunks.registers.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")
+                && entry.id == "A"
+        }));
+        assert!(chunks.registers.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80") && entry.id == "IX"
+        }));
 
         assert!(chunks
             .families

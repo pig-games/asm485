@@ -19,6 +19,7 @@ pub const DIALECT_TRANSPARENT: &str = "transparent";
 pub const FAMILY_ID: CpuFamily = CpuFamily::new("mos6502");
 pub const CPU_ID: CpuType = CpuType::new("m6502");
 const FAMILY_CPU_NAME: &str = "6502";
+const FAMILY_REGISTER_IDS: &[&str] = &["A", "X", "Y"];
 
 pub struct MOS6502FamilyModule;
 
@@ -37,6 +38,10 @@ impl FamilyModule for MOS6502FamilyModule {
 
     fn canonical_dialect(&self) -> &'static str {
         DIALECT_TRANSPARENT
+    }
+
+    fn register_ids(&self) -> &'static [&'static str] {
+        FAMILY_REGISTER_IDS
     }
 
     fn dialects(&self) -> Vec<Box<dyn DialectModule>> {

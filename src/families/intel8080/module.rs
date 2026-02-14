@@ -21,6 +21,9 @@ pub const DIALECT_INTEL8080: &str = "intel8080";
 pub const DIALECT_ZILOG: &str = "zilog";
 pub const FAMILY_ID: CpuFamily = CpuFamily::new("intel8080");
 const FAMILY_CPU_NAME: &str = "8080";
+const FAMILY_REGISTER_IDS: &[&str] = &[
+    "A", "B", "C", "D", "E", "H", "L", "M", "BC", "DE", "HL", "SP", "PSW",
+];
 
 pub struct Intel8080FamilyModule;
 
@@ -39,6 +42,10 @@ impl FamilyModule for Intel8080FamilyModule {
 
     fn canonical_dialect(&self) -> &'static str {
         DIALECT_INTEL8080
+    }
+
+    fn register_ids(&self) -> &'static [&'static str] {
+        FAMILY_REGISTER_IDS
     }
 
     fn dialects(&self) -> Vec<Box<dyn DialectModule>> {

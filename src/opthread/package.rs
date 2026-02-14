@@ -7,11 +7,13 @@
 //! - `FAMS` (family descriptors)
 //! - `CPUS` (cpu descriptors)
 //! - `DIAL` (dialect descriptors)
+//! - `REGS` (scoped register descriptors)
 
 use std::collections::HashMap;
 
 use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
+    ScopedOwner, ScopedRegisterDescriptor,
 };
 
 pub const OPCPU_MAGIC: [u8; 4] = *b"OPCP";
@@ -24,6 +26,7 @@ const TOC_ENTRY_SIZE: usize = 12;
 const CHUNK_FAMS: [u8; 4] = *b"FAMS";
 const CHUNK_CPUS: [u8; 4] = *b"CPUS";
 const CHUNK_DIAL: [u8; 4] = *b"DIAL";
+const CHUNK_REGS: [u8; 4] = *b"REGS";
 
 /// Decoded hierarchy-chunk payload set.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +34,7 @@ pub struct HierarchyChunks {
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
+    pub registers: Vec<ScopedRegisterDescriptor>,
 }
 
 /// Deterministic package codec errors for malformed container/schema data.
@@ -173,6 +177,7 @@ pub fn encode_hierarchy_chunks(
     families: &[FamilyDescriptor],
     cpus: &[CpuDescriptor],
     dialects: &[DialectDescriptor],
+    registers: &[ScopedRegisterDescriptor],
 ) -> Result<Vec<u8>, OpcpuCodecError> {
     // Validate cross references and compatibility before encoding.
     HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
@@ -197,10 +202,43 @@ pub fn encode_hierarchy_chunks(
         )
     });
 
+    let mut regs = registers.to_vec();
+    for entry in &mut regs {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+        entry.id = entry.id.to_ascii_lowercase();
+    }
+    regs.sort_by_key(|entry| {
+        let owner_kind = match entry.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let owner_id = match &entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        (owner_kind, owner_id, entry.id.to_ascii_lowercase())
+    });
+    regs.dedup_by(|left, right| {
+        left.id == right.id
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+
     let chunks = vec![
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
         (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
         (CHUNK_DIAL, encode_dial_chunk(&dials)?),
+        (CHUNK_REGS, encode_regs_chunk(&regs)?),
     ];
 
     encode_container(&chunks)
@@ -211,11 +249,13 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
+    let regs_bytes = slice_for_chunk(bytes, &toc, CHUNK_REGS)?;
 
     Ok(HierarchyChunks {
         families: decode_fams_chunk(fams_bytes)?,
         cpus: decode_cpus_chunk(cpus_bytes)?,
         dialects: decode_dial_chunk(dial_bytes)?,
+        registers: decode_regs_chunk(regs_bytes)?,
     })
 }
 
@@ -552,6 +592,47 @@ fn decode_dial_chunk(bytes: &[u8]) -> Result<Vec<DialectDescriptor>, OpcpuCodecE
     Ok(entries)
 }
 
+fn encode_regs_chunk(registers: &[ScopedRegisterDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(registers.len(), "REGS count")?);
+    for register in registers {
+        let (owner_tag, owner_id) = match &register.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "REGS", owner_id)?;
+        write_string(&mut out, "REGS", &register.id)?;
+    }
+    Ok(out)
+}
+
+fn decode_regs_chunk(bytes: &[u8]) -> Result<Vec<ScopedRegisterDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "REGS");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let id = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "REGS".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        entries.push(ScopedRegisterDescriptor { owner, id });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -696,21 +777,56 @@ mod tests {
         ]
     }
 
+    fn sample_registers() -> Vec<ScopedRegisterDescriptor> {
+        vec![
+            ScopedRegisterDescriptor {
+                owner: ScopedOwner::Family("intel8080".to_string()),
+                id: "A".to_string(),
+            },
+            ScopedRegisterDescriptor {
+                owner: ScopedOwner::Family("intel8080".to_string()),
+                id: "HL".to_string(),
+            },
+            ScopedRegisterDescriptor {
+                owner: ScopedOwner::Cpu("z80".to_string()),
+                id: "IX".to_string(),
+            },
+            ScopedRegisterDescriptor {
+                owner: ScopedOwner::Cpu("z80".to_string()),
+                id: "ix".to_string(),
+            },
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
-        let bytes = encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
-            .expect("encode should succeed");
+        let bytes = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+        )
+        .expect("encode should succeed");
         let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
-        let reencoded =
-            encode_hierarchy_chunks(&decoded.families, &decoded.cpus, &decoded.dialects)
-                .expect("re-encode should succeed");
+        let reencoded = encode_hierarchy_chunks(
+            &decoded.families,
+            &decoded.cpus,
+            &decoded.dialects,
+            &decoded.registers,
+        )
+        .expect("re-encode should succeed");
         assert_eq!(bytes, reencoded);
     }
 
     #[test]
     fn load_hierarchy_package_validates_and_resolves() {
-        let bytes = encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
-            .expect("encode should succeed");
+        let bytes = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+        )
+        .expect("encode should succeed");
         let package = load_hierarchy_package(&bytes).expect("load should succeed");
 
         let resolved_8085 = package
@@ -732,10 +848,17 @@ mod tests {
         cpus.reverse();
         let mut dialects = sample_dialects();
         dialects.reverse();
+        let mut registers = sample_registers();
+        registers.reverse();
 
-        let a = encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
-            .expect("ordered encode should succeed");
-        let b = encode_hierarchy_chunks(&families, &cpus, &dialects)
+        let a = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+        )
+        .expect("ordered encode should succeed");
+        let b = encode_hierarchy_chunks(&families, &cpus, &dialects, &registers)
             .expect("shuffled encode should succeed");
         assert_eq!(a, b);
     }
@@ -750,9 +873,13 @@ mod tests {
 
     #[test]
     fn decode_rejects_truncated_payload() {
-        let mut bytes =
-            encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
-                .expect("encode should succeed");
+        let mut bytes = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+        )
+        .expect("encode should succeed");
         bytes.pop();
         let err = decode_hierarchy_chunks(&bytes).expect_err("truncated payload should fail");
         assert!(matches!(
@@ -763,9 +890,13 @@ mod tests {
 
     #[test]
     fn decode_rejects_invalid_endian_marker() {
-        let mut bytes =
-            encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
-                .expect("encode should succeed");
+        let mut bytes = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+        )
+        .expect("encode should succeed");
         bytes[6] = 0x78;
         bytes[7] = 0x56;
         let err = decode_hierarchy_chunks(&bytes).expect_err("invalid marker should fail");
@@ -796,6 +927,7 @@ mod tests {
             (CHUNK_FAMS, encode_fams_chunk(&families).expect("fams")),
             (CHUNK_CPUS, encode_cpus_chunk(&cpus).expect("cpus")),
             (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
         ];
         let bytes = encode_container(&chunks).expect("container");
 
