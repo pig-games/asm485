@@ -49,29 +49,29 @@ Execution must preserve opForge-compatible resolution semantics:
 
 ## Phase 2 - Package Binary Schema and Loader
 
-- [ ] Implement binary read/write support for new hierarchy chunks (`FAMS`, `CPUS`, `DIAL`).
-- [ ] Add schema integrity checks at load time:
-- [ ] all cross references resolve
-- [ ] each CPU has exactly one family
-- [ ] each dialect belongs to exactly one family
-- [ ] family canonical dialect exists
-- [ ] Build deterministic diagnostics for malformed packages (stable error codes/messages).
-- [ ] Add round-trip tests for package serialization/deserialization.
+- [x] Implement binary read/write support for new hierarchy chunks (`FAMS`, `CPUS`, `DIAL`). (`src/opthread/package.rs`)
+- [x] Add schema integrity checks at load time:
+- [x] all cross references resolve
+- [x] each CPU has exactly one family
+- [x] each dialect belongs to exactly one family
+- [x] family canonical dialect exists
+- [x] Build deterministic diagnostics for malformed packages (stable error codes/messages). (`OpcpuCodecError::code`)
+- [x] Add round-trip tests for package serialization/deserialization. (`opthread::package::tests`)
 
 ## Phase 3 - Pipeline Resolver (Registry Parity)
 
-- [ ] Implement runtime resolver equivalent to `ModuleRegistry::resolve_pipeline`.
-- [ ] Implement dialect selection order:
-- [ ] explicit override (error if missing)
-- [ ] CPU default dialect
-- [ ] family canonical dialect fallback
-- [ ] Enforce dialect compatibility policy against selected CPU.
+- [x] Implement runtime resolver equivalent to `ModuleRegistry::resolve_pipeline`. (`HierarchyPackage::resolve_pipeline`)
+- [x] Implement dialect selection order:
+- [x] explicit override (error if missing)
+- [x] CPU default dialect
+- [x] family canonical dialect fallback
+- [x] Enforce dialect compatibility policy against selected CPU.
 - [ ] Return resolved pipeline context: `{family_id, cpu_id, dialect_id}` plus handlers/tables.
-- [ ] Add tests for all resolver branches and failure modes.
+- [x] Add tests for all resolver branches and failure modes. (`opthread::hierarchy::tests`)
 
 ## Phase 4 - Builder/Compiler for Hierarchical Packages
 
-- [ ] Implement package builder that emits `FAMS`, `CPUS`, `DIAL` from opForge source model.
+- [x] Implement package builder that emits `FAMS`, `CPUS`, `DIAL` from opForge source model. (`src/opthread/builder.rs`)
 - [ ] Generate scoped register banks into `REGS`.
 - [ ] Generate scoped form sets into `FORM`:
 - [ ] family base forms

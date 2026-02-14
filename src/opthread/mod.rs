@@ -3,4 +3,6 @@
 
 //! opThread VM/package model (work in progress).
 
+pub mod builder;
 pub mod hierarchy;
+pub mod package;

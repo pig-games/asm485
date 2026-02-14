@@ -1,0 +1,806 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Erik van der Tier
+
+//! Binary CPU package (`*.opcpu`) container support for hierarchy chunks.
+//!
+//! This module currently implements read/write for:
+//! - `FAMS` (family descriptors)
+//! - `CPUS` (cpu descriptors)
+//! - `DIAL` (dialect descriptors)
+
+use std::collections::HashMap;
+
+use crate::opthread::hierarchy::{
+    CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
+};
+
+pub const OPCPU_MAGIC: [u8; 4] = *b"OPCP";
+pub const OPCPU_VERSION_V1: u16 = 0x0001;
+pub const OPCPU_ENDIAN_MARKER: u16 = 0x1234;
+
+const HEADER_SIZE: usize = 12;
+const TOC_ENTRY_SIZE: usize = 12;
+
+const CHUNK_FAMS: [u8; 4] = *b"FAMS";
+const CHUNK_CPUS: [u8; 4] = *b"CPUS";
+const CHUNK_DIAL: [u8; 4] = *b"DIAL";
+
+/// Decoded hierarchy-chunk payload set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HierarchyChunks {
+    pub families: Vec<FamilyDescriptor>,
+    pub cpus: Vec<CpuDescriptor>,
+    pub dialects: Vec<DialectDescriptor>,
+}
+
+/// Deterministic package codec errors for malformed container/schema data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpcpuCodecError {
+    InvalidMagic {
+        found: [u8; 4],
+    },
+    UnsupportedVersion {
+        found: u16,
+    },
+    InvalidEndiannessMarker {
+        found: u16,
+    },
+    UnexpectedEof {
+        context: String,
+    },
+    DuplicateChunk {
+        chunk: String,
+    },
+    MissingRequiredChunk {
+        chunk: String,
+    },
+    ChunkOutOfBounds {
+        chunk: String,
+        offset: u32,
+        length: u32,
+        file_len: usize,
+    },
+    CountOutOfRange {
+        context: String,
+    },
+    InvalidChunkFormat {
+        chunk: String,
+        detail: String,
+    },
+    InvalidUtf8 {
+        chunk: String,
+    },
+    Hierarchy(HierarchyError),
+}
+
+impl OpcpuCodecError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidMagic { .. } => "OPC001",
+            Self::UnsupportedVersion { .. } => "OPC002",
+            Self::InvalidEndiannessMarker { .. } => "OPC003",
+            Self::UnexpectedEof { .. } => "OPC004",
+            Self::DuplicateChunk { .. } => "OPC005",
+            Self::MissingRequiredChunk { .. } => "OPC006",
+            Self::ChunkOutOfBounds { .. } => "OPC007",
+            Self::CountOutOfRange { .. } => "OPC008",
+            Self::InvalidChunkFormat { .. } => "OPC009",
+            Self::InvalidUtf8 { .. } => "OPC010",
+            Self::Hierarchy(_) => "OPC011",
+        }
+    }
+}
+
+impl std::fmt::Display for OpcpuCodecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidMagic { found } => write!(
+                f,
+                "[{}] invalid package magic: found {:?}",
+                self.code(),
+                found
+            ),
+            Self::UnsupportedVersion { found } => write!(
+                f,
+                "[{}] unsupported package version: {}",
+                self.code(),
+                found
+            ),
+            Self::InvalidEndiannessMarker { found } => write!(
+                f,
+                "[{}] invalid endianness marker: 0x{:04X}",
+                self.code(),
+                found
+            ),
+            Self::UnexpectedEof { context } => {
+                write!(f, "[{}] unexpected end of file: {}", self.code(), context)
+            }
+            Self::DuplicateChunk { chunk } => {
+                write!(f, "[{}] duplicate chunk '{}'", self.code(), chunk)
+            }
+            Self::MissingRequiredChunk { chunk } => {
+                write!(f, "[{}] missing required chunk '{}'", self.code(), chunk)
+            }
+            Self::ChunkOutOfBounds {
+                chunk,
+                offset,
+                length,
+                file_len,
+            } => write!(
+                f,
+                "[{}] chunk '{}' out of bounds (offset={}, length={}, file_len={})",
+                self.code(),
+                chunk,
+                offset,
+                length,
+                file_len
+            ),
+            Self::CountOutOfRange { context } => {
+                write!(f, "[{}] count out of range: {}", self.code(), context)
+            }
+            Self::InvalidChunkFormat { chunk, detail } => write!(
+                f,
+                "[{}] invalid chunk '{}' format: {}",
+                self.code(),
+                chunk,
+                detail
+            ),
+            Self::InvalidUtf8 { chunk } => {
+                write!(f, "[{}] invalid UTF-8 in chunk '{}'", self.code(), chunk)
+            }
+            Self::Hierarchy(err) => {
+                write!(f, "[{}] hierarchy validation error: {}", self.code(), err)
+            }
+        }
+    }
+}
+
+impl std::error::Error for OpcpuCodecError {}
+
+impl From<HierarchyError> for OpcpuCodecError {
+    fn from(value: HierarchyError) -> Self {
+        Self::Hierarchy(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TocEntry {
+    offset: u32,
+    length: u32,
+}
+
+pub fn encode_hierarchy_chunks(
+    families: &[FamilyDescriptor],
+    cpus: &[CpuDescriptor],
+    dialects: &[DialectDescriptor],
+) -> Result<Vec<u8>, OpcpuCodecError> {
+    // Validate cross references and compatibility before encoding.
+    HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
+
+    let mut fams = families.to_vec();
+    fams.sort_by_key(|entry| entry.id.to_ascii_lowercase());
+
+    let mut cpus = cpus.to_vec();
+    cpus.sort_by_key(|entry| entry.id.to_ascii_lowercase());
+
+    let mut dials = dialects.to_vec();
+    for entry in &mut dials {
+        if let Some(allow) = entry.cpu_allow_list.as_mut() {
+            allow.sort_by_key(|cpu| cpu.to_ascii_lowercase());
+            allow.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        }
+    }
+    dials.sort_by_key(|entry| {
+        (
+            entry.family_id.to_ascii_lowercase(),
+            entry.id.to_ascii_lowercase(),
+        )
+    });
+
+    let chunks = vec![
+        (CHUNK_FAMS, encode_fams_chunk(&fams)?),
+        (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
+        (CHUNK_DIAL, encode_dial_chunk(&dials)?),
+    ];
+
+    encode_container(&chunks)
+}
+
+pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
+    let toc = parse_toc(bytes)?;
+    let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
+    let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
+    let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
+
+    Ok(HierarchyChunks {
+        families: decode_fams_chunk(fams_bytes)?,
+        cpus: decode_cpus_chunk(cpus_bytes)?,
+        dialects: decode_dial_chunk(dial_bytes)?,
+    })
+}
+
+pub fn load_hierarchy_package(bytes: &[u8]) -> Result<HierarchyPackage, OpcpuCodecError> {
+    let decoded = decode_hierarchy_chunks(bytes)?;
+    HierarchyPackage::new(decoded.families, decoded.cpus, decoded.dialects).map_err(Into::into)
+}
+
+fn encode_container(chunks: &[([u8; 4], Vec<u8>)]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let toc_count = u16::try_from(chunks.len()).map_err(|_| OpcpuCodecError::CountOutOfRange {
+        context: "TOC entry count exceeds u16".to_string(),
+    })?;
+
+    let header_and_toc_len = HEADER_SIZE
+        .checked_add(chunks.len().checked_mul(TOC_ENTRY_SIZE).ok_or_else(|| {
+            OpcpuCodecError::CountOutOfRange {
+                context: "TOC byte size overflow".to_string(),
+            }
+        })?)
+        .ok_or_else(|| OpcpuCodecError::CountOutOfRange {
+            context: "header size overflow".to_string(),
+        })?;
+
+    let mut toc_entries = Vec::with_capacity(chunks.len());
+    let mut next_offset =
+        u32::try_from(header_and_toc_len).map_err(|_| OpcpuCodecError::CountOutOfRange {
+            context: "container header offset exceeds u32".to_string(),
+        })?;
+
+    for (tag, payload) in chunks {
+        let length =
+            u32::try_from(payload.len()).map_err(|_| OpcpuCodecError::CountOutOfRange {
+                context: format!("chunk '{}' length exceeds u32", chunk_name(tag)),
+            })?;
+        toc_entries.push((
+            *tag,
+            TocEntry {
+                offset: next_offset,
+                length,
+            },
+        ));
+        next_offset =
+            next_offset
+                .checked_add(length)
+                .ok_or_else(|| OpcpuCodecError::CountOutOfRange {
+                    context: "container size exceeds u32".to_string(),
+                })?;
+    }
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&OPCPU_MAGIC);
+    out.extend_from_slice(&OPCPU_VERSION_V1.to_le_bytes());
+    out.extend_from_slice(&OPCPU_ENDIAN_MARKER.to_le_bytes());
+    out.extend_from_slice(&toc_count.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+
+    for (tag, entry) in &toc_entries {
+        out.extend_from_slice(tag);
+        out.extend_from_slice(&entry.offset.to_le_bytes());
+        out.extend_from_slice(&entry.length.to_le_bytes());
+    }
+
+    for (_, payload) in chunks {
+        out.extend_from_slice(payload);
+    }
+
+    Ok(out)
+}
+
+fn parse_toc(bytes: &[u8]) -> Result<HashMap<[u8; 4], TocEntry>, OpcpuCodecError> {
+    if bytes.len() < HEADER_SIZE {
+        return Err(OpcpuCodecError::UnexpectedEof {
+            context: "container header".to_string(),
+        });
+    }
+
+    let found_magic = [bytes[0], bytes[1], bytes[2], bytes[3]];
+    if found_magic != OPCPU_MAGIC {
+        return Err(OpcpuCodecError::InvalidMagic { found: found_magic });
+    }
+
+    let version = u16::from_le_bytes([bytes[4], bytes[5]]);
+    if version != OPCPU_VERSION_V1 {
+        return Err(OpcpuCodecError::UnsupportedVersion { found: version });
+    }
+
+    let marker = u16::from_le_bytes([bytes[6], bytes[7]]);
+    if marker != OPCPU_ENDIAN_MARKER {
+        return Err(OpcpuCodecError::InvalidEndiannessMarker { found: marker });
+    }
+
+    let toc_count = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+    let toc_bytes = toc_count
+        .checked_mul(TOC_ENTRY_SIZE)
+        .and_then(|size| HEADER_SIZE.checked_add(size))
+        .ok_or_else(|| OpcpuCodecError::CountOutOfRange {
+            context: "TOC length overflow".to_string(),
+        })?;
+
+    if bytes.len() < toc_bytes {
+        return Err(OpcpuCodecError::UnexpectedEof {
+            context: "TOC entries".to_string(),
+        });
+    }
+
+    let mut toc = HashMap::new();
+    for idx in 0..toc_count {
+        let start = HEADER_SIZE + idx * TOC_ENTRY_SIZE;
+        let tag = [
+            bytes[start],
+            bytes[start + 1],
+            bytes[start + 2],
+            bytes[start + 3],
+        ];
+        let offset = u32::from_le_bytes([
+            bytes[start + 4],
+            bytes[start + 5],
+            bytes[start + 6],
+            bytes[start + 7],
+        ]);
+        let length = u32::from_le_bytes([
+            bytes[start + 8],
+            bytes[start + 9],
+            bytes[start + 10],
+            bytes[start + 11],
+        ]);
+
+        if toc.contains_key(&tag) {
+            return Err(OpcpuCodecError::DuplicateChunk {
+                chunk: chunk_name(&tag),
+            });
+        }
+
+        let start_usize =
+            usize::try_from(offset).map_err(|_| OpcpuCodecError::ChunkOutOfBounds {
+                chunk: chunk_name(&tag),
+                offset,
+                length,
+                file_len: bytes.len(),
+            })?;
+        let len_usize = usize::try_from(length).map_err(|_| OpcpuCodecError::ChunkOutOfBounds {
+            chunk: chunk_name(&tag),
+            offset,
+            length,
+            file_len: bytes.len(),
+        })?;
+        let end = start_usize.checked_add(len_usize).ok_or_else(|| {
+            OpcpuCodecError::ChunkOutOfBounds {
+                chunk: chunk_name(&tag),
+                offset,
+                length,
+                file_len: bytes.len(),
+            }
+        })?;
+        if end > bytes.len() {
+            return Err(OpcpuCodecError::ChunkOutOfBounds {
+                chunk: chunk_name(&tag),
+                offset,
+                length,
+                file_len: bytes.len(),
+            });
+        }
+
+        toc.insert(tag, TocEntry { offset, length });
+    }
+
+    Ok(toc)
+}
+
+fn slice_for_chunk<'a>(
+    bytes: &'a [u8],
+    toc: &HashMap<[u8; 4], TocEntry>,
+    tag: [u8; 4],
+) -> Result<&'a [u8], OpcpuCodecError> {
+    let entry = toc
+        .get(&tag)
+        .ok_or_else(|| OpcpuCodecError::MissingRequiredChunk {
+            chunk: chunk_name(&tag),
+        })?;
+    let start = usize::try_from(entry.offset).map_err(|_| OpcpuCodecError::ChunkOutOfBounds {
+        chunk: chunk_name(&tag),
+        offset: entry.offset,
+        length: entry.length,
+        file_len: bytes.len(),
+    })?;
+    let len = usize::try_from(entry.length).map_err(|_| OpcpuCodecError::ChunkOutOfBounds {
+        chunk: chunk_name(&tag),
+        offset: entry.offset,
+        length: entry.length,
+        file_len: bytes.len(),
+    })?;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| OpcpuCodecError::ChunkOutOfBounds {
+            chunk: chunk_name(&tag),
+            offset: entry.offset,
+            length: entry.length,
+            file_len: bytes.len(),
+        })?;
+    bytes
+        .get(start..end)
+        .ok_or_else(|| OpcpuCodecError::ChunkOutOfBounds {
+            chunk: chunk_name(&tag),
+            offset: entry.offset,
+            length: entry.length,
+            file_len: bytes.len(),
+        })
+}
+
+fn encode_fams_chunk(families: &[FamilyDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(families.len(), "FAMS count")?);
+    for family in families {
+        write_string(&mut out, "FAMS", &family.id)?;
+        write_string(&mut out, "FAMS", &family.canonical_dialect)?;
+    }
+    Ok(out)
+}
+
+fn decode_fams_chunk(bytes: &[u8]) -> Result<Vec<FamilyDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "FAMS");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        entries.push(FamilyDescriptor {
+            id: cur.read_string()?,
+            canonical_dialect: cur.read_string()?,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
+fn encode_cpus_chunk(cpus: &[CpuDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(cpus.len(), "CPUS count")?);
+    for cpu in cpus {
+        write_string(&mut out, "CPUS", &cpu.id)?;
+        write_string(&mut out, "CPUS", &cpu.family_id)?;
+        match cpu.default_dialect.as_deref() {
+            Some(default_dialect) => {
+                out.push(1);
+                write_string(&mut out, "CPUS", default_dialect)?;
+            }
+            None => out.push(0),
+        }
+    }
+    Ok(out)
+}
+
+fn decode_cpus_chunk(bytes: &[u8]) -> Result<Vec<CpuDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "CPUS");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id = cur.read_string()?;
+        let family_id = cur.read_string()?;
+        let has_default = cur.read_u8()?;
+        let default_dialect = match has_default {
+            0 => None,
+            1 => Some(cur.read_string()?),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "CPUS".to_string(),
+                    detail: format!("invalid bool flag for default_dialect: {}", other),
+                });
+            }
+        };
+        entries.push(CpuDescriptor {
+            id,
+            family_id,
+            default_dialect,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
+fn encode_dial_chunk(dialects: &[DialectDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(dialects.len(), "DIAL count")?);
+    for dialect in dialects {
+        write_string(&mut out, "DIAL", &dialect.id)?;
+        write_string(&mut out, "DIAL", &dialect.family_id)?;
+        match dialect.cpu_allow_list.as_deref() {
+            Some(allow_list) => {
+                out.push(1);
+                write_u32(
+                    &mut out,
+                    u32_count(allow_list.len(), "DIAL allow-list count")?,
+                );
+                for cpu_id in allow_list {
+                    write_string(&mut out, "DIAL", cpu_id)?;
+                }
+            }
+            None => out.push(0),
+        }
+    }
+    Ok(out)
+}
+
+fn decode_dial_chunk(bytes: &[u8]) -> Result<Vec<DialectDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "DIAL");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id = cur.read_string()?;
+        let family_id = cur.read_string()?;
+        let has_allow_list = cur.read_u8()?;
+        let cpu_allow_list = match has_allow_list {
+            0 => None,
+            1 => {
+                let allow_count = cur.read_u32()? as usize;
+                let mut allow = Vec::with_capacity(allow_count);
+                for _ in 0..allow_count {
+                    allow.push(cur.read_string()?);
+                }
+                Some(allow)
+            }
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "DIAL".to_string(),
+                    detail: format!("invalid bool flag for cpu_allow_list: {}", other),
+                });
+            }
+        };
+        entries.push(DialectDescriptor {
+            id,
+            family_id,
+            cpu_allow_list,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
+fn write_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_string(out: &mut Vec<u8>, chunk: &str, value: &str) -> Result<(), OpcpuCodecError> {
+    let len = u32::try_from(value.len()).map_err(|_| OpcpuCodecError::CountOutOfRange {
+        context: format!("{} string length exceeds u32", chunk),
+    })?;
+    write_u32(out, len);
+    out.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+fn u32_count(count: usize, context: &str) -> Result<u32, OpcpuCodecError> {
+    u32::try_from(count).map_err(|_| OpcpuCodecError::CountOutOfRange {
+        context: context.to_string(),
+    })
+}
+
+fn chunk_name(tag: &[u8; 4]) -> String {
+    std::str::from_utf8(tag)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| format!("{:02X?}", tag))
+}
+
+struct Decoder<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+    chunk: &'static str,
+}
+
+impl<'a> Decoder<'a> {
+    fn new(bytes: &'a [u8], chunk: &'static str) -> Self {
+        Self {
+            bytes,
+            pos: 0,
+            chunk,
+        }
+    }
+
+    fn read_u8(&mut self) -> Result<u8, OpcpuCodecError> {
+        let slice = self.read_exact(1, "u8")?;
+        Ok(slice[0])
+    }
+
+    fn read_u32(&mut self) -> Result<u32, OpcpuCodecError> {
+        let slice = self.read_exact(4, "u32")?;
+        Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+    }
+
+    fn read_string(&mut self) -> Result<String, OpcpuCodecError> {
+        let len = self.read_u32()? as usize;
+        let bytes = self.read_exact(len, "string bytes")?;
+        String::from_utf8(bytes.to_vec()).map_err(|_| OpcpuCodecError::InvalidUtf8 {
+            chunk: self.chunk.to_string(),
+        })
+    }
+
+    fn read_exact(&mut self, len: usize, detail: &str) -> Result<&'a [u8], OpcpuCodecError> {
+        let end = self
+            .pos
+            .checked_add(len)
+            .ok_or_else(|| OpcpuCodecError::InvalidChunkFormat {
+                chunk: self.chunk.to_string(),
+                detail: format!("{} overflow", detail),
+            })?;
+        if end > self.bytes.len() {
+            return Err(OpcpuCodecError::UnexpectedEof {
+                context: format!("chunk {} {}", self.chunk, detail),
+            });
+        }
+        let out = &self.bytes[self.pos..end];
+        self.pos = end;
+        Ok(out)
+    }
+
+    fn finish(&self) -> Result<(), OpcpuCodecError> {
+        if self.pos != self.bytes.len() {
+            return Err(OpcpuCodecError::InvalidChunkFormat {
+                chunk: self.chunk.to_string(),
+                detail: "trailing bytes".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_families() -> Vec<FamilyDescriptor> {
+        vec![
+            FamilyDescriptor {
+                id: "mos6502".to_string(),
+                canonical_dialect: "mos".to_string(),
+            },
+            FamilyDescriptor {
+                id: "intel8080".to_string(),
+                canonical_dialect: "intel".to_string(),
+            },
+        ]
+    }
+
+    fn sample_cpus() -> Vec<CpuDescriptor> {
+        vec![
+            CpuDescriptor {
+                id: "z80".to_string(),
+                family_id: "intel8080".to_string(),
+                default_dialect: Some("zilog".to_string()),
+            },
+            CpuDescriptor {
+                id: "8085".to_string(),
+                family_id: "intel8080".to_string(),
+                default_dialect: Some("intel".to_string()),
+            },
+            CpuDescriptor {
+                id: "6502".to_string(),
+                family_id: "mos6502".to_string(),
+                default_dialect: Some("mos".to_string()),
+            },
+        ]
+    }
+
+    fn sample_dialects() -> Vec<DialectDescriptor> {
+        vec![
+            DialectDescriptor {
+                id: "mos".to_string(),
+                family_id: "mos6502".to_string(),
+                cpu_allow_list: None,
+            },
+            DialectDescriptor {
+                id: "intel".to_string(),
+                family_id: "intel8080".to_string(),
+                cpu_allow_list: None,
+            },
+            DialectDescriptor {
+                id: "zilog".to_string(),
+                family_id: "intel8080".to_string(),
+                cpu_allow_list: Some(vec!["z80".to_string(), "Z80".to_string()]),
+            },
+        ]
+    }
+
+    #[test]
+    fn encode_decode_round_trip_is_deterministic() {
+        let bytes = encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
+            .expect("encode should succeed");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+        let reencoded =
+            encode_hierarchy_chunks(&decoded.families, &decoded.cpus, &decoded.dialects)
+                .expect("re-encode should succeed");
+        assert_eq!(bytes, reencoded);
+    }
+
+    #[test]
+    fn load_hierarchy_package_validates_and_resolves() {
+        let bytes = encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
+            .expect("encode should succeed");
+        let package = load_hierarchy_package(&bytes).expect("load should succeed");
+
+        let resolved_8085 = package
+            .resolve_pipeline("8085", None)
+            .expect("8085 should resolve");
+        assert_eq!(resolved_8085.dialect_id, "intel");
+
+        let resolved_z80 = package
+            .resolve_pipeline("z80", None)
+            .expect("z80 should resolve");
+        assert_eq!(resolved_z80.dialect_id, "zilog");
+    }
+
+    #[test]
+    fn encoding_is_stable_across_input_order() {
+        let mut families = sample_families();
+        families.reverse();
+        let mut cpus = sample_cpus();
+        cpus.reverse();
+        let mut dialects = sample_dialects();
+        dialects.reverse();
+
+        let a = encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
+            .expect("ordered encode should succeed");
+        let b = encode_hierarchy_chunks(&families, &cpus, &dialects)
+            .expect("shuffled encode should succeed");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn decode_rejects_missing_required_chunk() {
+        let bytes = encode_container(&[]).expect("container encode should succeed");
+        let err = decode_hierarchy_chunks(&bytes).expect_err("missing FAMS should fail");
+        assert!(matches!(err, OpcpuCodecError::MissingRequiredChunk { .. }));
+        assert_eq!(err.code(), "OPC006");
+    }
+
+    #[test]
+    fn decode_rejects_truncated_payload() {
+        let mut bytes =
+            encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
+                .expect("encode should succeed");
+        bytes.pop();
+        let err = decode_hierarchy_chunks(&bytes).expect_err("truncated payload should fail");
+        assert!(matches!(
+            err,
+            OpcpuCodecError::ChunkOutOfBounds { .. } | OpcpuCodecError::UnexpectedEof { .. }
+        ));
+    }
+
+    #[test]
+    fn decode_rejects_invalid_endian_marker() {
+        let mut bytes =
+            encode_hierarchy_chunks(&sample_families(), &sample_cpus(), &sample_dialects())
+                .expect("encode should succeed");
+        bytes[6] = 0x78;
+        bytes[7] = 0x56;
+        let err = decode_hierarchy_chunks(&bytes).expect_err("invalid marker should fail");
+        assert!(matches!(
+            err,
+            OpcpuCodecError::InvalidEndiannessMarker { .. }
+        ));
+        assert_eq!(err.code(), "OPC003");
+    }
+
+    #[test]
+    fn load_rejects_cross_reference_errors() {
+        let families = vec![FamilyDescriptor {
+            id: "intel8080".to_string(),
+            canonical_dialect: "intel".to_string(),
+        }];
+        let cpus = vec![CpuDescriptor {
+            id: "8085".to_string(),
+            family_id: "missing".to_string(),
+            default_dialect: Some("intel".to_string()),
+        }];
+        let dials = vec![DialectDescriptor {
+            id: "intel".to_string(),
+            family_id: "intel8080".to_string(),
+            cpu_allow_list: None,
+        }];
+        let chunks = vec![
+            (CHUNK_FAMS, encode_fams_chunk(&families).expect("fams")),
+            (CHUNK_CPUS, encode_cpus_chunk(&cpus).expect("cpus")),
+            (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+
+        let err = load_hierarchy_package(&bytes).expect_err("cross-reference should fail");
+        assert!(matches!(err, OpcpuCodecError::Hierarchy(_)));
+        assert_eq!(err.code(), "OPC011");
+    }
+}

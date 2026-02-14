@@ -297,6 +297,44 @@ impl ModuleRegistry {
         names
     }
 
+    pub fn family_ids(&self) -> Vec<CpuFamily> {
+        let mut families: Vec<CpuFamily> = self.families.keys().copied().collect();
+        families.sort_by_key(|family| family.as_str());
+        families
+    }
+
+    pub fn cpu_ids(&self) -> Vec<CpuType> {
+        let mut cpus: Vec<CpuType> = self.cpus.keys().copied().collect();
+        cpus.sort_by_key(|cpu| cpu.as_str());
+        cpus
+    }
+
+    pub fn canonical_dialect_for_family(&self, family: CpuFamily) -> Option<&'static str> {
+        self.families
+            .get(&family)
+            .map(|module| module.canonical_dialect())
+    }
+
+    pub fn dialect_ids_for_family(&self, family: CpuFamily) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .dialects
+            .keys()
+            .filter(|(fam, _)| *fam == family)
+            .map(|(_, dialect)| dialect.clone())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    pub fn cpu_default_dialect(&self, cpu: CpuType) -> Option<&'static str> {
+        self.cpus.get(&cpu).map(|module| module.default_dialect())
+    }
+
+    pub fn cpu_family_id(&self, cpu: CpuType) -> Option<CpuFamily> {
+        self.cpus.get(&cpu).map(|module| module.family_id())
+    }
+
     pub fn resolve_pipeline(
         &self,
         cpu: CpuType,
@@ -673,6 +711,35 @@ mod tests {
 
         assert_eq!(reg.cpu_display_name(TEST_CPU), Some("TestCpu"));
         assert_eq!(reg.cpu_display_name(OTHER_CPU), None);
+    }
+
+    #[test]
+    fn registry_metadata_accessors_return_expected_values() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_family(Box::new(StubFamilyModule));
+        reg.register_cpu(Box::new(StubCpuModule));
+
+        assert_eq!(reg.family_ids(), vec![TEST_FAMILY]);
+        assert_eq!(reg.cpu_ids(), vec![TEST_CPU]);
+        assert_eq!(
+            reg.canonical_dialect_for_family(TEST_FAMILY),
+            Some("test_dialect")
+        );
+        assert_eq!(
+            reg.dialect_ids_for_family(TEST_FAMILY),
+            vec!["test_dialect".to_string()]
+        );
+        assert_eq!(reg.cpu_default_dialect(TEST_CPU), Some("test_dialect"));
+        assert_eq!(reg.cpu_family_id(TEST_CPU), Some(TEST_FAMILY));
+
+        assert!(reg
+            .canonical_dialect_for_family(CpuFamily::new("none"))
+            .is_none());
+        assert!(reg
+            .dialect_ids_for_family(CpuFamily::new("none"))
+            .is_empty());
+        assert!(reg.cpu_default_dialect(OTHER_CPU).is_none());
+        assert!(reg.cpu_family_id(OTHER_CPU).is_none());
     }
 
     #[test]
