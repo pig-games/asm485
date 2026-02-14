@@ -6518,6 +6518,87 @@ fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
     }
 }
 
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_m65c02_table_modes_match_native_mode() {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+    for entry in M65C02_INSTRUCTION_TABLE {
+        if entry.mnemonic.starts_with("BBR") || entry.mnemonic.starts_with("BBS") {
+            // Bit-branch mnemonics require two operands; keep this parity corpus
+            // focused on one-operand mode table entries.
+            continue;
+        }
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+
+    for (case_id, line) in cases {
+        let native = assemble_line_with_runtime_mode(m65c02_cpu_id, &line, false);
+        let runtime = assemble_line_with_runtime_mode(m65c02_cpu_id, &line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for {}", case_id);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for {}", case_id);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for {}", case_id);
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_m65816_table_modes_match_native_mode() {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+    for entry in M65816_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+
+    for (case_id, line) in cases {
+        let native = assemble_line_with_runtime_mode(m65816_cpu_id, &line, false);
+        let runtime = assemble_line_with_runtime_mode(m65816_cpu_id, &line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for {}", case_id);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for {}", case_id);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for {}", case_id);
+    }
+}
+
 fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
     match mode {
         AddressMode::Implied => None,
