@@ -9,6 +9,7 @@
 //! - `DIAL` (dialect descriptors)
 //! - `REGS` (scoped register descriptors)
 //! - `FORM` (scoped form descriptors)
+//! - `TABL` (scoped VM instruction program descriptors)
 
 use std::collections::HashMap;
 
@@ -29,6 +30,16 @@ const CHUNK_CPUS: [u8; 4] = *b"CPUS";
 const CHUNK_DIAL: [u8; 4] = *b"DIAL";
 const CHUNK_REGS: [u8; 4] = *b"REGS";
 const CHUNK_FORM: [u8; 4] = *b"FORM";
+const CHUNK_TABL: [u8; 4] = *b"TABL";
+
+/// Scoped VM program descriptor for one mnemonic + mode-key encode template.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VmProgramDescriptor {
+    pub owner: ScopedOwner,
+    pub mnemonic: String,
+    pub mode_key: String,
+    pub program: Vec<u8>,
+}
 
 /// Decoded hierarchy-chunk payload set.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,6 +49,7 @@ pub struct HierarchyChunks {
     pub dialects: Vec<DialectDescriptor>,
     pub registers: Vec<ScopedRegisterDescriptor>,
     pub forms: Vec<ScopedFormDescriptor>,
+    pub tables: Vec<VmProgramDescriptor>,
 }
 
 /// Deterministic package codec errors for malformed container/schema data.
@@ -182,6 +194,7 @@ pub fn encode_hierarchy_chunks(
     dialects: &[DialectDescriptor],
     registers: &[ScopedRegisterDescriptor],
     forms: &[ScopedFormDescriptor],
+    tables: &[VmProgramDescriptor],
 ) -> Result<Vec<u8>, OpcpuCodecError> {
     // Validate cross references and compatibility before encoding.
     HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
@@ -191,7 +204,15 @@ pub fn encode_hierarchy_chunks(
     let mut dials = dialects.to_vec();
     let mut regs = registers.to_vec();
     let mut forms = forms.to_vec();
-    canonicalize_hierarchy_metadata(&mut fams, &mut cpus, &mut dials, &mut regs, &mut forms);
+    let mut tables = tables.to_vec();
+    canonicalize_hierarchy_metadata(
+        &mut fams,
+        &mut cpus,
+        &mut dials,
+        &mut regs,
+        &mut forms,
+        &mut tables,
+    );
 
     let chunks = vec![
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
@@ -199,6 +220,7 @@ pub fn encode_hierarchy_chunks(
         (CHUNK_DIAL, encode_dial_chunk(&dials)?),
         (CHUNK_REGS, encode_regs_chunk(&regs)?),
         (CHUNK_FORM, encode_form_chunk(&forms)?),
+        (CHUNK_TABL, encode_tabl_chunk(&tables)?),
     ];
 
     encode_container(&chunks)
@@ -210,6 +232,7 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     dialects: &mut [DialectDescriptor],
     registers: &mut Vec<ScopedRegisterDescriptor>,
     forms: &mut Vec<ScopedFormDescriptor>,
+    tables: &mut Vec<VmProgramDescriptor>,
 ) {
     families.sort_by_key(|entry| entry.id.to_ascii_lowercase());
     cpus.sort_by_key(|entry| entry.id.to_ascii_lowercase());
@@ -288,6 +311,44 @@ pub(crate) fn canonicalize_hierarchy_metadata(
                 _ => false,
             }
     });
+
+    for entry in tables.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+        entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
+        entry.mode_key = entry.mode_key.to_ascii_lowercase();
+    }
+    tables.sort_by_key(|entry| {
+        let owner_kind = match entry.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let owner_id = match &entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        (
+            owner_kind,
+            owner_id,
+            entry.mnemonic.to_ascii_lowercase(),
+            entry.mode_key.to_ascii_lowercase(),
+        )
+    });
+    tables.dedup_by(|left, right| {
+        left.mnemonic == right.mnemonic
+            && left.mode_key == right.mode_key
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
 }
 
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
@@ -297,6 +358,7 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
     let regs_bytes = slice_for_chunk(bytes, &toc, CHUNK_REGS)?;
     let form_bytes = slice_for_chunk(bytes, &toc, CHUNK_FORM)?;
+    let tabl_bytes = slice_for_chunk(bytes, &toc, CHUNK_TABL)?;
 
     Ok(HierarchyChunks {
         families: decode_fams_chunk(fams_bytes)?,
@@ -304,6 +366,7 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         dialects: decode_dial_chunk(dial_bytes)?,
         registers: decode_regs_chunk(regs_bytes)?,
         forms: decode_form_chunk(form_bytes)?,
+        tables: decode_tabl_chunk(tabl_bytes)?,
     })
 }
 
@@ -722,6 +785,61 @@ fn decode_form_chunk(bytes: &[u8]) -> Result<Vec<ScopedFormDescriptor>, OpcpuCod
     Ok(entries)
 }
 
+fn encode_tabl_chunk(tables: &[VmProgramDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(tables.len(), "TABL count")?);
+    for entry in tables {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "TABL", owner_id)?;
+        write_string(&mut out, "TABL", &entry.mnemonic)?;
+        write_string(&mut out, "TABL", &entry.mode_key)?;
+        write_u32(
+            &mut out,
+            u32_count(entry.program.len(), "TABL program byte length")?,
+        );
+        out.extend_from_slice(&entry.program);
+    }
+    Ok(out)
+}
+
+fn decode_tabl_chunk(bytes: &[u8]) -> Result<Vec<VmProgramDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "TABL");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let mnemonic = cur.read_string()?;
+        let mode_key = cur.read_string()?;
+        let byte_count = cur.read_u32()? as usize;
+        let program = cur.read_exact(byte_count, "program bytes")?.to_vec();
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "TABL".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        entries.push(VmProgramDescriptor {
+            owner,
+            mnemonic,
+            mode_key,
+            program,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -908,6 +1026,23 @@ mod tests {
         ]
     }
 
+    fn sample_tables() -> Vec<VmProgramDescriptor> {
+        vec![
+            VmProgramDescriptor {
+                owner: ScopedOwner::Cpu("m6502".to_string()),
+                mnemonic: "lda".to_string(),
+                mode_key: "immediate".to_string(),
+                program: vec![0x01, 0xA9, 0x02, 0x00, 0xFF],
+            },
+            VmProgramDescriptor {
+                owner: ScopedOwner::Cpu("m6502".to_string()),
+                mnemonic: "LDA".to_string(),
+                mode_key: "Immediate".to_string(),
+                program: vec![0x01, 0xA9, 0x02, 0x00, 0xFF],
+            },
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
         let bytes = encode_hierarchy_chunks(
@@ -916,6 +1051,7 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("encode should succeed");
         let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
@@ -925,6 +1061,7 @@ mod tests {
             &decoded.dialects,
             &decoded.registers,
             &decoded.forms,
+            &decoded.tables,
         )
         .expect("re-encode should succeed");
         assert_eq!(bytes, reencoded);
@@ -938,6 +1075,7 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("encode should succeed");
         let package = load_hierarchy_package(&bytes).expect("load should succeed");
@@ -965,6 +1103,8 @@ mod tests {
         registers.reverse();
         let mut forms = sample_forms();
         forms.reverse();
+        let mut tables = sample_tables();
+        tables.reverse();
 
         let a = encode_hierarchy_chunks(
             &sample_families(),
@@ -972,9 +1112,10 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("ordered encode should succeed");
-        let b = encode_hierarchy_chunks(&families, &cpus, &dialects, &registers, &forms)
+        let b = encode_hierarchy_chunks(&families, &cpus, &dialects, &registers, &forms, &tables)
             .expect("shuffled encode should succeed");
         assert_eq!(a, b);
     }
@@ -987,6 +1128,7 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("encode should succeed");
         let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
@@ -1038,6 +1180,7 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("encode should succeed");
 
@@ -1064,11 +1207,12 @@ mod tests {
         assert_eq!(
             toc_entries,
             vec![
-                "FAMS@72+44",
-                "CPUS@116+92",
-                "DIAL@208+80",
-                "REGS@288+57",
-                "FORM@345+57"
+                "FAMS@84+44",
+                "CPUS@128+92",
+                "DIAL@220+80",
+                "REGS@300+57",
+                "FORM@357+57",
+                "TABL@414+43"
             ]
         );
     }
@@ -1089,6 +1233,7 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("encode should succeed");
         bytes.pop();
@@ -1107,6 +1252,7 @@ mod tests {
             &sample_dialects(),
             &sample_registers(),
             &sample_forms(),
+            &sample_tables(),
         )
         .expect("encode should succeed");
         bytes[6] = 0x78;
@@ -1141,6 +1287,7 @@ mod tests {
             (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
             (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
             (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
         ];
         let bytes = encode_container(&chunks).expect("container");
 

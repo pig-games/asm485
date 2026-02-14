@@ -149,6 +149,20 @@ impl HierarchyExecutionModel {
 
     pub fn from_chunks(chunks: HierarchyChunks) -> Result<Self, RuntimeBridgeError> {
         let package = HierarchyPackage::new(chunks.families, chunks.cpus, chunks.dialects)?;
+        let mut mos6502_vm =
+            Mos6502VmProgramSet::from_programs(chunks.tables.into_iter().filter_map(|entry| {
+                match entry.owner {
+                    ScopedOwner::Cpu(owner)
+                        if owner.eq_ignore_ascii_case(M6502_CPU_ID.as_str()) =>
+                    {
+                        Some((entry.mnemonic, entry.mode_key, entry.program))
+                    }
+                    _ => None,
+                }
+            }));
+        if mos6502_vm.is_empty() {
+            mos6502_vm = Mos6502VmProgramSet::from_family_table();
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -181,7 +195,7 @@ impl HierarchyExecutionModel {
             family_forms,
             cpu_forms,
             dialect_forms,
-            mos6502_vm: Mos6502VmProgramSet::from_family_table(),
+            mos6502_vm,
         })
     }
 
@@ -279,7 +293,9 @@ mod tests {
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
     use crate::families::mos6502::Operand;
     use crate::m65c02::module::M65C02CpuModule;
+    use crate::opthread::builder::build_hierarchy_chunks_from_registry;
     use crate::opthread::hierarchy::{CpuDescriptor, DialectDescriptor, FamilyDescriptor};
+    use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 
     fn sample_package() -> HierarchyPackage {
         HierarchyPackage::new(
@@ -436,5 +452,44 @@ mod tests {
             )
             .expect("vm encode should resolve");
         assert!(bytes.is_none());
+    }
+
+    #[test]
+    fn execution_model_uses_package_tabl_programs_for_vm_encode() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut patched = false;
+        for program in &mut chunks.tables {
+            let is_m6502_owner = matches!(&program.owner, ScopedOwner::Cpu(owner) if owner.eq_ignore_ascii_case("m6502"));
+            if is_m6502_owner
+                && program.mnemonic.eq_ignore_ascii_case("lda")
+                && program.mode_key.eq_ignore_ascii_case("immediate")
+            {
+                program.program = vec![OP_EMIT_U8, 0xEA, OP_EMIT_OPERAND, 0x00, OP_END];
+                patched = true;
+                break;
+            }
+        }
+        assert!(
+            patched,
+            "expected to patch LDA immediate VM program in TABL"
+        );
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let bytes = model
+            .encode_mos6502_operands(
+                "m6502",
+                None,
+                "LDA",
+                &[Operand::Immediate(0x42, Span::default())],
+            )
+            .expect("vm encode should succeed")
+            .expect("m6502 vm program should be available");
+        assert_eq!(bytes, vec![0xEA, 0x42]);
     }
 }

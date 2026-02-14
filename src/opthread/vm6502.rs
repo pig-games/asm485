@@ -39,19 +39,38 @@ pub struct Mos6502VmProgramSet {
 }
 
 impl Mos6502VmProgramSet {
+    pub fn from_programs<I>(programs: I) -> Self
+    where
+        I: IntoIterator<Item = (String, String, Vec<u8>)>,
+    {
+        let mut out = HashMap::new();
+        for (mnemonic, mode_key, program) in programs {
+            out.insert(
+                program_key_for_mode(mnemonic.as_str(), mode_key.as_str()),
+                program,
+            );
+        }
+        Self { programs: out }
+    }
+
     pub fn from_family_table() -> Self {
-        let mut programs = HashMap::new();
-        for entry in FAMILY_INSTRUCTION_TABLE {
-            let key = program_key(entry.mnemonic, entry.mode);
+        Self::from_programs(FAMILY_INSTRUCTION_TABLE.iter().map(|entry| {
             let mut code = vec![OP_EMIT_U8, entry.opcode];
             if entry.mode.operand_size() > 0 {
                 code.push(OP_EMIT_OPERAND);
                 code.push(0x00);
             }
             code.push(OP_END);
-            programs.insert(key, code);
-        }
-        Self { programs }
+            (
+                entry.mnemonic.to_string(),
+                format!("{:?}", entry.mode).to_ascii_lowercase(),
+                code,
+            )
+        }))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.programs.is_empty()
     }
 
     pub fn encode_instruction(
@@ -90,7 +109,15 @@ impl Mos6502VmProgramSet {
 }
 
 fn program_key(mnemonic: &str, mode: AddressMode) -> String {
-    format!("{}:{mode:?}", mnemonic.to_ascii_lowercase())
+    program_key_for_mode(mnemonic, format!("{mode:?}").as_str())
+}
+
+fn program_key_for_mode(mnemonic: &str, mode_key: &str) -> String {
+    format!(
+        "{}:{}",
+        mnemonic.to_ascii_lowercase(),
+        mode_key.to_ascii_lowercase()
+    )
 }
 
 fn modes_to_try(operand: &Operand) -> Vec<Operand> {

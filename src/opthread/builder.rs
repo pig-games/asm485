@@ -4,13 +4,17 @@
 //! Build opThread hierarchy chunks from the live opForge module registry.
 
 use crate::core::registry::ModuleRegistry;
+use crate::families::mos6502::module::CPU_ID as M6502_CPU_ID;
+use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
 use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::package::{
     canonicalize_hierarchy_metadata, encode_hierarchy_chunks, HierarchyChunks, OpcpuCodecError,
+    VmProgramDescriptor,
 };
+use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 
 /// Errors emitted while building hierarchy package data from registry metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,7 +54,7 @@ impl From<OpcpuCodecError> for HierarchyBuildError {
     }
 }
 
-/// Build `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM` chunks from registry metadata.
+/// Build `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`/`TABL` chunks from registry metadata.
 pub fn build_hierarchy_chunks_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<HierarchyChunks, HierarchyBuildError> {
@@ -144,12 +148,29 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
 
+    let mut tables = Vec::new();
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let mut program = vec![OP_EMIT_U8, entry.opcode];
+        if entry.mode.operand_size() > 0 {
+            program.push(OP_EMIT_OPERAND);
+            program.push(0x00);
+        }
+        program.push(OP_END);
+        tables.push(VmProgramDescriptor {
+            owner: ScopedOwner::Cpu(M6502_CPU_ID.as_str().to_string()),
+            mnemonic: entry.mnemonic.to_string(),
+            mode_key: format!("{:?}", entry.mode),
+            program,
+        });
+    }
+
     canonicalize_hierarchy_metadata(
         &mut families,
         &mut cpus,
         &mut dialects,
         &mut registers,
         &mut forms,
+        &mut tables,
     );
 
     // Ensure the materialized metadata is coherent before returning.
@@ -161,6 +182,7 @@ pub fn build_hierarchy_chunks_from_registry(
         dialects,
         registers,
         forms,
+        tables,
     })
 }
 
@@ -175,6 +197,7 @@ pub fn build_hierarchy_package_from_registry(
         &chunks.dialects,
         &chunks.registers,
         &chunks.forms,
+        &chunks.tables,
     )
     .map_err(Into::into)
 }
@@ -230,6 +253,11 @@ mod tests {
         assert!(chunks.forms.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Dialect(owner) if owner == "zilog")
                 && entry.mnemonic == "ld"
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "m6502")
+                && entry.mnemonic == "lda"
+                && entry.mode_key == "immediate"
         }));
 
         assert!(chunks
