@@ -66,7 +66,7 @@ Execution must preserve opForge-compatible resolution semantics:
 - [x] CPU default dialect
 - [x] family canonical dialect fallback
 - [x] Enforce dialect compatibility policy against selected CPU.
-- [ ] Return resolved pipeline context: `{family_id, cpu_id, dialect_id}` plus handlers/tables.
+- [x] Return resolved pipeline context: `{family_id, cpu_id, dialect_id}` plus handlers/tables. (`HierarchyPackage::resolve_pipeline_context`)
 - [x] Add tests for all resolver branches and failure modes. (`opthread::hierarchy::tests`)
 
 ## Phase 4 - Builder/Compiler for Hierarchical Packages

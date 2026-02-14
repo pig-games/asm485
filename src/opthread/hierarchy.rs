@@ -75,6 +75,17 @@ pub struct ResolvedHierarchy {
     pub dialect_id: String,
 }
 
+/// Fully-resolved hierarchy context with descriptor handles for downstream table lookups.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedHierarchyContext<'a> {
+    pub family_id: &'a str,
+    pub cpu_id: &'a str,
+    pub dialect_id: &'a str,
+    pub family: &'a FamilyDescriptor,
+    pub cpu: &'a CpuDescriptor,
+    pub dialect: &'a DialectDescriptor,
+}
+
 /// Hierarchy errors used by validator and resolver.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HierarchyError {
@@ -251,6 +262,42 @@ impl HierarchyPackage {
         cpu_id: &str,
         dialect_override: Option<&str>,
     ) -> Result<ResolvedHierarchy, HierarchyError> {
+        let resolved = self.resolve_pipeline_context(cpu_id, dialect_override)?;
+        Ok(ResolvedHierarchy {
+            family_id: resolved.family_id.to_string(),
+            cpu_id: resolved.cpu_id.to_string(),
+            dialect_id: resolved.dialect_id.to_string(),
+        })
+    }
+
+    pub fn resolve_pipeline_context(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<ResolvedHierarchyContext<'_>, HierarchyError> {
+        let (family, cpu, dialect) = self.resolve_pipeline_parts(cpu_id, dialect_override)?;
+        Ok(ResolvedHierarchyContext {
+            family_id: &family.id,
+            cpu_id: &cpu.id,
+            dialect_id: &dialect.id,
+            family,
+            cpu,
+            dialect,
+        })
+    }
+
+    fn resolve_pipeline_parts<'a>(
+        &'a self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<
+        (
+            &'a FamilyDescriptor,
+            &'a CpuDescriptor,
+            &'a DialectDescriptor,
+        ),
+        HierarchyError,
+    > {
         let cpu_key = NormalizedId::new(cpu_id);
         let cpu = self
             .cpus
@@ -313,11 +360,7 @@ impl HierarchyPackage {
             });
         }
 
-        Ok(ResolvedHierarchy {
-            family_id: family.id.clone(),
-            cpu_id: cpu.id.clone(),
-            dialect_id: selected.id.clone(),
-        })
+        Ok((family, cpu, selected))
     }
 
     fn validate_cross_references(&self) -> Result<(), HierarchyError> {
@@ -497,6 +540,24 @@ mod tests {
         assert_eq!(resolved.family_id, "intel8080");
         assert_eq!(resolved.cpu_id, "8085");
         assert_eq!(resolved.dialect_id, "alt");
+    }
+
+    #[test]
+    fn resolve_pipeline_context_exposes_descriptors() {
+        let package =
+            HierarchyPackage::new(vec![base_family()], vec![base_cpu()], vec![base_dialect()])
+                .expect("package should validate");
+
+        let resolved = package
+            .resolve_pipeline_context("8085", Some("intel"))
+            .expect("context should resolve");
+
+        assert_eq!(resolved.family_id, "intel8080");
+        assert_eq!(resolved.cpu_id, "8085");
+        assert_eq!(resolved.dialect_id, "intel");
+        assert_eq!(resolved.family.canonical_dialect, "intel");
+        assert_eq!(resolved.cpu.default_dialect.as_deref(), Some("intel"));
+        assert!(resolved.dialect.cpu_allow_list.is_none());
     }
 
     #[test]
