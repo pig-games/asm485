@@ -34,3 +34,8 @@ Last updated: 2026-02-14
 
 - Current execution checklist: `dev-docs/NextSteps/opthread_vm_mos6502_v0_2_realization_plan.md`.
 - This v0.2 track is intentionally limited to the MOS6502 family (`m6502`, `65c02`, `65816`) before any multi-family rollout.
+
+## Active v0.3 execution plan (MOS6502 parse/resolve realization)
+
+- Current execution checklist: `dev-docs/NextSteps/opthread_vm_parse_resolve_v0_3_mos6502_plan.md`.
+- This v0.3 track starts with `m6502` parse/resolve realization before extending to `65c02` and `65816`.
