@@ -6471,6 +6471,52 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_m65c02_example_programs_match_native_mode() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let corpus = ["65c02_simple.asm", "65c02_allmodes.asm"];
+
+    for name in corpus {
+        let path = base.join(name);
+        let native = assemble_example_entries_with_runtime_mode(&path, false)
+            .expect("native example assembly should run");
+        let runtime = assemble_example_entries_with_runtime_mode(&path, true)
+            .expect("runtime example assembly should run");
+        assert_eq!(runtime.0, native.0, "image parity mismatch for {}", name);
+        assert_eq!(
+            runtime.1, native.1,
+            "diagnostic parity mismatch for {}",
+            name
+        );
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_m65816_example_programs_match_native_mode() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let corpus = [
+        "65816_simple.asm",
+        "65816_allmodes.asm",
+        "65816_assume_state.asm",
+    ];
+
+    for name in corpus {
+        let path = base.join(name);
+        let native = assemble_example_entries_with_runtime_mode(&path, false)
+            .expect("native example assembly should run");
+        let runtime = assemble_example_entries_with_runtime_mode(&path, true)
+            .expect("runtime example assembly should run");
+        assert_eq!(runtime.0, native.0, "image parity mismatch for {}", name);
+        assert_eq!(
+            runtime.1, native.1,
+            "diagnostic parity mismatch for {}",
+            name
+        );
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
     let corpus = [
         "    BRA $0004",
