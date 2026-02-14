@@ -82,8 +82,8 @@ Execution must preserve opForge-compatible resolution semantics:
 
 ## Phase 5 - VM Runtime Integration
 
-- [ ] Add active target selection API (`set_active_cpu` equivalent in host/runtime bridge).
-- [ ] Add hierarchy-aware `resolve_pipeline(cpu, dialect_override?)` host hook.
+- [x] Add active target selection API (`set_active_cpu` equivalent in host/runtime bridge). (`HierarchyRuntimeBridge::set_active_cpu`)
+- [x] Add hierarchy-aware `resolve_pipeline(cpu, dialect_override?)` host hook. (`HierarchyRuntimeBridge::resolve_pipeline`)
 - [ ] Wire instruction encode path to resolved hierarchy context.
 - [ ] Ensure dialect mapping executes before family/CPU encode path.
 - [ ] Ensure dialect layer rewrites only and never directly encodes.
