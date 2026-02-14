@@ -385,4 +385,48 @@ mod tests {
         let b = build_hierarchy_package_from_registry(&registry).expect("second build failed");
         assert_eq!(a, b);
     }
+
+    #[test]
+    fn builder_mos_forms_have_matching_tabl_programs() {
+        let registry = test_registry();
+        let chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("builder should succeed");
+
+        assert_forms_have_tabl_programs_for_owner(
+            &chunks,
+            &ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
+        );
+        assert_forms_have_tabl_programs_for_owner(
+            &chunks,
+            &ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+        );
+        assert_forms_have_tabl_programs_for_owner(
+            &chunks,
+            &ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+        );
+    }
+
+    fn assert_forms_have_tabl_programs_for_owner(chunks: &HierarchyChunks, owner: &ScopedOwner) {
+        let form_mnemonics: std::collections::HashSet<String> = chunks
+            .forms
+            .iter()
+            .filter(|entry| entry.owner == *owner)
+            .map(|entry| entry.mnemonic.to_ascii_lowercase())
+            .collect();
+        let tabl_mnemonics: std::collections::HashSet<String> = chunks
+            .tables
+            .iter()
+            .filter(|entry| entry.owner == *owner)
+            .map(|entry| entry.mnemonic.to_ascii_lowercase())
+            .collect();
+
+        for mnemonic in form_mnemonics {
+            assert!(
+                tabl_mnemonics.contains(&mnemonic),
+                "owner {:?} missing TABL program for mnemonic '{}'",
+                owner,
+                mnemonic
+            );
+        }
+    }
 }

@@ -40,9 +40,9 @@ Deliver a MOS6502-family runtime path where opThread package execution is author
 
 ## Phase 2 - Package metadata completeness gates (MOS)
 
-- [ ] Add checks/tests that MOS scoped `FORM` metadata and `TABL` programs stay coherent.
-- [ ] Ensure CPU-extension mnemonics (including 65C02 bit-branch mnemonics) are represented in both dispatch metadata and VM program tables.
-- [ ] Keep metadata ordering deterministic and snapshot-stable.
+- [x] Add checks/tests that MOS scoped `FORM` metadata and `TABL` programs stay coherent.
+- [x] Ensure CPU-extension mnemonics (including 65C02 bit-branch mnemonics) are represented in both dispatch metadata and VM program tables.
+- [x] Keep metadata ordering deterministic and snapshot-stable.
 
 ## Phase 3 - Parity expansion and hardening (MOS)
 
