@@ -1,0 +1,6 @@
+family=mos6502
+cpu=m6502
+dialect=transparent
+native_line=    LDA #$10
+canonical_line=    LDA #$10
+expect_status=ok

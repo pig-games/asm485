@@ -179,6 +179,48 @@ fn assemble_example_with_base(
     Ok(map_outputs)
 }
 
+#[cfg(feature = "opthread-runtime")]
+fn assemble_example_entries_with_runtime_mode(
+    asm_path: &Path,
+    enable_opthread_runtime: bool,
+) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
+    let root_lines =
+        expand_source_file(asm_path, &[], 64).map_err(|err| format!("Preprocess failed: {err}"))?;
+    let graph = load_module_graph(asm_path, root_lines.clone(), &[], 64)
+        .map_err(|err| format!("Preprocess failed: {err}"))?;
+    let expanded_lines = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.set_opthread_runtime_enabled(enable_opthread_runtime);
+    assembler.root_metadata.root_module_id =
+        Some(root_module_id_from_lines(asm_path, &root_lines).map_err(|err| err.to_string())?);
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+
+    let pass1 = assembler.pass1(&expanded_lines);
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&expanded_lines, &mut listing)
+        .map_err(|err| format!("Pass2 failed: {err}"))?;
+
+    let entries = assembler
+        .image()
+        .entries()
+        .map_err(|err| format!("Read generated output: {err}"))?;
+    let diagnostics: Vec<String> = assembler
+        .diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+        .collect();
+
+    if pass1.errors > 0 || pass2.errors > 0 {
+        return Ok((entries, diagnostics));
+    }
+    Ok((entries, diagnostics))
+}
+
 fn run_pass1(lines: &[&str]) -> Assembler {
     let mut assembler = Assembler::new();
     let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
@@ -6403,5 +6445,26 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
             line
         );
         assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos6502_example_programs_match_native_mode() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let corpus = ["6502_simple.asm", "6502_allmodes.asm", "mos6502_modes.asm"];
+
+    for name in corpus {
+        let path = base.join(name);
+        let native = assemble_example_entries_with_runtime_mode(&path, false)
+            .expect("native example assembly should run");
+        let runtime = assemble_example_entries_with_runtime_mode(&path, true)
+            .expect("runtime example assembly should run");
+        assert_eq!(runtime.0, native.0, "image parity mismatch for {}", name);
+        assert_eq!(
+            runtime.1, native.1,
+            "diagnostic parity mismatch for {}",
+            name
+        );
     }
 }

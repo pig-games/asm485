@@ -13,9 +13,10 @@ Last updated: 2026-02-14
 
 1. Pilot family parity smoke passes for bytes + diagnostics on the `.optst` corpus.
 2. MOS6502 base-CPU differential parity corpus passes in both native and package-runtime modes.
-3. Full project validation is green (`cargo fmt`, `cargo clippy -- -D warnings`, `cargo audit`, `make test`).
-4. Deterministic package snapshots remain stable for hierarchy chunks.
-5. Documentation and migration notes are synchronized with runtime behavior.
+3. MOS6502 example-program differential parity passes for `6502_simple.asm`, `6502_allmodes.asm`, and `mos6502_modes.asm`.
+4. Full project validation is green (`cargo fmt`, `cargo clippy -- -D warnings`, `cargo audit`, `make test`).
+5. Deterministic package snapshots remain stable for hierarchy chunks.
+6. Documentation and migration notes are synchronized with runtime behavior.
 
 ## Known limitations (v0.1)
 

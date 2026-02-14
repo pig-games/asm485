@@ -930,7 +930,7 @@ impl<'a> AsmLine<'a> {
         Self::with_cpu_and_metadata(symbols, cpu, registry, RootMetadata::default())
     }
 
-    #[cfg(all(test, feature = "opthread-runtime"))]
+    #[cfg(feature = "opthread-runtime")]
     fn with_cpu_runtime_mode(
         symbols: &'a mut SymbolTable,
         cpu: CpuType,

@@ -1,0 +1,6 @@
+family=mos6502
+cpu=m6502
+dialect=transparent
+native_line=    JMP missing_label
+canonical_line=    JMP missing_label
+expect_status=error

@@ -1,0 +1,6 @@
+family=mos6502
+cpu=m6502
+dialect=transparent
+native_line=    BRA $0004
+canonical_line=    BRA $0004
+expect_status=error
