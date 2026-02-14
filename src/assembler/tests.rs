@@ -6493,6 +6493,31 @@ fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
     }
 }
 
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
+    let corpus = [
+        "    REP #$30",
+        "    SEP #$20",
+        "    XBA",
+        "    JSL $001234",
+        "    JML $001234",
+        "    MVN $01,$02",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m65816_cpu_id, line, false);
+        let package_mode = assemble_line_with_runtime_mode(m65816_cpu_id, line, true);
+        assert_eq!(package_mode.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(
+            package_mode.1, native.1,
+            "diagnostic mismatch for '{}'",
+            line
+        );
+        assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
 fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
     match mode {
         AddressMode::Implied => None,

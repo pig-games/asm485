@@ -289,6 +289,7 @@ mod tests {
     use crate::core::tokenizer::Span;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
     use crate::families::mos6502::Operand;
+    use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::builder::build_hierarchy_chunks_from_registry;
     use crate::opthread::hierarchy::{CpuDescriptor, DialectDescriptor, FamilyDescriptor};
@@ -397,6 +398,7 @@ mod tests {
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -417,6 +419,7 @@ mod tests {
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -433,6 +436,7 @@ mod tests {
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -449,6 +453,7 @@ mod tests {
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         let mut chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -484,6 +489,7 @@ mod tests {
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
 
         let mut chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -495,5 +501,22 @@ mod tests {
             .encode_instruction("m6502", None, "LDA", &operands)
             .expect("vm encode should resolve");
         assert!(bytes.is_none());
+    }
+
+    #[test]
+    fn execution_model_vm_encode_supports_m65816_cpu_tables() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let operands = MOS6502Operands(vec![Operand::AbsoluteLong(0x001234, Span::default())]);
+        let bytes = model
+            .encode_instruction("65816", None, "JSL", &operands)
+            .expect("vm encode should resolve");
+        assert_eq!(bytes, Some(vec![0x22, 0x34, 0x12, 0x00]));
     }
 }
