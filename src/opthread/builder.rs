@@ -4,8 +4,12 @@
 //! Build opThread hierarchy chunks from the live opForge module registry.
 
 use crate::core::registry::ModuleRegistry;
-use crate::families::mos6502::module::CPU_ID as M6502_CPU_ID;
+use crate::families::mos6502::module::FAMILY_ID as MOS6502_FAMILY_ID;
 use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
+use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_CPU_INSTRUCTION_TABLE;
+use crate::m65816::module::CPU_ID as M65816_CPU_ID;
+use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_CPU_INSTRUCTION_TABLE;
+use crate::m65c02::module::CPU_ID as M65C02_CPU_ID;
 use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
@@ -149,19 +153,45 @@ pub fn build_hierarchy_chunks_from_registry(
     }
 
     let mut tables = Vec::new();
-    for entry in FAMILY_INSTRUCTION_TABLE {
-        let mut program = vec![OP_EMIT_U8, entry.opcode];
-        if entry.mode.operand_size() > 0 {
-            program.push(OP_EMIT_OPERAND);
-            program.push(0x00);
+    let registered_family_ids: std::collections::HashSet<String> = family_ids
+        .iter()
+        .map(|family| family.as_str().to_ascii_lowercase())
+        .collect();
+    let registered_cpu_ids: std::collections::HashSet<String> = registry
+        .cpu_ids()
+        .iter()
+        .map(|cpu| cpu.as_str().to_ascii_lowercase())
+        .collect();
+
+    if registered_family_ids.contains(MOS6502_FAMILY_ID.as_str()) {
+        for entry in FAMILY_INSTRUCTION_TABLE {
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: format!("{:?}", entry.mode),
+                program: compile_opcode_program(entry.opcode, entry.mode.operand_size() > 0),
+            });
         }
-        program.push(OP_END);
-        tables.push(VmProgramDescriptor {
-            owner: ScopedOwner::Cpu(M6502_CPU_ID.as_str().to_string()),
-            mnemonic: entry.mnemonic.to_string(),
-            mode_key: format!("{:?}", entry.mode),
-            program,
-        });
+    }
+    if registered_cpu_ids.contains(M65C02_CPU_ID.as_str()) {
+        for entry in M65C02_CPU_INSTRUCTION_TABLE {
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: format!("{:?}", entry.mode),
+                program: compile_opcode_program(entry.opcode, entry.mode.operand_size() > 0),
+            });
+        }
+    }
+    if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
+        for entry in M65816_CPU_INSTRUCTION_TABLE {
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: format!("{:?}", entry.mode),
+                program: compile_opcode_program(entry.opcode, entry.mode.operand_size() > 0),
+            });
+        }
     }
 
     canonicalize_hierarchy_metadata(
@@ -184,6 +214,16 @@ pub fn build_hierarchy_chunks_from_registry(
         forms,
         tables,
     })
+}
+
+fn compile_opcode_program(opcode: u8, has_operand: bool) -> Vec<u8> {
+    let mut program = vec![OP_EMIT_U8, opcode];
+    if has_operand {
+        program.push(OP_EMIT_OPERAND);
+        program.push(0x00);
+    }
+    program.push(OP_END);
+    program
 }
 
 /// Build and encode an `.opcpu` container with hierarchy chunks from registry metadata.
@@ -255,9 +295,14 @@ mod tests {
                 && entry.mnemonic == "ld"
         }));
         assert!(chunks.tables.iter().any(|entry| {
-            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "m6502")
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
                 && entry.mnemonic == "lda"
                 && entry.mode_key == "immediate"
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")
+                && entry.mnemonic == "bra"
+                && entry.mode_key == "relative"
         }));
 
         assert!(chunks

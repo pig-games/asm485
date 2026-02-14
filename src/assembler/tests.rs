@@ -6469,6 +6469,30 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
     }
 }
 
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
+    let corpus = [
+        "    BRA $0004",
+        "    STZ $10",
+        "    BIT #$10",
+        "    JMP ($1234,X)",
+        "    SMB0 $10",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m65c02_cpu_id, line, false);
+        let package_mode = assemble_line_with_runtime_mode(m65c02_cpu_id, line, true);
+        assert_eq!(package_mode.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(
+            package_mode.1, native.1,
+            "diagnostic mismatch for '{}'",
+            line
+        );
+        assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
 fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
     match mode {
         AddressMode::Implied => None,

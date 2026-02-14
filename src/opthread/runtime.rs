@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_vm_encode_is_scoped_to_base_6502() {
+    fn execution_model_vm_encode_supports_m65c02_cpu_tables() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
@@ -436,11 +436,11 @@ mod tests {
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
-        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
+        let operands = MOS6502Operands(vec![Operand::Relative(2, Span::default())]);
         let bytes = model
-            .encode_instruction("65c02", None, "LDA", &operands)
+            .encode_instruction("65c02", None, "BRA", &operands)
             .expect("vm encode should resolve");
-        assert!(bytes.is_none());
+        assert_eq!(bytes, Some(vec![0x80, 0x02]));
     }
 
     #[test]
@@ -454,8 +454,8 @@ mod tests {
             build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
         let mut patched = false;
         for program in &mut chunks.tables {
-            let is_m6502_owner = matches!(&program.owner, ScopedOwner::Cpu(owner) if owner.eq_ignore_ascii_case("m6502"));
-            if is_m6502_owner
+            let is_mos6502_family_owner = matches!(&program.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+            if is_mos6502_family_owner
                 && program.mnemonic.eq_ignore_ascii_case("lda")
                 && program.mode_key.eq_ignore_ascii_case("immediate")
             {
