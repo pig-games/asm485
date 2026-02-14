@@ -6558,6 +6558,12 @@ fn opthread_runtime_m65816_example_programs_match_native_mode() {
         "65816_simple.asm",
         "65816_allmodes.asm",
         "65816_assume_state.asm",
+        "65816_wide_alignment.asm",
+        "65816_wide_const_var.asm",
+        "65816_wide_image.asm",
+        "65816_wide_listing_aux.asm",
+        "65816_wide_mapfile.asm",
+        "65816_bss_wide_reserve.asm",
     ];
 
     for name in corpus {
@@ -6572,6 +6578,25 @@ fn opthread_runtime_m65816_example_programs_match_native_mode() {
             "diagnostic parity mismatch for {}",
             name
         );
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "    BNE $0200"),
+        (m6502_cpu_id, "    JMP missing_label"),
+        (m65c02_cpu_id, "    BBR0 $12,$0200"),
+        (m65816_cpu_id, "    BRL $8003"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
     }
 }
 

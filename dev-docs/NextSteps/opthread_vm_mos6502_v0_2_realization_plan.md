@@ -46,9 +46,9 @@ Deliver a MOS6502-family runtime path where opThread package execution is author
 
 ## Phase 3 - Parity expansion and hardening (MOS)
 
-- [ ] Expand/refresh parity corpus coverage for MOS family stateful and ambiguous operand cases.
-- [ ] Add additional unresolved/reloc and boundary diagnostics parity checks for MOS runtime mode.
-- [ ] Keep example-program parity green for MOS family examples.
+- [x] Expand/refresh parity corpus coverage for MOS family stateful and ambiguous operand cases.
+- [x] Add additional unresolved/reloc and boundary diagnostics parity checks for MOS runtime mode.
+- [x] Keep example-program parity green for MOS family examples.
 
 ## Phase 4 - Runtime bridge cleanup (MOS)
 
