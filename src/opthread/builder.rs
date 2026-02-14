@@ -5,7 +5,7 @@
 
 use crate::core::registry::ModuleRegistry;
 use crate::families::mos6502::module::FAMILY_ID as MOS6502_FAMILY_ID;
-use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
+use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_CPU_INSTRUCTION_TABLE;
 use crate::m65816::module::CPU_ID as M65816_CPU_ID;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_CPU_INSTRUCTION_TABLE;
@@ -169,7 +169,10 @@ pub fn build_hierarchy_chunks_from_registry(
                 owner: ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
                 mnemonic: entry.mnemonic.to_string(),
                 mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(entry.opcode, entry.mode.operand_size() > 0),
+                program: compile_opcode_program(
+                    entry.opcode,
+                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
+                ),
             });
         }
     }
@@ -179,9 +182,13 @@ pub fn build_hierarchy_chunks_from_registry(
                 owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
                 mnemonic: entry.mnemonic.to_string(),
                 mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(entry.opcode, entry.mode.operand_size() > 0),
+                program: compile_opcode_program(
+                    entry.opcode,
+                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
+                ),
             });
         }
+        tables.extend(compile_m65c02_bit_branch_programs());
     }
     if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
         for entry in M65816_CPU_INSTRUCTION_TABLE {
@@ -189,7 +196,10 @@ pub fn build_hierarchy_chunks_from_registry(
                 owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
                 mnemonic: entry.mnemonic.to_string(),
                 mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(entry.opcode, entry.mode.operand_size() > 0),
+                program: compile_opcode_program(
+                    entry.opcode,
+                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
+                ),
             });
         }
     }
@@ -216,14 +226,41 @@ pub fn build_hierarchy_chunks_from_registry(
     })
 }
 
-fn compile_opcode_program(opcode: u8, has_operand: bool) -> Vec<u8> {
+fn compile_opcode_program(opcode: u8, operand_count: usize) -> Vec<u8> {
     let mut program = vec![OP_EMIT_U8, opcode];
-    if has_operand {
+    for operand_index in 0..operand_count {
         program.push(OP_EMIT_OPERAND);
-        program.push(0x00);
+        program.push(operand_index as u8);
     }
     program.push(OP_END);
     program
+}
+
+fn compile_m65c02_bit_branch_programs() -> Vec<VmProgramDescriptor> {
+    let mut programs = Vec::with_capacity(16);
+    for bit in 0u8..=7 {
+        programs.push(VmProgramDescriptor {
+            owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+            mnemonic: format!("BBR{bit}"),
+            mode_key: format!("{:?}", AddressMode::ZeroPage),
+            program: compile_opcode_program(m65c02_bit_branch_opcode(bit, false), 2),
+        });
+        programs.push(VmProgramDescriptor {
+            owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+            mnemonic: format!("BBS{bit}"),
+            mode_key: format!("{:?}", AddressMode::ZeroPage),
+            program: compile_opcode_program(m65c02_bit_branch_opcode(bit, true), 2),
+        });
+    }
+    programs
+}
+
+fn m65c02_bit_branch_opcode(bit: u8, is_set: bool) -> u8 {
+    if is_set {
+        0x8F + (bit << 4)
+    } else {
+        0x0F + (bit << 4)
+    }
 }
 
 /// Build and encode an `.opcpu` container with hierarchy chunks from registry metadata.
@@ -303,6 +340,11 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")
                 && entry.mnemonic == "bra"
                 && entry.mode_key == "relative"
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")
+                && entry.mnemonic == "bbr0"
+                && entry.mode_key == "zeropage"
         }));
 
         assert!(chunks

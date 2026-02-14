@@ -448,6 +448,26 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_vm_encode_supports_m65c02_bit_branch_tables() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let operands = MOS6502Operands(vec![
+            Operand::ZeroPage(0x12, Span::default()),
+            Operand::Relative(0x05, Span::default()),
+        ]);
+        let bytes = model
+            .encode_instruction("65c02", None, "BBR0", &operands)
+            .expect("vm encode should resolve");
+        assert_eq!(bytes, Some(vec![0x0F, 0x12, 0x05]));
+    }
+
+    #[test]
     fn execution_model_uses_package_tabl_programs_for_vm_encode() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));

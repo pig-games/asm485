@@ -6474,6 +6474,7 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
 fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
     let corpus = [
         "    BRA $0004",
+        "    BBR0 $12,$0005",
         "    STZ $10",
         "    BIT #$10",
         "    JMP ($1234,X)",
