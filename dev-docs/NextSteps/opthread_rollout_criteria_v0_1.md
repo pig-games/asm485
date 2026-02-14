@@ -29,3 +29,8 @@ Last updated: 2026-02-14
 - Full package bytecode encode path execution in runtime.
 - Expanded parity corpus (full examples, relocation-heavy suites, larger diagnostics coverage).
 - Multi-family rollout with per-family migration playbooks.
+
+## Active v0.2 execution plan (MOS6502 family only)
+
+- Current execution checklist: `dev-docs/NextSteps/opthread_vm_mos6502_v0_2_realization_plan.md`.
+- This v0.2 track is intentionally limited to the MOS6502 family (`m6502`, `65c02`, `65816`) before any multi-family rollout.
