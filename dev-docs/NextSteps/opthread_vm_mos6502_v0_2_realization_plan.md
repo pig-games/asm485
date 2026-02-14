@@ -64,6 +64,12 @@ Deliver a MOS6502-family runtime path where opThread package execution is author
 
 ## Phase 5 - Readiness gate
 
-- [ ] Run full validation workflow clean.
-- [ ] Confirm feature-flag behavior and regression expectations in docs.
-- [ ] Record known follow-up items for post-MOS multi-family rollout.
+- [x] Run full validation workflow clean.
+- [x] Confirm feature-flag behavior and regression expectations in docs.
+- [x] Record known follow-up items for post-MOS multi-family rollout.
+
+### Post-MOS follow-up items
+
+- Extend VM-only realization from MOS6502 family to additional families behind the same staged feature-flag process.
+- Reduce host-native operand-resolution dependency by moving more mode-selection semantics into package-executable metadata.
+- Evaluate optional `TOKS` and `TEST` chunk adoption for richer package-defined tokenizer policy and embedded self-tests.
