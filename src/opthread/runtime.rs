@@ -5,12 +5,17 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::core::registry::ModuleRegistry;
+use crate::core::registry::{ModuleRegistry, OperandSet};
+use crate::families::mos6502::module::{
+    MOS6502Operands, CPU_ID as M6502_CPU_ID, FAMILY_ID as MOS6502_FAMILY_ID,
+};
+use crate::families::mos6502::Operand;
 use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 use crate::opthread::package::HierarchyChunks;
+use crate::opthread::vm6502::{Mos6502VmProgramSet, Vm6502Error};
 
 /// Errors emitted by the opThread host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,6 +23,7 @@ pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
     Build(HierarchyBuildError),
     Hierarchy(HierarchyError),
+    Vm6502(Vm6502Error),
 }
 
 impl std::fmt::Display for RuntimeBridgeError {
@@ -26,6 +32,7 @@ impl std::fmt::Display for RuntimeBridgeError {
             Self::ActiveCpuNotSet => write!(f, "active cpu is not set"),
             Self::Build(err) => write!(f, "runtime model build error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
+            Self::Vm6502(err) => write!(f, "mos6502 VM encode error: {}", err),
         }
     }
 }
@@ -41,6 +48,12 @@ impl From<HierarchyError> for RuntimeBridgeError {
 impl From<HierarchyBuildError> for RuntimeBridgeError {
     fn from(value: HierarchyBuildError) -> Self {
         Self::Build(value)
+    }
+}
+
+impl From<Vm6502Error> for RuntimeBridgeError {
+    fn from(value: Vm6502Error) -> Self {
+        Self::Vm6502(value)
     }
 }
 
@@ -125,6 +138,7 @@ pub struct HierarchyExecutionModel {
     family_forms: HashMap<String, HashSet<String>>,
     cpu_forms: HashMap<String, HashSet<String>>,
     dialect_forms: HashMap<String, HashSet<String>>,
+    mos6502_vm: Mos6502VmProgramSet,
 }
 
 impl HierarchyExecutionModel {
@@ -167,6 +181,7 @@ impl HierarchyExecutionModel {
             family_forms,
             cpu_forms,
             dialect_forms,
+            mos6502_vm: Mos6502VmProgramSet::from_family_table(),
         })
     }
 
@@ -203,6 +218,52 @@ impl HierarchyExecutionModel {
             &needle,
         ))
     }
+
+    pub fn encode_mos6502_instruction(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        mnemonic: &str,
+        operands: &dyn OperandSet,
+    ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        if !resolved
+            .family_id
+            .eq_ignore_ascii_case(MOS6502_FAMILY_ID.as_str())
+            || !resolved.cpu_id.eq_ignore_ascii_case(M6502_CPU_ID.as_str())
+        {
+            return Ok(None);
+        }
+
+        let Some(mos_operands) = operands.as_any().downcast_ref::<MOS6502Operands>() else {
+            return Ok(None);
+        };
+        self.mos6502_vm
+            .encode_instruction(mnemonic, mos_operands.0.as_slice())
+            .map(Some)
+            .map_err(Into::into)
+    }
+
+    pub fn encode_mos6502_operands(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        mnemonic: &str,
+        operands: &[Operand],
+    ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        if !resolved
+            .family_id
+            .eq_ignore_ascii_case(MOS6502_FAMILY_ID.as_str())
+            || !resolved.cpu_id.eq_ignore_ascii_case(M6502_CPU_ID.as_str())
+        {
+            return Ok(None);
+        }
+        self.mos6502_vm
+            .encode_instruction(mnemonic, operands)
+            .map(Some)
+            .map_err(Into::into)
+    }
 }
 
 fn contains_form(map: &HashMap<String, HashSet<String>>, owner_id: &str, mnemonic: &str) -> bool {
@@ -214,7 +275,9 @@ fn contains_form(map: &HashMap<String, HashSet<String>>, owner_id: &str, mnemoni
 mod tests {
     use super::*;
     use crate::core::registry::ModuleRegistry;
+    use crate::core::tokenizer::Span;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+    use crate::families::mos6502::Operand;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::hierarchy::{CpuDescriptor, DialectDescriptor, FamilyDescriptor};
 
@@ -333,5 +396,45 @@ mod tests {
         assert!(model
             .supports_mnemonic("65c02", None, "bra")
             .expect("resolve bra for 65c02"));
+    }
+
+    #[test]
+    fn execution_model_encodes_base_6502_instruction_via_vm() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let bytes = model
+            .encode_mos6502_operands(
+                "m6502",
+                None,
+                "LDA",
+                &[Operand::Immediate(0x42, Span::default())],
+            )
+            .expect("vm encode should succeed");
+        assert_eq!(bytes, Some(vec![0xA9, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_vm_encode_is_scoped_to_base_6502() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let bytes = model
+            .encode_mos6502_operands(
+                "65c02",
+                None,
+                "LDA",
+                &[Operand::Immediate(0x42, Span::default())],
+            )
+            .expect("vm encode should resolve");
+        assert!(bytes.is_none());
     }
 }

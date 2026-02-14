@@ -3360,6 +3360,50 @@ impl<'a> AsmLine<'a> {
             }
         }
 
+        #[cfg(feature = "opthread-runtime")]
+        if self.opthread_runtime_enabled {
+            if let Some(model) = self.opthread_execution_model.as_ref() {
+                match model.encode_mos6502_instruction(
+                    self.cpu.as_str(),
+                    None,
+                    &mapped_mnemonic,
+                    resolved_operands.as_ref(),
+                ) {
+                    Ok(Some(bytes)) => {
+                        if let Err(err) = self.validate_instruction_emit_span(
+                            &mapped_mnemonic,
+                            operands,
+                            bytes.len(),
+                        ) {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                err.error.message(),
+                                None,
+                                err.span,
+                            );
+                        }
+                        self.bytes.extend_from_slice(&bytes);
+                        self.apply_cpu_runtime_state_after_encode(
+                            pipeline.cpu.as_ref(),
+                            &mapped_mnemonic,
+                            resolved_operands.as_ref(),
+                        );
+                        return LineStatus::Ok;
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err.to_string(),
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+
         match pipeline
             .family
             .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
