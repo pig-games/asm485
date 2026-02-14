@@ -6258,3 +6258,92 @@ fn error_kind_for_symbol_failure() {
     assert_eq!(status, LineStatus::Error);
     assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Symbol);
 }
+
+#[cfg(feature = "opthread-parity")]
+#[test]
+fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
+    use crate::opthread::builder::build_hierarchy_package_from_registry;
+    use crate::opthread::package::load_hierarchy_package;
+    use std::fs;
+    use std::path::Path;
+
+    let registry = default_registry();
+    let package_bytes =
+        build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
+    let package = load_hierarchy_package(&package_bytes).expect("load hierarchy package");
+    let vectors_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/opthread/vectors");
+    let mut vector_paths: Vec<_> = fs::read_dir(vectors_dir)
+        .expect("read vectors dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "optst"))
+        .collect();
+    vector_paths.sort();
+
+    for vector_path in vector_paths {
+        let content = fs::read_to_string(&vector_path).expect("read vector");
+        let mut fields = std::collections::HashMap::new();
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = trimmed.split_once('=') {
+                fields.insert(key.trim().to_string(), value.trim_end().to_string());
+            }
+        }
+
+        let cpu_name = fields.get("cpu").expect("cpu field");
+        let cpu = registry
+            .resolve_cpu_name(cpu_name)
+            .expect("cpu must exist in registry");
+        let expected_dialect = fields.get("dialect").expect("dialect field");
+        let native_line = fields.get("native_line").expect("native_line field");
+        let canonical_line = fields.get("canonical_line").expect("canonical_line field");
+        let expect_status = fields.get("expect_status").expect("expect_status field");
+
+        let resolved = package
+            .resolve_pipeline(cpu.as_str(), None)
+            .expect("pipeline should resolve");
+        assert_eq!(
+            resolved.dialect_id.to_ascii_lowercase(),
+            expected_dialect.to_ascii_lowercase(),
+            "vector {} resolved unexpected dialect",
+            vector_path.display()
+        );
+
+        match expect_status.as_str() {
+            "ok" => {
+                let native_bytes = assemble_bytes(cpu, native_line);
+                let package_path_bytes = assemble_bytes(cpu, canonical_line);
+                assert_eq!(
+                    native_bytes,
+                    package_path_bytes,
+                    "vector {} byte mismatch",
+                    vector_path.display()
+                );
+            }
+            "error" => {
+                let (native_status, native_message) = assemble_line_status(cpu, native_line);
+                let (package_status, package_message) = assemble_line_status(cpu, canonical_line);
+                assert_eq!(
+                    native_status,
+                    package_status,
+                    "vector {} status mismatch",
+                    vector_path.display()
+                );
+                assert_eq!(
+                    native_message,
+                    package_message,
+                    "vector {} diagnostic mismatch",
+                    vector_path.display()
+                );
+            }
+            other => panic!(
+                "unsupported expect_status '{}' in {}",
+                other,
+                vector_path.display()
+            ),
+        }
+    }
+}

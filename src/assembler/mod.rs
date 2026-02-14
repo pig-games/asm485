@@ -1865,15 +1865,21 @@ impl<'a> AsmLine<'a> {
         );
     }
 
+    fn resolve_pipeline_for_cpu<'b>(
+        registry: &'b ModuleRegistry,
+        cpu: CpuType,
+    ) -> Result<crate::core::registry::ResolvedPipeline<'b>, String> {
+        registry
+            .resolve_pipeline(cpu, None)
+            .map_err(registry_error_message)
+    }
+
     fn apply_cpu_runtime_directive(
         &mut self,
         directive: &str,
         operands: &[Expr],
     ) -> Result<bool, String> {
-        let pipeline = self
-            .registry
-            .resolve_pipeline(self.cpu, None)
-            .map_err(registry_error_message)?;
+        let pipeline = Self::resolve_pipeline_for_cpu(self.registry, self.cpu)?;
         let mut state_flags = std::mem::take(&mut self.cpu_state_flags);
         let result =
             pipeline
@@ -3175,15 +3181,10 @@ impl<'a> AsmLine<'a> {
     }
 
     fn process_instruction_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
-        let pipeline = match self.registry.resolve_pipeline(self.cpu, None) {
+        let pipeline = match Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
             Ok(pipeline) => pipeline,
-            Err(err) => {
-                return self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &registry_error_message(err),
-                    None,
-                )
+            Err(message) => {
+                return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &message, None)
             }
         };
 

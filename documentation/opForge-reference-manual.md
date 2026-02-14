@@ -537,6 +537,15 @@ Expansion model:
 5. Run **CPU validator** (trait exists, currently unused by CPUs).
 6. Encode with **family handler**; fall back to **CPU handler** for extensions.
 
+#### opThread hierarchy bridge (v0.1 in-progress)
+
+- `src/opthread/runtime.rs` provides host-facing target selection:
+  - `set_active_cpu(cpu_id)`
+  - `resolve_pipeline(cpu_id, dialect_override?)`
+- Dialect override is host policy only; source still has **no `.dialect` directive**.
+- The bridge validates override compatibility against family ownership + optional CPU allow-list.
+- Dialect modules are rewrite-only surfaces; instruction encoding remains family/CPU owned.
+
 ## 6. Compatibility
 
 - Dot-prefixed directives are required (for `.org`, `.set`, `.if`, etc.).
@@ -940,3 +949,27 @@ pub trait DialectModule: Send + Sync {
     ) -> Option<(String, Box<dyn FamilyOperandSet>)>;
 }
 ```
+
+## 15. opThread package authoring notes (v0.1 draft)
+
+### Ownership rules
+
+- Put canonical/shared instruction forms in **family** scope.
+- Put CPU-only mnemonics, overrides, and capability-specific forms in **CPU** scope.
+- Put syntax rewrites only in **dialect** scope (mnemonic/operand/token rewrites).
+- Dialects never encode bytes directly; they rewrite into canonical family/CPU encode paths.
+
+### Compatibility and fallback rules
+
+- Dialect namespace is family-owned.
+- `resolve_pipeline` order is: explicit host override -> CPU default dialect -> family canonical dialect.
+- Optional dialect CPU allow-lists are enforced after selection.
+- Source files have no `.dialect` directive in compatibility mode.
+
+### Native-to-package migration checklist
+
+1. Extract shared forms/registers from family handlers into family-scoped package metadata.
+2. Move CPU extension forms/registers into CPU-scoped overlays.
+3. Convert dialect mapper tables into deterministic rewrite rules.
+4. Keep directives/macros/linker/output behavior host-owned in v0.1.
+5. Add parity vectors (`.optst`) and run `make test-opthread-parity`.

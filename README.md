@@ -36,6 +36,10 @@ Run the full test suite:
 
     make test
 
+Run opThread parity smoke checks (feature-gated):
+
+    make test-opthread-parity
+
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
     make reference

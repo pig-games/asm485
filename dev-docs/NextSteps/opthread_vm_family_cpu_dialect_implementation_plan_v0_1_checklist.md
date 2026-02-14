@@ -28,10 +28,10 @@ Execution must preserve opForge-compatible resolution semantics:
 
 ## Phase 0 - Design Lock and Boundaries
 
-- [ ] Confirm normative hierarchy and pipeline rules are frozen in `opthread_vm_cpu_package_spec_v0_1.md`.
-- [ ] Freeze chunk names and required/optional status: `META`, `STRS`, `DIAG`, `FAMS`, `CPUS`, `DIAL`, `REGS`, `FORM`, `TABL`, optional `TOKS`, `TEST`.
-- [ ] Freeze compatibility behavior: no source `.dialect` directive, dialect override only via host policy.
-- [ ] Define package compatibility/versioning policy for future schema evolution.
+- [x] Confirm normative hierarchy and pipeline rules are frozen in `opthread_vm_cpu_package_spec_v0_1.md`.
+- [x] Freeze chunk names and required/optional status: `META`, `STRS`, `DIAG`, `FAMS`, `CPUS`, `DIAL`, `REGS`, `FORM`, `TABL`, optional `TOKS`, `TEST`.
+- [x] Freeze compatibility behavior: no source `.dialect` directive, dialect override only via host policy.
+- [x] Define package compatibility/versioning policy for future schema evolution.
 
 ## Phase 1 - Rust Data Model for Hierarchy
 
@@ -84,90 +84,90 @@ Execution must preserve opForge-compatible resolution semantics:
 
 - [x] Add active target selection API (`set_active_cpu` equivalent in host/runtime bridge). (`HierarchyRuntimeBridge::set_active_cpu`)
 - [x] Add hierarchy-aware `resolve_pipeline(cpu, dialect_override?)` host hook. (`HierarchyRuntimeBridge::resolve_pipeline`)
-- [ ] Wire instruction encode path to resolved hierarchy context.
-- [ ] Ensure dialect mapping executes before family/CPU encode path.
-- [ ] Ensure dialect layer rewrites only and never directly encodes.
-- [ ] Add pass-through behavior for host-owned features (directives/macros/linker/output) unchanged in v0.1 scope.
+- [x] Wire instruction encode path to resolved hierarchy context.
+- [x] Ensure dialect mapping executes before family/CPU encode path.
+- [x] Ensure dialect layer rewrites only and never directly encodes.
+- [x] Add pass-through behavior for host-owned features (directives/macros/linker/output) unchanged in v0.1 scope.
 
 ## Phase 6 - Dialect Rewrite Engine Constraints
 
-- [ ] Implement bounded rewrite passes and growth limits per statement.
-- [ ] Implement deterministic matching and rewrite application order.
-- [ ] Implement compatibility filtering:
-- [ ] family-only dialect namespace
-- [ ] optional CPU allow-list
-- [ ] Add diagnostics for rewrite overflow and invalid rewrite outputs.
-- [ ] Add tests for mixed-family rejection, allow-list rejection, and successful canonical mapping.
+- [x] Implement bounded rewrite passes and growth limits per statement.
+- [x] Implement deterministic matching and rewrite application order.
+- [x] Implement compatibility filtering:
+- [x] family-only dialect namespace
+- [x] optional CPU allow-list
+- [x] Add diagnostics for rewrite overflow and invalid rewrite outputs.
+- [x] Add tests for mixed-family rejection, allow-list rejection, and successful canonical mapping.
 
 ## Phase 7 - Pilot Family Migration
 
-- [ ] Select pilot family with at least two CPUs and two dialects (recommended: Intel8080 family with 8085 + Z80 dialect behavior).
-- [ ] Port family base forms into package representation.
-- [ ] Port CPU extensions for each pilot CPU.
-- [ ] Port dialect rewrites for pilot dialect(s).
-- [ ] Validate package path output parity against native path for pilot programs.
+- [x] Select pilot family with at least two CPUs and two dialects (recommended: Intel8080 family with 8085 + Z80 dialect behavior).
+- [x] Port family base forms into package representation.
+- [x] Port CPU extensions for each pilot CPU.
+- [x] Port dialect rewrites for pilot dialect(s).
+- [x] Validate package path output parity against native path for pilot programs.
 
 ## Phase 8 - Differential Parity Harness
 
-- [ ] Add harness to run native Rust encoding and opThread package encoding side-by-side.
-- [ ] Compare bytes, relocation records, and diagnostics per instruction case.
-- [ ] Add parity corpus:
-- [ ] existing examples
-- [ ] targeted edge cases for ambiguous operands
-- [ ] dialect-specific syntax cases
-- [ ] unresolved/reloc expression cases
-- [ ] Add CI mode for parity smoke tests behind feature flag.
+- [x] Add harness to run native Rust encoding and opThread package encoding side-by-side.
+- [x] Compare bytes, relocation records, and diagnostics per instruction case.
+- [x] Add parity corpus:
+- [x] existing examples
+- [x] targeted edge cases for ambiguous operands
+- [x] dialect-specific syntax cases
+- [x] unresolved/reloc expression cases
+- [x] Add CI mode for parity smoke tests behind feature flag.
 
 ## Phase 9 - Tests and Golden Fixtures
 
-- [ ] Add unit tests for hierarchy schema validators.
-- [ ] Add unit tests for resolver selection and errors.
-- [ ] Add integration tests for package loading and end-to-end statement encoding.
-- [ ] Add `.optst` vectors for family/cpu/dialect-specific behavior.
-- [ ] Run tests without updating references first.
-- [ ] If only expected diagnostic text/output fixtures differ, regenerate references and rerun tests.
+- [x] Add unit tests for hierarchy schema validators.
+- [x] Add unit tests for resolver selection and errors.
+- [x] Add integration tests for package loading and end-to-end statement encoding.
+- [x] Add `.optst` vectors for family/cpu/dialect-specific behavior.
+- [x] Run tests without updating references first.
+- [x] If only expected diagnostic text/output fixtures differ, regenerate references and rerun tests.
 
 ## Phase 10 - Documentation and Developer UX
 
-- [ ] Update `documentation/opForge-reference-manual.md` with hierarchy-aware package/runtime behavior.
-- [ ] Document host-policy dialect override mechanism (if exposed), explicitly noting no source `.dialect`.
-- [ ] Add package authoring notes for hierarchy ownership:
-- [ ] when to put logic in family vs CPU vs dialect
-- [ ] compatibility rules and fallback semantics
-- [ ] Add migration notes for maintainers converting native handlers to package form.
+- [x] Update `documentation/opForge-reference-manual.md` with hierarchy-aware package/runtime behavior.
+- [x] Document host-policy dialect override mechanism (if exposed), explicitly noting no source `.dialect`.
+- [x] Add package authoring notes for hierarchy ownership:
+- [x] when to put logic in family vs CPU vs dialect
+- [x] compatibility rules and fallback semantics
+- [x] Add migration notes for maintainers converting native handlers to package form.
 
 ## Phase 11 - Validation Gates
 
-- [ ] Run `cargo fmt`.
-- [ ] Run `cargo clippy -- -D warnings` (or project-equivalent strict clippy target).
-- [ ] Run `cargo audit`.
-- [ ] Run full test suite (`make test` or `cargo test`).
-- [ ] Confirm parity harness pass for enabled pilot targets.
-- [ ] Confirm no unexpected reference output drift remains.
+- [x] Run `cargo fmt`.
+- [x] Run `cargo clippy -- -D warnings` (or project-equivalent strict clippy target).
+- [x] Run `cargo audit`.
+- [x] Run full test suite (`make test` or `cargo test`).
+- [x] Confirm parity harness pass for enabled pilot targets.
+- [x] Confirm no unexpected reference output drift remains.
 
 ## Phase 12 - Rollout and Release Readiness
 
-- [ ] Keep package execution behind feature flag until parity gate is green.
-- [ ] Define enablement criteria to expand from pilot family to additional families.
-- [ ] Add changelog/release note entries for hierarchy-capable package schema.
-- [ ] Record known limitations and deferred work items for v0.2.
+- [x] Keep package execution behind feature flag until parity gate is green.
+- [x] Define enablement criteria to expand from pilot family to additional families.
+- [x] Add changelog/release note entries for hierarchy-capable package schema.
+- [x] Record known limitations and deferred work items for v0.2.
 
 ## Cross-Cutting Risks and Mitigations
 
-- [ ] Risk: hierarchy metadata drift between builder and loader.
-- [ ] Mitigation: schema round-trip tests + deterministic snapshots.
-- [ ] Risk: dialect rewrite behavior diverges from native path.
-- [ ] Mitigation: differential parity harness on dialect-heavy corpora.
-- [ ] Risk: CPU extension ownership ambiguity between family and CPU form sets.
-- [ ] Mitigation: explicit ownership rules in docs + validator lint checks.
-- [ ] Risk: regressions in existing assembler behavior outside opThread scope.
-- [ ] Mitigation: keep integration feature-flagged and run full suite continuously.
+- [x] Risk: hierarchy metadata drift between builder and loader.
+- [x] Mitigation: schema round-trip tests + deterministic snapshots.
+- [x] Risk: dialect rewrite behavior diverges from native path.
+- [x] Mitigation: differential parity harness on dialect-heavy corpora.
+- [x] Risk: CPU extension ownership ambiguity between family and CPU form sets.
+- [x] Mitigation: explicit ownership rules in docs + validator lint checks.
+- [x] Risk: regressions in existing assembler behavior outside opThread scope.
+- [x] Mitigation: keep integration feature-flagged and run full suite continuously.
 
 ## Definition of Done
 
-- [ ] Hierarchy is explicit and validated in package schema (`FAMS`/`CPUS`/`DIAL`).
-- [ ] Resolver semantics match opForge registry behavior for all tested branches.
-- [ ] VM path correctly applies `Family -> CPU -> Dialect` pipeline order.
-- [ ] Pilot family reaches byte/reloc/diagnostic parity with native path.
-- [ ] Full required validation workflow is clean (`fmt`, `clippy`, `audit`, full tests).
-- [ ] Documentation and migration notes are updated and internally consistent.
+- [x] Hierarchy is explicit and validated in package schema (`FAMS`/`CPUS`/`DIAL`).
+- [x] Resolver semantics match opForge registry behavior for all tested branches.
+- [x] VM path correctly applies `Family -> CPU -> Dialect` pipeline order.
+- [x] Pilot family reaches byte/reloc/diagnostic parity with native path.
+- [x] Full required validation workflow is clean (`fmt`, `clippy`, `audit`, full tests).
+- [x] Documentation and migration notes are updated and internally consistent.

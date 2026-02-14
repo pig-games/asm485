@@ -6,4 +6,5 @@
 pub mod builder;
 pub mod hierarchy;
 pub mod package;
+pub mod rewrite;
 pub mod runtime;

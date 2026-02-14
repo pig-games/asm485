@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Erik van der Tier
 
-.PHONY: build release clippy reference reference-test test manual-pdf
+.PHONY: build release clippy reference reference-test test test-opthread-parity manual-pdf
 
 MANUAL_MD := documentation/opForge-reference-manual.md
 MANUAL_PDF := documentation/opForge-reference-manual.pdf
@@ -19,6 +19,9 @@ clippy:
 
 test:
 	cargo test
+
+test-opthread-parity:
+	cargo test --features opthread-parity opthread_parity_smoke_instruction_bytes_and_diagnostics
 
 reference-test:
 	cargo test examples_match_reference_outputs

@@ -223,6 +223,9 @@ impl std::error::Error for RegistryError {}
 
 /// A fully-resolved assembly pipeline: family handler + CPU handler + dialect + validator.
 pub struct ResolvedPipeline<'a> {
+    pub family_id: CpuFamily,
+    pub cpu_id: CpuType,
+    pub dialect_id: String,
     pub family: Box<dyn FamilyHandlerDyn>,
     pub cpu: Box<dyn CpuHandlerDyn>,
     pub dialect: &'a dyn DialectModule,
@@ -439,6 +442,9 @@ impl ModuleRegistry {
         };
 
         Ok(ResolvedPipeline {
+            family_id,
+            cpu_id: cpu,
+            dialect_id: selected.dialect_id().to_string(),
             family: family_module.handler(),
             cpu: cpu_module.handler(),
             dialect: selected,
@@ -737,6 +743,9 @@ mod tests {
         let pipeline = reg.resolve_pipeline(TEST_CPU, None);
         assert!(pipeline.is_ok());
         let p = pipeline.unwrap();
+        assert_eq!(p.family_id, TEST_FAMILY);
+        assert_eq!(p.cpu_id, TEST_CPU);
+        assert_eq!(p.dialect_id, "test_dialect");
         assert_eq!(p.family.family_id(), TEST_FAMILY);
         assert_eq!(p.cpu.cpu_id(), TEST_CPU);
         assert_eq!(p.dialect.dialect_id(), "test_dialect");
