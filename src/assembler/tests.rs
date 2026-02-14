@@ -12,7 +12,7 @@ use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
-use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
+use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
@@ -20,7 +20,7 @@ use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -6467,4 +6467,107 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
             name
         );
     }
+}
+
+fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
+    match mode {
+        AddressMode::Implied => None,
+        AddressMode::Accumulator => Some("A"),
+        AddressMode::Immediate => Some("#$10"),
+        AddressMode::ZeroPage => Some("$10"),
+        AddressMode::ZeroPageX => Some("$10,X"),
+        AddressMode::ZeroPageY => Some("$10,Y"),
+        AddressMode::Absolute => Some("$1234"),
+        AddressMode::AbsoluteX => Some("$1234,X"),
+        AddressMode::AbsoluteY => Some("$1234,Y"),
+        AddressMode::Indirect => Some("($1234)"),
+        AddressMode::IndexedIndirectX => Some("($10,X)"),
+        AddressMode::IndirectIndexedY => Some("($10),Y"),
+        AddressMode::Relative => Some("$0004"),
+        AddressMode::RelativeLong => Some("$0004"),
+        AddressMode::ZeroPageIndirect => Some("($10)"),
+        AddressMode::AbsoluteIndexedIndirect => Some("($1234,X)"),
+        AddressMode::StackRelative => Some("$10,S"),
+        AddressMode::StackRelativeIndirectIndexedY => Some("($10,S),Y"),
+        AddressMode::AbsoluteLong => Some("$001234"),
+        AddressMode::AbsoluteLongX => Some("$001234,X"),
+        AddressMode::IndirectLong => Some("[$1234]"),
+        AddressMode::DirectPageIndirectLongY => Some("[$10],Y"),
+        AddressMode::DirectPageIndirectLong => Some("[$10]"),
+        AddressMode::BlockMove => Some("$01,$02"),
+    }
+}
+
+fn collect_mos6502_native_baseline_snapshot() -> String {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let source = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, source));
+    }
+
+    // Include explicit compatibility/error anchors.
+    cases.push(("M6502_ERROR:BRA".to_string(), "    BRA $0004".to_string()));
+    cases.push((
+        "M6502_ERROR:UNRESOLVED".to_string(),
+        "    JMP missing_label".to_string(),
+    ));
+
+    cases.sort();
+
+    let mut rows = Vec::with_capacity(cases.len());
+    for (case_id, line) in cases {
+        let (status, message) = assemble_line_status(m6502_cpu_id, &line);
+        let status_name = match status {
+            LineStatus::Ok => "ok",
+            LineStatus::Error => "error",
+            other => panic!("unexpected status {:?} for '{}'", other, line),
+        };
+        let bytes = if status == LineStatus::Ok {
+            assemble_bytes(m6502_cpu_id, &line)
+                .into_iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join("")
+        } else {
+            String::new()
+        };
+        let diag = message
+            .unwrap_or_default()
+            .replace('\t', " ")
+            .replace('\n', " ");
+        rows.push(format!("{case_id}\t{line}\t{status_name}\t{bytes}\t{diag}"));
+    }
+
+    rows.join("\n") + "\n"
+}
+
+#[test]
+fn mos6502_native_baseline_matches_reference() {
+    let baseline_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/opthread/reference/mos6502_native_baseline.tsv");
+    let snapshot = collect_mos6502_native_baseline_snapshot();
+
+    if std::env::var("opForge_UPDATE_OPTHREAD_BASELINE").is_ok() {
+        if let Some(parent) = baseline_path.parent() {
+            fs::create_dir_all(parent).expect("create baseline directory");
+        }
+        fs::write(&baseline_path, &snapshot).expect("write baseline snapshot");
+    }
+
+    let expected = fs::read_to_string(&baseline_path).unwrap_or_else(|err| {
+        panic!(
+            "missing baseline file {}: {} (run with opForge_UPDATE_OPTHREAD_BASELINE=1)",
+            baseline_path.display(),
+            err
+        )
+    });
+    assert_eq!(snapshot, expected);
 }
