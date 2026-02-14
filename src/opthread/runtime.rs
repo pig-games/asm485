@@ -31,7 +31,7 @@ impl std::fmt::Display for RuntimeBridgeError {
             Self::ActiveCpuNotSet => write!(f, "active cpu is not set"),
             Self::Build(err) => write!(f, "runtime model build error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
-            Self::Resolve(err) => write!(f, "runtime operand resolve error: {}", err),
+            Self::Resolve(err) => write!(f, "{}", err),
             Self::Vm(err) => write!(f, "VM encode error: {}", err),
         }
     }
@@ -458,6 +458,14 @@ fn parse_m6502_operand_expr_shape(operands: &[Expr]) -> Option<M6502OperandExprS
             }
             if index_name.eq_ignore_ascii_case("y") {
                 if let Expr::Indirect(inner, _) = base {
+                    if let Expr::Tuple(elements, _) = inner.as_ref() {
+                        if elements.len() == 2
+                            && expr_identifier(&elements[1])
+                                .is_some_and(|name| name.eq_ignore_ascii_case("s"))
+                        {
+                            return None;
+                        }
+                    }
                     return Some(M6502OperandExprShape::IndirectIndexedY(inner.as_ref()));
                 }
                 return Some(M6502OperandExprShape::DirectY(base));
@@ -530,6 +538,8 @@ fn contains_form(map: &HashMap<String, HashSet<String>>, owner_id: &str, mnemoni
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::family::AssemblerContext;
+    use crate::core::parser::Expr;
     use crate::core::registry::ModuleRegistry;
     use crate::core::tokenizer::Span;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
@@ -539,6 +549,62 @@ mod tests {
     use crate::opthread::builder::build_hierarchy_chunks_from_registry;
     use crate::opthread::hierarchy::{CpuDescriptor, DialectDescriptor, FamilyDescriptor};
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+    use std::collections::HashMap;
+
+    struct TestAssemblerContext {
+        values: HashMap<String, i64>,
+        finalized: HashMap<String, bool>,
+        addr: u32,
+        pass: u8,
+    }
+
+    impl TestAssemblerContext {
+        fn new() -> Self {
+            Self {
+                values: HashMap::new(),
+                finalized: HashMap::new(),
+                addr: 0,
+                pass: 2,
+            }
+        }
+    }
+
+    impl AssemblerContext for TestAssemblerContext {
+        fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+            match expr {
+                Expr::Number(text, _) => text
+                    .parse::<i64>()
+                    .map_err(|_| format!("invalid test number '{}'", text)),
+                Expr::Identifier(name, _) | Expr::Register(name, _) => self
+                    .values
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| format!("Label not found: {}", name)),
+                Expr::Immediate(inner, _) => self.eval_expr(inner),
+                _ => Err("unsupported test expression".to_string()),
+            }
+        }
+
+        fn symbols(&self) -> &crate::core::symbol_table::SymbolTable {
+            panic!("symbols() is not used in runtime resolver tests")
+        }
+
+        fn has_symbol(&self, name: &str) -> bool {
+            self.values.contains_key(name)
+        }
+
+        fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
+            self.finalized.get(name).copied()
+        }
+
+        fn current_address(&self) -> u32 {
+            self.addr
+        }
+
+        fn pass(&self) -> u8 {
+            self.pass
+        }
+    }
 
     fn sample_package() -> HierarchyPackage {
         HierarchyPackage::new(
@@ -690,6 +756,42 @@ mod tests {
             .encode_instruction("65c02", None, "BRA", &operands)
             .expect("vm encode should resolve");
         assert_eq!(bytes, Some(vec![0x80, 0x02]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m6502_instruction_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![Expr::Immediate(
+            Box::new(Expr::Number("66".to_string(), span)),
+            span,
+        )];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("m6502", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xA9, 0x42]));
+    }
+
+    #[test]
+    fn m6502_expr_candidates_prefer_absolute_for_unstable_symbols() {
+        let span = Span::default();
+        let expr = Expr::Identifier("target".to_string(), span);
+        let mut ctx = TestAssemblerContext::new();
+        ctx.values.insert("target".to_string(), 0x10);
+        ctx.finalized.insert("target".to_string(), false);
+        let candidates = m6502_vm_encode_candidates_from_exprs("LDA", &[expr], &ctx)
+            .expect("candidate build")
+            .expect("m6502 resolver should support direct expression");
+        assert_eq!(candidates[0].mode_key, "absolute");
+        assert_eq!(candidates[1].mode_key, "zeropage");
     }
 
     #[test]

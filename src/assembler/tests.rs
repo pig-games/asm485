@@ -6510,6 +6510,17 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_mos6502_expr_resolver_falls_back_for_unsupported_shape() {
+    let line = "    LDA ($10,S),Y";
+    let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
+    let runtime = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
+    assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+    assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+    assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_mos6502_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let corpus = ["6502_simple.asm", "6502_allmodes.asm", "mos6502_modes.asm"];

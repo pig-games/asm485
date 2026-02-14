@@ -3291,6 +3291,45 @@ impl<'a> AsmLine<'a> {
                     None,
                 );
             }
+
+            if self.opthread_runtime_enabled {
+                if let Some(model) = self.opthread_execution_model.as_ref() {
+                    match model.encode_instruction_from_exprs(
+                        self.cpu.as_str(),
+                        None,
+                        &mapped_mnemonic,
+                        operands,
+                        self,
+                    ) {
+                        Ok(Some(bytes)) => {
+                            if let Err(err) = self.validate_instruction_emit_span(
+                                &mapped_mnemonic,
+                                operands,
+                                bytes.len(),
+                            ) {
+                                return self.failure_at_span(
+                                    LineStatus::Error,
+                                    AsmErrorKind::Instruction,
+                                    err.error.message(),
+                                    None,
+                                    err.span,
+                                );
+                            }
+                            self.bytes.extend_from_slice(&bytes);
+                            return LineStatus::Ok;
+                        }
+                        Ok(None) => {}
+                        Err(err) => {
+                            return self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &err.to_string(),
+                                None,
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         match pipeline.family.encode_family_operands(
