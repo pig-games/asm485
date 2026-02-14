@@ -11,6 +11,7 @@
 //! - [`m65c02`] - WDC 65C02-specific extensions
 //! - [`m65816`] - WDC 65816-specific extensions
 //! - [`assembler`] - Main assembler entry point
+//! - [`opthread`] - opThread VM/package model (in progress)
 
 pub mod assembler;
 pub mod core;
@@ -18,6 +19,7 @@ pub mod families;
 pub mod i8085;
 pub mod m65816;
 pub mod m65c02;
+pub mod opthread;
 pub mod z80;
 
 // Re-export commonly used types from core for convenience

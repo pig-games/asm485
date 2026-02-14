@@ -35,17 +35,17 @@ Execution must preserve opForge-compatible resolution semantics:
 
 ## Phase 1 - Rust Data Model for Hierarchy
 
-- [ ] Create package schema structs/enums for `FamilyDescriptor`, `CpuDescriptor`, `DialectDescriptor`.
-- [ ] Add normalized identifier handling for family/cpu/dialect ids (case-insensitive lookup keys).
-- [ ] Add scoped ownership model for `REGS` and `FORM` entries:
-- [ ] family-scoped
-- [ ] CPU-scoped
-- [ ] optional dialect-scoped overlays
-- [ ] Add validation errors covering:
-- [ ] missing family for CPU
-- [ ] missing dialect refs
-- [ ] cross-family dialect selection
-- [ ] CPU blocked by dialect compatibility allow-list
+- [x] Create package schema structs/enums for `FamilyDescriptor`, `CpuDescriptor`, `DialectDescriptor`. (`src/opthread/hierarchy.rs`)
+- [x] Add normalized identifier handling for family/cpu/dialect ids (case-insensitive lookup keys). (`src/opthread/hierarchy.rs`)
+- [x] Add scoped ownership model for `REGS` and `FORM` entries:
+- [x] family-scoped
+- [x] CPU-scoped
+- [x] optional dialect-scoped overlays
+- [x] Add validation errors covering:
+- [x] missing family for CPU
+- [x] missing dialect refs
+- [x] cross-family dialect selection
+- [x] CPU blocked by dialect compatibility allow-list
 
 ## Phase 2 - Package Binary Schema and Loader
 
