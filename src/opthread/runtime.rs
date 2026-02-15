@@ -291,6 +291,72 @@ impl HierarchyRuntimeBridge {
     }
 }
 
+/// Minimal host-to-runtime ABI for portable/native targets.
+///
+/// Hosts provide resolved VM candidates plus active hierarchy ids; runtime lookup
+/// and bytecode execution stays generic and package-driven.
+pub trait PortableInstructionAdapter: std::fmt::Debug {
+    fn cpu_id(&self) -> &str;
+    fn dialect_override(&self) -> Option<&str> {
+        None
+    }
+    fn mnemonic(&self) -> &str;
+    fn vm_encode_candidates(&self) -> &[VmEncodeCandidate];
+}
+
+/// Default portable request container for host adapter integration.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PortableInstructionRequest {
+    pub cpu_id: String,
+    pub dialect_override: Option<String>,
+    pub mnemonic: String,
+    pub candidates: Vec<VmEncodeCandidate>,
+}
+
+impl PortableInstructionAdapter for PortableInstructionRequest {
+    fn cpu_id(&self) -> &str {
+        self.cpu_id.as_str()
+    }
+
+    fn dialect_override(&self) -> Option<&str> {
+        self.dialect_override.as_deref()
+    }
+
+    fn mnemonic(&self) -> &str {
+        self.mnemonic.as_str()
+    }
+
+    fn vm_encode_candidates(&self) -> &[VmEncodeCandidate] {
+        self.candidates.as_slice()
+    }
+}
+
+#[derive(Debug)]
+struct OperandSetInstructionAdapter<'a> {
+    cpu_id: &'a str,
+    dialect_override: Option<&'a str>,
+    mnemonic: &'a str,
+    candidates: &'a [VmEncodeCandidate],
+}
+
+impl PortableInstructionAdapter for OperandSetInstructionAdapter<'_> {
+    fn cpu_id(&self) -> &str {
+        self.cpu_id
+    }
+
+    fn dialect_override(&self) -> Option<&str> {
+        self.dialect_override
+    }
+
+    fn mnemonic(&self) -> &str {
+        self.mnemonic
+    }
+
+    fn vm_encode_candidates(&self) -> &[VmEncodeCandidate] {
+        self.candidates
+    }
+}
+
 /// Runtime view with resolved hierarchy bridge and scoped FORM ownership sets.
 #[derive(Debug)]
 pub struct HierarchyExecutionModel {
@@ -473,13 +539,29 @@ impl HierarchyExecutionModel {
         mnemonic: &str,
         operands: &dyn OperandSet,
     ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
-        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
         let candidates = operands.vm_encode_candidates();
+        let adapter = OperandSetInstructionAdapter {
+            cpu_id,
+            dialect_override,
+            mnemonic,
+            candidates: candidates.as_slice(),
+        };
+        self.encode_portable_instruction(&adapter)
+    }
+
+    pub fn encode_portable_instruction(
+        &self,
+        request: &dyn PortableInstructionAdapter,
+    ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
+        let resolved = self
+            .bridge
+            .resolve_pipeline(request.cpu_id(), request.dialect_override())?;
+        let candidates = request.vm_encode_candidates();
         if candidates.is_empty() {
             return Ok(None);
         }
-        self.enforce_candidate_budget(&candidates)?;
-        self.encode_candidates(&resolved, mnemonic, &candidates)
+        self.enforce_candidate_budget(candidates)?;
+        self.encode_candidates(&resolved, request.mnemonic(), candidates)
     }
 
     pub fn encode_instruction_from_exprs(
@@ -2136,6 +2218,60 @@ mod tests {
             .encode_instruction("m6502", None, "LDA", &operands)
             .expect("vm encode should succeed");
         assert_eq!(bytes, Some(vec![0xA9, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_encodes_portable_request_via_vm() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let request = PortableInstructionRequest {
+            cpu_id: "m6502".to_string(),
+            dialect_override: None,
+            mnemonic: "LDA".to_string(),
+            candidates: vec![VmEncodeCandidate {
+                mode_key: "immediate".to_string(),
+                operand_bytes: vec![vec![0x42]],
+            }],
+        };
+        let bytes = model
+            .encode_portable_instruction(&request)
+            .expect("portable request encode should succeed");
+        assert_eq!(bytes, Some(vec![0xA9, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_portable_request_respects_candidate_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_candidate_count = 0;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let request = PortableInstructionRequest {
+            cpu_id: "m6502".to_string(),
+            dialect_override: None,
+            mnemonic: "LDA".to_string(),
+            candidates: vec![VmEncodeCandidate {
+                mode_key: "immediate".to_string(),
+                operand_bytes: vec![vec![0x42]],
+            }],
+        };
+        let err = model
+            .encode_portable_instruction(&request)
+            .expect_err("portable request should respect candidate budget");
+        assert!(err.to_string().contains("candidate_count"));
     }
 
     #[test]
