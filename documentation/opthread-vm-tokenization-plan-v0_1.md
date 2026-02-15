@@ -1,6 +1,6 @@
 # opThread VM Tokenization Plan v0.1
 
-Status: phase 4 complete
+Status: phase 5 complete
 Last updated: 2026-02-15
 Scope: full VM-based tokenization, family/cpu independent behavior
 
@@ -90,9 +90,14 @@ Phase 4 completion artifacts:
 
 ## Phase 5 - Parity gates
 
-- [ ] Add token-stream parity corpus across examples and edge cases.
-- [ ] Add host-vs-vm token parity tests (kind, content, spans, diagnostics).
-- [ ] Add deterministic fuzz/property tokenization checks.
+- [x] Add token-stream parity corpus across examples and edge cases.
+- [x] Add host-vs-vm token parity tests (kind, content, spans, diagnostics).
+- [x] Add deterministic fuzz/property tokenization checks.
+
+Phase 5 completion artifacts:
+- `src/opthread/runtime.rs` adds a tokenizer parity corpus test (`execution_model_tokenizer_parity_corpus_examples_and_edge_cases_host_vs_vm`) that validates host-vs-vm parity across `examples/*.asm` source lines plus explicit edge-case lines.
+- `src/opthread/runtime.rs` adds deterministic fuzz/property tokenizer parity coverage (`execution_model_tokenizer_parity_deterministic_fuzz_host_vs_vm`) using a fixed-seed generator.
+- `src/opthread/runtime.rs` adds deterministic-repeatability coverage for VM mode (`execution_model_tokenizer_vm_mode_is_deterministic_for_same_input`), ensuring repeated tokenization is stable for identical inputs.
 
 ## Phase 6 - Retro readiness
 
