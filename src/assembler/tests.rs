@@ -6646,6 +6646,10 @@ fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
         "    JSL $001234",
         "    JML $001234",
         "    MVN $01,$02",
+        "    LDA $123456,l",
+        "    LDA $1234,b",
+        "    JMP $1234,k",
+        "    LDA $f0,d",
     ];
 
     for line in corpus {
