@@ -56,7 +56,7 @@ use crate::m65c02::module::M65C02CpuModule;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 #[cfg(feature = "opthread-runtime")]
-use crate::opthread::runtime::HierarchyExecutionModel;
+use crate::opthread::runtime::{CoreTokenizerAdapter, HierarchyExecutionModel, PortableToken};
 use crate::z80::module::Z80CpuModule;
 
 use cli::{
@@ -878,6 +878,95 @@ fn emit_mapfiles(
 struct EncodingScopeState {
     definition_name: String,
     previous_active_encoding: String,
+}
+#[cfg(feature = "opthread-runtime")]
+#[derive(Debug, Clone)]
+struct RuntimeTokenBridgeError {
+    message: String,
+    span: Option<Span>,
+}
+
+#[cfg(feature = "opthread-runtime")]
+fn runtime_tokens_to_core_tokens(
+    tokens: &[PortableToken],
+    register_checker: &RegisterChecker,
+) -> Result<Vec<crate::core::tokenizer::Token>, RuntimeTokenBridgeError> {
+    use crate::core::tokenizer::TokenKind;
+    let mut core_tokens = Vec::with_capacity(tokens.len());
+    for token in tokens {
+        let span: Span = token.span.into();
+        if span.col_start == 0 || span.col_end < span.col_start {
+            return Err(RuntimeTokenBridgeError {
+                message: "runtime tokenizer produced invalid token span".to_string(),
+                span: Some(span),
+            });
+        }
+        let mut core_token = token.to_core_token();
+        if let TokenKind::Identifier(name) = &core_token.kind {
+            let upper = name.to_ascii_uppercase();
+            if register_checker(upper.as_str()) {
+                core_token.kind = TokenKind::Register(name.clone());
+            }
+        }
+        core_tokens.push(core_token);
+    }
+    Ok(core_tokens)
+}
+
+#[cfg(feature = "opthread-runtime")]
+fn runtime_parser_end_metadata(
+    line: &str,
+    line_num: u32,
+    tokens: &[crate::core::tokenizer::Token],
+) -> (Span, Option<String>) {
+    let mut end_col = line.len().saturating_add(1);
+    let mut end_token_text = None;
+    if let Some(comment_idx) = first_comment_semicolon_outside_quotes(line) {
+        end_col = comment_idx.saturating_add(1);
+        end_token_text = Some(";".to_string());
+    }
+    if let Some(last_token) = tokens.last() {
+        if last_token.span.col_end >= end_col {
+            end_col = last_token.span.col_end;
+            end_token_text = None;
+        }
+    }
+    (
+        Span {
+            line: line_num,
+            col_start: end_col,
+            col_end: end_col,
+        },
+        end_token_text,
+    )
+}
+
+#[cfg(feature = "opthread-runtime")]
+fn first_comment_semicolon_outside_quotes(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut idx = 0usize;
+    let mut quote: Option<u8> = None;
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if let Some(active_quote) = quote {
+            if byte == b'\\' {
+                idx = idx.saturating_add(2);
+                continue;
+            }
+            if byte == active_quote {
+                quote = None;
+            }
+            idx = idx.saturating_add(1);
+            continue;
+        }
+        match byte {
+            b'\'' | b'"' => quote = Some(byte),
+            b';' => return Some(idx),
+            _ => {}
+        }
+        idx = idx.saturating_add(1);
+    }
+    None
 }
 
 /// Per-line assembler state.
@@ -2427,6 +2516,65 @@ impl<'a> AsmLine<'a> {
     fn visibility_error(&self, name: &str) -> AsmError {
         AsmError::new(AsmErrorKind::Symbol, "Symbol is private", Some(name))
     }
+    #[cfg(feature = "opthread-runtime")]
+    fn process_with_runtime_tokenizer(&mut self, line: &str, line_num: u32) -> Option<LineStatus> {
+        if !self.opthread_runtime_enabled {
+            return None;
+        }
+        let model = self.opthread_execution_model.as_ref()?;
+
+        let portable_tokens = match model.tokenize_portable_statement(
+            &CoreTokenizerAdapter,
+            self.cpu.as_str(),
+            None,
+            line,
+            line_num,
+        ) {
+            Ok(tokens) => tokens,
+            Err(err) => {
+                let (end_span, _) = runtime_parser_end_metadata(line, line_num, &[]);
+                self.line_end_span = Some(end_span);
+                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.to_string(), None));
+                self.last_error_column = Some(end_span.col_start);
+                self.last_parser_error = Some(ParseError {
+                    message: err.to_string(),
+                    span: end_span,
+                });
+                return Some(LineStatus::Error);
+            }
+        };
+
+        let core_tokens =
+            match runtime_tokens_to_core_tokens(&portable_tokens, &self.register_checker) {
+                Ok(tokens) => tokens,
+                Err(err) => {
+                    let (end_span, _) = runtime_parser_end_metadata(line, line_num, &[]);
+                    let span = err.span.unwrap_or(end_span);
+                    self.line_end_span = Some(end_span);
+                    self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                    self.last_error_column = Some(span.col_start);
+                    self.last_parser_error = Some(ParseError {
+                        message: err.message,
+                        span,
+                    });
+                    return Some(LineStatus::Error);
+                }
+            };
+
+        let (end_span, end_token_text) = runtime_parser_end_metadata(line, line_num, &core_tokens);
+        let mut parser = asm_parser::Parser::from_tokens(core_tokens, end_span, end_token_text);
+        self.line_end_span = Some(parser.end_span());
+        self.line_end_token = parser.end_token_text().map(|s| s.to_string());
+        match parser.parse_line() {
+            Ok(ast) => Some(self.process_ast(ast)),
+            Err(err) => {
+                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.last_error_column = Some(err.span.col_start);
+                self.last_parser_error = Some(err);
+                Some(LineStatus::Error)
+            }
+        }
+    }
 
     fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {
         self.last_error = None;
@@ -2442,6 +2590,10 @@ impl<'a> AsmLine<'a> {
         self.label = None;
         self.mnemonic = None;
 
+        #[cfg(feature = "opthread-runtime")]
+        if let Some(status) = self.process_with_runtime_tokenizer(line, line_num) {
+            return status;
+        }
         // Use the cached register checker
         let is_register_fn = self.register_checker.clone();
 

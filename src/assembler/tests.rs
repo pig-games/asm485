@@ -44,7 +44,9 @@ use crate::opthread::rollout::{
     FamilyRuntimeMode,
 };
 #[cfg(feature = "opthread-runtime")]
-use crate::opthread::runtime::HierarchyExecutionModel;
+use crate::opthread::runtime::{
+    HierarchyExecutionModel, PortableSpan, PortableToken, PortableTokenKind,
+};
 #[cfg(all(
     feature = "opthread-runtime",
     feature = "opthread-runtime-intel8080-scaffold"
@@ -76,6 +78,75 @@ fn make_asm_line<'a>(symbols: &'a mut SymbolTable, registry: &'a ModuleRegistry)
 
 fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineStatus {
     asm.process(line, 1, addr, pass)
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn runtime_token_bridge_maps_portable_tokens_to_core_tokens() {
+    let runtime_tokens = vec![
+        PortableToken {
+            kind: PortableTokenKind::Identifier("lda".to_string()),
+            span: PortableSpan {
+                line: 1,
+                col_start: 5,
+                col_end: 8,
+            },
+        },
+        PortableToken {
+            kind: PortableTokenKind::Hash,
+            span: PortableSpan {
+                line: 1,
+                col_start: 9,
+                col_end: 10,
+            },
+        },
+        PortableToken {
+            kind: PortableTokenKind::Number {
+                text: "$42".to_string(),
+                base: 16,
+            },
+            span: PortableSpan {
+                line: 1,
+                col_start: 10,
+                col_end: 13,
+            },
+        },
+    ];
+
+    let mapped = super::runtime_tokens_to_core_tokens(
+        &runtime_tokens,
+        &crate::core::tokenizer::register_checker_none(),
+    )
+    .expect("portable token mapping should succeed");
+    assert_eq!(mapped.len(), 3);
+    assert!(matches!(
+        &mapped[0].kind,
+        crate::core::tokenizer::TokenKind::Identifier(name) if name == "lda"
+    ));
+    assert!(matches!(
+        &mapped[2].kind,
+        crate::core::tokenizer::TokenKind::Number(num) if num.text == "$42" && num.base == 16
+    ));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn runtime_token_bridge_rejects_invalid_spans() {
+    let runtime_tokens = vec![PortableToken {
+        kind: PortableTokenKind::Identifier("lda".to_string()),
+        span: PortableSpan {
+            line: 1,
+            col_start: 0,
+            col_end: 3,
+        },
+    }];
+
+    let err = super::runtime_tokens_to_core_tokens(
+        &runtime_tokens,
+        &crate::core::tokenizer::register_checker_none(),
+    )
+    .expect_err("invalid spans should be rejected");
+    assert!(err.message.contains("invalid token span"));
 }
 
 fn assemble_bytes(cpu: crate::core::cpu::CpuType, line: &str) -> Vec<u8> {
