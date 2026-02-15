@@ -53,10 +53,7 @@ use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-opcpu-artifact"
-))]
+#[cfg(feature = "opthread-runtime")]
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::HierarchyExecutionModel;
@@ -1080,7 +1077,8 @@ impl<'a> AsmLine<'a> {
             }
         }
 
-        HierarchyExecutionModel::from_registry(registry).ok()
+        let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
+        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
     }
 
     #[cfg(all(

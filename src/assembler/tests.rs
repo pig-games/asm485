@@ -23,7 +23,10 @@ use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::opthread::builder::build_hierarchy_chunks_from_registry;
 #[cfg(all(
     feature = "opthread-runtime",
-    feature = "opthread-runtime-opcpu-artifact"
+    any(
+        feature = "opthread-runtime-opcpu-artifact",
+        feature = "opthread-runtime-intel8080-scaffold"
+    )
 ))]
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 #[cfg(feature = "opthread-runtime")]
@@ -133,9 +136,11 @@ fn assemble_line_with_runtime_mode(
             })
             .unwrap_or(false);
         if enable_intel_runtime {
+            let package_bytes =
+                build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
             asm.opthread_execution_model = Some(
-                HierarchyExecutionModel::from_registry(&registry)
-                    .expect("runtime execution model from registry"),
+                HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                    .expect("runtime execution model from package bytes"),
             );
         }
     }
