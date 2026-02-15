@@ -124,6 +124,42 @@ pub enum RuntimeBridgeError {
     Vm(VmError),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeBudgetProfile {
+    HostDefault,
+    RetroConstrained,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeBudgetLimits {
+    pub max_candidate_count: usize,
+    pub max_operand_count_per_candidate: usize,
+    pub max_operand_bytes_per_operand: usize,
+    pub max_vm_program_bytes: usize,
+    pub max_selectors_scanned_per_instruction: usize,
+}
+
+impl RuntimeBudgetProfile {
+    fn limits(self) -> RuntimeBudgetLimits {
+        match self {
+            Self::HostDefault => RuntimeBudgetLimits {
+                max_candidate_count: 64,
+                max_operand_count_per_candidate: 8,
+                max_operand_bytes_per_operand: 8,
+                max_vm_program_bytes: 128,
+                max_selectors_scanned_per_instruction: 512,
+            },
+            Self::RetroConstrained => RuntimeBudgetLimits {
+                max_candidate_count: 16,
+                max_operand_count_per_candidate: 4,
+                max_operand_bytes_per_operand: 4,
+                max_vm_program_bytes: 48,
+                max_selectors_scanned_per_instruction: 128,
+            },
+        }
+    }
+}
+
 impl std::fmt::Display for RuntimeBridgeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -241,6 +277,8 @@ pub struct HierarchyExecutionModel {
     mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
+    budget_profile: RuntimeBudgetProfile,
+    budget_limits: RuntimeBudgetLimits,
 }
 
 impl HierarchyExecutionModel {
@@ -350,7 +388,27 @@ impl HierarchyExecutionModel {
             mode_selectors,
             expr_resolvers,
             diag_templates,
+            budget_profile: RuntimeBudgetProfile::HostDefault,
+            budget_limits: RuntimeBudgetProfile::HostDefault.limits(),
         })
+    }
+
+    pub fn runtime_budget_profile(&self) -> RuntimeBudgetProfile {
+        self.budget_profile
+    }
+
+    pub fn runtime_budget_limits(&self) -> RuntimeBudgetLimits {
+        self.budget_limits
+    }
+
+    pub fn set_runtime_budget_profile(&mut self, profile: RuntimeBudgetProfile) {
+        self.budget_profile = profile;
+        self.budget_limits = profile.limits();
+    }
+
+    #[cfg(test)]
+    fn set_runtime_budget_limits_for_tests(&mut self, limits: RuntimeBudgetLimits) {
+        self.budget_limits = limits;
     }
 
     pub fn set_active_cpu(&mut self, cpu_id: &str) -> Result<(), RuntimeBridgeError> {
@@ -399,6 +457,7 @@ impl HierarchyExecutionModel {
         if candidates.is_empty() {
             return Ok(None);
         }
+        self.enforce_candidate_budget(&candidates)?;
         self.encode_candidates(&resolved, mnemonic, &candidates)
     }
 
@@ -423,6 +482,7 @@ impl HierarchyExecutionModel {
         else {
             return Ok(None);
         };
+        self.enforce_candidate_budget(&candidates)?;
         match self.encode_candidates(&resolved, mnemonic, &candidates)? {
             Some(bytes) => Ok(Some(bytes)),
             None => {
@@ -539,6 +599,7 @@ impl HierarchyExecutionModel {
                     mode_key.clone(),
                 );
                 if let Some(program) = self.vm_programs.get(&key) {
+                    self.enforce_vm_program_budget(program.len())?;
                     return execute_program(program, operand_views.as_slice())
                         .map(Some)
                         .map_err(Into::into);
@@ -546,6 +607,55 @@ impl HierarchyExecutionModel {
             }
         }
         Ok(None)
+    }
+
+    fn enforce_candidate_budget(
+        &self,
+        candidates: &[VmEncodeCandidate],
+    ) -> Result<(), RuntimeBridgeError> {
+        if candidates.len() > self.budget_limits.max_candidate_count {
+            return Err(Self::budget_error(
+                "candidate_count",
+                self.budget_limits.max_candidate_count,
+                candidates.len(),
+            ));
+        }
+        for candidate in candidates {
+            if candidate.operand_bytes.len() > self.budget_limits.max_operand_count_per_candidate {
+                return Err(Self::budget_error(
+                    "operand_count_per_candidate",
+                    self.budget_limits.max_operand_count_per_candidate,
+                    candidate.operand_bytes.len(),
+                ));
+            }
+            for operand_bytes in &candidate.operand_bytes {
+                if operand_bytes.len() > self.budget_limits.max_operand_bytes_per_operand {
+                    return Err(Self::budget_error(
+                        "operand_bytes_per_operand",
+                        self.budget_limits.max_operand_bytes_per_operand,
+                        operand_bytes.len(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn enforce_vm_program_budget(&self, program_len: usize) -> Result<(), RuntimeBridgeError> {
+        if program_len > self.budget_limits.max_vm_program_bytes {
+            return Err(Self::budget_error(
+                "vm_program_bytes",
+                self.budget_limits.max_vm_program_bytes,
+                program_len,
+            ));
+        }
+        Ok(())
+    }
+
+    fn budget_error(name: &str, limit: usize, observed: usize) -> RuntimeBridgeError {
+        RuntimeBridgeError::Resolve(format!(
+            "opThread runtime budget exceeded ({name}): observed {observed}, limit {limit}"
+        ))
     }
 }
 
@@ -595,6 +705,7 @@ impl HierarchyExecutionModel {
         let mut candidates = Vec::new();
         let mut candidate_error: Option<String> = None;
         let mut saw_selector = false;
+        let mut selectors_scanned = 0usize;
 
         for (owner_tag, owner_id) in owner_order {
             let key = (
@@ -613,11 +724,28 @@ impl HierarchyExecutionModel {
             });
 
             for selector in selectors {
+                selectors_scanned += 1;
+                if selectors_scanned > self.budget_limits.max_selectors_scanned_per_instruction {
+                    return Err(Self::budget_error(
+                        "selector_scan_count",
+                        self.budget_limits.max_selectors_scanned_per_instruction,
+                        selectors_scanned,
+                    ));
+                }
                 if unstable_expr && selector.unstable_widen && has_wider {
                     continue;
                 }
                 match selector_to_candidate(selector, &input, &upper_mnemonic, ctx) {
-                    Ok(Some(candidate)) => candidates.push(candidate),
+                    Ok(Some(candidate)) => {
+                        candidates.push(candidate);
+                        if candidates.len() > self.budget_limits.max_candidate_count {
+                            return Err(Self::budget_error(
+                                "candidate_count",
+                                self.budget_limits.max_candidate_count,
+                                candidates.len(),
+                            ));
+                        }
+                    }
                     Ok(None) => {}
                     Err(message) => {
                         if candidate_error.is_none() {
@@ -1822,6 +1950,136 @@ mod tests {
         assert!(model
             .supports_mnemonic("65c02", None, "bra")
             .expect("resolve bra for 65c02"));
+    }
+
+    #[test]
+    fn execution_model_defaults_to_host_budget_profile() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        assert_eq!(
+            model.runtime_budget_profile(),
+            RuntimeBudgetProfile::HostDefault
+        );
+        assert_eq!(
+            model.runtime_budget_limits(),
+            RuntimeBudgetProfile::HostDefault.limits()
+        );
+    }
+
+    #[test]
+    fn execution_model_budget_profile_can_switch_to_retro_constrained() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_runtime_budget_profile(RuntimeBudgetProfile::RetroConstrained);
+        assert_eq!(
+            model.runtime_budget_profile(),
+            RuntimeBudgetProfile::RetroConstrained
+        );
+        assert_eq!(
+            model.runtime_budget_limits(),
+            RuntimeBudgetProfile::RetroConstrained.limits()
+        );
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_candidate_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_candidate_count = 1;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let operands = MOS6502Operands(vec![Operand::ZeroPage(0x10, Span::default())]);
+        let err = model
+            .encode_instruction("m6502", None, "LDA", &operands)
+            .expect_err("candidate budget should reject promoted alternatives");
+        assert!(err.to_string().contains("candidate_count"));
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_operand_byte_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_operand_bytes_per_operand = 0;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
+        let err = model
+            .encode_instruction("m6502", None, "LDA", &operands)
+            .expect_err("operand byte budget should reject immediate bytes");
+        assert!(err.to_string().contains("operand_bytes_per_operand"));
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_vm_program_byte_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_vm_program_bytes = 1;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
+        let err = model
+            .encode_instruction("m6502", None, "LDA", &operands)
+            .expect_err("vm program size budget should reject oversized program");
+        assert!(err.to_string().contains("vm_program_bytes"));
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_selector_scan_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_selectors_scanned_per_instruction = 0;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let span = Span::default();
+        let operands = vec![Expr::Immediate(
+            Box::new(Expr::Number("66".to_string(), span)),
+            span,
+        )];
+        let ctx = TestAssemblerContext::new();
+        let err = model
+            .encode_instruction_from_exprs("m6502", None, "LDA", &operands, &ctx)
+            .expect_err("selector scan budget should reject evaluation");
+        assert!(err.to_string().contains("selector_scan_count"));
     }
 
     #[test]
