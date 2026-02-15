@@ -1,6 +1,6 @@
 # opThread VM Tokenization Plan v0.1
 
-Status: phase 5 complete
+Status: phase 6 complete
 Last updated: 2026-02-15
 Scope: full VM-based tokenization, family/cpu independent behavior
 
@@ -101,9 +101,18 @@ Phase 5 completion artifacts:
 
 ## Phase 6 - Retro readiness
 
-- [ ] Add tokenizer budget profiles for constrained native targets.
-- [ ] Minimize hot-path allocations and enforce bounded buffers.
-- [ ] Add runtime memory and step budget tests for retro profiles.
+- [x] Add tokenizer budget profiles for constrained native targets.
+- [x] Minimize hot-path allocations and enforce bounded buffers.
+- [x] Add runtime memory and step budget tests for retro profiles.
+
+Phase 6 completion artifacts:
+- `src/opthread/runtime.rs` extends `RuntimeBudgetLimits` with tokenizer-specific runtime caps (steps/tokens/lexeme/errors) and defines constrained values for `RuntimeBudgetProfile::RetroConstrained`.
+- `src/opthread/runtime.rs` enforces effective tokenizer VM limits as `min(package TKVM limits, runtime profile limits)` in `tokenize_with_vm_core(..)`, including bounded preallocation for token and lexeme buffers.
+- `src/opthread/runtime.rs` reduces avoidable hot-path allocations in `vm_build_token(..)` by allocating lexeme strings only for token kinds that require textual payloads.
+- `src/opthread/runtime.rs` adds retro-profile budget tests:
+  - `execution_model_tokenizer_vm_retro_profile_enforces_step_budget`
+  - `execution_model_tokenizer_vm_retro_profile_enforces_lexeme_budget`
+  - `execution_model_tokenizer_vm_retro_profile_enforces_token_budget`
 
 ## Phase 7 - Rollout
 
