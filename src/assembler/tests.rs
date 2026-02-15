@@ -6484,6 +6484,60 @@ fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.selectors.retain(|selector| {
+        let owner_is_mos6502_family =
+            matches!(&selector.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(selector.mnemonic.eq_ignore_ascii_case("lda")
+            && selector.shape_key.eq_ignore_ascii_case("direct")
+            && owner_is_mos6502_family)
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA $1234", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.contains("No instruction found for LDA"));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m65c02_cpu_id, &registry, true);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.selectors.retain(|selector| {
+        let owner_is_mos6502_family =
+            matches!(&selector.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(selector.mnemonic.eq_ignore_ascii_case("lda")
+            && selector.shape_key.eq_ignore_ascii_case("direct")
+            && owner_is_mos6502_family)
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA $1234", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.contains("No instruction found for LDA"));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -6539,13 +6593,30 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
-fn opthread_runtime_mos6502_expr_resolver_falls_back_for_unsupported_shape() {
+fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fallback() {
     let line = "    LDA ($10,S),Y";
     let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
     let runtime = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
     assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
     assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
     assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "    LDA $10,d"),
+        (m65c02_cpu_id, "    LDA $10,d"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
 }
 
 #[cfg(feature = "opthread-runtime")]

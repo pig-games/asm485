@@ -3293,8 +3293,10 @@ impl<'a> AsmLine<'a> {
             }
 
             if self.opthread_runtime_enabled {
-                let strict_runtime_parse_resolve =
-                    pipeline.cpu_id.as_str().eq_ignore_ascii_case("65816");
+                let strict_runtime_parse_resolve = pipeline
+                    .family_id
+                    .as_str()
+                    .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str());
                 if let Some(model) = self.opthread_execution_model.as_ref() {
                     match model.encode_instruction_from_exprs(
                         self.cpu.as_str(),

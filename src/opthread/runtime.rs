@@ -294,7 +294,13 @@ impl HierarchyExecutionModel {
         else {
             return Ok(None);
         };
-        self.encode_candidates(&resolved, mnemonic, &candidates)
+        match self.encode_candidates(&resolved, mnemonic, &candidates)? {
+            Some(bytes) => Ok(Some(bytes)),
+            None => Err(RuntimeBridgeError::Resolve(format!(
+                "missing opThread VM program for {}",
+                mnemonic.to_ascii_uppercase()
+            ))),
+        }
     }
 
     fn encode_candidates(
@@ -359,6 +365,13 @@ impl HierarchyExecutionModel {
 
         let upper_mnemonic = mnemonic.to_ascii_uppercase();
         let lower_mnemonic = mnemonic.to_ascii_lowercase();
+        if !resolved.cpu_id.eq_ignore_ascii_case("65816")
+            && input_shape_requires_m65816(&input.shape_key)
+        {
+            return Err(RuntimeBridgeError::Resolve(non_m65816_force_error(
+                &resolved.cpu_id,
+            )));
+        }
         let owner_order = [
             (2u8, resolved.dialect_id.as_str()),
             (1u8, resolved.cpu_id.as_str()),
@@ -409,10 +422,10 @@ impl HierarchyExecutionModel {
         }
 
         if let Some(force) = input.force {
-            // Keep legacy CPU-specific diagnostics for non-65816 targets until
-            // force metadata is emitted for those CPUs.
             if !resolved.cpu_id.eq_ignore_ascii_case("65816") {
-                return Ok(None);
+                return Err(RuntimeBridgeError::Resolve(non_m65816_force_error(
+                    &resolved.cpu_id,
+                )));
             }
             if let Some(message) = candidate_error {
                 return Err(RuntimeBridgeError::Resolve(message));
@@ -425,10 +438,8 @@ impl HierarchyExecutionModel {
             }
         }
 
-        if resolved.cpu_id.eq_ignore_ascii_case("65816") {
-            if let Some(message) = candidate_error {
-                return Err(RuntimeBridgeError::Resolve(message));
-            }
+        if let Some(message) = candidate_error {
+            return Err(RuntimeBridgeError::Resolve(message));
         }
 
         Ok(None)
@@ -573,6 +584,21 @@ fn invalid_force_error(force: OperandForce, context: &str) -> String {
     )
 }
 
+fn non_m65816_force_error(cpu_id: &str) -> String {
+    if cpu_id.eq_ignore_ascii_case("65c02") {
+        "65816-only addressing mode not supported on 65C02".to_string()
+    } else {
+        "65816-only addressing mode not supported on base 6502".to_string()
+    }
+}
+
+fn input_shape_requires_m65816(shape_key: &str) -> bool {
+    matches!(
+        shape_key.to_ascii_lowercase().as_str(),
+        "stack_relative" | "stack_relative_indirect_y" | "indirect_long" | "indirect_long_y"
+    )
+}
+
 fn bank_mismatch_error(
     address: u32,
     actual_bank: u8,
@@ -617,19 +643,19 @@ fn selector_to_candidate(
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_u8(expr0, ctx).ok_or_else(|| "invalid u8 operand".to_string())?]
+            vec![encode_expr_u8(expr0, ctx)?]
         }
         "u16" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_u16(expr0, ctx).ok_or_else(|| "invalid u16 operand".to_string())?]
+            vec![encode_expr_u16(expr0, ctx)?]
         }
         "u24" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_u24(expr0, ctx).ok_or_else(|| "invalid u24 operand".to_string())?]
+            vec![encode_expr_u24(expr0, ctx)?]
         }
         "force_l_u24" => vec![encode_expr_force_u24(
             input
@@ -673,8 +699,7 @@ fn selector_to_candidate(
                     .expr0
                     .ok_or_else(|| "missing first operand".to_string())?,
                 ctx,
-            )
-            .ok_or_else(|| "invalid first u8 operand".to_string())?,
+            )?,
             encode_expr_rel8(
                 input
                     .expr1
@@ -689,17 +714,13 @@ fn selector_to_candidate(
                     .expr0
                     .ok_or_else(|| "missing first operand".to_string())?,
                 ctx,
-            )
-            .ok_or_else(|| "invalid first u8 operand".to_string())?;
-            packed.extend(
-                encode_expr_u8(
-                    input
-                        .expr1
-                        .ok_or_else(|| "missing second operand".to_string())?,
-                    ctx,
-                )
-                .ok_or_else(|| "invalid second u8 operand".to_string())?,
-            );
+            )?;
+            packed.extend(encode_expr_u8(
+                input
+                    .expr1
+                    .ok_or_else(|| "missing second operand".to_string())?,
+                ctx,
+            )?);
             packed
         }],
         "force_d_u8" => vec![encode_expr_force_d_u8(
@@ -786,37 +807,37 @@ fn parse_mode_key(mode_key: &str) -> Option<AddressMode> {
     }
 }
 
-fn encode_expr_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
-    let value = ctx.eval_expr(expr).ok()?;
+fn encode_expr_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
+    let value = ctx.eval_expr(expr)?;
     if (0..=255).contains(&value) {
-        Some(vec![value as u8])
+        Ok(vec![value as u8])
     } else {
-        None
+        Err("invalid u8 operand".to_string())
     }
 }
 
-fn encode_expr_u16(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
-    let value = ctx.eval_expr(expr).ok()?;
+fn encode_expr_u16(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
+    let value = ctx.eval_expr(expr)?;
     if (0..=65535).contains(&value) {
-        Some(vec![
+        Ok(vec![
             (value as u16 & 0xFF) as u8,
             ((value as u16 >> 8) & 0xFF) as u8,
         ])
     } else {
-        None
+        Err("invalid u16 operand".to_string())
     }
 }
 
-fn encode_expr_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
-    let value = ctx.eval_expr(expr).ok()?;
+fn encode_expr_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
+    let value = ctx.eval_expr(expr)?;
     if (0..=0xFF_FFFF).contains(&value) {
-        Some(vec![
+        Ok(vec![
             (value as u32 & 0xFF) as u8,
             ((value as u32 >> 8) & 0xFF) as u8,
             ((value as u32 >> 16) & 0xFF) as u8,
         ])
     } else {
-        None
+        Err("invalid u24 operand".to_string())
     }
 }
 
