@@ -4,8 +4,12 @@
 //! Build opThread hierarchy chunks from the live opForge module registry.
 
 use crate::core::registry::ModuleRegistry;
+use crate::families::intel8080::module::FAMILY_ID as INTEL8080_FAMILY_ID;
+use crate::families::intel8080::table::FAMILY_INSTRUCTION_TABLE as INTEL8080_FAMILY_INSTRUCTION_TABLE;
 use crate::families::mos6502::module::FAMILY_ID as MOS6502_FAMILY_ID;
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
+use crate::i8085::extensions::I8085_EXTENSION_TABLE;
+use crate::i8085::module::CPU_ID as I8085_CPU_ID;
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_CPU_INSTRUCTION_TABLE;
 use crate::m65816::module::CPU_ID as M65816_CPU_ID;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_CPU_INSTRUCTION_TABLE;
@@ -14,12 +18,17 @@ use crate::opthread::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
+use crate::opthread::intel8080_vm::{
+    compile_vm_program_for_instruction_entry, mode_key_for_instruction_entry,
+};
 use crate::opthread::package::{
     canonicalize_hierarchy_metadata, default_runtime_diagnostic_catalog,
     encode_hierarchy_chunks_from_chunks, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
     VmProgramDescriptor,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+use crate::z80::extensions::Z80_EXTENSION_TABLE;
+use crate::z80::module::CPU_ID as Z80_CPU_ID;
 
 /// Errors emitted while building hierarchy package data from registry metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -165,6 +174,46 @@ pub fn build_hierarchy_chunks_from_registry(
         .map(|cpu| cpu.as_str().to_ascii_lowercase())
         .collect();
     let has_m65816 = registered_cpu_ids.contains(M65816_CPU_ID.as_str());
+
+    if registered_family_ids.contains(INTEL8080_FAMILY_ID.as_str()) {
+        for entry in INTEL8080_FAMILY_INSTRUCTION_TABLE {
+            let Some(program) = compile_vm_program_for_instruction_entry(entry) else {
+                continue;
+            };
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Family(INTEL8080_FAMILY_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: mode_key_for_instruction_entry(entry),
+                program,
+            });
+        }
+    }
+    if registered_cpu_ids.contains(I8085_CPU_ID.as_str()) {
+        for entry in I8085_EXTENSION_TABLE {
+            let Some(program) = compile_vm_program_for_instruction_entry(entry) else {
+                continue;
+            };
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Cpu(I8085_CPU_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: mode_key_for_instruction_entry(entry),
+                program,
+            });
+        }
+    }
+    if registered_cpu_ids.contains(Z80_CPU_ID.as_str()) {
+        for entry in Z80_EXTENSION_TABLE {
+            let Some(program) = compile_vm_program_for_instruction_entry(entry) else {
+                continue;
+            };
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: mode_key_for_instruction_entry(entry),
+                program,
+            });
+        }
+    }
 
     if registered_family_ids.contains(MOS6502_FAMILY_ID.as_str()) {
         for entry in FAMILY_INSTRUCTION_TABLE {
@@ -606,11 +655,15 @@ mod tests {
     use super::*;
     use crate::core::registry::ModuleRegistry;
     use crate::families::intel8080::module::Intel8080FamilyModule;
+    use crate::families::intel8080::table::lookup_instruction as lookup_intel_instruction;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+    use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
     use crate::i8085::module::I8085CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
+    use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
     use crate::opthread::package::{load_hierarchy_package, DIAG_OPTHREAD_MISSING_VM_PROGRAM};
+    use crate::z80::extensions::lookup_extension as lookup_z80_extension;
     use crate::z80::module::Z80CpuModule;
 
     fn test_registry() -> ModuleRegistry {
@@ -662,6 +715,24 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
                 && entry.mnemonic == "lda"
                 && entry.mode_key == "immediate"
+        }));
+        let mvi_a = lookup_intel_instruction("MVI", Some("A"), None).expect("MVI A exists");
+        let rim = lookup_i8085_extension("RIM", None, None).expect("RIM exists");
+        let djnz = lookup_z80_extension("DJNZ", None, None).expect("DJNZ exists");
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")
+                && entry.mnemonic == "mvi"
+                && entry.mode_key == mode_key_for_instruction_entry(mvi_a)
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "8085")
+                && entry.mnemonic == "rim"
+                && entry.mode_key == mode_key_for_instruction_entry(rim)
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "djnz"
+                && entry.mode_key == mode_key_for_instruction_entry(djnz)
         }));
         assert!(chunks.tables.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")

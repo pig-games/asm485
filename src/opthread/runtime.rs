@@ -5,21 +5,39 @@
 
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
 use crate::core::parser::Expr;
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::families::intel8080::table::{
+    lookup_instruction, ArgType as IntelArgType, InstructionEntry as IntelInstructionEntry,
+};
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::families::intel8080::{Intel8080FamilyHandler, Operand as IntelOperand};
 use crate::families::mos6502::{AddressMode, FamilyOperand, MOS6502FamilyHandler, OperandForce};
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::i8085::handler::I8085CpuHandler;
 use crate::m65816::state;
 use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
 use crate::opthread::package::{
     HierarchyChunks, ModeSelectorDescriptor, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
     DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
     DIAG_OPTHREAD_MISSING_VM_PROGRAM,
 };
 use crate::opthread::vm::{execute_program, VmError};
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::z80::extensions::lookup_extension as lookup_z80_extension;
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+use crate::z80::handler::Z80CpuHandler;
 
 /// Family-keyed operand parse/resolve adapter used by expr-based runtime encode.
 ///
@@ -640,14 +658,45 @@ impl HierarchyExecutionModel {
     #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
     fn select_candidates_from_exprs_intel8080_scaffold(
         &self,
-        _resolved: &ResolvedHierarchy,
-        _mnemonic: &str,
-        _operands: &[Expr],
-        _ctx: &dyn AssemblerContext,
+        resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
     ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
-        // Explicit scaffold: non-MOS adapter shape is wired, but candidate production is
-        // intentionally deferred until Phase 5 pilot enablement.
-        Ok(None)
+        let family = Intel8080FamilyHandler;
+        let parsed = match family.parse_operands(mnemonic, operands) {
+            Ok(parsed) => parsed,
+            Err(_) => return Ok(None),
+        };
+
+        let resolved_operands = if resolved.cpu_id.eq_ignore_ascii_case("z80") {
+            Z80CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
+        } else if resolved.cpu_id.eq_ignore_ascii_case("8085") {
+            I8085CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
+        } else {
+            return Ok(None);
+        };
+        let resolved_operands = match resolved_operands {
+            Ok(ops) => ops,
+            Err(_) => return Ok(None),
+        };
+
+        let Some(entry) = intel8080_lookup_instruction_entry(
+            mnemonic,
+            resolved.cpu_id.as_str(),
+            &resolved_operands,
+        ) else {
+            return Ok(None);
+        };
+        let Some(operand_bytes) = intel8080_operand_bytes_for_entry(entry, &resolved_operands, ctx)
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(vec![VmEncodeCandidate {
+            mode_key: mode_key_for_instruction_entry(entry),
+            operand_bytes,
+        }]))
     }
 
     fn mode_exists_for_owner(
@@ -686,6 +735,87 @@ impl HierarchyExecutionModel {
             let fallback = "65816-only addressing mode not supported on base 6502";
             self.diag_message(DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502, fallback, &[])
         }
+    }
+}
+
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+fn intel8080_lookup_instruction_entry(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+) -> Option<&'static IntelInstructionEntry> {
+    let reg1 = operands.first().and_then(intel8080_lookup_key);
+    let reg2 = operands.get(1).and_then(intel8080_lookup_key);
+
+    if let Some(entry) = lookup_instruction(mnemonic, reg1.as_deref(), reg2.as_deref()) {
+        return Some(entry);
+    }
+    if cpu_id.eq_ignore_ascii_case("8085") {
+        return lookup_i8085_extension(mnemonic, reg1.as_deref(), reg2.as_deref());
+    }
+    if cpu_id.eq_ignore_ascii_case("z80") {
+        return lookup_z80_extension(mnemonic, reg1.as_deref(), reg2.as_deref());
+    }
+    None
+}
+
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+fn intel8080_lookup_key(operand: &IntelOperand) -> Option<String> {
+    match operand {
+        IntelOperand::Register(name, _) => Some(name.to_string()),
+        IntelOperand::Indirect(name, _) if name.eq_ignore_ascii_case("hl") => Some("M".to_string()),
+        IntelOperand::Indirect(name, _) => Some(name.to_string()),
+        IntelOperand::Condition(name, _) => Some(name.to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+fn intel8080_operand_bytes_for_entry(
+    entry: &IntelInstructionEntry,
+    operands: &[IntelOperand],
+    ctx: &dyn AssemblerContext,
+) -> Option<Vec<Vec<u8>>> {
+    let imm_index = entry.num_regs as usize;
+    match entry.arg_type {
+        IntelArgType::None => Some(Vec::new()),
+        IntelArgType::Byte => {
+            let value = match operands.get(imm_index)? {
+                IntelOperand::Immediate8(value, _)
+                | IntelOperand::Port(value, _)
+                | IntelOperand::RstVector(value, _)
+                | IntelOperand::InterruptMode(value, _)
+                | IntelOperand::BitNumber(value, _) => *value,
+                _ => return None,
+            };
+            Some(vec![vec![value]])
+        }
+        IntelArgType::Word => {
+            let value = match operands.get(imm_index)? {
+                IntelOperand::Immediate16(value, _) | IntelOperand::IndirectAddress16(value, _) => {
+                    *value
+                }
+                _ => return None,
+            };
+            Some(vec![vec![value as u8, (value >> 8) as u8]])
+        }
+        IntelArgType::Relative => {
+            let value = match operands.get(imm_index)? {
+                IntelOperand::Immediate8(value, _) => *value,
+                IntelOperand::Immediate16(target, _) => {
+                    let next_pc =
+                        ctx.current_address() as i64 + prefix_len(entry.prefix) as i64 + 2;
+                    let delta = *target as i64 - next_pc;
+                    if !(-128..=127).contains(&delta) {
+                        return None;
+                    }
+                    delta as i8 as u8
+                }
+                _ => return None,
+            };
+            Some(vec![vec![value]])
+        }
+        IntelArgType::Im => None,
     }
 }
 
@@ -1823,6 +1953,26 @@ mod tests {
             .expect("expr encode should not error when family resolver is absent");
         assert!(bytes.is_none());
         assert!(!model.expr_resolution_is_strict_for_family("intel8080"));
+    }
+
+    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+    #[test]
+    fn execution_model_intel_scaffold_encodes_matching_mvi_program() {
+        let mut chunks = intel_only_chunks();
+        let mvi_a = crate::families::intel8080::table::lookup_instruction("MVI", Some("A"), None)
+            .expect("MVI A should exist");
+        chunks.tables[0].mode_key = mode_key_for_instruction_entry(mvi_a);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Identifier("A".to_string(), span),
+            Expr::Number("66".to_string(), span),
+        ];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
+            .expect("intel scaffold should encode MVI");
+        assert_eq!(bytes, Some(vec![0x3E, 0x42]));
     }
 
     #[test]

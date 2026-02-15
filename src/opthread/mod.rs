@@ -5,6 +5,7 @@
 
 pub mod builder;
 pub mod hierarchy;
+pub(crate) mod intel8080_vm;
 pub mod package;
 pub mod rewrite;
 pub mod runtime;

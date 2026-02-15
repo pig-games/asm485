@@ -23,10 +23,20 @@ use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::opthread::builder::build_hierarchy_chunks_from_registry;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::hierarchy::ScopedOwner;
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::package::ModeSelectorDescriptor;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::HierarchyExecutionModel;
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -101,6 +111,24 @@ fn assemble_line_with_runtime_mode(
     let registry = default_registry();
     let mut asm =
         AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, enable_opthread_runtime);
+    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+    if enable_opthread_runtime {
+        let enable_intel_runtime = registry
+            .resolve_pipeline(cpu, None)
+            .map(|pipeline| {
+                pipeline
+                    .family_id
+                    .as_str()
+                    .eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str())
+            })
+            .unwrap_or(false);
+        if enable_intel_runtime {
+            asm.opthread_execution_model = Some(
+                HierarchyExecutionModel::from_registry(&registry)
+                    .expect("runtime execution model from registry"),
+            );
+        }
+    }
     asm.clear_conditionals();
     asm.clear_scopes();
     let status = asm.process(line, 1, 0, 2);
@@ -6491,8 +6519,172 @@ fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
 fn opthread_runtime_model_stays_disabled_for_non_mos6502_family_cpu() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
-    assert!(asm.opthread_execution_model.is_none());
+
+    let i8085_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
+    assert!(i8085_asm.opthread_execution_model.is_none());
+
+    let z80_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
+    assert!(z80_asm.opthread_execution_model.is_none());
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+#[test]
+fn opthread_runtime_intel8085_path_uses_package_forms() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mvi_a = crate::families::intel8080::table::lookup_instruction("MVI", Some("A"), None)
+        .expect("MVI A should exist");
+    let mvi_mode_key = mode_key_for_instruction_entry(mvi_a);
+    for table in &mut chunks.tables {
+        let is_intel_family_owner = matches!(&table.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"));
+        if is_intel_family_owner
+            && table.mnemonic.eq_ignore_ascii_case("mvi")
+            && table.mode_key == mvi_mode_key
+        {
+            table.program = vec![OP_EMIT_U8, 0x00, OP_EMIT_OPERAND, 0x00, OP_END];
+        }
+    }
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A,$42", 1, 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x00, 0x42]);
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+#[test]
+fn opthread_runtime_z80_dialect_path_uses_package_forms() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mov_a_b =
+        crate::families::intel8080::table::lookup_instruction("MOV", Some("A"), Some("B"))
+            .expect("MOV A,B should exist");
+    let mov_mode_key = mode_key_for_instruction_entry(mov_a_b);
+    for table in &mut chunks.tables {
+        let is_intel_family_owner = matches!(&table.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"));
+        if is_intel_family_owner
+            && table.mnemonic.eq_ignore_ascii_case("mov")
+            && table.mode_key == mov_mode_key
+        {
+            table.program = vec![OP_EMIT_U8, 0x00, OP_END];
+        }
+    }
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LD A,B", 1, 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x00]);
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+#[test]
+fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
+    let pairs = [
+        ("    MVI A,55h", "    LD A,55h"),
+        ("    MOV A,B", "    LD A,B"),
+        ("    JMP 1000h", "    JP 1000h"),
+        ("    JZ 1000h", "    JP Z,1000h"),
+        ("    ADI 10h", "    ADD A,10h"),
+    ];
+
+    for (intel_line, z80_line) in pairs {
+        let intel_native = assemble_line_with_runtime_mode(i8085_cpu_id, intel_line, false);
+        let intel_runtime = assemble_line_with_runtime_mode(i8085_cpu_id, intel_line, true);
+        assert_eq!(
+            intel_runtime.0, intel_native.0,
+            "8085 status mismatch for '{}'",
+            intel_line
+        );
+        assert_eq!(
+            intel_runtime.1, intel_native.1,
+            "8085 diagnostic mismatch for '{}'",
+            intel_line
+        );
+        assert_eq!(
+            intel_runtime.2, intel_native.2,
+            "8085 bytes mismatch for '{}'",
+            intel_line
+        );
+
+        let z80_native = assemble_line_with_runtime_mode(z80_cpu_id, z80_line, false);
+        let z80_runtime = assemble_line_with_runtime_mode(z80_cpu_id, z80_line, true);
+        assert_eq!(
+            z80_runtime.0, z80_native.0,
+            "z80 status mismatch for '{}'",
+            z80_line
+        );
+        assert_eq!(
+            z80_runtime.1, z80_native.1,
+            "z80 diagnostic mismatch for '{}'",
+            z80_line
+        );
+        assert_eq!(
+            z80_runtime.2, z80_native.2,
+            "z80 bytes mismatch for '{}'",
+            z80_line
+        );
+
+        assert_eq!(
+            intel_runtime.2, z80_runtime.2,
+            "intel/z80 rewrite bytes mismatch for pair '{}'<->'{}'",
+            intel_line, z80_line
+        );
+    }
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+#[test]
+fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
+    let corpus = ["    RIM", "    SIM"];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(i8085_cpu_id, line, false);
+        let runtime = assemble_line_with_runtime_mode(i8085_cpu_id, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-intel8080-scaffold"
+))]
+#[test]
+fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
+    let corpus = ["    DJNZ $0004", "    RLC B"];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(z80_cpu_id, line, false);
+        let runtime = assemble_line_with_runtime_mode(z80_cpu_id, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
 }
 
 #[cfg(feature = "opthread-runtime")]
