@@ -368,11 +368,6 @@ impl HierarchyExecutionModel {
         let unstable_expr = input
             .expr0
             .is_some_and(|expr| expr_has_unstable_symbols(expr, ctx));
-        let unresolved_force_expr = input.force.is_some()
-            && ctx.pass() == 1
-            && input
-                .expr0
-                .is_some_and(|expr| expr_has_unstable_symbols(expr, ctx));
         let mut candidates = Vec::new();
         let mut force_error: Option<String> = None;
         let mut saw_selector = false;
@@ -416,7 +411,7 @@ impl HierarchyExecutionModel {
         if let Some(force) = input.force {
             // Keep legacy CPU-specific diagnostics for non-65816 targets until
             // force metadata is emitted for those CPUs.
-            if !resolved.cpu_id.eq_ignore_ascii_case("65816") || unresolved_force_expr {
+            if !resolved.cpu_id.eq_ignore_ascii_case("65816") {
                 return Ok(None);
             }
             if let Some(message) = force_error {
@@ -630,6 +625,12 @@ fn selector_to_candidate(
             };
             vec![encode_expr_u24(expr0, ctx).ok_or_else(|| "invalid u24 operand".to_string())?]
         }
+        "force_l_u24" => vec![encode_expr_force_u24(
+            input
+                .expr0
+                .ok_or_else(|| "missing force-l operand".to_string())?,
+            ctx,
+        )?],
         "rel8" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
@@ -820,6 +821,24 @@ fn encode_expr_force_d_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec
         ));
     };
     Ok(vec![dp_offset])
+}
+
+fn encode_expr_force_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
+    if ctx.pass() == 1 && expr_has_unstable_symbols(expr, ctx) {
+        return Ok(vec![0, 0, 0]);
+    }
+    let value = ctx.eval_expr(expr)?;
+    if !(0..=0xFF_FFFF).contains(&value) {
+        return Err(format!(
+            "Address {} out of 24-bit range for explicit ',l'",
+            value
+        ));
+    }
+    Ok(vec![
+        (value as u32 & 0xFF) as u8,
+        ((value as u32 >> 8) & 0xFF) as u8,
+        ((value as u32 >> 16) & 0xFF) as u8,
+    ])
 }
 
 fn encode_expr_force_abs16(
@@ -1348,6 +1367,29 @@ mod tests {
             .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
             .expect("vm expr encode should succeed");
         assert_eq!(bytes, Some(vec![0xA5, 0xF0]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_forced_long_unresolved_symbol_on_pass1() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Identifier("target".to_string(), span),
+            Expr::Register("l".to_string(), span),
+        ];
+        let mut ctx = TestAssemblerContext::new();
+        ctx.pass = 1;
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xAF, 0x00, 0x00, 0x00]));
     }
 
     #[test]

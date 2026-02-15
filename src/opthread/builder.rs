@@ -372,7 +372,7 @@ fn compile_m65816_force_selectors(
                 emit("k", "force_k_abs16_pbr");
             }
         }
-        AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => emit("l", "u24"),
+        AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => emit("l", "force_l_u24"),
         _ => {}
     }
 
@@ -709,7 +709,7 @@ mod tests {
                 && entry.mnemonic == "lda"
                 && entry.shape_key == "direct:force_l"
                 && entry.mode_key == "absolutelong"
-                && entry.operand_plan == "u24"
+                && entry.operand_plan == "force_l_u24"
         }));
         assert!(chunks.selectors.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
