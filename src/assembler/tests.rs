@@ -31,6 +31,10 @@ use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::package::ModeSelectorDescriptor;
 #[cfg(feature = "opthread-runtime")]
+use crate::opthread::rollout::{
+    family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
+};
+#[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::HierarchyExecutionModel;
 #[cfg(all(
     feature = "opthread-runtime",
@@ -134,6 +138,24 @@ fn assemble_line_with_runtime_mode(
     let status = asm.process(line, 1, 0, 2);
     let message = asm.error().map(|err| err.to_string());
     (status, message, asm.bytes().to_vec())
+}
+
+#[cfg(feature = "opthread-runtime")]
+fn assemble_line_with_runtime_mode_no_injection(
+    cpu: crate::core::cpu::CpuType,
+    line: &str,
+    enable_opthread_runtime: bool,
+) -> (LineStatus, Option<String>, Vec<u8>, bool) {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm =
+        AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, enable_opthread_runtime);
+    let has_model = asm.opthread_execution_model.is_some();
+    asm.clear_conditionals();
+    asm.clear_scopes();
+    let status = asm.process(line, 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec(), has_model)
 }
 
 #[cfg(feature = "opthread-runtime")]
@@ -6525,6 +6547,85 @@ fn opthread_runtime_model_stays_disabled_for_non_mos6502_family_cpu() {
 
     let z80_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
     assert!(z80_asm.opthread_execution_model.is_none());
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist() {
+    let registry = default_registry();
+    for family in registry.family_ids() {
+        let policy = family_runtime_rollout_policy(family.as_str())
+            .unwrap_or_else(|| panic!("missing rollout policy for family '{}'", family.as_str()));
+        assert!(
+            !policy.migration_checklist.trim().is_empty(),
+            "missing migration checklist for family '{}'",
+            family.as_str()
+        );
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enabled() {
+    assert!(!package_runtime_default_enabled_for_family("intel8080"));
+
+    for (cpu, line) in [
+        (i8085_cpu_id, "    MVI A,55h"),
+        (z80_cpu_id, "    LD A,55h"),
+    ] {
+        let native = assemble_line_with_runtime_mode_no_injection(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode_no_injection(cpu, line, true);
+        assert!(
+            !runtime.3,
+            "staged family should not auto-enable opthread model for {}",
+            cpu.as_str()
+        );
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
+    assert!(package_runtime_default_enabled_for_family("mos6502"));
+
+    let source = [
+        "    .cpu 6502",
+        "    .org $1000",
+        "start:",
+        "    LDA #<target",
+        "    STA ptr",
+        "    LDA #>target",
+        "    STA ptr+1",
+        "    BNE later",
+        "ptr: .word target",
+        "    .byte $EA,$EA",
+        "later:",
+        "    BEQ start",
+        "target:",
+        "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime_a = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    let runtime_b = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source re-run should be deterministic");
+
+    assert_eq!(runtime_a.0, native.0, "bytes/reloc parity mismatch");
+    assert_eq!(runtime_a.1, native.1, "diagnostic parity mismatch");
+    assert_eq!(
+        runtime_b.0, runtime_a.0,
+        "runtime bytes are non-deterministic"
+    );
+    assert_eq!(
+        runtime_b.1, runtime_a.1,
+        "runtime diagnostics are non-deterministic"
+    );
 }
 
 #[cfg(all(

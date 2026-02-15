@@ -48,6 +48,10 @@ Run Intel8080-family runtime/package parity checks (feature-gated):
 
     make test-opthread-runtime-intel
 
+Run rollout policy/criteria gate checks (feature-gated):
+
+    make test-opthread-rollout-criteria
+
 Run the local MOS6502 CI gate bundle:
 
     make ci-opthread-mos6502

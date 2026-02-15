@@ -1045,11 +1045,9 @@ impl<'a> AsmLine<'a> {
         let Ok(pipeline) = registry.resolve_pipeline(cpu, None) else {
             return None;
         };
-        if !pipeline
-            .family_id
-            .as_str()
-            .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str())
-        {
+        if !crate::opthread::rollout::package_runtime_default_enabled_for_family(
+            pipeline.family_id.as_str(),
+        ) {
             return None;
         }
         HierarchyExecutionModel::from_registry(registry).ok()
