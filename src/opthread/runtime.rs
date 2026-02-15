@@ -2788,8 +2788,10 @@ mod tests {
     use crate::core::parser::Expr;
     use crate::core::registry::{ModuleRegistry, VmEncodeCandidate};
     use crate::core::tokenizer::{Span, Token, TokenKind, Tokenizer};
+    use crate::families::intel8080::module::Intel8080FamilyModule;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
     use crate::families::mos6502::Operand;
+    use crate::i8085::module::I8085CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::builder::{
@@ -2805,7 +2807,10 @@ mod tests {
         TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+    use crate::z80::module::Z80CpuModule;
     use std::collections::HashMap;
+    use std::fs;
+    use std::path::PathBuf;
 
     fn tokenize_host_line(line: &str, line_num: u32) -> Vec<PortableToken> {
         let mut tokenizer = Tokenizer::new(line, line_num);
@@ -2818,6 +2823,85 @@ mod tests {
             tokens.push(PortableToken::from_core_token(token));
         }
         tokens
+    }
+
+    fn parity_registry() -> ModuleRegistry {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        registry
+    }
+
+    fn tokenize_with_mode(
+        model: &mut HierarchyExecutionModel,
+        mode: RuntimeTokenizerMode,
+        cpu_id: &str,
+        line: &str,
+        line_num: u32,
+    ) -> Result<Vec<PortableToken>, String> {
+        model.set_tokenizer_mode(mode);
+        model
+            .tokenize_portable_statement(&CoreTokenizerAdapter, cpu_id, None, line, line_num)
+            .map_err(|err| err.to_string())
+    }
+
+    fn tokenizer_edge_case_lines() -> Vec<String> {
+        vec![
+            "LDA #$42".to_string(),
+            "label: .byte \"A\\n\"".to_string(),
+            "A && B || C".to_string(),
+            "BBR0 $12,$0005".to_string(),
+            ".if 1".to_string(),
+            "%1010 + $1f".to_string(),
+            "DB \"unterminated".to_string(),
+            "DB \"bad\\xZZ\"".to_string(),
+            "MOV A,B ; trailing comment".to_string(),
+            "  ".to_string(),
+        ]
+    }
+
+    fn tokenizer_example_lines() -> Vec<String> {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let examples_dir = repo_root.join("examples");
+        let mut asm_files: Vec<PathBuf> = fs::read_dir(&examples_dir)
+            .expect("read examples directory")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("asm"))
+            .collect();
+        asm_files.sort();
+
+        let mut lines = Vec::new();
+        for path in asm_files {
+            let source = fs::read_to_string(&path).expect("read example source");
+            lines.extend(source.lines().map(|line| line.to_string()));
+        }
+        lines
+    }
+
+    fn deterministic_fuzz_lines(seed: u64, count: usize, max_len: usize) -> Vec<String> {
+        const ALPHABET: &str =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_,$#:+-*/()[]{}'\";<>|&^%!~.\\ \t";
+        let alphabet = ALPHABET.as_bytes();
+        let mut state = seed;
+        let mut out = Vec::with_capacity(count);
+        for _ in 0..count {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let len = ((state >> 24) as usize) % (max_len.saturating_add(1));
+            let mut line = String::with_capacity(len);
+            for _ in 0..len {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let idx = (state as usize) % alphabet.len();
+                line.push(alphabet[idx] as char);
+            }
+            out.push(line);
+        }
+        out
     }
 
     fn token_policy_for_test(
@@ -3667,6 +3751,104 @@ mod tests {
             &tokens[0].kind,
             PortableTokenKind::Identifier(name) if name == "a"
         ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_parity_corpus_examples_and_edge_cases_host_vs_vm() {
+        let mut corpus = tokenizer_example_lines();
+        corpus.extend(tokenizer_edge_case_lines());
+        assert!(
+            !corpus.is_empty(),
+            "tokenizer parity corpus should not be empty"
+        );
+
+        let registry = parity_registry();
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        for cpu_id in ["m6502", "z80"] {
+            for (index, line) in corpus.iter().enumerate() {
+                let line_num = (index + 1) as u32;
+                let host = tokenize_with_mode(
+                    &mut model,
+                    RuntimeTokenizerMode::Host,
+                    cpu_id,
+                    line,
+                    line_num,
+                );
+                let vm = tokenize_with_mode(
+                    &mut model,
+                    RuntimeTokenizerMode::Vm,
+                    cpu_id,
+                    line,
+                    line_num,
+                );
+                assert_eq!(
+                    vm, host,
+                    "tokenizer parity mismatch for cpu {} at corpus index {} line {:?}",
+                    cpu_id, index, line
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn execution_model_tokenizer_parity_deterministic_fuzz_host_vs_vm() {
+        let corpus = deterministic_fuzz_lines(0x50_45_45_44, 512, 48);
+        let registry = parity_registry();
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        for (index, line) in corpus.iter().enumerate() {
+            let line_num = (index + 1) as u32;
+            let host = tokenize_with_mode(
+                &mut model,
+                RuntimeTokenizerMode::Host,
+                "m6502",
+                line,
+                line_num,
+            );
+            let vm = tokenize_with_mode(
+                &mut model,
+                RuntimeTokenizerMode::Vm,
+                "m6502",
+                line,
+                line_num,
+            );
+            assert_eq!(
+                vm, host,
+                "deterministic fuzz parity mismatch at index {} line {:?}",
+                index, line
+            );
+        }
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_mode_is_deterministic_for_same_input() {
+        let corpus = deterministic_fuzz_lines(0x44_45_54, 256, 40);
+        let registry = parity_registry();
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        for (index, line) in corpus.iter().enumerate() {
+            let line_num = (index + 1) as u32;
+            let first = tokenize_with_mode(
+                &mut model,
+                RuntimeTokenizerMode::Vm,
+                "m6502",
+                line,
+                line_num,
+            );
+            let second = tokenize_with_mode(
+                &mut model,
+                RuntimeTokenizerMode::Vm,
+                "m6502",
+                line,
+                line_num,
+            );
+            assert_eq!(
+                second, first,
+                "vm tokenizer determinism mismatch at index {} line {:?}",
+                index, line
+            );
+        }
     }
 
     #[test]
