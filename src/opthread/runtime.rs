@@ -2028,7 +2028,7 @@ fn vm_offset_to_pc(
     Ok(offset)
 }
 
-fn vm_diag_code_for_slot<'a>(diagnostics: &'a TokenizerVmDiagnosticMap, slot: u8) -> &'a str {
+fn vm_diag_code_for_slot(diagnostics: &TokenizerVmDiagnosticMap, slot: u8) -> &str {
     match slot {
         0 => diagnostics.invalid_char.as_str(),
         1 => diagnostics.unterminated_string.as_str(),
