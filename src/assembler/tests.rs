@@ -7109,6 +7109,49 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "LABEL: LDA #$10 ; trailing comment"),
+        (m6502_cpu_id, "LABEL LDA $10,X"),
+        (m6502_cpu_id, "    ASL A"),
+        (m6502_cpu_id, "    .byte \"A\", $42, %1010"),
+        (m6502_cpu_id, "    .word >$1234, <$1234"),
+        (m6502_cpu_id, "1mov a,b"),
+        (m65c02_cpu_id, "    ASL A"),
+        (m65c02_cpu_id, "    BRA $0004"),
+        (m65816_cpu_id, "    LDA [$10],Y"),
+        (m65816_cpu_id, "    LDA $123456,l"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(
+            runtime.0,
+            native.0,
+            "status mismatch for '{}' on {}",
+            line,
+            cpu.as_str()
+        );
+        assert_eq!(
+            runtime.1,
+            native.1,
+            "diagnostic mismatch for '{}' on {}",
+            line,
+            cpu.as_str()
+        );
+        assert_eq!(
+            runtime.2,
+            native.2,
+            "bytes mismatch for '{}' on {}",
+            line,
+            cpu.as_str()
+        );
+    }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fallback() {
     let line = "    LDA ($10,S),Y";
     let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);

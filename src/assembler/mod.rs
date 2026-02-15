@@ -44,6 +44,8 @@ use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
+#[cfg(feature = "opthread-runtime")]
+use crate::core::text_utils::is_ident_start;
 use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
 use std::sync::Arc;
@@ -2522,6 +2524,30 @@ impl<'a> AsmLine<'a> {
             return None;
         }
         let model = self.opthread_execution_model.as_ref()?;
+        if let Some(first) = line.as_bytes().first().copied() {
+            if !first.is_ascii_whitespace()
+                && first != b';'
+                && first != b'.'
+                && first != b'*'
+                && !is_ident_start(first)
+            {
+                let err = ParseError {
+                    message: format!(
+                        "Illegal character in column 1. Must be symbol, '.', '*', comment, or space. Found: {}",
+                        line
+                    ),
+                    span: Span {
+                        line: line_num,
+                        col_start: 1,
+                        col_end: 1,
+                    },
+                };
+                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.last_error_column = Some(err.span.col_start);
+                self.last_parser_error = Some(err);
+                return Some(LineStatus::Error);
+            }
+        }
 
         let portable_tokens = match model.tokenize_portable_statement(
             &CoreTokenizerAdapter,
