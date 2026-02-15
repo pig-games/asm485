@@ -996,6 +996,17 @@ impl HierarchyExecutionModel {
             .unwrap_or_default())
     }
 
+    pub fn resolve_tokenizer_vm_parity_checklist(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<&'static str>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(tokenizer_vm_parity_checklist_for_family(
+            resolved.family_id.as_str(),
+        ))
+    }
+
     pub fn encode_instruction(
         &self,
         cpu_id: &str,
@@ -2011,8 +2022,37 @@ const VM_CHAR_CLASS_DIGIT: u8 = 4;
 const VM_CHAR_CLASS_QUOTE: u8 = 5;
 const VM_CHAR_CLASS_PUNCTUATION: u8 = 6;
 const VM_CHAR_CLASS_OPERATOR: u8 = 7;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TokenizerVmCertification {
+    family_id: &'static str,
+    parity_checklist: &'static str,
+}
+
+const TOKENIZER_VM_CERTIFICATIONS: &[TokenizerVmCertification] = &[
+    TokenizerVmCertification {
+        family_id: "mos6502",
+        parity_checklist: "Phase 5 tokenizer parity corpus and deterministic fuzz gates",
+    },
+    TokenizerVmCertification {
+        family_id: "intel8080",
+        parity_checklist: "Phase 5 tokenizer parity corpus and deterministic fuzz gates",
+    },
+];
+
+fn tokenizer_vm_certification_for_family(
+    family_id: &str,
+) -> Option<&'static TokenizerVmCertification> {
+    TOKENIZER_VM_CERTIFICATIONS
+        .iter()
+        .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
+}
 fn tokenizer_vm_authoritative_for_family(family_id: &str) -> bool {
-    family_id.eq_ignore_ascii_case("mos6502")
+    tokenizer_vm_certification_for_family(family_id).is_some()
+}
+
+fn tokenizer_vm_parity_checklist_for_family(family_id: &str) -> Option<&'static str> {
+    tokenizer_vm_certification_for_family(family_id).map(|entry| entry.parity_checklist)
 }
 
 fn vm_read_u8(
@@ -3761,6 +3801,49 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_tokenizer_vm_parity_checklist_resolves_for_certified_families() {
+        let registry = parity_registry();
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mos = model
+            .resolve_tokenizer_vm_parity_checklist("m6502", None)
+            .expect("mos6502 checklist resolution");
+        let intel = model
+            .resolve_tokenizer_vm_parity_checklist("z80", None)
+            .expect("intel8080 checklist resolution");
+        assert!(mos.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+        assert!(intel.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+    }
+
+    #[test]
+    fn tokenizer_vm_certification_entries_require_parity_checklist_text() {
+        assert!(
+            !TOKENIZER_VM_CERTIFICATIONS.is_empty(),
+            "certified family list must be explicit"
+        );
+        for certification in TOKENIZER_VM_CERTIFICATIONS {
+            assert!(
+                !certification.parity_checklist.trim().is_empty(),
+                "certified family {} must declare parity checklist text",
+                certification.family_id
+            );
+            assert!(
+                certification
+                    .parity_checklist
+                    .to_ascii_lowercase()
+                    .contains("parity"),
+                "certified family {} checklist should reference parity gates",
+                certification.family_id
+            );
+            assert_eq!(
+                tokenizer_vm_parity_checklist_for_family(certification.family_id),
+                Some(certification.parity_checklist)
+            );
+        }
+        assert!(tokenizer_vm_parity_checklist_for_family("nonexistent").is_none());
+    }
+
+    #[test]
     fn execution_model_tokenizer_auto_mode_uses_vm_for_mos6502_family() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -3793,17 +3876,17 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_auto_mode_keeps_non_certified_family_staged() {
+    fn execution_model_tokenizer_auto_mode_uses_vm_for_intel8080_family() {
         let registry = parity_registry();
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         let tokens = model
-            .tokenize_portable_statement(&FixedTokenizerAdapter, "z80", None, "LD A,B", 1)
-            .expect("auto mode should keep non-certified families in staged delegated mode");
-        assert_eq!(tokens.len(), 1);
+            .tokenize_portable_statement(&FailingTokenizerAdapter, "z80", None, "LD A,B", 1)
+            .expect("auto mode should route certified intel8080 family to VM tokenizer");
+        assert!(!tokens.is_empty());
         assert!(matches!(
             &tokens[0].kind,
-            PortableTokenKind::Identifier(name) if name == "adapter"
+            PortableTokenKind::Identifier(name) if name == "ld"
         ));
     }
 
