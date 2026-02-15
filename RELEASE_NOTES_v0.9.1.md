@@ -23,6 +23,7 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - hierarchy package chunks for `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`
   - deterministic metadata canonicalization and stable snapshot coverage
   - host/runtime bridge API for active CPU selection + hierarchy-aware pipeline resolution
+  - explicit family rollout modes: MOS6502-family is authoritative package-runtime; Intel8080-family remains staged verification (native default)
   - bounded deterministic dialect rewrite engine (`src/opthread/rewrite.rs`)
   - parity smoke harness behind feature flag (`cargo test --features opthread-parity ...`)
   - draft `.optst` vector corpus under `examples/opthread/vectors/`

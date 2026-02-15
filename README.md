@@ -60,6 +60,10 @@ Run the local Intel8080-family pilot CI gate bundle:
 
     make ci-opthread-intel8080
 
+opThread rollout status (`opthread-runtime` feature):
+- Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
+- Staged verification family: `intel8080` (native path remains default; package-runtime path is parity/pilot-only).
+
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
     make reference

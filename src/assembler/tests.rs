@@ -32,7 +32,8 @@ use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
 use crate::opthread::package::ModeSelectorDescriptor;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::rollout::{
-    family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
+    family_runtime_mode, family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
+    FamilyRuntimeMode,
 };
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::HierarchyExecutionModel;
@@ -6567,6 +6568,10 @@ fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist()
 #[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enabled() {
+    assert_eq!(
+        family_runtime_mode("intel8080"),
+        FamilyRuntimeMode::StagedVerification
+    );
     assert!(!package_runtime_default_enabled_for_family("intel8080"));
 
     for (cpu, line) in [
@@ -6589,6 +6594,10 @@ fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enable
 #[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
+    assert_eq!(
+        family_runtime_mode("mos6502"),
+        FamilyRuntimeMode::Authoritative
+    );
     assert!(package_runtime_default_enabled_for_family("mos6502"));
 
     let source = [
