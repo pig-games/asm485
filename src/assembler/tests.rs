@@ -6600,6 +6600,52 @@ fn opthread_runtime_artifact_helpers_round_trip_model_load() {
     );
 }
 
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-opcpu-artifact"
+))]
+#[test]
+fn opthread_runtime_artifact_mos6502_parity_and_determinism_gate() {
+    let source = [
+        "    .cpu 6502",
+        "    .org $1000",
+        "start:",
+        "    LDA #<target",
+        "    STA ptr",
+        "    LDA #>target",
+        "    STA ptr+1",
+        "    BNE later",
+        "ptr: .word target",
+        "    .byte $EA,$EA",
+        "later:",
+        "    BEQ start",
+        "target:",
+        "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime_a = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("artifact runtime source assembly should run");
+    let runtime_b = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("artifact runtime source re-run should be deterministic");
+
+    assert_eq!(
+        runtime_a.0, native.0,
+        "artifact bytes/reloc parity mismatch"
+    );
+    assert_eq!(runtime_a.1, native.1, "artifact diagnostic parity mismatch");
+    assert_eq!(
+        runtime_b.0, runtime_a.0,
+        "artifact runtime bytes are non-deterministic"
+    );
+    assert_eq!(
+        runtime_b.1, runtime_a.1,
+        "artifact runtime diagnostics are non-deterministic"
+    );
+}
+
 #[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist() {

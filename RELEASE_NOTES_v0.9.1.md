@@ -25,6 +25,7 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - host/runtime bridge API for active CPU selection + hierarchy-aware pipeline resolution
   - explicit family rollout modes: MOS6502-family is authoritative package-runtime; Intel8080-family remains staged verification (native default)
   - optional feature-gated `.opcpu` artifact load/write path (`opthread-runtime-opcpu-artifact`) using `target/opthread/opforge-runtime.opcpu`
+  - artifact-mode MOS6502 runtime verification lane via `make test-opthread-runtime-artifact`
   - bounded deterministic dialect rewrite engine (`src/opthread/rewrite.rs`)
   - parity smoke harness behind feature flag (`cargo test --features opthread-parity ...`)
   - draft `.optst` vector corpus under `examples/opthread/vectors/`

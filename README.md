@@ -44,6 +44,10 @@ Run MOS6502 runtime/package parity checks (feature-gated):
 
     make test-opthread-runtime
 
+Run MOS6502 runtime/package artifact-mode checks (feature-gated):
+
+    make test-opthread-runtime-artifact
+
 Run Intel8080-family runtime/package parity checks (feature-gated):
 
     make test-opthread-runtime-intel
