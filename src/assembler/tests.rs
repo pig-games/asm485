@@ -21,6 +21,11 @@ use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TAB
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::builder::build_hierarchy_chunks_from_registry;
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-opcpu-artifact"
+))]
+use crate::opthread::builder::build_hierarchy_package_from_registry;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::hierarchy::ScopedOwner;
 #[cfg(all(
@@ -6548,6 +6553,51 @@ fn opthread_runtime_model_stays_disabled_for_non_mos6502_family_cpu() {
 
     let z80_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
     assert!(z80_asm.opthread_execution_model.is_none());
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-opcpu-artifact"
+))]
+#[test]
+fn opthread_runtime_artifact_path_is_target_relative() {
+    let base = create_temp_dir("opthread-artifact-path");
+    let path = AsmLine::opthread_package_artifact_path_for_dir(base.as_path());
+    assert_eq!(
+        path,
+        base.join("target")
+            .join("opthread")
+            .join("opforge-runtime.opcpu")
+    );
+}
+
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-opcpu-artifact"
+))]
+#[test]
+fn opthread_runtime_artifact_helpers_round_trip_model_load() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let path = create_temp_dir("opthread-artifact-roundtrip")
+        .join("target")
+        .join("opthread")
+        .join("opforge-runtime.opcpu");
+    let package_bytes =
+        build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
+    AsmLine::persist_opthread_package_artifact(path.as_path(), &package_bytes);
+
+    let model = AsmLine::load_opthread_execution_model_from_artifact(path.as_path());
+    assert!(
+        model.is_some(),
+        "expected runtime model from artifact bytes"
+    );
+
+    let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    assert!(
+        asm.opthread_execution_model.is_some(),
+        "runtime model should still initialize for authoritative family"
+    );
 }
 
 #[cfg(feature = "opthread-runtime")]

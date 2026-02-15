@@ -53,6 +53,11 @@ use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-opcpu-artifact"
+))]
+use crate::opthread::builder::build_hierarchy_package_from_registry;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::HierarchyExecutionModel;
 use crate::z80::module::Z80CpuModule;
@@ -67,6 +72,12 @@ pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as
 pub use cli::VERSION;
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
+#[cfg(all(
+    feature = "opthread-runtime",
+    feature = "opthread-runtime-opcpu-artifact"
+))]
+const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
+    "target/opthread/opforge-runtime.opcpu";
 
 fn default_cpu() -> CpuType {
     crate::i8085::module::CPU_ID
@@ -1050,7 +1061,64 @@ impl<'a> AsmLine<'a> {
         ) {
             return None;
         }
+
+        #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+        {
+            if let Some(path) = Self::opthread_package_artifact_path() {
+                if let Some(model) = Self::load_opthread_execution_model_from_artifact(&path) {
+                    return Some(model);
+                }
+                if let Ok(package_bytes) = build_hierarchy_package_from_registry(registry) {
+                    if let Ok(model) =
+                        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                    {
+                        Self::persist_opthread_package_artifact(path.as_path(), &package_bytes);
+                        return Some(model);
+                    }
+                }
+                return None;
+            }
+        }
+
         HierarchyExecutionModel::from_registry(registry).ok()
+    }
+
+    #[cfg(all(
+        feature = "opthread-runtime",
+        feature = "opthread-runtime-opcpu-artifact"
+    ))]
+    fn opthread_package_artifact_path_for_dir(base_dir: &Path) -> PathBuf {
+        base_dir.join(OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH)
+    }
+
+    #[cfg(all(
+        feature = "opthread-runtime",
+        feature = "opthread-runtime-opcpu-artifact"
+    ))]
+    fn opthread_package_artifact_path() -> Option<PathBuf> {
+        std::env::current_dir()
+            .ok()
+            .map(|base_dir| Self::opthread_package_artifact_path_for_dir(base_dir.as_path()))
+    }
+
+    #[cfg(all(
+        feature = "opthread-runtime",
+        feature = "opthread-runtime-opcpu-artifact"
+    ))]
+    fn load_opthread_execution_model_from_artifact(path: &Path) -> Option<HierarchyExecutionModel> {
+        let bytes = fs::read(path).ok()?;
+        HierarchyExecutionModel::from_package_bytes(bytes.as_slice()).ok()
+    }
+
+    #[cfg(all(
+        feature = "opthread-runtime",
+        feature = "opthread-runtime-opcpu-artifact"
+    ))]
+    fn persist_opthread_package_artifact(path: &Path, package_bytes: &[u8]) {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(path, package_bytes);
     }
 
     fn take_root_metadata(&mut self) -> RootMetadata {

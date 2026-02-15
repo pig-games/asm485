@@ -64,6 +64,10 @@ opThread rollout status (`opthread-runtime` feature):
 - Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
 - Staged verification family: `intel8080` (native path remains default; package-runtime path is parity/pilot-only).
 
+Optional on-disk runtime package artifact mode:
+- Enable feature `opthread-runtime-opcpu-artifact` (in addition to `opthread-runtime`).
+- Runtime then loads/writes `.opcpu` bytes at `target/opthread/opforge-runtime.opcpu` with registry-build fallback.
+
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
     make reference
