@@ -15,8 +15,8 @@ use crate::opthread::hierarchy::{
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::package::{
-    canonicalize_hierarchy_metadata, encode_hierarchy_chunks, HierarchyChunks, OpcpuCodecError,
-    VmProgramDescriptor,
+    canonicalize_hierarchy_metadata, encode_hierarchy_chunks_full, HierarchyChunks,
+    ModeSelectorDescriptor, OpcpuCodecError, VmProgramDescriptor,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 
@@ -153,6 +153,7 @@ pub fn build_hierarchy_chunks_from_registry(
     }
 
     let mut tables = Vec::new();
+    let mut selectors = Vec::new();
     let registered_family_ids: std::collections::HashSet<String> = family_ids
         .iter()
         .map(|family| family.as_str().to_ascii_lowercase())
@@ -174,6 +175,14 @@ pub fn build_hierarchy_chunks_from_registry(
                     if entry.mode.operand_size() > 0 { 1 } else { 0 },
                 ),
             });
+            if let Some(selector) = compile_mode_selector(
+                ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
+                entry.mnemonic,
+                entry.mode,
+                false,
+            ) {
+                selectors.push(selector);
+            }
         }
     }
     if registered_cpu_ids.contains(M65C02_CPU_ID.as_str()) {
@@ -187,8 +196,17 @@ pub fn build_hierarchy_chunks_from_registry(
                     if entry.mode.operand_size() > 0 { 1 } else { 0 },
                 ),
             });
+            if let Some(selector) = compile_mode_selector(
+                ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+                entry.mnemonic,
+                entry.mode,
+                false,
+            ) {
+                selectors.push(selector);
+            }
         }
         tables.extend(compile_m65c02_bit_branch_programs());
+        selectors.extend(compile_m65c02_bit_branch_selectors());
     }
     if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
         for entry in M65816_CPU_INSTRUCTION_TABLE {
@@ -201,6 +219,14 @@ pub fn build_hierarchy_chunks_from_registry(
                     if entry.mode.operand_size() > 0 { 1 } else { 0 },
                 ),
             });
+            if let Some(selector) = compile_mode_selector(
+                ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+                entry.mnemonic,
+                entry.mode,
+                true,
+            ) {
+                selectors.push(selector);
+            }
         }
     }
 
@@ -211,6 +237,7 @@ pub fn build_hierarchy_chunks_from_registry(
         &mut registers,
         &mut forms,
         &mut tables,
+        &mut selectors,
     );
 
     // Ensure the materialized metadata is coherent before returning.
@@ -223,6 +250,7 @@ pub fn build_hierarchy_chunks_from_registry(
         registers,
         forms,
         tables,
+        selectors,
     })
 }
 
@@ -234,6 +262,183 @@ fn compile_opcode_program(opcode: u8, operand_count: usize) -> Vec<u8> {
     }
     program.push(OP_END);
     program
+}
+
+fn compile_mode_selector(
+    owner: ScopedOwner,
+    mnemonic: &str,
+    mode: AddressMode,
+    is_m65816: bool,
+) -> Option<ModeSelectorDescriptor> {
+    let shape_key = selector_shape_key(mode)?;
+    let operand_plan = selector_operand_plan(mode, mnemonic, is_m65816)?;
+    Some(ModeSelectorDescriptor {
+        owner,
+        mnemonic: mnemonic.to_string(),
+        shape_key: shape_key.to_string(),
+        mode_key: format!("{:?}", mode),
+        operand_plan: operand_plan.to_string(),
+        priority: selector_priority(mode),
+        unstable_widen: matches!(
+            mode,
+            AddressMode::ZeroPage | AddressMode::ZeroPageX | AddressMode::ZeroPageY
+        ),
+        width_rank: selector_width_rank(mode),
+    })
+}
+
+fn compile_m65c02_bit_branch_selectors() -> Vec<ModeSelectorDescriptor> {
+    let mut selectors = Vec::with_capacity(16);
+    for bit in 0u8..=7 {
+        selectors.push(ModeSelectorDescriptor {
+            owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+            mnemonic: format!("BBR{bit}"),
+            shape_key: "pair_direct".to_string(),
+            mode_key: format!("{:?}", AddressMode::ZeroPage),
+            operand_plan: "pair_u8_rel8".to_string(),
+            priority: 0,
+            unstable_widen: false,
+            width_rank: 1,
+        });
+        selectors.push(ModeSelectorDescriptor {
+            owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+            mnemonic: format!("BBS{bit}"),
+            shape_key: "pair_direct".to_string(),
+            mode_key: format!("{:?}", AddressMode::ZeroPage),
+            operand_plan: "pair_u8_rel8".to_string(),
+            priority: 0,
+            unstable_widen: false,
+            width_rank: 1,
+        });
+    }
+    selectors
+}
+
+fn selector_shape_key(mode: AddressMode) -> Option<&'static str> {
+    match mode {
+        AddressMode::Implied => Some("implied"),
+        AddressMode::Accumulator => Some("accumulator"),
+        AddressMode::Immediate => Some("immediate"),
+        AddressMode::ZeroPage
+        | AddressMode::Absolute
+        | AddressMode::Relative
+        | AddressMode::RelativeLong => Some("direct"),
+        AddressMode::ZeroPageX | AddressMode::AbsoluteX => Some("direct_x"),
+        AddressMode::ZeroPageY | AddressMode::AbsoluteY => Some("direct_y"),
+        AddressMode::IndexedIndirectX | AddressMode::AbsoluteIndexedIndirect => {
+            Some("indexed_indirect_x")
+        }
+        AddressMode::IndirectIndexedY => Some("indirect_indexed_y"),
+        AddressMode::Indirect | AddressMode::ZeroPageIndirect => Some("indirect"),
+        AddressMode::IndirectLong | AddressMode::DirectPageIndirectLong => Some("indirect_long"),
+        AddressMode::DirectPageIndirectLongY => Some("indirect_long_y"),
+        AddressMode::StackRelative => Some("stack_relative"),
+        AddressMode::StackRelativeIndirectIndexedY => Some("stack_relative_indirect_y"),
+        AddressMode::AbsoluteLong => Some("absolute_long"),
+        AddressMode::AbsoluteLongX => Some("absolute_long_x"),
+        AddressMode::BlockMove => Some("pair_direct"),
+    }
+}
+
+fn selector_operand_plan(
+    mode: AddressMode,
+    mnemonic: &str,
+    is_m65816: bool,
+) -> Option<&'static str> {
+    match mode {
+        AddressMode::Implied | AddressMode::Accumulator => Some("none"),
+        AddressMode::Immediate => {
+            if is_m65816 && m65816_immediate_width_mnemonic(mnemonic) {
+                Some("imm_mx")
+            } else {
+                Some("u8")
+            }
+        }
+        AddressMode::Relative => Some("rel8"),
+        AddressMode::RelativeLong => Some("rel16"),
+        AddressMode::BlockMove => Some("u8u8_packed"),
+        AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => Some("u24"),
+        mode => {
+            let size = mode.operand_size();
+            match size {
+                1 => Some("u8"),
+                2 => Some("u16"),
+                3 => Some("u24"),
+                _ => None,
+            }
+        }
+    }
+}
+
+fn selector_priority(mode: AddressMode) -> u16 {
+    match mode {
+        AddressMode::Relative | AddressMode::RelativeLong => 0,
+        AddressMode::ZeroPage
+        | AddressMode::ZeroPageX
+        | AddressMode::ZeroPageY
+        | AddressMode::IndexedIndirectX
+        | AddressMode::IndirectIndexedY
+        | AddressMode::ZeroPageIndirect
+        | AddressMode::DirectPageIndirectLong
+        | AddressMode::DirectPageIndirectLongY
+        | AddressMode::StackRelative
+        | AddressMode::StackRelativeIndirectIndexedY => 10,
+        AddressMode::Absolute
+        | AddressMode::AbsoluteX
+        | AddressMode::AbsoluteY
+        | AddressMode::Indirect
+        | AddressMode::AbsoluteIndexedIndirect
+        | AddressMode::IndirectLong => 20,
+        AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => 30,
+        AddressMode::BlockMove => 40,
+        AddressMode::Implied | AddressMode::Accumulator | AddressMode::Immediate => 0,
+    }
+}
+
+fn selector_width_rank(mode: AddressMode) -> u8 {
+    match mode {
+        AddressMode::ZeroPage
+        | AddressMode::ZeroPageX
+        | AddressMode::ZeroPageY
+        | AddressMode::IndexedIndirectX
+        | AddressMode::IndirectIndexedY
+        | AddressMode::ZeroPageIndirect
+        | AddressMode::DirectPageIndirectLong
+        | AddressMode::DirectPageIndirectLongY
+        | AddressMode::StackRelative
+        | AddressMode::StackRelativeIndirectIndexedY => 1,
+        AddressMode::Absolute
+        | AddressMode::AbsoluteX
+        | AddressMode::AbsoluteY
+        | AddressMode::Indirect
+        | AddressMode::AbsoluteIndexedIndirect
+        | AddressMode::Relative
+        | AddressMode::RelativeLong
+        | AddressMode::IndirectLong => 2,
+        AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => 3,
+        AddressMode::Implied
+        | AddressMode::Accumulator
+        | AddressMode::Immediate
+        | AddressMode::BlockMove => 0,
+    }
+}
+
+fn m65816_immediate_width_mnemonic(mnemonic: &str) -> bool {
+    matches!(
+        mnemonic.to_ascii_uppercase().as_str(),
+        "ADC"
+            | "AND"
+            | "BIT"
+            | "CMP"
+            | "EOR"
+            | "LDA"
+            | "ORA"
+            | "SBC"
+            | "CPX"
+            | "CPY"
+            | "LDX"
+            | "LDY"
+    )
 }
 
 fn compile_m65c02_bit_branch_programs() -> Vec<VmProgramDescriptor> {
@@ -268,13 +473,14 @@ pub fn build_hierarchy_package_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<Vec<u8>, HierarchyBuildError> {
     let chunks = build_hierarchy_chunks_from_registry(registry)?;
-    encode_hierarchy_chunks(
+    encode_hierarchy_chunks_full(
         &chunks.families,
         &chunks.cpus,
         &chunks.dialects,
         &chunks.registers,
         &chunks.forms,
         &chunks.tables,
+        &chunks.selectors,
     )
     .map_err(Into::into)
 }
@@ -312,6 +518,7 @@ mod tests {
         assert_eq!(chunks.families.len(), 2);
         assert_eq!(chunks.cpus.len(), 5);
         assert_eq!(chunks.dialects.len(), 3);
+        assert!(!chunks.selectors.is_empty());
         assert!(chunks.registers.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")
                 && entry.id == "a"
@@ -345,6 +552,12 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")
                 && entry.mnemonic == "bbr0"
                 && entry.mode_key == "zeropage"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")
+                && entry.mnemonic == "bbr0"
+                && entry.shape_key == "pair_direct"
+                && entry.operand_plan == "pair_u8_rel8"
         }));
 
         assert!(chunks

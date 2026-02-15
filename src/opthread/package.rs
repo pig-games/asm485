@@ -31,6 +31,7 @@ const CHUNK_DIAL: [u8; 4] = *b"DIAL";
 const CHUNK_REGS: [u8; 4] = *b"REGS";
 const CHUNK_FORM: [u8; 4] = *b"FORM";
 const CHUNK_TABL: [u8; 4] = *b"TABL";
+const CHUNK_MSEL: [u8; 4] = *b"MSEL";
 
 /// Scoped VM program descriptor for one mnemonic + mode-key encode template.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,19 @@ pub struct VmProgramDescriptor {
     pub mnemonic: String,
     pub mode_key: String,
     pub program: Vec<u8>,
+}
+
+/// Scoped mode selector descriptor for Expr/family-operand to VM mode candidate mapping.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModeSelectorDescriptor {
+    pub owner: ScopedOwner,
+    pub mnemonic: String,
+    pub shape_key: String,
+    pub mode_key: String,
+    pub operand_plan: String,
+    pub priority: u16,
+    pub unstable_widen: bool,
+    pub width_rank: u8,
 }
 
 /// Decoded hierarchy-chunk payload set.
@@ -50,6 +64,7 @@ pub struct HierarchyChunks {
     pub registers: Vec<ScopedRegisterDescriptor>,
     pub forms: Vec<ScopedFormDescriptor>,
     pub tables: Vec<VmProgramDescriptor>,
+    pub selectors: Vec<ModeSelectorDescriptor>,
 }
 
 /// Deterministic package codec errors for malformed container/schema data.
@@ -196,6 +211,18 @@ pub fn encode_hierarchy_chunks(
     forms: &[ScopedFormDescriptor],
     tables: &[VmProgramDescriptor],
 ) -> Result<Vec<u8>, OpcpuCodecError> {
+    encode_hierarchy_chunks_full(families, cpus, dialects, registers, forms, tables, &[])
+}
+
+pub fn encode_hierarchy_chunks_full(
+    families: &[FamilyDescriptor],
+    cpus: &[CpuDescriptor],
+    dialects: &[DialectDescriptor],
+    registers: &[ScopedRegisterDescriptor],
+    forms: &[ScopedFormDescriptor],
+    tables: &[VmProgramDescriptor],
+    selectors: &[ModeSelectorDescriptor],
+) -> Result<Vec<u8>, OpcpuCodecError> {
     // Validate cross references and compatibility before encoding.
     HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
 
@@ -205,6 +232,7 @@ pub fn encode_hierarchy_chunks(
     let mut regs = registers.to_vec();
     let mut forms = forms.to_vec();
     let mut tables = tables.to_vec();
+    let mut selectors = selectors.to_vec();
     canonicalize_hierarchy_metadata(
         &mut fams,
         &mut cpus,
@@ -212,6 +240,7 @@ pub fn encode_hierarchy_chunks(
         &mut regs,
         &mut forms,
         &mut tables,
+        &mut selectors,
     );
 
     let chunks = vec![
@@ -221,6 +250,7 @@ pub fn encode_hierarchy_chunks(
         (CHUNK_REGS, encode_regs_chunk(&regs)?),
         (CHUNK_FORM, encode_form_chunk(&forms)?),
         (CHUNK_TABL, encode_tabl_chunk(&tables)?),
+        (CHUNK_MSEL, encode_msel_chunk(&selectors)?),
     ];
 
     encode_container(&chunks)
@@ -233,6 +263,7 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     registers: &mut Vec<ScopedRegisterDescriptor>,
     forms: &mut Vec<ScopedFormDescriptor>,
     tables: &mut Vec<VmProgramDescriptor>,
+    selectors: &mut Vec<ModeSelectorDescriptor>,
 ) {
     families.sort_by_key(|entry| entry.id.to_ascii_lowercase());
     cpus.sort_by_key(|entry| entry.id.to_ascii_lowercase());
@@ -349,6 +380,53 @@ pub(crate) fn canonicalize_hierarchy_metadata(
                 _ => false,
             }
     });
+
+    for entry in selectors.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+        entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
+        entry.shape_key = entry.shape_key.to_ascii_lowercase();
+        entry.mode_key = entry.mode_key.to_ascii_lowercase();
+        entry.operand_plan = entry.operand_plan.to_ascii_lowercase();
+    }
+    selectors.sort_by_key(|entry| {
+        let owner_kind = match entry.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let owner_id = match &entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        (
+            owner_kind,
+            owner_id,
+            entry.mnemonic.to_ascii_lowercase(),
+            entry.shape_key.to_ascii_lowercase(),
+            entry.priority,
+            entry.mode_key.to_ascii_lowercase(),
+        )
+    });
+    selectors.dedup_by(|left, right| {
+        left.priority == right.priority
+            && left.mnemonic == right.mnemonic
+            && left.shape_key == right.shape_key
+            && left.mode_key == right.mode_key
+            && left.operand_plan == right.operand_plan
+            && left.unstable_widen == right.unstable_widen
+            && left.width_rank == right.width_rank
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
 }
 
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
@@ -359,6 +437,7 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let regs_bytes = slice_for_chunk(bytes, &toc, CHUNK_REGS)?;
     let form_bytes = slice_for_chunk(bytes, &toc, CHUNK_FORM)?;
     let tabl_bytes = slice_for_chunk(bytes, &toc, CHUNK_TABL)?;
+    let msel_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_MSEL)?;
 
     Ok(HierarchyChunks {
         families: decode_fams_chunk(fams_bytes)?,
@@ -367,6 +446,10 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         registers: decode_regs_chunk(regs_bytes)?,
         forms: decode_form_chunk(form_bytes)?,
         tables: decode_tabl_chunk(tabl_bytes)?,
+        selectors: match msel_bytes {
+            Some(payload) => decode_msel_chunk(payload)?,
+            None => Vec::new(),
+        },
     })
 }
 
@@ -568,6 +651,45 @@ fn slice_for_chunk<'a>(
         })?;
     bytes
         .get(start..end)
+        .ok_or_else(|| OpcpuCodecError::ChunkOutOfBounds {
+            chunk: chunk_name(&tag),
+            offset: entry.offset,
+            length: entry.length,
+            file_len: bytes.len(),
+        })
+}
+
+fn slice_for_chunk_optional<'a>(
+    bytes: &'a [u8],
+    toc: &HashMap<[u8; 4], TocEntry>,
+    tag: [u8; 4],
+) -> Result<Option<&'a [u8]>, OpcpuCodecError> {
+    let Some(entry) = toc.get(&tag) else {
+        return Ok(None);
+    };
+    let start = usize::try_from(entry.offset).map_err(|_| OpcpuCodecError::ChunkOutOfBounds {
+        chunk: chunk_name(&tag),
+        offset: entry.offset,
+        length: entry.length,
+        file_len: bytes.len(),
+    })?;
+    let len = usize::try_from(entry.length).map_err(|_| OpcpuCodecError::ChunkOutOfBounds {
+        chunk: chunk_name(&tag),
+        offset: entry.offset,
+        length: entry.length,
+        file_len: bytes.len(),
+    })?;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| OpcpuCodecError::ChunkOutOfBounds {
+            chunk: chunk_name(&tag),
+            offset: entry.offset,
+            length: entry.length,
+            file_len: bytes.len(),
+        })?;
+    bytes
+        .get(start..end)
+        .map(Some)
         .ok_or_else(|| OpcpuCodecError::ChunkOutOfBounds {
             chunk: chunk_name(&tag),
             offset: entry.offset,
@@ -834,6 +956,78 @@ fn decode_tabl_chunk(bytes: &[u8]) -> Result<Vec<VmProgramDescriptor>, OpcpuCode
             mnemonic,
             mode_key,
             program,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
+fn encode_msel_chunk(selectors: &[ModeSelectorDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(selectors.len(), "MSEL count")?);
+    for entry in selectors {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "MSEL", owner_id)?;
+        write_string(&mut out, "MSEL", &entry.mnemonic)?;
+        write_string(&mut out, "MSEL", &entry.shape_key)?;
+        write_string(&mut out, "MSEL", &entry.mode_key)?;
+        write_string(&mut out, "MSEL", &entry.operand_plan)?;
+        out.extend_from_slice(&entry.priority.to_le_bytes());
+        out.push(u8::from(entry.unstable_widen));
+        out.push(entry.width_rank);
+    }
+    Ok(out)
+}
+
+fn decode_msel_chunk(bytes: &[u8]) -> Result<Vec<ModeSelectorDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "MSEL");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let mnemonic = cur.read_string()?;
+        let shape_key = cur.read_string()?;
+        let mode_key = cur.read_string()?;
+        let operand_plan = cur.read_string()?;
+        let priority_bytes = cur.read_exact(2, "priority")?;
+        let priority = u16::from_le_bytes([priority_bytes[0], priority_bytes[1]]);
+        let unstable_widen = match cur.read_u8()? {
+            0 => false,
+            1 => true,
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "MSEL".to_string(),
+                    detail: format!("invalid bool flag for unstable_widen: {}", other),
+                });
+            }
+        };
+        let width_rank = cur.read_u8()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "MSEL".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        entries.push(ModeSelectorDescriptor {
+            owner,
+            mnemonic,
+            shape_key,
+            mode_key,
+            operand_plan,
+            priority,
+            unstable_widen,
+            width_rank,
         });
     }
     cur.finish()?;
@@ -1207,12 +1401,13 @@ mod tests {
         assert_eq!(
             toc_entries,
             vec![
-                "FAMS@84+44",
-                "CPUS@128+92",
-                "DIAL@220+80",
-                "REGS@300+57",
-                "FORM@357+57",
-                "TABL@414+43"
+                "FAMS@96+44",
+                "CPUS@140+92",
+                "DIAL@232+80",
+                "REGS@312+57",
+                "FORM@369+57",
+                "TABL@426+43",
+                "MSEL@469+4"
             ]
         );
     }

@@ -5,14 +5,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::core::family::{expr_has_unstable_symbols, AssemblerContext};
-use crate::core::parser::{BinaryOp, Expr};
+use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
+use crate::core::parser::Expr;
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
+use crate::families::mos6502::{AddressMode, FamilyOperand, MOS6502FamilyHandler, OperandForce};
+use crate::m65816::state;
 use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
-use crate::opthread::package::HierarchyChunks;
+use crate::opthread::package::{HierarchyChunks, ModeSelectorDescriptor};
 use crate::opthread::vm::{execute_program, VmError};
 
 /// Errors emitted by the opThread host/runtime bridge.
@@ -139,6 +141,7 @@ pub struct HierarchyExecutionModel {
     cpu_forms: HashMap<String, HashSet<String>>,
     dialect_forms: HashMap<String, HashSet<String>>,
     vm_programs: HashMap<(u8, String, String, String), Vec<u8>>,
+    mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>>,
 }
 
 impl HierarchyExecutionModel {
@@ -148,9 +151,18 @@ impl HierarchyExecutionModel {
     }
 
     pub fn from_chunks(chunks: HierarchyChunks) -> Result<Self, RuntimeBridgeError> {
-        let package = HierarchyPackage::new(chunks.families, chunks.cpus, chunks.dialects)?;
+        let HierarchyChunks {
+            families,
+            cpus,
+            dialects,
+            registers: _,
+            forms,
+            tables,
+            selectors,
+        } = chunks;
+        let package = HierarchyPackage::new(families, cpus, dialects)?;
         let mut vm_programs = HashMap::new();
-        for entry in chunks.tables {
+        for entry in tables {
             let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
             vm_programs.insert(
                 (
@@ -162,10 +174,27 @@ impl HierarchyExecutionModel {
                 entry.program,
             );
         }
+        let mut mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>> =
+            HashMap::new();
+        for entry in selectors {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            mode_selectors
+                .entry((
+                    owner_tag,
+                    owner_id,
+                    entry.mnemonic.to_ascii_lowercase(),
+                    entry.shape_key.to_ascii_lowercase(),
+                ))
+                .or_default()
+                .push(entry);
+        }
+        for entries in mode_selectors.values_mut() {
+            entries.sort_by_key(|entry| (entry.priority, entry.width_rank, entry.mode_key.clone()));
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
-        for form in chunks.forms {
+        for form in forms {
             let mnemonic = form.mnemonic.to_ascii_lowercase();
             match form.owner {
                 ScopedOwner::Family(owner) => {
@@ -195,6 +224,7 @@ impl HierarchyExecutionModel {
             cpu_forms,
             dialect_forms,
             vm_programs,
+            mode_selectors,
         })
     }
 
@@ -256,13 +286,11 @@ impl HierarchyExecutionModel {
         ctx: &dyn AssemblerContext,
     ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        if !resolved.family_id.eq_ignore_ascii_case("mos6502")
-            || !resolved.cpu_id.eq_ignore_ascii_case("m6502")
-        {
+        if !resolved.family_id.eq_ignore_ascii_case("mos6502") {
             return Ok(None);
         }
-        let Some(candidates) = m6502_vm_encode_candidates_from_exprs(mnemonic, operands, ctx)
-            .map_err(RuntimeBridgeError::Resolve)?
+        let Some(candidates) =
+            self.select_candidates_from_exprs(&resolved, mnemonic, operands, ctx)
         else {
             return Ok(None);
         };
@@ -305,221 +333,365 @@ impl HierarchyExecutionModel {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum M6502OperandExprShape<'a> {
-    Implied,
-    Accumulator,
-    Immediate(&'a Expr),
-    Direct(&'a Expr),
-    DirectX(&'a Expr),
-    DirectY(&'a Expr),
-    IndexedIndirectX(&'a Expr),
-    IndirectIndexedY(&'a Expr),
-    Indirect(&'a Expr),
+struct SelectorInput<'a> {
+    shape_key: &'static str,
+    expr0: Option<&'a Expr>,
+    expr1: Option<&'a Expr>,
+    force: Option<OperandForce>,
 }
 
-fn m6502_vm_encode_candidates_from_exprs(
-    mnemonic: &str,
-    operands: &[Expr],
-    ctx: &dyn AssemblerContext,
-) -> Result<Option<Vec<VmEncodeCandidate>>, String> {
-    let Some(shape) = parse_m6502_operand_expr_shape(operands) else {
-        return Ok(None);
-    };
-    let upper_mnemonic = mnemonic.to_ascii_uppercase();
-    let mut out = Vec::new();
-
-    match shape {
-        M6502OperandExprShape::Implied => out.push(vm_candidate("implied", Vec::new())),
-        M6502OperandExprShape::Accumulator => {
-            out.push(vm_candidate("accumulator", Vec::new()));
-        }
-        M6502OperandExprShape::Immediate(expr) => {
-            let value = ctx.eval_expr(expr)?;
-            if !(0..=255).contains(&value) {
-                return Err(format!("Immediate value {} out of range (0-255)", value));
-            }
-            out.push(vm_candidate("immediate", vec![vec![value as u8]]));
-        }
-        M6502OperandExprShape::Direct(expr) => {
-            let value = ctx.eval_expr(expr)?;
-            if is_m6502_branch_mnemonic(&upper_mnemonic) {
-                let current = ctx.current_address() as i64 + 2;
-                let offset = value - current;
-                if !(-128..=127).contains(&offset) {
-                    if ctx.pass() > 1 {
-                        return Err(format!("Branch target out of range: offset {}", offset));
-                    }
-                    out.push(vm_candidate("relative", vec![vec![0]]));
-                } else {
-                    out.push(vm_candidate("relative", vec![vec![offset as i8 as u8]]));
-                }
-            } else if (0..=255).contains(&value) {
-                let zp_bytes = vec![vec![value as u8]];
-                let abs_bytes = vec![u16le_bytes(value as u16)];
-                if expr_has_unstable_symbols(expr, ctx) {
-                    out.push(vm_candidate("absolute", abs_bytes));
-                    out.push(vm_candidate("zeropage", zp_bytes));
-                } else {
-                    out.push(vm_candidate("zeropage", zp_bytes));
-                    out.push(vm_candidate("absolute", abs_bytes));
-                }
-            } else if (0..=65535).contains(&value) {
-                out.push(vm_candidate("absolute", vec![u16le_bytes(value as u16)]));
-            } else {
-                return Err(format!("Address {} out of 16-bit range", value));
-            }
-        }
-        M6502OperandExprShape::DirectX(expr) => {
-            let value = ctx.eval_expr(expr)?;
-            if (0..=255).contains(&value) {
-                let zp_bytes = vec![vec![value as u8]];
-                let abs_bytes = vec![u16le_bytes(value as u16)];
-                if expr_has_unstable_symbols(expr, ctx) {
-                    out.push(vm_candidate("absolutex", abs_bytes));
-                    out.push(vm_candidate("zeropagex", zp_bytes));
-                } else {
-                    out.push(vm_candidate("zeropagex", zp_bytes));
-                    out.push(vm_candidate("absolutex", abs_bytes));
-                }
-            } else if (0..=65535).contains(&value) {
-                out.push(vm_candidate("absolutex", vec![u16le_bytes(value as u16)]));
-            } else {
-                return Err(format!("Address {} out of 16-bit range", value));
-            }
-        }
-        M6502OperandExprShape::DirectY(expr) => {
-            let value = ctx.eval_expr(expr)?;
-            if (0..=255).contains(&value) {
-                let zp_bytes = vec![vec![value as u8]];
-                let abs_bytes = vec![u16le_bytes(value as u16)];
-                if expr_has_unstable_symbols(expr, ctx) {
-                    out.push(vm_candidate("absolutey", abs_bytes));
-                    out.push(vm_candidate("zeropagey", zp_bytes));
-                } else {
-                    out.push(vm_candidate("zeropagey", zp_bytes));
-                    out.push(vm_candidate("absolutey", abs_bytes));
-                }
-            } else if (0..=65535).contains(&value) {
-                out.push(vm_candidate("absolutey", vec![u16le_bytes(value as u16)]));
-            } else {
-                return Err(format!("Address {} out of 16-bit range", value));
-            }
-        }
-        M6502OperandExprShape::IndexedIndirectX(expr) => {
-            let value = ctx.eval_expr(expr)?;
-            if !(0..=255).contains(&value) {
-                return Err(format!(
-                    "Indexed indirect address {} out of zero page range",
-                    value
-                ));
-            }
-            out.push(vm_candidate("indexedindirectx", vec![vec![value as u8]]));
-        }
-        M6502OperandExprShape::IndirectIndexedY(expr) => {
-            let value = ctx.eval_expr(expr)?;
-            if !(0..=255).contains(&value) {
-                return Err(format!(
-                    "Indirect indexed address {} out of zero page range",
-                    value
-                ));
-            }
-            out.push(vm_candidate("indirectindexedy", vec![vec![value as u8]]));
-        }
-        M6502OperandExprShape::Indirect(expr) => {
-            if !upper_mnemonic.eq_ignore_ascii_case("JMP") {
-                return Ok(None);
-            }
-            let value = ctx.eval_expr(expr)?;
-            if !(0..=65535).contains(&value) {
-                return Err(format!("Indirect address {} out of 16-bit range", value));
-            }
-            out.push(vm_candidate("indirect", vec![u16le_bytes(value as u16)]));
-        }
-    }
-
-    Ok(Some(out))
-}
-
-fn parse_m6502_operand_expr_shape(operands: &[Expr]) -> Option<M6502OperandExprShape<'_>> {
-    match operands {
-        [] => Some(M6502OperandExprShape::Implied),
-        [single] => match single {
-            Expr::Register(name, _) if name.eq_ignore_ascii_case("a") => {
-                Some(M6502OperandExprShape::Accumulator)
-            }
-            Expr::Immediate(inner, _) => Some(M6502OperandExprShape::Immediate(inner.as_ref())),
-            Expr::Indirect(inner, _) => parse_indirect_single_shape(inner),
-            _ => Some(M6502OperandExprShape::Direct(single)),
-        },
-        [base, index] => {
-            let index_name = expr_identifier(index)?;
-            if index_name.eq_ignore_ascii_case("x") {
-                return Some(M6502OperandExprShape::DirectX(base));
-            }
-            if index_name.eq_ignore_ascii_case("y") {
-                if let Expr::Indirect(inner, _) = base {
-                    if let Expr::Tuple(elements, _) = inner.as_ref() {
-                        if elements.len() == 2
-                            && expr_identifier(&elements[1])
-                                .is_some_and(|name| name.eq_ignore_ascii_case("s"))
-                        {
-                            return None;
-                        }
-                    }
-                    return Some(M6502OperandExprShape::IndirectIndexedY(inner.as_ref()));
-                }
-                return Some(M6502OperandExprShape::DirectY(base));
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn parse_indirect_single_shape(expr: &Expr) -> Option<M6502OperandExprShape<'_>> {
-    if let Expr::Tuple(elements, _) = expr {
-        if elements.len() == 2 {
-            let index = expr_identifier(&elements[1])?;
-            if index.eq_ignore_ascii_case("x") {
-                return Some(M6502OperandExprShape::IndexedIndirectX(&elements[0]));
-            }
+impl HierarchyExecutionModel {
+    fn select_candidates_from_exprs(
+        &self,
+        resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+    ) -> Option<Vec<VmEncodeCandidate>> {
+        let family = MOS6502FamilyHandler::new();
+        let parsed = family.parse_operands(mnemonic, operands).ok()?;
+        let input = selector_input_from_family_operands(&parsed)?;
+        if input.force.is_some() {
             return None;
         }
-        return None;
+
+        let upper_mnemonic = mnemonic.to_ascii_uppercase();
+        let lower_mnemonic = mnemonic.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, resolved.dialect_id.as_str()),
+            (1u8, resolved.cpu_id.as_str()),
+            (0u8, resolved.family_id.as_str()),
+        ];
+
+        let unstable_expr = input
+            .expr0
+            .is_some_and(|expr| expr_has_unstable_symbols(expr, ctx));
+        let mut candidates = Vec::new();
+
+        for (owner_tag, owner_id) in owner_order {
+            let key = (
+                owner_tag,
+                owner_id.to_ascii_lowercase(),
+                lower_mnemonic.clone(),
+                input.shape_key.to_string(),
+            );
+            let Some(selectors) = self.mode_selectors.get(&key) else {
+                continue;
+            };
+
+            let has_wider = selectors.iter().any(|entry| {
+                entry.width_rank > 1 && self.mode_exists_for_owner(entry, owner_tag, owner_id)
+            });
+
+            for selector in selectors {
+                if unstable_expr && selector.unstable_widen && has_wider {
+                    continue;
+                }
+                if let Some(candidate) =
+                    selector_to_candidate(selector, &input, &upper_mnemonic, ctx)
+                {
+                    candidates.push(candidate);
+                }
+            }
+        }
+
+        if candidates.is_empty() {
+            None
+        } else {
+            Some(candidates)
+        }
     }
-    Some(M6502OperandExprShape::Indirect(expr))
+
+    fn mode_exists_for_owner(
+        &self,
+        selector: &ModeSelectorDescriptor,
+        owner_tag: u8,
+        owner_id: &str,
+    ) -> bool {
+        let key = (
+            owner_tag,
+            owner_id.to_ascii_lowercase(),
+            selector.mnemonic.to_ascii_lowercase(),
+            selector.mode_key.to_ascii_lowercase(),
+        );
+        self.vm_programs.contains_key(&key)
+    }
 }
 
-fn expr_identifier(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.as_str()),
-        Expr::Unary { expr, .. } => expr_identifier(expr),
-        Expr::Binary {
-            op: BinaryOp::Add,
-            left,
-            right,
-            ..
-        } => expr_identifier(left).or_else(|| expr_identifier(right)),
+fn selector_input_from_family_operands(operands: &[FamilyOperand]) -> Option<SelectorInput<'_>> {
+    match operands {
+        [] => Some(SelectorInput {
+            shape_key: "implied",
+            expr0: None,
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::Accumulator(_)] => Some(SelectorInput {
+            shape_key: "accumulator",
+            expr0: None,
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::Immediate(expr)] => Some(SelectorInput {
+            shape_key: "immediate",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::Direct(expr)] => Some(SelectorInput {
+            shape_key: "direct",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::DirectX(expr)] => Some(SelectorInput {
+            shape_key: "direct_x",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::DirectY(expr)] => Some(SelectorInput {
+            shape_key: "direct_y",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::IndexedIndirectX(expr) | FamilyOperand::IndirectX(expr)] => {
+            Some(SelectorInput {
+                shape_key: "indexed_indirect_x",
+                expr0: Some(expr),
+                expr1: None,
+                force: None,
+            })
+        }
+        [FamilyOperand::IndirectIndexedY(expr)] => Some(SelectorInput {
+            shape_key: "indirect_indexed_y",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::Indirect(expr)] => Some(SelectorInput {
+            shape_key: "indirect",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::IndirectLong(expr)] => Some(SelectorInput {
+            shape_key: "indirect_long",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::IndirectLongY(expr)] => Some(SelectorInput {
+            shape_key: "indirect_long_y",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::StackRelative(expr)] => Some(SelectorInput {
+            shape_key: "stack_relative",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::StackRelativeIndirectIndexedY(expr)] => Some(SelectorInput {
+            shape_key: "stack_relative_indirect_y",
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::BlockMove { src, dst, .. }] => Some(SelectorInput {
+            shape_key: "pair_direct",
+            expr0: Some(src),
+            expr1: Some(dst),
+            force: None,
+        }),
+        [FamilyOperand::Forced { inner, force, .. }] => {
+            let nested = selector_input_from_family_operands(std::slice::from_ref(inner.as_ref()))?;
+            Some(SelectorInput {
+                force: Some(*force),
+                ..nested
+            })
+        }
+        [FamilyOperand::Direct(first), FamilyOperand::Direct(second)] => Some(SelectorInput {
+            shape_key: "pair_direct",
+            expr0: Some(first),
+            expr1: Some(second),
+            force: None,
+        }),
         _ => None,
     }
 }
 
-fn vm_candidate(mode_key: &str, operand_bytes: Vec<Vec<u8>>) -> VmEncodeCandidate {
-    VmEncodeCandidate {
-        mode_key: mode_key.to_string(),
+fn selector_to_candidate(
+    selector: &ModeSelectorDescriptor,
+    input: &SelectorInput<'_>,
+    upper_mnemonic: &str,
+    ctx: &dyn AssemblerContext,
+) -> Option<VmEncodeCandidate> {
+    let mode = parse_mode_key(&selector.mode_key)?;
+    let operand_bytes = match selector.operand_plan.as_str() {
+        "none" => Vec::new(),
+        "u8" => vec![encode_expr_u8(input.expr0?, ctx)?],
+        "u16" => vec![encode_expr_u16(input.expr0?, ctx)?],
+        "u24" => vec![encode_expr_u24(input.expr0?, ctx)?],
+        "rel8" => vec![encode_expr_rel8(input.expr0?, ctx, 2)?],
+        "rel16" => vec![encode_expr_rel16(input.expr0?, ctx, 3)?],
+        "pair_u8_rel8" => vec![
+            encode_expr_u8(input.expr0?, ctx)?,
+            encode_expr_rel8(input.expr1?, ctx, 3)?,
+        ],
+        "u8u8_packed" => vec![{
+            let mut packed = encode_expr_u8(input.expr0?, ctx)?;
+            packed.extend(encode_expr_u8(input.expr1?, ctx)?);
+            packed
+        }],
+        "imm_mx" => vec![encode_expr_m65816_immediate(
+            input.expr0?,
+            upper_mnemonic,
+            ctx,
+        )?],
+        _ => return None,
+    };
+
+    // Ensure mode-width matches generated bytes before candidate emission.
+    if mode.operand_size() == 0 && !operand_bytes.is_empty() {
+        return None;
+    }
+    Some(VmEncodeCandidate {
+        mode_key: selector.mode_key.to_ascii_lowercase(),
         operand_bytes,
+    })
+}
+
+fn parse_mode_key(mode_key: &str) -> Option<AddressMode> {
+    match mode_key.to_ascii_lowercase().as_str() {
+        "implied" => Some(AddressMode::Implied),
+        "accumulator" => Some(AddressMode::Accumulator),
+        "immediate" => Some(AddressMode::Immediate),
+        "zeropage" => Some(AddressMode::ZeroPage),
+        "zeropagex" => Some(AddressMode::ZeroPageX),
+        "zeropagey" => Some(AddressMode::ZeroPageY),
+        "absolute" => Some(AddressMode::Absolute),
+        "absolutex" => Some(AddressMode::AbsoluteX),
+        "absolutey" => Some(AddressMode::AbsoluteY),
+        "indirect" => Some(AddressMode::Indirect),
+        "indexedindirectx" => Some(AddressMode::IndexedIndirectX),
+        "indirectindexedy" => Some(AddressMode::IndirectIndexedY),
+        "relative" => Some(AddressMode::Relative),
+        "relativelong" => Some(AddressMode::RelativeLong),
+        "zeropageindirect" => Some(AddressMode::ZeroPageIndirect),
+        "absoluteindexedindirect" => Some(AddressMode::AbsoluteIndexedIndirect),
+        "stackrelative" => Some(AddressMode::StackRelative),
+        "stackrelativeindirectindexedy" => Some(AddressMode::StackRelativeIndirectIndexedY),
+        "absolutelong" => Some(AddressMode::AbsoluteLong),
+        "absolutelongx" => Some(AddressMode::AbsoluteLongX),
+        "indirectlong" => Some(AddressMode::IndirectLong),
+        "directpageindirectlong" => Some(AddressMode::DirectPageIndirectLong),
+        "directpageindirectlongy" => Some(AddressMode::DirectPageIndirectLongY),
+        "blockmove" => Some(AddressMode::BlockMove),
+        _ => None,
     }
 }
 
-fn u16le_bytes(value: u16) -> Vec<u8> {
-    vec![(value & 0xFF) as u8, (value >> 8) as u8]
+fn encode_expr_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    if (0..=255).contains(&value) {
+        Some(vec![value as u8])
+    } else {
+        None
+    }
 }
 
-fn is_m6502_branch_mnemonic(upper_mnemonic: &str) -> bool {
-    matches!(
+fn encode_expr_u16(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    if (0..=65535).contains(&value) {
+        Some(vec![
+            (value as u16 & 0xFF) as u8,
+            ((value as u16 >> 8) & 0xFF) as u8,
+        ])
+    } else {
+        None
+    }
+}
+
+fn encode_expr_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    if (0..=0xFF_FFFF).contains(&value) {
+        Some(vec![
+            (value as u32 & 0xFF) as u8,
+            ((value as u32 >> 8) & 0xFF) as u8,
+            ((value as u32 >> 16) & 0xFF) as u8,
+        ])
+    } else {
+        None
+    }
+}
+
+fn encode_expr_rel8(expr: &Expr, ctx: &dyn AssemblerContext, instr_len: i64) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    let current = ctx.current_address() as i64 + instr_len;
+    let offset = value - current;
+    if !(-128..=127).contains(&offset) {
+        if ctx.pass() > 1 {
+            return None;
+        }
+        return Some(vec![0]);
+    }
+    Some(vec![offset as i8 as u8])
+}
+
+fn encode_expr_rel16(expr: &Expr, ctx: &dyn AssemblerContext, instr_len: i64) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    let current = ctx.current_address() as i64 + instr_len;
+    let offset = value - current;
+    if !(-32768..=32767).contains(&offset) {
+        if ctx.pass() > 1 {
+            return None;
+        }
+        return Some(vec![0, 0]);
+    }
+    let rel = offset as i16;
+    Some(vec![
+        (rel as u16 & 0xFF) as u8,
+        ((rel as u16 >> 8) & 0xFF) as u8,
+    ])
+}
+
+fn encode_expr_m65816_immediate(
+    expr: &Expr,
+    upper_mnemonic: &str,
+    ctx: &dyn AssemblerContext,
+) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    let acc_imm = matches!(
         upper_mnemonic,
-        "BCC" | "BCS" | "BEQ" | "BNE" | "BMI" | "BPL" | "BVC" | "BVS"
-    )
+        "ADC" | "AND" | "BIT" | "CMP" | "EOR" | "LDA" | "ORA" | "SBC"
+    );
+    let idx_imm = matches!(upper_mnemonic, "CPX" | "CPY" | "LDX" | "LDY");
+    if acc_imm {
+        if state::accumulator_is_8bit(ctx) {
+            return (0..=255).contains(&value).then(|| vec![value as u8]);
+        }
+        return (0..=65535).contains(&value).then(|| {
+            vec![
+                (value as u16 & 0xFF) as u8,
+                ((value as u16 >> 8) & 0xFF) as u8,
+            ]
+        });
+    }
+    if idx_imm {
+        if state::index_is_8bit(ctx) {
+            return (0..=255).contains(&value).then(|| vec![value as u8]);
+        }
+        return (0..=65535).contains(&value).then(|| {
+            vec![
+                (value as u16 & 0xFF) as u8,
+                ((value as u16 >> 8) & 0xFF) as u8,
+            ]
+        });
+    }
+    (0..=255).contains(&value).then(|| vec![value as u8])
 }
 
 fn owner_key_parts(owner: &ScopedOwner) -> (u8, String) {
@@ -781,17 +953,73 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_encodes_m65c02_instruction_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![Expr::Number("4".to_string(), span)];
+        let mut ctx = TestAssemblerContext::new();
+        ctx.addr = 0;
+        let bytes = model
+            .encode_instruction_from_exprs("65c02", None, "BRA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0x80, 0x02]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_block_move_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Number("1".to_string(), span),
+            Expr::Number("2".to_string(), span),
+        ];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "MVN", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0x54, 0x01, 0x02]));
+    }
+
+    #[test]
     fn m6502_expr_candidates_prefer_absolute_for_unstable_symbols() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let resolved = model
+            .resolve_pipeline("m6502", None)
+            .expect("resolve m6502 pipeline");
+
         let span = Span::default();
         let expr = Expr::Identifier("target".to_string(), span);
         let mut ctx = TestAssemblerContext::new();
         ctx.values.insert("target".to_string(), 0x10);
         ctx.finalized.insert("target".to_string(), false);
-        let candidates = m6502_vm_encode_candidates_from_exprs("LDA", &[expr], &ctx)
-            .expect("candidate build")
-            .expect("m6502 resolver should support direct expression");
+        let candidates = model
+            .select_candidates_from_exprs(&resolved, "LDA", &[expr], &ctx)
+            .expect("m6502 selector candidates");
         assert_eq!(candidates[0].mode_key, "absolute");
-        assert_eq!(candidates[1].mode_key, "zeropage");
+        assert!(candidates
+            .iter()
+            .all(|candidate| candidate.mode_key != "zeropage"));
     }
 
     #[test]
