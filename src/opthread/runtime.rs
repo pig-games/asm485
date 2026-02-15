@@ -96,6 +96,7 @@ impl FamilyExprResolver for FnFamilyExprResolver {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuntimeTokenizerMode {
+    Auto,
     Host,
     DelegatedCore,
     Vm,
@@ -863,7 +864,7 @@ impl HierarchyExecutionModel {
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
-            tokenizer_mode: RuntimeTokenizerMode::DelegatedCore,
+            tokenizer_mode: RuntimeTokenizerMode::Auto,
             budget_profile: RuntimeBudgetProfile::HostDefault,
             budget_limits: RuntimeBudgetProfile::HostDefault.limits(),
         })
@@ -955,7 +956,7 @@ impl HierarchyExecutionModel {
             line_num,
             token_policy: self.token_policy_for_resolved(&resolved),
         };
-        match self.tokenizer_mode {
+        match self.effective_tokenizer_mode_for_resolved(&resolved) {
             RuntimeTokenizerMode::Host => Self::tokenize_with_host_core(&request),
             RuntimeTokenizerMode::DelegatedCore => adapter.tokenize_statement(&request),
             RuntimeTokenizerMode::Vm => {
@@ -970,6 +971,7 @@ impl HierarchyExecutionModel {
                     _ => Self::tokenize_with_host_core(&request),
                 }
             }
+            RuntimeTokenizerMode::Auto => unreachable!("auto mode is resolved before dispatch"),
         }
     }
 
@@ -1157,6 +1159,22 @@ impl HierarchyExecutionModel {
             }
         }
         RuntimeTokenPolicy::default()
+    }
+
+    fn effective_tokenizer_mode_for_resolved(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> RuntimeTokenizerMode {
+        match self.tokenizer_mode {
+            RuntimeTokenizerMode::Auto => {
+                if tokenizer_vm_authoritative_for_family(resolved.family_id.as_str()) {
+                    RuntimeTokenizerMode::Vm
+                } else {
+                    RuntimeTokenizerMode::DelegatedCore
+                }
+            }
+            mode => mode,
+        }
     }
 
     fn tokenizer_vm_program_for_resolved(
@@ -1993,6 +2011,9 @@ const VM_CHAR_CLASS_DIGIT: u8 = 4;
 const VM_CHAR_CLASS_QUOTE: u8 = 5;
 const VM_CHAR_CLASS_PUNCTUATION: u8 = 6;
 const VM_CHAR_CLASS_OPERATOR: u8 = 7;
+fn tokenizer_vm_authoritative_for_family(family_id: &str) -> bool {
+    family_id.eq_ignore_ascii_case("mos6502")
+}
 
 fn vm_read_u8(
     program: &[u8],
@@ -3373,6 +3394,19 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_defaults_to_auto_tokenizer_rollout_mode() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        assert_eq!(model.tokenizer_mode(), RuntimeTokenizerMode::Auto);
+    }
+
+    #[test]
     fn execution_model_budget_rejects_candidate_overflow() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -3724,6 +3758,53 @@ mod tests {
             .resolve_tokenizer_vm_limits("m6502", None)
             .expect("tokenizer vm limits should resolve");
         assert_eq!(limits, TokenizerVmLimits::default());
+    }
+
+    #[test]
+    fn execution_model_tokenizer_auto_mode_uses_vm_for_mos6502_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.program = vec![
+            TokenizerVmOpcode::ReadChar as u8,
+            TokenizerVmOpcode::StartLexeme as u8,
+            TokenizerVmOpcode::PushChar as u8,
+            TokenizerVmOpcode::EmitToken as u8,
+            VM_TOKEN_KIND_IDENTIFIER,
+            TokenizerVmOpcode::End as u8,
+        ];
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+
+        let tokens = model
+            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "A,B", 1)
+            .expect("auto mode should route MOS6502 family to VM tokenizer");
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "a"
+        ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_auto_mode_keeps_non_certified_family_staged() {
+        let registry = parity_registry();
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let tokens = model
+            .tokenize_portable_statement(&FixedTokenizerAdapter, "z80", None, "LD A,B", 1)
+            .expect("auto mode should keep non-certified families in staged delegated mode");
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "adapter"
+        ));
     }
 
     #[test]
