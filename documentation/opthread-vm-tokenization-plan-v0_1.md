@@ -1,6 +1,6 @@
 # opThread VM Tokenization Plan v0.1
 
-Status: phase 7 complete
+Status: phase 8 complete
 Last updated: 2026-02-15
 Scope: full VM-based tokenization, family/cpu independent behavior
 
@@ -127,12 +127,21 @@ Phase 7 completion artifacts:
 - `src/opthread/runtime.rs` adds rollout tests:
   - `execution_model_defaults_to_auto_tokenizer_rollout_mode`
   - `execution_model_tokenizer_auto_mode_uses_vm_for_mos6502_family`
-  - `execution_model_tokenizer_auto_mode_keeps_non_certified_family_staged`
+  - `execution_model_tokenizer_auto_mode_uses_vm_for_intel8080_family`
 
 ## Phase 8 - Finalization
+- [x] Promote VM tokenizer as authoritative for all certified families.
+- [x] Keep host tokenizer as optional compatibility/debug path.
+- [x] Require tokenizer parity checklist for onboarding new families/cpus.
 
-- [ ] Promote VM tokenizer as authoritative for all certified families.
-- [ ] Keep host tokenizer as optional compatibility/debug path.
+Phase 8 completion artifacts:
+- `src/opthread/runtime.rs` defines explicit tokenizer VM certification metadata (`TOKENIZER_VM_CERTIFICATIONS`) for authoritative families and promotes all certified families to VM authority in auto mode.
+- `src/opthread/runtime.rs` keeps host tokenizer as an explicit compatibility/debug path via `RuntimeTokenizerMode::Host` override while `RuntimeTokenizerMode::Auto` remains the default rollout mode.
+- `src/opthread/runtime.rs` adds parity-checklist resolution and enforcement hooks (`resolve_tokenizer_vm_parity_checklist(..)`, `tokenizer_vm_parity_checklist_for_family(..)`), making onboarding certification dependent on explicit parity checklist text.
+- `src/opthread/runtime.rs` adds finalization tests:
+  - `execution_model_tokenizer_vm_parity_checklist_resolves_for_certified_families`
+  - `tokenizer_vm_certification_entries_require_parity_checklist_text`
+  - `execution_model_tokenizer_auto_mode_uses_vm_for_intel8080_family`
 - [ ] Require tokenizer parity checklist for onboarding new families/cpus.
 
 ## Delivery map
