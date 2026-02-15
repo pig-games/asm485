@@ -100,6 +100,40 @@ fn assemble_line_with_runtime_mode(
     (status, message, asm.bytes().to_vec())
 }
 
+#[cfg(feature = "opthread-runtime")]
+fn assemble_source_entries_with_runtime_mode(
+    lines: &[&str],
+    enable_opthread_runtime: bool,
+) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
+    let mut assembler = Assembler::new();
+    assembler.set_opthread_runtime_enabled(enable_opthread_runtime);
+    assembler.clear_diagnostics();
+
+    let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
+    let pass1 = assembler.pass1(&lines);
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .map_err(|err| format!("Pass2 failed: {err}"))?;
+
+    let entries = assembler
+        .image()
+        .entries()
+        .map_err(|err| format!("Read generated output: {err}"))?;
+    let diagnostics: Vec<String> = assembler
+        .diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+        .collect();
+
+    if pass1.errors > 0 || pass2.errors > 0 {
+        return Ok((entries, diagnostics));
+    }
+    Ok((entries, diagnostics))
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()
@@ -6638,6 +6672,35 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
             name
         );
     }
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
+    let source = [
+        "    .cpu 6502",
+        "    .org $1000",
+        "start:",
+        "    LDA #<target",
+        "    STA ptr",
+        "    LDA #>target",
+        "    STA ptr+1",
+        "    BNE later",
+        "ptr: .word target",
+        "    .byte $EA,$EA,$EA",
+        "later:",
+        "    BEQ start",
+        "target:",
+        "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    assert_eq!(runtime.0, native.0, "image parity mismatch");
+    assert_eq!(runtime.1, native.1, "diagnostic parity mismatch");
 }
 
 #[cfg(feature = "opthread-runtime")]
