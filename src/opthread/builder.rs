@@ -387,29 +387,52 @@ fn compile_m65816_long_mode_selectors(
     mnemonic: &str,
     mode: AddressMode,
 ) -> Vec<ModeSelectorDescriptor> {
-    let (shape_key, base_mode) = match mode {
-        AddressMode::AbsoluteLong => ("direct", AddressMode::Absolute),
-        AddressMode::AbsoluteLongX => ("direct_x", AddressMode::AbsoluteX),
+    let (shape_key, base_mode, base_plan) = match mode {
+        AddressMode::AbsoluteLong => (
+            "direct",
+            AddressMode::Absolute,
+            "m65816_abs16_bank_fold_dbr",
+        ),
+        AddressMode::AbsoluteLongX => (
+            "direct_x",
+            AddressMode::AbsoluteX,
+            "m65816_abs16_bank_fold_dbr",
+        ),
         _ => return Vec::new(),
     };
     let has_short_alternative = FAMILY_INSTRUCTION_TABLE
         .iter()
         .any(|entry| entry.mode == base_mode && entry.mnemonic.eq_ignore_ascii_case(mnemonic));
-    let operand_plan = if has_short_alternative {
-        "m65816_long_unstable_u24"
+    let long_plan = if has_short_alternative {
+        "m65816_long_pref_u24"
     } else {
         "u24"
     };
-    vec![ModeSelectorDescriptor {
+    let mut selectors = vec![ModeSelectorDescriptor {
         owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
         mnemonic: mnemonic.to_string(),
         shape_key: shape_key.to_string(),
         mode_key: format!("{:?}", mode),
-        operand_plan: operand_plan.to_string(),
+        operand_plan: long_plan.to_string(),
         priority: selector_priority(mode),
         unstable_widen: false,
         width_rank: selector_width_rank(mode),
-    }]
+    }];
+
+    if has_short_alternative {
+        selectors.push(ModeSelectorDescriptor {
+            owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+            mnemonic: mnemonic.to_string(),
+            shape_key: shape_key.to_string(),
+            mode_key: format!("{:?}", base_mode),
+            operand_plan: base_plan.to_string(),
+            priority: selector_priority(base_mode),
+            unstable_widen: false,
+            width_rank: selector_width_rank(base_mode),
+        });
+    }
+
+    selectors
 }
 
 fn selector_shape_key(mode: AddressMode) -> Option<&'static str> {
@@ -756,7 +779,14 @@ mod tests {
                 && entry.mnemonic == "lda"
                 && entry.shape_key == "direct"
                 && entry.mode_key == "absolutelong"
-                && entry.operand_plan == "m65816_long_unstable_u24"
+                && entry.operand_plan == "m65816_long_pref_u24"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "lda"
+                && entry.shape_key == "direct"
+                && entry.mode_key == "absolute"
+                && entry.operand_plan == "m65816_abs16_bank_fold_dbr"
         }));
         assert!(chunks.selectors.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")

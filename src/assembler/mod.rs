@@ -3293,6 +3293,8 @@ impl<'a> AsmLine<'a> {
             }
 
             if self.opthread_runtime_enabled {
+                let strict_runtime_parse_resolve =
+                    pipeline.cpu_id.as_str().eq_ignore_ascii_case("65816");
                 if let Some(model) = self.opthread_execution_model.as_ref() {
                     match model.encode_instruction_from_exprs(
                         self.cpu.as_str(),
@@ -3318,7 +3320,19 @@ impl<'a> AsmLine<'a> {
                             self.bytes.extend_from_slice(&bytes);
                             return LineStatus::Ok;
                         }
-                        Ok(None) => {}
+                        Ok(None) => {
+                            if strict_runtime_parse_resolve {
+                                return self.failure(
+                                    LineStatus::Error,
+                                    AsmErrorKind::Instruction,
+                                    &format!(
+                                        "No instruction found for {}",
+                                        mapped_mnemonic.to_ascii_uppercase()
+                                    ),
+                                    None,
+                                );
+                            }
+                        }
                         Err(err) => {
                             return self.failure(
                                 LineStatus::Error,
