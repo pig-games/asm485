@@ -6600,6 +6600,8 @@ fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() 
         (m6502_cpu_id, "    JMP missing_label"),
         (m65c02_cpu_id, "    BBR0 $12,$0200"),
         (m65816_cpu_id, "    BRL $8003"),
+        (m65816_cpu_id, "    LDA $123456,k"),
+        (m65816_cpu_id, "    JMP $123456,b"),
     ];
 
     for (cpu, line) in corpus {
