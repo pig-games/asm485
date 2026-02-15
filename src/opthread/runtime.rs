@@ -17,6 +17,20 @@ use crate::opthread::hierarchy::{
 use crate::opthread::package::{HierarchyChunks, ModeSelectorDescriptor};
 use crate::opthread::vm::{execute_program, VmError};
 
+/// Family-keyed operand parse/resolve adapter used by expr-based runtime encode.
+///
+/// Contract:
+/// - Dispatch is keyed by resolved family id.
+/// - Returning `Ok(None)` means "unsupported shape/path, fall back to host/native flow".
+/// - Returning `Err(...)` means deterministic family-level resolution failure.
+pub type ExprResolverFn = fn(
+    &HierarchyExecutionModel,
+    &ResolvedHierarchy,
+    &str,
+    &[Expr],
+    &dyn AssemblerContext,
+) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError>;
+
 /// Errors emitted by the opThread host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeBridgeError {
@@ -142,6 +156,7 @@ pub struct HierarchyExecutionModel {
     dialect_forms: HashMap<String, HashSet<String>>,
     vm_programs: HashMap<(u8, String, String, String), Vec<u8>>,
     mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>>,
+    expr_resolvers: HashMap<String, ExprResolverFn>,
 }
 
 impl HierarchyExecutionModel {
@@ -152,6 +167,9 @@ impl HierarchyExecutionModel {
 
     pub fn from_chunks(chunks: HierarchyChunks) -> Result<Self, RuntimeBridgeError> {
         let HierarchyChunks {
+            metadata: _,
+            strings: _,
+            diagnostics: _,
             families,
             cpus,
             dialects,
@@ -217,6 +235,11 @@ impl HierarchyExecutionModel {
                 }
             }
         }
+        let mut expr_resolvers: HashMap<String, ExprResolverFn> = HashMap::new();
+        expr_resolvers.insert(
+            "mos6502".to_string(),
+            HierarchyExecutionModel::select_candidates_from_exprs_mos6502,
+        );
 
         Ok(Self {
             bridge: HierarchyRuntimeBridge::new(package),
@@ -225,6 +248,7 @@ impl HierarchyExecutionModel {
             dialect_forms,
             vm_programs,
             mode_selectors,
+            expr_resolvers,
         })
     }
 
@@ -286,12 +310,13 @@ impl HierarchyExecutionModel {
         ctx: &dyn AssemblerContext,
     ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        if !resolved.family_id.eq_ignore_ascii_case("mos6502") {
-            return Ok(None);
-        }
-        let Some(candidates) =
-            self.select_candidates_from_exprs(&resolved, mnemonic, operands, ctx)?
+        let Some(resolver) = self
+            .expr_resolvers
+            .get(&resolved.family_id.to_ascii_lowercase())
         else {
+            return Ok(None);
+        };
+        let Some(candidates) = resolver(self, &resolved, mnemonic, operands, ctx)? else {
             return Ok(None);
         };
         match self.encode_candidates(&resolved, mnemonic, &candidates)? {
@@ -301,6 +326,25 @@ impl HierarchyExecutionModel {
                 mnemonic.to_ascii_uppercase()
             ))),
         }
+    }
+
+    /// Returns `true` when this model has an expr parse/resolve adapter for the family.
+    pub fn supports_expr_resolution_for_family(&self, family_id: &str) -> bool {
+        self.expr_resolvers
+            .contains_key(&family_id.to_ascii_lowercase())
+    }
+
+    /// Registers or replaces an expr parse/resolve adapter for a family id.
+    ///
+    /// This is the extension seam used to onboard non-MOS family adapters without
+    /// changing runtime encode core dispatch.
+    pub fn register_expr_resolver_for_family(
+        &mut self,
+        family_id: &str,
+        resolver: ExprResolverFn,
+    ) -> Option<ExprResolverFn> {
+        self.expr_resolvers
+            .insert(family_id.to_ascii_lowercase(), resolver)
     }
 
     fn encode_candidates(
@@ -347,7 +391,7 @@ struct SelectorInput<'a> {
 }
 
 impl HierarchyExecutionModel {
-    fn select_candidates_from_exprs(
+    fn select_candidates_from_exprs_mos6502(
         &self,
         resolved: &ResolvedHierarchy,
         mnemonic: &str,
@@ -1183,14 +1227,17 @@ mod tests {
     use super::*;
     use crate::core::family::AssemblerContext;
     use crate::core::parser::Expr;
-    use crate::core::registry::ModuleRegistry;
+    use crate::core::registry::{ModuleRegistry, VmEncodeCandidate};
     use crate::core::tokenizer::Span;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
     use crate::families::mos6502::Operand;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::builder::build_hierarchy_chunks_from_registry;
-    use crate::opthread::hierarchy::{CpuDescriptor, DialectDescriptor, FamilyDescriptor};
+    use crate::opthread::hierarchy::{
+        CpuDescriptor, DialectDescriptor, FamilyDescriptor, ResolvedHierarchy, ScopedOwner,
+    };
+    use crate::opthread::package::{HierarchyChunks, VmProgramDescriptor};
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use std::collections::HashMap;
 
@@ -1307,6 +1354,62 @@ mod tests {
             ],
         )
         .expect("sample package should validate")
+    }
+
+    fn intel_only_chunks() -> HierarchyChunks {
+        HierarchyChunks {
+            metadata: crate::opthread::package::PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: Vec::new(),
+            families: vec![FamilyDescriptor {
+                id: "intel8080".to_string(),
+                canonical_dialect: "intel".to_string(),
+            }],
+            cpus: vec![CpuDescriptor {
+                id: "8085".to_string(),
+                family_id: "intel8080".to_string(),
+                default_dialect: Some("intel".to_string()),
+            }],
+            dialects: vec![DialectDescriptor {
+                id: "intel".to_string(),
+                family_id: "intel8080".to_string(),
+                cpu_allow_list: None,
+            }],
+            registers: Vec::new(),
+            forms: Vec::new(),
+            tables: vec![VmProgramDescriptor {
+                owner: ScopedOwner::Family("intel8080".to_string()),
+                mnemonic: "MVI".to_string(),
+                mode_key: "immediate".to_string(),
+                program: vec![OP_EMIT_U8, 0x3E, OP_EMIT_OPERAND, 0x00, OP_END],
+            }],
+            selectors: Vec::new(),
+        }
+    }
+
+    fn intel_test_expr_resolver(
+        _model: &HierarchyExecutionModel,
+        _resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
+        if !mnemonic.eq_ignore_ascii_case("mvi") || operands.len() != 1 {
+            return Ok(None);
+        }
+        let value = ctx
+            .eval_expr(&operands[0])
+            .map_err(RuntimeBridgeError::Resolve)?;
+        if !(0..=255).contains(&value) {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "Immediate value {} out of range (0-255)",
+                value
+            )));
+        }
+        Ok(Some(vec![VmEncodeCandidate {
+            mode_key: "immediate".to_string(),
+            operand_bytes: vec![vec![value as u8]],
+        }]))
     }
 
     #[test]
@@ -1473,6 +1576,52 @@ mod tests {
             .encode_instruction_from_exprs("65816", None, "MVN", &operands, &ctx)
             .expect("vm expr encode should succeed");
         assert_eq!(bytes, Some(vec![0x54, 0x01, 0x02]));
+    }
+
+    #[test]
+    fn execution_model_reports_expr_resolver_support_by_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        assert!(model.supports_expr_resolution_for_family("mos6502"));
+        assert!(model.supports_expr_resolution_for_family("MOS6502"));
+        assert!(!model.supports_expr_resolution_for_family("intel8080"));
+    }
+
+    #[test]
+    fn execution_model_expr_encode_returns_none_for_family_without_resolver() {
+        let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
+            .expect("execution model build");
+        let span = Span::default();
+        let operands = vec![Expr::Number("66".to_string(), span)];
+        let ctx = TestAssemblerContext::new();
+
+        let bytes = model
+            .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
+            .expect("expr encode should not error when family resolver is absent");
+        assert!(bytes.is_none());
+    }
+
+    #[test]
+    fn execution_model_allows_registering_family_expr_resolver() {
+        let mut model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
+            .expect("execution model build");
+        assert!(!model.supports_expr_resolution_for_family("intel8080"));
+        model.register_expr_resolver_for_family("intel8080", intel_test_expr_resolver);
+        assert!(model.supports_expr_resolution_for_family("intel8080"));
+
+        let span = Span::default();
+        let operands = vec![Expr::Number("66".to_string(), span)];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
+            .expect("expr encode should succeed through registered resolver");
+        assert_eq!(bytes, Some(vec![0x3E, 0x42]));
     }
 
     #[test]
@@ -1747,7 +1896,7 @@ mod tests {
         ctx.values.insert("target".to_string(), 0x10);
         ctx.finalized.insert("target".to_string(), false);
         let candidates = model
-            .select_candidates_from_exprs(&resolved, "LDA", &[expr], &ctx)
+            .select_candidates_from_exprs_mos6502(&resolved, "LDA", &[expr], &ctx)
             .expect("m6502 selector candidates")
             .expect("m6502 candidates should exist");
         assert_eq!(candidates[0].mode_key, "absolute");

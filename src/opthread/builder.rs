@@ -253,6 +253,9 @@ pub fn build_hierarchy_chunks_from_registry(
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
 
     Ok(HierarchyChunks {
+        metadata: crate::opthread::package::PackageMetaDescriptor::default(),
+        strings: Vec::new(),
+        diagnostics: Vec::new(),
         families,
         cpus,
         dialects,

@@ -1932,7 +1932,7 @@ impl<'a> AsmLine<'a> {
     #[cfg(feature = "opthread-runtime")]
     fn opthread_form_allows_mnemonic(
         &self,
-        pipeline: &crate::core::registry::ResolvedPipeline<'_>,
+        _pipeline: &crate::core::registry::ResolvedPipeline<'_>,
         mapped_mnemonic: &str,
     ) -> Result<bool, String> {
         if !self.opthread_runtime_enabled {
@@ -1941,13 +1941,6 @@ impl<'a> AsmLine<'a> {
         let Some(model) = self.opthread_execution_model.as_ref() else {
             return Ok(true);
         };
-        if !pipeline
-            .family_id
-            .as_str()
-            .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str())
-        {
-            return Ok(true);
-        }
         model
             .supports_mnemonic(self.cpu.as_str(), None, mapped_mnemonic)
             .map_err(|err| err.to_string())
@@ -3293,11 +3286,9 @@ impl<'a> AsmLine<'a> {
             }
 
             if self.opthread_runtime_enabled {
-                let strict_runtime_parse_resolve = pipeline
-                    .family_id
-                    .as_str()
-                    .eq_ignore_ascii_case(crate::families::mos6502::module::FAMILY_ID.as_str());
                 if let Some(model) = self.opthread_execution_model.as_ref() {
+                    let strict_runtime_parse_resolve =
+                        model.supports_expr_resolution_for_family(pipeline.family_id.as_str());
                     match model.encode_instruction_from_exprs(
                         self.cpu.as_str(),
                         None,
@@ -3417,6 +3408,8 @@ impl<'a> AsmLine<'a> {
         #[cfg(feature = "opthread-runtime")]
         if self.opthread_runtime_enabled {
             if let Some(model) = self.opthread_execution_model.as_ref() {
+                let strict_runtime_vm_programs =
+                    model.supports_expr_resolution_for_family(pipeline.family_id.as_str());
                 match model.encode_instruction(
                     self.cpu.as_str(),
                     None,
@@ -3446,9 +3439,7 @@ impl<'a> AsmLine<'a> {
                         return LineStatus::Ok;
                     }
                     Ok(None) => {
-                        if pipeline.family_id.as_str().eq_ignore_ascii_case(
-                            crate::families::mos6502::module::FAMILY_ID.as_str(),
-                        ) {
+                        if strict_runtime_vm_programs {
                             return self.failure(
                                 LineStatus::Error,
                                 AsmErrorKind::Instruction,

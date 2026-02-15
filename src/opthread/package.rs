@@ -4,6 +4,9 @@
 //! Binary CPU package (`*.opcpu`) container support for hierarchy chunks.
 //!
 //! This module currently implements read/write for:
+//! - `META` (package metadata)
+//! - `STRS` (string pool)
+//! - `DIAG` (diagnostic catalog)
 //! - `FAMS` (family descriptors)
 //! - `CPUS` (cpu descriptors)
 //! - `DIAL` (dialect descriptors)
@@ -25,6 +28,9 @@ pub const OPCPU_ENDIAN_MARKER: u16 = 0x1234;
 const HEADER_SIZE: usize = 12;
 const TOC_ENTRY_SIZE: usize = 12;
 
+const CHUNK_META: [u8; 4] = *b"META";
+const CHUNK_STRS: [u8; 4] = *b"STRS";
+const CHUNK_DIAG: [u8; 4] = *b"DIAG";
 const CHUNK_FAMS: [u8; 4] = *b"FAMS";
 const CHUNK_CPUS: [u8; 4] = *b"CPUS";
 const CHUNK_DIAL: [u8; 4] = *b"DIAL";
@@ -32,6 +38,31 @@ const CHUNK_REGS: [u8; 4] = *b"REGS";
 const CHUNK_FORM: [u8; 4] = *b"FORM";
 const CHUNK_TABL: [u8; 4] = *b"TABL";
 const CHUNK_MSEL: [u8; 4] = *b"MSEL";
+
+/// Package metadata descriptor (`META` chunk).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PackageMetaDescriptor {
+    pub package_id: String,
+    pub package_version: String,
+    pub capability_flags: u32,
+}
+
+impl Default for PackageMetaDescriptor {
+    fn default() -> Self {
+        Self {
+            package_id: "opforge.generated".to_string(),
+            package_version: "0.1.0".to_string(),
+            capability_flags: 0,
+        }
+    }
+}
+
+/// Diagnostic descriptor (`DIAG` chunk).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticDescriptor {
+    pub code: String,
+    pub message_template: String,
+}
 
 /// Scoped VM program descriptor for one mnemonic + mode-key encode template.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +89,9 @@ pub struct ModeSelectorDescriptor {
 /// Decoded hierarchy-chunk payload set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HierarchyChunks {
+    pub metadata: PackageMetaDescriptor,
+    pub strings: Vec<String>,
+    pub diagnostics: Vec<DiagnosticDescriptor>,
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
@@ -226,6 +260,9 @@ pub fn encode_hierarchy_chunks_full(
     // Validate cross references and compatibility before encoding.
     HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
 
+    let metadata = PackageMetaDescriptor::default();
+    let mut strings = Vec::new();
+    let mut diagnostics = Vec::new();
     let mut fams = families.to_vec();
     let mut cpus = cpus.to_vec();
     let mut dials = dialects.to_vec();
@@ -242,8 +279,12 @@ pub fn encode_hierarchy_chunks_full(
         &mut tables,
         &mut selectors,
     );
+    canonicalize_package_support_chunks(&mut strings, &mut diagnostics);
 
     let chunks = vec![
+        (CHUNK_META, encode_meta_chunk(&metadata)?),
+        (CHUNK_STRS, encode_strs_chunk(&strings)?),
+        (CHUNK_DIAG, encode_diag_chunk(&diagnostics)?),
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
         (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
         (CHUNK_DIAL, encode_dial_chunk(&dials)?),
@@ -254,6 +295,27 @@ pub fn encode_hierarchy_chunks_full(
     ];
 
     encode_container(&chunks)
+}
+
+fn canonicalize_package_support_chunks(
+    strings: &mut Vec<String>,
+    diagnostics: &mut Vec<DiagnosticDescriptor>,
+) {
+    strings.sort();
+    strings.dedup();
+
+    diagnostics.sort_by_key(|entry| {
+        (
+            entry.code.to_ascii_lowercase(),
+            entry.message_template.to_ascii_lowercase(),
+        )
+    });
+    diagnostics.dedup_by(|left, right| {
+        left.code.eq_ignore_ascii_case(&right.code)
+            && left
+                .message_template
+                .eq_ignore_ascii_case(&right.message_template)
+    });
 }
 
 pub(crate) fn canonicalize_hierarchy_metadata(
@@ -431,6 +493,9 @@ pub(crate) fn canonicalize_hierarchy_metadata(
 
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
     let toc = parse_toc(bytes)?;
+    let meta_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_META)?;
+    let strs_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_STRS)?;
+    let diag_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_DIAG)?;
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
@@ -440,6 +505,18 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let msel_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_MSEL)?;
 
     Ok(HierarchyChunks {
+        metadata: match meta_bytes {
+            Some(payload) => decode_meta_chunk(payload)?,
+            None => PackageMetaDescriptor::default(),
+        },
+        strings: match strs_bytes {
+            Some(payload) => decode_strs_chunk(payload)?,
+            None => Vec::new(),
+        },
+        diagnostics: match diag_bytes {
+            Some(payload) => decode_diag_chunk(payload)?,
+            None => Vec::new(),
+        },
         families: decode_fams_chunk(fams_bytes)?,
         cpus: decode_cpus_chunk(cpus_bytes)?,
         dialects: decode_dial_chunk(dial_bytes)?,
@@ -716,6 +793,69 @@ fn decode_fams_chunk(bytes: &[u8]) -> Result<Vec<FamilyDescriptor>, OpcpuCodecEr
         entries.push(FamilyDescriptor {
             id: cur.read_string()?,
             canonical_dialect: cur.read_string()?,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
+fn encode_meta_chunk(metadata: &PackageMetaDescriptor) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_string(&mut out, "META", &metadata.package_id)?;
+    write_string(&mut out, "META", &metadata.package_version)?;
+    write_u32(&mut out, metadata.capability_flags);
+    Ok(out)
+}
+
+fn decode_meta_chunk(bytes: &[u8]) -> Result<PackageMetaDescriptor, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "META");
+    let metadata = PackageMetaDescriptor {
+        package_id: cur.read_string()?,
+        package_version: cur.read_string()?,
+        capability_flags: cur.read_u32()?,
+    };
+    cur.finish()?;
+    Ok(metadata)
+}
+
+fn encode_strs_chunk(strings: &[String]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(strings.len(), "STRS count")?);
+    for entry in strings {
+        write_string(&mut out, "STRS", entry)?;
+    }
+    Ok(out)
+}
+
+fn decode_strs_chunk(bytes: &[u8]) -> Result<Vec<String>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "STRS");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        entries.push(cur.read_string()?);
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
+fn encode_diag_chunk(diagnostics: &[DiagnosticDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(diagnostics.len(), "DIAG count")?);
+    for entry in diagnostics {
+        write_string(&mut out, "DIAG", &entry.code)?;
+        write_string(&mut out, "DIAG", &entry.message_template)?;
+    }
+    Ok(out)
+}
+
+fn decode_diag_chunk(bytes: &[u8]) -> Result<Vec<DiagnosticDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "DIAG");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        entries.push(DiagnosticDescriptor {
+            code: cur.read_string()?,
+            message_template: cur.read_string()?,
         });
     }
     cur.finish()?;
@@ -1326,6 +1466,11 @@ mod tests {
         )
         .expect("encode should succeed");
         let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+        assert_eq!(decoded.metadata.package_id, "opforge.generated");
+        assert_eq!(decoded.metadata.package_version, "0.1.0");
+        assert_eq!(decoded.metadata.capability_flags, 0);
+        assert!(decoded.strings.is_empty());
+        assert!(decoded.diagnostics.is_empty());
 
         let family_snapshot: Vec<String> = decoded
             .families
@@ -1401,13 +1546,16 @@ mod tests {
         assert_eq!(
             toc_entries,
             vec![
-                "FAMS@96+44",
-                "CPUS@140+92",
-                "DIAL@232+80",
-                "REGS@312+57",
-                "FORM@369+57",
-                "TABL@426+43",
-                "MSEL@469+4"
+                "META@132+34",
+                "STRS@166+4",
+                "DIAG@170+4",
+                "FAMS@174+44",
+                "CPUS@218+92",
+                "DIAL@310+80",
+                "REGS@390+57",
+                "FORM@447+57",
+                "TABL@504+43",
+                "MSEL@547+4"
             ]
         );
     }
@@ -1489,5 +1637,25 @@ mod tests {
         let err = load_hierarchy_package(&bytes).expect_err("cross-reference should fail");
         assert!(matches!(err, OpcpuCodecError::Hierarchy(_)));
         assert_eq!(err.code(), "OPC011");
+    }
+
+    #[test]
+    fn decode_legacy_container_defaults_meta_strs_diag() {
+        let families = sample_families();
+        let cpus = sample_cpus();
+        let dials = sample_dialects();
+        let chunks = vec![
+            (CHUNK_FAMS, encode_fams_chunk(&families).expect("fams")),
+            (CHUNK_CPUS, encode_cpus_chunk(&cpus).expect("cpus")),
+            (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode");
+        assert_eq!(decoded.metadata, PackageMetaDescriptor::default());
+        assert!(decoded.strings.is_empty());
+        assert!(decoded.diagnostics.is_empty());
     }
 }

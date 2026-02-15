@@ -2,7 +2,7 @@
 
 Author: Erik + ChatGPT  
 Status: Draft for implementation planning (not implemented in opForge v0.9.1)  
-Last updated: 2026-02-14
+Last updated: 2026-02-15
 
 ## 1. Purpose
 
@@ -388,6 +388,29 @@ Flags include:
 - `emit_diag(severity, diagId, spanId, args[])`
 The host is responsible for rendering templates and presenting fixits.
 
+### 7.6 Host/runtime bridge contract (Phase 0 lock)
+
+The runtime-facing integration contract is frozen as the minimal family-neutral surface below:
+
+1) Package loading
+- Build/load `HierarchyChunks` and validate hierarchy metadata.
+- Runtime encode path consumes package data; builder-side Rust table/metadata -> package generation remains supported for onboarding.
+
+2) Pipeline resolution
+- Resolve pipeline context as `{family_id, cpu_id, dialect_id}`.
+- Selection order remains: explicit override -> CPU default -> family canonical.
+
+3) Selector candidate evaluation
+- Candidate generation from host expressions is dispatched by resolved `family_id`.
+- Resolver capability is queryable per family.
+- Missing family adapter reports "unsupported" (no candidate) instead of forcing a hard runtime error.
+
+4) Encode program execution
+- Candidate mode keys and operand bytes execute through package `TABL` VM programs in deterministic owner order (dialect -> CPU -> family).
+
+5) Family adapter extension point
+- Runtime exposes a family-keyed resolver registration seam so new family parse/resolve adapters can be onboarded without changing generic encode dispatch logic.
+
 ## 8. Test Vector Package (`*.optst`) v0.1
 
 ### 8.1 Container
@@ -442,6 +465,7 @@ the current Rust handlers and reference fixtures.
   - family/CPU/dialect descriptor tables
   - scoped register banks
   - mnemonic/form bytecode generation for family base + CPU extensions + dialect overlays
+- Keep Rust table/metadata -> package bytecode generation as a first-class authoring path for adding new families/CPUs, even after runtime consumes `.opcpu` as execution source-of-truth.
 - Convert one full family (with at least two CPUs and at least two dialects) to package-driven as pilot.
 
 ### Phase 3: Embedded runtime #1
