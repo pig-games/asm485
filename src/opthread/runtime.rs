@@ -33,9 +33,10 @@ use crate::opthread::hierarchy::{
 use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
-    ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
+    ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenizerVmDiagnosticMap,
+    TokenizerVmLimits, TokenizerVmOpcode, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
     DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
-    DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+    DIAG_OPTHREAD_MISSING_VM_PROGRAM, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{execute_program, VmError};
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
@@ -93,6 +94,13 @@ impl FamilyExprResolver for FnFamilyExprResolver {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeTokenizerMode {
+    Host,
+    DelegatedCore,
+    Vm,
+}
+
 #[derive(Debug)]
 struct ExprResolverEntry {
     resolver: Box<dyn FamilyExprResolver>,
@@ -147,6 +155,16 @@ pub struct RuntimeBudgetLimits {
 type VmProgramKey = (u8, u32, u32, u32);
 type ModeSelectorKey = (u8, u32, u32, u32);
 type TokenPolicyKey = (u8, u32);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeTokenizerVmProgram {
+    pub opcode_version: u16,
+    pub start_state: u16,
+    pub state_entry_offsets: Vec<u32>,
+    pub limits: TokenizerVmLimits,
+    pub diagnostics: TokenizerVmDiagnosticMap,
+    pub program: Vec<u8>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeTokenPolicy {
@@ -672,9 +690,11 @@ pub struct HierarchyExecutionModel {
     vm_programs: HashMap<VmProgramKey, Vec<u8>>,
     mode_selectors: HashMap<ModeSelectorKey, Vec<ModeSelectorDescriptor>>,
     token_policies: HashMap<TokenPolicyKey, RuntimeTokenPolicy>,
+    tokenizer_vm_programs: HashMap<TokenPolicyKey, RuntimeTokenizerVmProgram>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
+    tokenizer_mode: RuntimeTokenizerMode,
     budget_profile: RuntimeBudgetProfile,
     budget_limits: RuntimeBudgetLimits,
 }
@@ -696,6 +716,7 @@ impl HierarchyExecutionModel {
             strings: _,
             diagnostics,
             token_policies,
+            tokenizer_vm_programs,
             families,
             cpus,
             dialects,
@@ -750,6 +771,23 @@ impl HierarchyExecutionModel {
                     number_suffix_hex: entry.number_suffix_hex,
                     operator_chars: entry.operator_chars,
                     multi_char_operators: entry.multi_char_operators,
+                },
+            );
+        }
+        let mut scoped_tokenizer_vm_programs: HashMap<TokenPolicyKey, RuntimeTokenizerVmProgram> =
+            HashMap::new();
+        for entry in tokenizer_vm_programs {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            scoped_tokenizer_vm_programs.insert(
+                (owner_tag, owner_id),
+                RuntimeTokenizerVmProgram {
+                    opcode_version: entry.opcode_version,
+                    start_state: entry.start_state,
+                    state_entry_offsets: entry.state_entry_offsets,
+                    limits: entry.limits,
+                    diagnostics: entry.diagnostics,
+                    program: entry.program,
                 },
             );
         }
@@ -809,9 +847,11 @@ impl HierarchyExecutionModel {
             vm_programs,
             mode_selectors,
             token_policies: scoped_token_policies,
+            tokenizer_vm_programs: scoped_tokenizer_vm_programs,
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
+            tokenizer_mode: RuntimeTokenizerMode::DelegatedCore,
             budget_profile: RuntimeBudgetProfile::HostDefault,
             budget_limits: RuntimeBudgetProfile::HostDefault.limits(),
         })
@@ -828,6 +868,14 @@ impl HierarchyExecutionModel {
     pub fn set_runtime_budget_profile(&mut self, profile: RuntimeBudgetProfile) {
         self.budget_profile = profile;
         self.budget_limits = profile.limits();
+    }
+
+    pub fn tokenizer_mode(&self) -> RuntimeTokenizerMode {
+        self.tokenizer_mode
+    }
+
+    pub fn set_tokenizer_mode(&mut self, mode: RuntimeTokenizerMode) {
+        self.tokenizer_mode = mode;
     }
 
     #[cfg(test)]
@@ -895,7 +943,43 @@ impl HierarchyExecutionModel {
             line_num,
             token_policy: self.token_policy_for_resolved(&resolved),
         };
-        adapter.tokenize_statement(&request)
+        match self.tokenizer_mode {
+            RuntimeTokenizerMode::Host => Self::tokenize_with_host_core(&request),
+            RuntimeTokenizerMode::DelegatedCore => adapter.tokenize_statement(&request),
+            RuntimeTokenizerMode::Vm => {
+                let vm_result = self
+                    .tokenizer_vm_program_for_resolved(&resolved)
+                    .map(|program| self.tokenize_with_vm_core(&request, &program))
+                    .transpose();
+                match vm_result {
+                    Ok(Some(tokens)) if !tokens.is_empty() || source_line.trim().is_empty() => {
+                        Ok(tokens)
+                    }
+                    _ => Self::tokenize_with_host_core(&request),
+                }
+            }
+        }
+    }
+
+    pub fn resolve_tokenizer_vm_program(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<RuntimeTokenizerVmProgram>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self.tokenizer_vm_program_for_resolved(&resolved))
+    }
+
+    pub fn resolve_tokenizer_vm_limits(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<TokenizerVmLimits, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self
+            .tokenizer_vm_program_for_resolved(&resolved)
+            .map(|entry| entry.limits)
+            .unwrap_or_default())
     }
 
     pub fn encode_instruction(
@@ -1061,6 +1145,292 @@ impl HierarchyExecutionModel {
             }
         }
         RuntimeTokenPolicy::default()
+    }
+
+    fn tokenizer_vm_program_for_resolved(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> Option<RuntimeTokenizerVmProgram> {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, self.interned_id(dialect_id.as_str())),
+            (1u8, self.interned_id(cpu_id.as_str())),
+            (0u8, self.interned_id(family_id.as_str())),
+        ];
+        for (owner_tag, owner_id) in owner_order {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(program) = self.tokenizer_vm_programs.get(&(owner_tag, owner_id)) {
+                return Some(program.clone());
+            }
+        }
+        None
+    }
+
+    fn tokenize_with_host_core(
+        request: &PortableTokenizeRequest<'_>,
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+        CoreTokenizerAdapter.tokenize_statement(request)
+    }
+
+    fn tokenize_with_vm_core(
+        &self,
+        request: &PortableTokenizeRequest<'_>,
+        vm_program: &RuntimeTokenizerVmProgram,
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+        if vm_program.opcode_version != TOKENIZER_VM_OPCODE_VERSION_V1 {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: unsupported tokenizer VM opcode version {}",
+                vm_program.diagnostics.invalid_char, vm_program.opcode_version
+            )));
+        }
+        if vm_program.state_entry_offsets.is_empty() {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: tokenizer VM state table is empty",
+                vm_program.diagnostics.invalid_char
+            )));
+        }
+        let start_state = usize::from(vm_program.start_state);
+        let Some(start_offset) = vm_program.state_entry_offsets.get(start_state).copied() else {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: tokenizer VM start state {} out of range",
+                vm_program.diagnostics.invalid_char, vm_program.start_state
+            )));
+        };
+
+        let bytes = request.source_line.as_bytes();
+        let mut pc = vm_offset_to_pc(
+            vm_program.program.as_slice(),
+            start_offset,
+            vm_program.diagnostics.invalid_char.as_str(),
+            "start state offset",
+        )?;
+        let mut cursor = 0usize;
+        let mut current_byte: Option<u8> = None;
+        let mut lexeme = Vec::new();
+        let mut lexeme_start = 0usize;
+        let mut lexeme_end = 0usize;
+        let mut tokens = Vec::new();
+        let mut emitted_errors = 0u32;
+        let mut step_count = 0u32;
+
+        loop {
+            step_count = step_count.saturating_add(1);
+            if step_count > vm_program.limits.max_steps_per_line {
+                return Err(RuntimeBridgeError::Resolve(format!(
+                    "{}: tokenizer VM step budget exceeded ({}/{})",
+                    vm_program.diagnostics.step_limit_exceeded,
+                    step_count,
+                    vm_program.limits.max_steps_per_line
+                )));
+            }
+
+            let opcode_byte = vm_read_u8(
+                vm_program.program.as_slice(),
+                &mut pc,
+                vm_program.diagnostics.invalid_char.as_str(),
+                "opcode",
+            )?;
+            let Some(opcode) = TokenizerVmOpcode::from_u8(opcode_byte) else {
+                return Err(RuntimeBridgeError::Resolve(format!(
+                    "{}: unknown tokenizer VM opcode 0x{:02X}",
+                    vm_program.diagnostics.invalid_char, opcode_byte
+                )));
+            };
+
+            match opcode {
+                TokenizerVmOpcode::End => break,
+                TokenizerVmOpcode::ReadChar => {
+                    current_byte = bytes.get(cursor).copied();
+                }
+                TokenizerVmOpcode::Advance => {
+                    if cursor < bytes.len() {
+                        cursor += 1;
+                    }
+                }
+                TokenizerVmOpcode::StartLexeme => {
+                    lexeme.clear();
+                    lexeme_start = cursor;
+                    lexeme_end = cursor;
+                }
+                TokenizerVmOpcode::PushChar => {
+                    let Some(byte) = current_byte else {
+                        return Err(RuntimeBridgeError::Resolve(format!(
+                            "{}: PushChar requires ReadChar at non-EOL",
+                            vm_program.diagnostics.invalid_char
+                        )));
+                    };
+                    if lexeme.len() as u32 >= vm_program.limits.max_lexeme_bytes {
+                        return Err(RuntimeBridgeError::Resolve(format!(
+                            "{}: tokenizer VM lexeme budget exceeded ({}/{})",
+                            vm_program.diagnostics.lexeme_limit_exceeded,
+                            lexeme.len().saturating_add(1),
+                            vm_program.limits.max_lexeme_bytes
+                        )));
+                    }
+                    lexeme.push(byte);
+                    lexeme_end = cursor.saturating_add(1);
+                }
+                TokenizerVmOpcode::EmitToken => {
+                    let token_kind = vm_read_u8(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "emit token kind",
+                    )?;
+                    if tokens.len() as u32 >= vm_program.limits.max_tokens_per_line {
+                        return Err(RuntimeBridgeError::Resolve(format!(
+                            "{}: tokenizer VM token budget exceeded ({}/{})",
+                            vm_program.diagnostics.token_limit_exceeded,
+                            tokens.len().saturating_add(1),
+                            vm_program.limits.max_tokens_per_line
+                        )));
+                    }
+                    let token = vm_build_token(
+                        token_kind,
+                        lexeme.as_slice(),
+                        request.line_num,
+                        lexeme_start,
+                        lexeme_end,
+                        cursor,
+                    )?;
+                    tokens.push(apply_token_policy_to_token(token, &request.token_policy));
+                }
+                TokenizerVmOpcode::SetState => {
+                    let state = usize::from(vm_read_u16(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "state index",
+                    )?);
+                    let Some(offset) = vm_program.state_entry_offsets.get(state).copied() else {
+                        return Err(RuntimeBridgeError::Resolve(format!(
+                            "{}: state index {} out of range",
+                            vm_program.diagnostics.invalid_char, state
+                        )));
+                    };
+                    pc = vm_offset_to_pc(
+                        vm_program.program.as_slice(),
+                        offset,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "state entry offset",
+                    )?;
+                }
+                TokenizerVmOpcode::Jump => {
+                    let target = vm_read_u32(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "jump target",
+                    )?;
+                    pc = vm_offset_to_pc(
+                        vm_program.program.as_slice(),
+                        target,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "jump target",
+                    )?;
+                }
+                TokenizerVmOpcode::JumpIfEol => {
+                    let target = vm_read_u32(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "conditional jump target",
+                    )?;
+                    if cursor >= bytes.len() {
+                        pc = vm_offset_to_pc(
+                            vm_program.program.as_slice(),
+                            target,
+                            vm_program.diagnostics.invalid_char.as_str(),
+                            "conditional jump target",
+                        )?;
+                    }
+                }
+                TokenizerVmOpcode::JumpIfByteEq => {
+                    let expected = vm_read_u8(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "expected byte",
+                    )?;
+                    let target = vm_read_u32(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "conditional jump target",
+                    )?;
+                    if current_byte.is_some_and(|byte| byte == expected) {
+                        pc = vm_offset_to_pc(
+                            vm_program.program.as_slice(),
+                            target,
+                            vm_program.diagnostics.invalid_char.as_str(),
+                            "conditional jump target",
+                        )?;
+                    }
+                }
+                TokenizerVmOpcode::JumpIfClass => {
+                    let class = vm_read_u8(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "character class",
+                    )?;
+                    let target = vm_read_u32(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "conditional jump target",
+                    )?;
+                    if vm_char_class_matches(current_byte, class, &request.token_policy) {
+                        pc = vm_offset_to_pc(
+                            vm_program.program.as_slice(),
+                            target,
+                            vm_program.diagnostics.invalid_char.as_str(),
+                            "conditional jump target",
+                        )?;
+                    }
+                }
+                TokenizerVmOpcode::Fail => {
+                    let reason = vm_read_u8(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "failure reason",
+                    )?;
+                    return Err(RuntimeBridgeError::Resolve(format!(
+                        "{}: tokenizer VM failure reason {}",
+                        vm_program.diagnostics.invalid_char, reason
+                    )));
+                }
+                TokenizerVmOpcode::EmitDiag => {
+                    let slot = vm_read_u8(
+                        vm_program.program.as_slice(),
+                        &mut pc,
+                        vm_program.diagnostics.invalid_char.as_str(),
+                        "diagnostic slot",
+                    )?;
+                    emitted_errors = emitted_errors.saturating_add(1);
+                    if emitted_errors > vm_program.limits.max_errors_per_line {
+                        return Err(RuntimeBridgeError::Resolve(format!(
+                            "{}: tokenizer VM diagnostic budget exceeded ({}/{})",
+                            vm_program.diagnostics.error_limit_exceeded,
+                            emitted_errors,
+                            vm_program.limits.max_errors_per_line
+                        )));
+                    }
+                    let code = vm_diag_code_for_slot(&vm_program.diagnostics, slot);
+                    return Err(RuntimeBridgeError::Resolve(format!(
+                        "{}: tokenizer VM emitted diagnostic slot {}",
+                        code, slot
+                    )));
+                }
+            }
+        }
+
+        Ok(tokens)
     }
 
     fn interned_id(&self, value_lower: &str) -> Option<u32> {
@@ -1567,6 +1937,230 @@ fn force_suffix(force: OperandForce) -> &'static str {
         OperandForce::ProgramBank => "k",
         OperandForce::Long => "l",
     }
+}
+
+const VM_TOKEN_KIND_IDENTIFIER: u8 = 0;
+const VM_TOKEN_KIND_REGISTER: u8 = 1;
+const VM_TOKEN_KIND_NUMBER: u8 = 2;
+const VM_TOKEN_KIND_STRING: u8 = 3;
+const VM_TOKEN_KIND_COMMA: u8 = 4;
+const VM_TOKEN_KIND_COLON: u8 = 5;
+const VM_TOKEN_KIND_DOLLAR: u8 = 6;
+const VM_TOKEN_KIND_DOT: u8 = 7;
+const VM_TOKEN_KIND_HASH: u8 = 8;
+const VM_TOKEN_KIND_QUESTION: u8 = 9;
+const VM_TOKEN_KIND_OPEN_BRACKET: u8 = 10;
+const VM_TOKEN_KIND_CLOSE_BRACKET: u8 = 11;
+const VM_TOKEN_KIND_OPEN_BRACE: u8 = 12;
+const VM_TOKEN_KIND_CLOSE_BRACE: u8 = 13;
+const VM_TOKEN_KIND_OPEN_PAREN: u8 = 14;
+const VM_TOKEN_KIND_CLOSE_PAREN: u8 = 15;
+
+const VM_CHAR_CLASS_WHITESPACE: u8 = 1;
+const VM_CHAR_CLASS_IDENTIFIER_START: u8 = 2;
+const VM_CHAR_CLASS_IDENTIFIER_CONTINUE: u8 = 3;
+const VM_CHAR_CLASS_DIGIT: u8 = 4;
+const VM_CHAR_CLASS_QUOTE: u8 = 5;
+const VM_CHAR_CLASS_PUNCTUATION: u8 = 6;
+const VM_CHAR_CLASS_OPERATOR: u8 = 7;
+
+fn vm_read_u8(
+    program: &[u8],
+    pc: &mut usize,
+    diag_code: &str,
+    context: &str,
+) -> Result<u8, RuntimeBridgeError> {
+    let Some(value) = program.get(*pc).copied() else {
+        return Err(RuntimeBridgeError::Resolve(format!(
+            "{}: tokenizer VM truncated while reading {}",
+            diag_code, context
+        )));
+    };
+    *pc += 1;
+    Ok(value)
+}
+
+fn vm_read_u16(
+    program: &[u8],
+    pc: &mut usize,
+    diag_code: &str,
+    context: &str,
+) -> Result<u16, RuntimeBridgeError> {
+    let lo = vm_read_u8(program, pc, diag_code, context)?;
+    let hi = vm_read_u8(program, pc, diag_code, context)?;
+    Ok(u16::from_le_bytes([lo, hi]))
+}
+
+fn vm_read_u32(
+    program: &[u8],
+    pc: &mut usize,
+    diag_code: &str,
+    context: &str,
+) -> Result<u32, RuntimeBridgeError> {
+    let b0 = vm_read_u8(program, pc, diag_code, context)?;
+    let b1 = vm_read_u8(program, pc, diag_code, context)?;
+    let b2 = vm_read_u8(program, pc, diag_code, context)?;
+    let b3 = vm_read_u8(program, pc, diag_code, context)?;
+    Ok(u32::from_le_bytes([b0, b1, b2, b3]))
+}
+
+fn vm_offset_to_pc(
+    program: &[u8],
+    offset: u32,
+    diag_code: &str,
+    context: &str,
+) -> Result<usize, RuntimeBridgeError> {
+    let offset = usize::try_from(offset).map_err(|_| {
+        RuntimeBridgeError::Resolve(format!(
+            "{}: tokenizer VM {} exceeds host address range",
+            diag_code, context
+        ))
+    })?;
+    if offset > program.len() {
+        return Err(RuntimeBridgeError::Resolve(format!(
+            "{}: tokenizer VM {} {} exceeds program length {}",
+            diag_code,
+            context,
+            offset,
+            program.len()
+        )));
+    }
+    Ok(offset)
+}
+
+fn vm_diag_code_for_slot<'a>(diagnostics: &'a TokenizerVmDiagnosticMap, slot: u8) -> &'a str {
+    match slot {
+        0 => diagnostics.invalid_char.as_str(),
+        1 => diagnostics.unterminated_string.as_str(),
+        2 => diagnostics.step_limit_exceeded.as_str(),
+        3 => diagnostics.token_limit_exceeded.as_str(),
+        4 => diagnostics.lexeme_limit_exceeded.as_str(),
+        5 => diagnostics.error_limit_exceeded.as_str(),
+        _ => diagnostics.invalid_char.as_str(),
+    }
+}
+
+fn vm_char_class_matches(byte: Option<u8>, class: u8, policy: &RuntimeTokenPolicy) -> bool {
+    let Some(byte) = byte else {
+        return false;
+    };
+    let ch = byte as char;
+    match class {
+        VM_CHAR_CLASS_WHITESPACE => ch.is_ascii_whitespace(),
+        VM_CHAR_CLASS_IDENTIFIER_START => {
+            vm_matches_identifier_start_class(byte, policy.identifier_start_class)
+        }
+        VM_CHAR_CLASS_IDENTIFIER_CONTINUE => {
+            vm_matches_identifier_continue_class(byte, policy.identifier_continue_class)
+        }
+        VM_CHAR_CLASS_DIGIT => ch.is_ascii_digit(),
+        VM_CHAR_CLASS_QUOTE => policy.quote_chars.as_bytes().contains(&byte),
+        VM_CHAR_CLASS_PUNCTUATION => policy.punctuation_chars.as_bytes().contains(&byte),
+        VM_CHAR_CLASS_OPERATOR => policy.operator_chars.as_bytes().contains(&byte),
+        _ => false,
+    }
+}
+
+fn vm_matches_identifier_start_class(byte: u8, class_mask: u32) -> bool {
+    let is_alpha = (class_mask & crate::opthread::package::token_identifier_class::ASCII_ALPHA)
+        != 0
+        && (byte as char).is_ascii_alphabetic();
+    let is_underscore = (class_mask & crate::opthread::package::token_identifier_class::UNDERSCORE)
+        != 0
+        && byte == b'_';
+    let is_dot =
+        (class_mask & crate::opthread::package::token_identifier_class::DOT) != 0 && byte == b'.';
+    is_alpha || is_underscore || is_dot
+}
+
+fn vm_matches_identifier_continue_class(byte: u8, class_mask: u32) -> bool {
+    let ch = byte as char;
+    let is_alpha = (class_mask & crate::opthread::package::token_identifier_class::ASCII_ALPHA)
+        != 0
+        && ch.is_ascii_alphabetic();
+    let is_digit = (class_mask & crate::opthread::package::token_identifier_class::ASCII_DIGIT)
+        != 0
+        && ch.is_ascii_digit();
+    let is_underscore = (class_mask & crate::opthread::package::token_identifier_class::UNDERSCORE)
+        != 0
+        && byte == b'_';
+    let is_dollar = (class_mask & crate::opthread::package::token_identifier_class::DOLLAR) != 0
+        && byte == b'$';
+    let is_at = (class_mask & crate::opthread::package::token_identifier_class::AT_SIGN) != 0
+        && byte == b'@';
+    let is_dot =
+        (class_mask & crate::opthread::package::token_identifier_class::DOT) != 0 && byte == b'.';
+    is_alpha || is_digit || is_underscore || is_dollar || is_at || is_dot
+}
+
+fn vm_build_token(
+    kind_code: u8,
+    lexeme: &[u8],
+    line_num: u32,
+    lexeme_start: usize,
+    lexeme_end: usize,
+    cursor: usize,
+) -> Result<PortableToken, RuntimeBridgeError> {
+    let span_start = if lexeme_end > lexeme_start {
+        lexeme_start
+    } else {
+        cursor
+    };
+    let span_end = if lexeme_end > lexeme_start {
+        lexeme_end
+    } else {
+        cursor.saturating_add(1)
+    };
+    let span = PortableSpan {
+        line: line_num,
+        col_start: span_start.saturating_add(1),
+        col_end: span_end.saturating_add(1),
+    };
+    let lexeme_text = String::from_utf8_lossy(lexeme).to_string();
+    let kind = match kind_code {
+        VM_TOKEN_KIND_IDENTIFIER => PortableTokenKind::Identifier(lexeme_text),
+        VM_TOKEN_KIND_REGISTER => PortableTokenKind::Register(lexeme_text),
+        VM_TOKEN_KIND_NUMBER => {
+            let upper = lexeme_text.to_ascii_uppercase();
+            let base = if upper.starts_with('$') {
+                16
+            } else if upper.starts_with('%') {
+                2
+            } else if upper.ends_with('H') {
+                16
+            } else if upper.ends_with('B') {
+                2
+            } else if upper.ends_with('O') || upper.ends_with('Q') {
+                8
+            } else {
+                10
+            };
+            PortableTokenKind::Number { text: upper, base }
+        }
+        VM_TOKEN_KIND_STRING => PortableTokenKind::String {
+            raw: lexeme_text,
+            bytes: lexeme.to_vec(),
+        },
+        VM_TOKEN_KIND_COMMA => PortableTokenKind::Comma,
+        VM_TOKEN_KIND_COLON => PortableTokenKind::Colon,
+        VM_TOKEN_KIND_DOLLAR => PortableTokenKind::Dollar,
+        VM_TOKEN_KIND_DOT => PortableTokenKind::Dot,
+        VM_TOKEN_KIND_HASH => PortableTokenKind::Hash,
+        VM_TOKEN_KIND_QUESTION => PortableTokenKind::Question,
+        VM_TOKEN_KIND_OPEN_BRACKET => PortableTokenKind::OpenBracket,
+        VM_TOKEN_KIND_CLOSE_BRACKET => PortableTokenKind::CloseBracket,
+        VM_TOKEN_KIND_OPEN_BRACE => PortableTokenKind::OpenBrace,
+        VM_TOKEN_KIND_CLOSE_BRACE => PortableTokenKind::CloseBrace,
+        VM_TOKEN_KIND_OPEN_PAREN => PortableTokenKind::OpenParen,
+        VM_TOKEN_KIND_CLOSE_PAREN => PortableTokenKind::CloseParen,
+        _ => {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "unknown tokenizer VM token kind {}",
+                kind_code
+            )))
+        }
+    };
+    Ok(PortableToken { kind, span })
 }
 
 fn apply_token_policy_to_token(token: PortableToken, policy: &RuntimeTokenPolicy) -> PortableToken {
@@ -2206,8 +2800,9 @@ mod tests {
     };
     use crate::opthread::package::{
         default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
-        HierarchyChunks, TokenCaseRule, TokenPolicyDescriptor, VmProgramDescriptor,
-        DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        HierarchyChunks, TokenCaseRule, TokenPolicyDescriptor, TokenizerVmOpcode,
+        TokenizerVmProgramDescriptor, VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use std::collections::HashMap;
@@ -2249,6 +2844,63 @@ mod tests {
             number_suffix_hex: defaults.number_suffix_hex,
             operator_chars: defaults.operator_chars,
             multi_char_operators: defaults.multi_char_operators,
+        }
+    }
+
+    fn tokenizer_vm_program_for_test(owner: ScopedOwner) -> TokenizerVmProgramDescriptor {
+        TokenizerVmProgramDescriptor {
+            owner,
+            opcode_version: TOKENIZER_VM_OPCODE_VERSION_V1,
+            start_state: 0,
+            state_entry_offsets: vec![0],
+            limits: TokenizerVmLimits {
+                max_steps_per_line: 1024,
+                max_tokens_per_line: 64,
+                max_lexeme_bytes: 48,
+                max_errors_per_line: 4,
+            },
+            diagnostics: TokenizerVmDiagnosticMap {
+                invalid_char: "ott001".to_string(),
+                unterminated_string: "ott002".to_string(),
+                step_limit_exceeded: "ott003".to_string(),
+                token_limit_exceeded: "ott004".to_string(),
+                lexeme_limit_exceeded: "ott005".to_string(),
+                error_limit_exceeded: "ott006".to_string(),
+            },
+            program: vec![TokenizerVmOpcode::End as u8],
+        }
+    }
+
+    #[derive(Debug)]
+    struct FailingTokenizerAdapter;
+
+    impl PortableTokenizerAdapter for FailingTokenizerAdapter {
+        fn tokenize_statement(
+            &self,
+            _request: &PortableTokenizeRequest<'_>,
+        ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+            Err(RuntimeBridgeError::Resolve(
+                "failing delegated adapter".to_string(),
+            ))
+        }
+    }
+
+    #[derive(Debug)]
+    struct FixedTokenizerAdapter;
+
+    impl PortableTokenizerAdapter for FixedTokenizerAdapter {
+        fn tokenize_statement(
+            &self,
+            request: &PortableTokenizeRequest<'_>,
+        ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+            Ok(vec![PortableToken {
+                kind: PortableTokenKind::Identifier("adapter".to_string()),
+                span: PortableSpan {
+                    line: request.line_num,
+                    col_start: 1,
+                    col_end: 8,
+                },
+            }])
         }
     }
 
@@ -2373,6 +3025,7 @@ mod tests {
             strings: Vec::new(),
             diagnostics: Vec::new(),
             token_policies: Vec::new(),
+            tokenizer_vm_programs: Vec::new(),
             families: vec![FamilyDescriptor {
                 id: "intel8080".to_string(),
                 canonical_dialect: "intel".to_string(),
@@ -2866,6 +3519,153 @@ mod tests {
         assert!(matches!(
             &tokens[0].kind,
             PortableTokenKind::Identifier(name) if name == "LDA"
+        ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_program_resolution_prefers_dialect_then_cpu_then_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks
+            .tokenizer_vm_programs
+            .push(tokenizer_vm_program_for_test(ScopedOwner::Family(
+                "mos6502".to_string(),
+            )));
+        chunks
+            .tokenizer_vm_programs
+            .push(tokenizer_vm_program_for_test(ScopedOwner::Cpu(
+                "m6502".to_string(),
+            )));
+        let mut dialect_program =
+            tokenizer_vm_program_for_test(ScopedOwner::Dialect("transparent".to_string()));
+        dialect_program.limits.max_tokens_per_line = 7;
+        chunks.tokenizer_vm_programs.push(dialect_program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+
+        let program = model
+            .resolve_tokenizer_vm_program("m6502", None)
+            .expect("tokenizer vm program resolution")
+            .expect("tokenizer vm program should resolve");
+        assert_eq!(program.limits.max_tokens_per_line, 7);
+        assert!(program
+            .diagnostics
+            .invalid_char
+            .eq_ignore_ascii_case("OTT001"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_limits_default_when_program_missing() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let limits = model
+            .resolve_tokenizer_vm_limits("m6502", None)
+            .expect("tokenizer vm limits should resolve");
+        assert_eq!(limits, TokenizerVmLimits::default());
+    }
+
+    #[test]
+    fn execution_model_tokenizer_mode_host_uses_core_path() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_tokenizer_mode(RuntimeTokenizerMode::Host);
+        let tokens = model
+            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "LDA #$42", 1)
+            .expect("host tokenizer mode should not use delegated adapter");
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "lda"
+        ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_mode_delegated_core_uses_adapter() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_tokenizer_mode(RuntimeTokenizerMode::DelegatedCore);
+        let tokens = model
+            .tokenize_portable_statement(&FixedTokenizerAdapter, "m6502", None, "LDA #$42", 1)
+            .expect("delegated-core tokenizer mode should use delegated adapter");
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "adapter"
+        ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_mode_vm_falls_back_to_host() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_tokenizer_mode(RuntimeTokenizerMode::Vm);
+        let tokens = model
+            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "LDA #$42", 1)
+            .expect("vm mode should fall back to host path");
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "lda"
+        ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_mode_vm_executes_program_from_package() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.program = vec![
+            TokenizerVmOpcode::ReadChar as u8,
+            TokenizerVmOpcode::StartLexeme as u8,
+            TokenizerVmOpcode::PushChar as u8,
+            TokenizerVmOpcode::EmitToken as u8,
+            VM_TOKEN_KIND_IDENTIFIER,
+            TokenizerVmOpcode::End as u8,
+        ];
+        chunks.tokenizer_vm_programs.push(program);
+        let mut model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        model.set_tokenizer_mode(RuntimeTokenizerMode::Vm);
+
+        let tokens = model
+            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "A,B", 1)
+            .expect("vm mode should execute tokenizer VM program");
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "a"
         ));
     }
 
