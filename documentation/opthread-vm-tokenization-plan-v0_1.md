@@ -1,6 +1,6 @@
 # opThread VM Tokenization Plan v0.1
 
-Status: phase 6 complete
+Status: phase 7 complete
 Last updated: 2026-02-15
 Scope: full VM-based tokenization, family/cpu independent behavior
 
@@ -116,9 +116,18 @@ Phase 6 completion artifacts:
 
 ## Phase 7 - Rollout
 
-- [ ] Enable VM tokenizer by default for MOS6502 family after parity gates.
-- [ ] Keep non-certified families on staged verification mode.
-- [ ] Document authoritative vs staged tokenizer families.
+- [x] Enable VM tokenizer by default for MOS6502 family after parity gates.
+- [x] Keep non-certified families on staged verification mode.
+- [x] Document authoritative vs staged tokenizer families.
+
+Phase 7 completion artifacts:
+- `src/opthread/runtime.rs` adds `RuntimeTokenizerMode::Auto` and sets it as the default tokenizer mode for new `HierarchyExecutionModel` instances.
+- `src/opthread/runtime.rs` resolves `Auto` per active hierarchy in `effective_tokenizer_mode_for_resolved(..)`, routing MOS6502-family tokenization to VM mode and non-certified families to delegated-core staged mode.
+- `src/opthread/runtime.rs` documents and centralizes the authoritative-family decision in `tokenizer_vm_authoritative_for_family(..)`.
+- `src/opthread/runtime.rs` adds rollout tests:
+  - `execution_model_defaults_to_auto_tokenizer_rollout_mode`
+  - `execution_model_tokenizer_auto_mode_uses_vm_for_mos6502_family`
+  - `execution_model_tokenizer_auto_mode_keeps_non_certified_family_staged`
 
 ## Phase 8 - Finalization
 
