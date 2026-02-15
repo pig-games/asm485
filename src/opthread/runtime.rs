@@ -631,6 +631,15 @@ fn selector_to_candidate(
                 .ok_or_else(|| "missing force-l operand".to_string())?,
             ctx,
         )?],
+        "m65816_long_unstable_u24" => {
+            let expr0 = input
+                .expr0
+                .ok_or_else(|| "missing unresolved-long operand".to_string())?;
+            if !prefer_long_for_unstable_expr(expr0, upper_mnemonic, ctx) {
+                return Ok(None);
+            }
+            vec![encode_expr_force_u24(expr0, ctx)?]
+        }
         "rel8" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
@@ -841,6 +850,27 @@ fn encode_expr_force_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<
     ])
 }
 
+fn prefer_long_for_unstable_expr(
+    expr: &Expr,
+    upper_mnemonic: &str,
+    ctx: &dyn AssemblerContext,
+) -> bool {
+    if ctx.pass() != 1 || !expr_has_unstable_symbols(expr, ctx) {
+        return false;
+    }
+    let assumed_known = if matches!(upper_mnemonic, "JMP" | "JSR") {
+        state::program_bank_known(ctx)
+    } else {
+        state::data_bank_known(ctx)
+    };
+    let assumed_bank = if matches!(upper_mnemonic, "JMP" | "JSR") {
+        state::program_bank(ctx)
+    } else {
+        state::data_bank(ctx)
+    };
+    ctx.current_address() > 0xFFFF || !assumed_known || assumed_bank != 0
+}
+
 fn encode_expr_force_abs16(
     expr: &Expr,
     use_program_bank: bool,
@@ -1025,11 +1055,15 @@ mod tests {
                 Expr::Number(text, _) => text
                     .parse::<i64>()
                     .map_err(|_| format!("invalid test number '{}'", text)),
-                Expr::Identifier(name, _) | Expr::Register(name, _) => self
-                    .values
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| format!("Label not found: {}", name)),
+                Expr::Identifier(name, _) | Expr::Register(name, _) => {
+                    self.values.get(name).copied().map(Ok).unwrap_or_else(|| {
+                        if self.pass == 1 {
+                            Ok(0)
+                        } else {
+                            Err(format!("Label not found: {}", name))
+                        }
+                    })
+                }
                 Expr::Immediate(inner, _) => self.eval_expr(inner),
                 _ => Err("unsupported test expression".to_string()),
             }
@@ -1386,6 +1420,48 @@ mod tests {
         ];
         let mut ctx = TestAssemblerContext::new();
         ctx.pass = 1;
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xAF, 0x00, 0x00, 0x00]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_unresolved_symbol_as_absolute_when_bank_is_stable() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![Expr::Identifier("target".to_string(), span)];
+        let mut ctx = TestAssemblerContext::new();
+        ctx.pass = 1;
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xAD, 0x00, 0x00]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_unresolved_symbol_as_long_when_bank_unknown() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![Expr::Identifier("target".to_string(), span)];
+        let mut ctx = TestAssemblerContext::new();
+        ctx.pass = 1;
+        ctx.cpu_flags
+            .insert(crate::m65816::state::DATA_BANK_KNOWN_KEY.to_string(), 0);
         let bytes = model
             .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
             .expect("vm expr encode should succeed");

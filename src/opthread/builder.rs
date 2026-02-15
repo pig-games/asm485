@@ -232,6 +232,10 @@ pub fn build_hierarchy_chunks_from_registry(
                 selectors.push(selector);
             }
             selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
+            selectors.extend(compile_m65816_long_mode_selectors(
+                entry.mnemonic,
+                entry.mode,
+            ));
         }
     }
 
@@ -377,6 +381,35 @@ fn compile_m65816_force_selectors(
     }
 
     selectors
+}
+
+fn compile_m65816_long_mode_selectors(
+    mnemonic: &str,
+    mode: AddressMode,
+) -> Vec<ModeSelectorDescriptor> {
+    let (shape_key, base_mode) = match mode {
+        AddressMode::AbsoluteLong => ("direct", AddressMode::Absolute),
+        AddressMode::AbsoluteLongX => ("direct_x", AddressMode::AbsoluteX),
+        _ => return Vec::new(),
+    };
+    let has_short_alternative = FAMILY_INSTRUCTION_TABLE
+        .iter()
+        .any(|entry| entry.mode == base_mode && entry.mnemonic.eq_ignore_ascii_case(mnemonic));
+    let operand_plan = if has_short_alternative {
+        "m65816_long_unstable_u24"
+    } else {
+        "u24"
+    };
+    vec![ModeSelectorDescriptor {
+        owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+        mnemonic: mnemonic.to_string(),
+        shape_key: shape_key.to_string(),
+        mode_key: format!("{:?}", mode),
+        operand_plan: operand_plan.to_string(),
+        priority: selector_priority(mode),
+        unstable_widen: false,
+        width_rank: selector_width_rank(mode),
+    }]
 }
 
 fn selector_shape_key(mode: AddressMode) -> Option<&'static str> {
@@ -717,6 +750,20 @@ mod tests {
                 && entry.shape_key == "direct:force_k"
                 && entry.mode_key == "absolute"
                 && entry.operand_plan == "force_k_abs16_pbr"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "lda"
+                && entry.shape_key == "direct"
+                && entry.mode_key == "absolutelong"
+                && entry.operand_plan == "m65816_long_unstable_u24"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "jsl"
+                && entry.shape_key == "direct"
+                && entry.mode_key == "absolutelong"
+                && entry.operand_plan == "u24"
         }));
     }
 
