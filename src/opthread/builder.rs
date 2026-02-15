@@ -22,9 +22,10 @@ use crate::opthread::intel8080_vm::{
     compile_vm_program_for_instruction_entry, mode_key_for_instruction_entry,
 };
 use crate::opthread::package::{
-    canonicalize_hierarchy_metadata, default_runtime_diagnostic_catalog,
-    encode_hierarchy_chunks_from_chunks, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
-    VmProgramDescriptor,
+    canonicalize_hierarchy_metadata, canonicalize_token_policies,
+    default_runtime_diagnostic_catalog, encode_hierarchy_chunks_from_chunks,
+    token_identifier_class, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
+    TokenCaseRule, TokenPolicyDescriptor, VmProgramDescriptor,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
@@ -68,7 +69,7 @@ impl From<OpcpuCodecError> for HierarchyBuildError {
     }
 }
 
-/// Build `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`/`TABL` chunks from registry metadata.
+/// Build `TOKS`/`FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`/`TABL` chunks from registry metadata.
 pub fn build_hierarchy_chunks_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<HierarchyChunks, HierarchyBuildError> {
@@ -115,6 +116,10 @@ pub fn build_hierarchy_chunks_from_registry(
             });
         }
     }
+    let mut token_policies = family_ids
+        .iter()
+        .map(|family| default_family_token_policy(family.as_str()))
+        .collect();
 
     let mut registers = Vec::new();
     for family in &family_ids {
@@ -298,6 +303,7 @@ pub fn build_hierarchy_chunks_from_registry(
         &mut tables,
         &mut selectors,
     );
+    canonicalize_token_policies(&mut token_policies);
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
@@ -306,6 +312,7 @@ pub fn build_hierarchy_chunks_from_registry(
         metadata: crate::opthread::package::PackageMetaDescriptor::default(),
         strings: Vec::new(),
         diagnostics: default_runtime_diagnostic_catalog(),
+        token_policies,
         families,
         cpus,
         dialects,
@@ -314,6 +321,23 @@ pub fn build_hierarchy_chunks_from_registry(
         tables,
         selectors,
     })
+}
+
+fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
+    TokenPolicyDescriptor {
+        owner: ScopedOwner::Family(family_id.to_string()),
+        case_rule: TokenCaseRule::AsciiLower,
+        identifier_start_class: token_identifier_class::ASCII_ALPHA
+            | token_identifier_class::UNDERSCORE
+            | token_identifier_class::DOT,
+        identifier_continue_class: token_identifier_class::ASCII_ALPHA
+            | token_identifier_class::ASCII_DIGIT
+            | token_identifier_class::UNDERSCORE
+            | token_identifier_class::DOLLAR
+            | token_identifier_class::AT_SIGN
+            | token_identifier_class::DOT,
+        punctuation_chars: ",()[]{}+-*/#<>:=.&|^%!~;".to_string(),
+    }
 }
 
 fn compile_opcode_program(opcode: u8, operand_count: usize) -> Vec<u8> {
@@ -666,7 +690,9 @@ mod tests {
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
-    use crate::opthread::package::{load_hierarchy_package, DIAG_OPTHREAD_MISSING_VM_PROGRAM};
+    use crate::opthread::package::{
+        load_hierarchy_package, token_identifier_class, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+    };
     use crate::opthread::runtime::HierarchyExecutionModel;
     use crate::z80::extensions::lookup_extension as lookup_z80_extension;
     use crate::z80::module::Z80CpuModule;
@@ -696,6 +722,13 @@ mod tests {
             .diagnostics
             .iter()
             .any(|entry| entry.code == DIAG_OPTHREAD_MISSING_VM_PROGRAM));
+        assert!(!chunks.token_policies.is_empty());
+        assert!(chunks.token_policies.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
+                && entry.identifier_start_class
+                    & (token_identifier_class::ASCII_ALPHA | token_identifier_class::UNDERSCORE)
+                    != 0
+        }));
         assert!(!chunks.selectors.is_empty());
         assert!(chunks.registers.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")

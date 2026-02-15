@@ -10,6 +10,7 @@ use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
 use crate::core::parser::Expr;
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
+use crate::core::tokenizer::{Token, TokenKind, Tokenizer};
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::families::intel8080::table::{
     lookup_instruction, ArgType as IntelArgType, InstructionEntry as IntelInstructionEntry,
@@ -30,7 +31,7 @@ use crate::opthread::hierarchy::{
 use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
 use crate::opthread::package::{
     decode_hierarchy_chunks, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
-    DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502, DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02,
+    TokenCaseRule, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502, DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02,
     DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
 };
 use crate::opthread::vm::{execute_program, VmError};
@@ -142,6 +143,26 @@ pub struct RuntimeBudgetLimits {
 
 type VmProgramKey = (u8, u32, u32, u32);
 type ModeSelectorKey = (u8, u32, u32, u32);
+type TokenPolicyKey = (u8, u32);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeTokenPolicy {
+    pub case_rule: TokenCaseRule,
+    pub identifier_start_class: u32,
+    pub identifier_continue_class: u32,
+    pub punctuation_chars: String,
+}
+
+impl Default for RuntimeTokenPolicy {
+    fn default() -> Self {
+        Self {
+            case_rule: TokenCaseRule::Preserve,
+            identifier_start_class: 0,
+            identifier_continue_class: 0,
+            punctuation_chars: String::new(),
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 struct LowercaseIdInterner {
@@ -312,6 +333,53 @@ pub trait PortableInstructionAdapter: std::fmt::Debug {
     fn vm_encode_candidates(&self) -> &[VmEncodeCandidate];
 }
 
+/// Minimal host-to-runtime tokenization ABI for portable/native targets.
+///
+/// Host tokenizers can keep ownership of token production while accepting package-driven
+/// token policy hints selected by hierarchy ownership (dialect -> cpu -> family).
+pub trait PortableTokenizerAdapter: std::fmt::Debug {
+    fn tokenize_statement(
+        &self,
+        request: &PortableTokenizeRequest<'_>,
+    ) -> Result<Vec<Token>, RuntimeBridgeError>;
+}
+
+/// Portable tokenization request envelope for host adapter integration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableTokenizeRequest<'a> {
+    pub family_id: &'a str,
+    pub cpu_id: &'a str,
+    pub dialect_id: &'a str,
+    pub source_line: &'a str,
+    pub line_num: u32,
+    pub token_policy: RuntimeTokenPolicy,
+}
+
+/// Default tokenizer adapter that uses the core host tokenizer and applies
+/// package-driven case-folding hints to identifier/register tokens.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CoreTokenizerAdapter;
+
+impl PortableTokenizerAdapter for CoreTokenizerAdapter {
+    fn tokenize_statement(
+        &self,
+        request: &PortableTokenizeRequest<'_>,
+    ) -> Result<Vec<Token>, RuntimeBridgeError> {
+        let mut tokenizer = Tokenizer::new(request.source_line, request.line_num);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer
+                .next_token()
+                .map_err(|err| RuntimeBridgeError::Resolve(err.message))?;
+            if matches!(token.kind, TokenKind::End) {
+                break;
+            }
+            tokens.push(apply_token_policy_to_token(token, &request.token_policy));
+        }
+        Ok(tokens)
+    }
+}
+
 /// Default portable request container for host adapter integration.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PortableInstructionRequest {
@@ -374,6 +442,7 @@ pub struct HierarchyExecutionModel {
     dialect_forms: HashMap<String, HashSet<String>>,
     vm_programs: HashMap<VmProgramKey, Vec<u8>>,
     mode_selectors: HashMap<ModeSelectorKey, Vec<ModeSelectorDescriptor>>,
+    token_policies: HashMap<TokenPolicyKey, RuntimeTokenPolicy>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
@@ -397,6 +466,7 @@ impl HierarchyExecutionModel {
             metadata: _,
             strings: _,
             diagnostics,
+            token_policies,
             families,
             cpus,
             dialects,
@@ -429,6 +499,20 @@ impl HierarchyExecutionModel {
         }
         for entries in mode_selectors.values_mut() {
             entries.sort_by_key(|entry| (entry.priority, entry.width_rank, entry.mode_key.clone()));
+        }
+        let mut scoped_token_policies: HashMap<TokenPolicyKey, RuntimeTokenPolicy> = HashMap::new();
+        for entry in token_policies {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            scoped_token_policies.insert(
+                (owner_tag, owner_id),
+                RuntimeTokenPolicy {
+                    case_rule: entry.case_rule,
+                    identifier_start_class: entry.identifier_start_class,
+                    identifier_continue_class: entry.identifier_continue_class,
+                    punctuation_chars: entry.punctuation_chars,
+                },
+            );
         }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -485,6 +569,7 @@ impl HierarchyExecutionModel {
             dialect_forms,
             vm_programs,
             mode_selectors,
+            token_policies: scoped_token_policies,
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
@@ -543,6 +628,35 @@ impl HierarchyExecutionModel {
             &resolved.family_id,
             &needle,
         ))
+    }
+
+    pub fn resolve_token_policy(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<RuntimeTokenPolicy, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self.token_policy_for_resolved(&resolved))
+    }
+
+    pub fn tokenize_portable_statement(
+        &self,
+        adapter: &dyn PortableTokenizerAdapter,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        source_line: &str,
+        line_num: u32,
+    ) -> Result<Vec<Token>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        let request = PortableTokenizeRequest {
+            family_id: resolved.family_id.as_str(),
+            cpu_id: resolved.cpu_id.as_str(),
+            dialect_id: resolved.dialect_id.as_str(),
+            source_line,
+            line_num,
+            token_policy: self.token_policy_for_resolved(&resolved),
+        };
+        adapter.tokenize_statement(&request)
     }
 
     pub fn encode_instruction(
@@ -688,6 +802,26 @@ impl HierarchyExecutionModel {
             return fallback.to_string();
         };
         render_diag_template(template, args)
+    }
+
+    fn token_policy_for_resolved(&self, resolved: &ResolvedHierarchy) -> RuntimeTokenPolicy {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, self.interned_id(dialect_id.as_str())),
+            (1u8, self.interned_id(cpu_id.as_str())),
+            (0u8, self.interned_id(family_id.as_str())),
+        ];
+        for (owner_tag, owner_id) in owner_order {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(policy) = self.token_policies.get(&(owner_tag, owner_id)) {
+                return policy.clone();
+            }
+        }
+        RuntimeTokenPolicy::default()
     }
 
     fn interned_id(&self, value_lower: &str) -> Option<u32> {
@@ -1193,6 +1327,30 @@ fn force_suffix(force: OperandForce) -> &'static str {
         OperandForce::DataBank => "b",
         OperandForce::ProgramBank => "k",
         OperandForce::Long => "l",
+    }
+}
+
+fn apply_token_policy_to_token(token: Token, policy: &RuntimeTokenPolicy) -> Token {
+    let kind = match token.kind {
+        TokenKind::Identifier(name) => {
+            TokenKind::Identifier(apply_identifier_case_rule(name, policy.case_rule))
+        }
+        TokenKind::Register(name) => {
+            TokenKind::Register(apply_identifier_case_rule(name, policy.case_rule))
+        }
+        other => other,
+    };
+    Token {
+        kind,
+        span: token.span,
+    }
+}
+
+fn apply_identifier_case_rule(name: String, rule: TokenCaseRule) -> String {
+    match rule {
+        TokenCaseRule::Preserve => name,
+        TokenCaseRule::AsciiLower => name.to_ascii_lowercase(),
+        TokenCaseRule::AsciiUpper => name.to_ascii_uppercase(),
     }
 }
 
@@ -1796,7 +1954,7 @@ mod tests {
     use crate::core::family::AssemblerContext;
     use crate::core::parser::Expr;
     use crate::core::registry::{ModuleRegistry, VmEncodeCandidate};
-    use crate::core::tokenizer::Span;
+    use crate::core::tokenizer::{Span, Token, TokenKind, Tokenizer};
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
     use crate::families::mos6502::Operand;
     use crate::m65816::module::M65816CpuModule;
@@ -1808,11 +1966,24 @@ mod tests {
         CpuDescriptor, DialectDescriptor, FamilyDescriptor, ResolvedHierarchy, ScopedOwner,
     };
     use crate::opthread::package::{
-        DiagnosticDescriptor, HierarchyChunks, VmProgramDescriptor,
-        DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        token_identifier_class, DiagnosticDescriptor, HierarchyChunks, TokenCaseRule,
+        TokenPolicyDescriptor, VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use std::collections::HashMap;
+
+    fn tokenize_host_line(line: &str, line_num: u32) -> Vec<Token> {
+        let mut tokenizer = Tokenizer::new(line, line_num);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().expect("tokenize line");
+            if matches!(token.kind, TokenKind::End) {
+                break;
+            }
+            tokens.push(token);
+        }
+        tokens
+    }
 
     struct TestAssemblerContext {
         values: HashMap<String, i64>,
@@ -1934,6 +2105,7 @@ mod tests {
             metadata: crate::opthread::package::PackageMetaDescriptor::default(),
             strings: Vec::new(),
             diagnostics: Vec::new(),
+            token_policies: Vec::new(),
             families: vec![FamilyDescriptor {
                 id: "intel8080".to_string(),
                 canonical_dialect: "intel".to_string(),
@@ -2287,6 +2459,75 @@ mod tests {
             .encode_portable_instruction(&request)
             .expect_err("portable request should respect candidate budget");
         assert!(err.to_string().contains("candidate_count"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_policy_parity_matches_host_tokens_mos6502() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let line = "lda #$42";
+        let host_tokens = tokenize_host_line(line, 12);
+        let vm_tokens = model
+            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, line, 12)
+            .expect("portable tokenization should succeed");
+        assert_eq!(vm_tokens, host_tokens);
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_policy_parity_matches_host_tokens_with_cpu_override() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.token_policies.push(TokenPolicyDescriptor {
+            owner: ScopedOwner::Cpu("m6502".to_string()),
+            case_rule: TokenCaseRule::Preserve,
+            identifier_start_class: token_identifier_class::ASCII_ALPHA
+                | token_identifier_class::UNDERSCORE,
+            identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                | token_identifier_class::ASCII_DIGIT
+                | token_identifier_class::UNDERSCORE,
+            punctuation_chars: ",()[]{}+-*/#<>:=.&|^%!~;".to_string(),
+        });
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let policy = model
+            .resolve_token_policy("m6502", None)
+            .expect("token policy resolution");
+        assert_eq!(policy.case_rule, TokenCaseRule::Preserve);
+
+        let line = "LDA #$42";
+        let host_tokens = tokenize_host_line(line, 14);
+        let vm_tokens = model
+            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, line, 14)
+            .expect("portable tokenization should succeed");
+        assert_eq!(vm_tokens, host_tokens);
+    }
+
+    #[test]
+    fn execution_model_tokenizer_applies_package_case_policy_hints() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let tokens = model
+            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, "LDA #$42", 1)
+            .expect("portable tokenization should succeed");
+        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(name) if name == "lda"));
     }
 
     #[test]

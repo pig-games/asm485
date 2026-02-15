@@ -339,6 +339,32 @@ Bytecode encoding:
 - RHS: token expansion (sequence) including optional `VIRT_OP <id>` tokens
 - Matching is deterministic and must be bounded.
 
+### 6.12 Token policy hints (`TOKS`, optional)
+`TOKS` entries are scoped by owner (`family`, `cpu`, or `dialect`) and provide
+portable tokenization hints for future VM/portable-host tokenizer paths.
+
+Each entry defines:
+- owner scope tag + owner id
+- `case_rule`:
+  - `0`: preserve
+  - `1`: ASCII lowercase fold
+  - `2`: ASCII uppercase fold
+- `identifier_start_class` bitmask
+- `identifier_continue_class` bitmask
+- `punctuation_chars` (deduplicated ordered character set)
+
+Identifier class bitmask assignments:
+- `1<<0`: ASCII alpha (`A-Z`, `a-z`)
+- `1<<1`: ASCII digit (`0-9`)
+- `1<<2`: underscore (`_`)
+- `1<<3`: dollar (`$`)
+- `1<<4`: at-sign (`@`)
+- `1<<5`: dot (`.`)
+
+Compatibility:
+- `TOKS` is optional in v0.1 and MUST default to empty policy when absent.
+- Unknown owner ids in `TOKS` are allowed (forward compatibility) but SHOULD be ignored by hosts that cannot resolve that scope.
+
 ## 7. Host Adapter Interface (normative)
 
 A runtime host MUST provide:
@@ -356,6 +382,9 @@ A runtime host MUST provide:
   - `len`
   - `get(i) -> Tok`
   - cursor movement
+- Optional delegated mode for portability track:
+  - `tokenize_statement_with_policy(source, line, resolvedPipeline, tokenPolicy) -> TokenBuffer`
+  - `tokenPolicy` is selected from `TOKS` by owner precedence `dialect -> cpu -> family`.
 
 ### 7.2 Symbol interning + resolution
 - `intern_ident(bytes) -> SymId`

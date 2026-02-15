@@ -7,6 +7,7 @@
 //! - `META` (package metadata)
 //! - `STRS` (string pool)
 //! - `DIAG` (diagnostic catalog)
+//! - `TOKS` (token policy hints)
 //! - `FAMS` (family descriptors)
 //! - `CPUS` (cpu descriptors)
 //! - `DIAL` (dialect descriptors)
@@ -31,6 +32,7 @@ const TOC_ENTRY_SIZE: usize = 12;
 const CHUNK_META: [u8; 4] = *b"META";
 const CHUNK_STRS: [u8; 4] = *b"STRS";
 const CHUNK_DIAG: [u8; 4] = *b"DIAG";
+const CHUNK_TOKS: [u8; 4] = *b"TOKS";
 const CHUNK_FAMS: [u8; 4] = *b"FAMS";
 const CHUNK_CPUS: [u8; 4] = *b"CPUS";
 const CHUNK_DIAL: [u8; 4] = *b"DIAL";
@@ -91,12 +93,55 @@ pub struct ModeSelectorDescriptor {
     pub width_rank: u8,
 }
 
+/// Case-folding behavior for tokenizer/literal matching policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenCaseRule {
+    Preserve = 0,
+    AsciiLower = 1,
+    AsciiUpper = 2,
+}
+
+impl TokenCaseRule {
+    fn from_u8(value: u8, chunk: &str) -> Result<Self, OpcpuCodecError> {
+        match value {
+            0 => Ok(Self::Preserve),
+            1 => Ok(Self::AsciiLower),
+            2 => Ok(Self::AsciiUpper),
+            other => Err(OpcpuCodecError::InvalidChunkFormat {
+                chunk: chunk.to_string(),
+                detail: format!("invalid token case rule: {}", other),
+            }),
+        }
+    }
+}
+
+/// Bit flags describing allowed identifier characters for tokenizer policy hints.
+pub mod token_identifier_class {
+    pub const ASCII_ALPHA: u32 = 1 << 0;
+    pub const ASCII_DIGIT: u32 = 1 << 1;
+    pub const UNDERSCORE: u32 = 1 << 2;
+    pub const DOLLAR: u32 = 1 << 3;
+    pub const AT_SIGN: u32 = 1 << 4;
+    pub const DOT: u32 = 1 << 5;
+}
+
+/// Token policy descriptor (`TOKS` chunk), scoped by family/cpu/dialect owner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenPolicyDescriptor {
+    pub owner: ScopedOwner,
+    pub case_rule: TokenCaseRule,
+    pub identifier_start_class: u32,
+    pub identifier_continue_class: u32,
+    pub punctuation_chars: String,
+}
+
 /// Decoded hierarchy-chunk payload set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HierarchyChunks {
     pub metadata: PackageMetaDescriptor,
     pub strings: Vec<String>,
     pub diagnostics: Vec<DiagnosticDescriptor>,
+    pub token_policies: Vec<TokenPolicyDescriptor>,
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
@@ -266,6 +311,7 @@ pub fn encode_hierarchy_chunks_full(
         metadata: PackageMetaDescriptor::default(),
         strings: Vec::new(),
         diagnostics: Vec::new(),
+        token_policies: Vec::new(),
         families: families.to_vec(),
         cpus: cpus.to_vec(),
         dialects: dialects.to_vec(),
@@ -290,6 +336,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     let metadata = chunks.metadata.clone();
     let mut strings = chunks.strings.to_vec();
     let mut diagnostics = chunks.diagnostics.to_vec();
+    let mut token_policies = chunks.token_policies.to_vec();
     let mut fams = chunks.families.to_vec();
     let mut cpus = chunks.cpus.to_vec();
     let mut dials = chunks.dialects.to_vec();
@@ -306,9 +353,10 @@ pub fn encode_hierarchy_chunks_from_chunks(
         &mut tables,
         &mut selectors,
     );
+    canonicalize_token_policies(&mut token_policies);
     canonicalize_package_support_chunks(&mut strings, &mut diagnostics);
 
-    let chunks = vec![
+    let mut chunks = vec![
         (CHUNK_META, encode_meta_chunk(&metadata)?),
         (CHUNK_STRS, encode_strs_chunk(&strings)?),
         (CHUNK_DIAG, encode_diag_chunk(&diagnostics)?),
@@ -320,6 +368,9 @@ pub fn encode_hierarchy_chunks_from_chunks(
         (CHUNK_TABL, encode_tabl_chunk(&tables)?),
         (CHUNK_MSEL, encode_msel_chunk(&selectors)?),
     ];
+    if !token_policies.is_empty() {
+        chunks.insert(3, (CHUNK_TOKS, encode_toks_chunk(&token_policies)?));
+    }
 
     encode_container(&chunks)
 }
@@ -540,11 +591,55 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 }
 
+pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDescriptor>) {
+    for entry in token_policies.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+        entry.punctuation_chars = canonicalize_ascii_char_set(&entry.punctuation_chars);
+    }
+    token_policies.sort_by_key(|entry| {
+        let owner_kind = match entry.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let owner_id = match &entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        (
+            owner_kind,
+            owner_id,
+            entry.case_rule as u8,
+            entry.identifier_start_class,
+            entry.identifier_continue_class,
+            entry.punctuation_chars.clone(),
+        )
+    });
+    token_policies.dedup_by(|left, right| {
+        left.case_rule == right.case_rule
+            && left.identifier_start_class == right.identifier_start_class
+            && left.identifier_continue_class == right.identifier_continue_class
+            && left.punctuation_chars == right.punctuation_chars
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+}
+
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
     let toc = parse_toc(bytes)?;
     let meta_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_META)?;
     let strs_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_STRS)?;
     let diag_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_DIAG)?;
+    let toks_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TOKS)?;
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
@@ -564,6 +659,10 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         },
         diagnostics: match diag_bytes {
             Some(payload) => decode_diag_chunk(payload)?,
+            None => Vec::new(),
+        },
+        token_policies: match toks_bytes {
+            Some(payload) => decode_toks_chunk(payload)?,
             None => Vec::new(),
         },
         families: decode_fams_chunk(fams_bytes)?,
@@ -911,6 +1010,59 @@ fn decode_diag_chunk(bytes: &[u8]) -> Result<Vec<DiagnosticDescriptor>, OpcpuCod
     Ok(entries)
 }
 
+fn encode_toks_chunk(policies: &[TokenPolicyDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(policies.len(), "TOKS count")?);
+    for entry in policies {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "TOKS", owner_id)?;
+        out.push(entry.case_rule as u8);
+        write_u32(&mut out, entry.identifier_start_class);
+        write_u32(&mut out, entry.identifier_continue_class);
+        write_string(&mut out, "TOKS", &entry.punctuation_chars)?;
+    }
+    Ok(out)
+}
+
+fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "TOKS");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let case_rule = TokenCaseRule::from_u8(cur.read_u8()?, "TOKS")?;
+        let identifier_start_class = cur.read_u32()?;
+        let identifier_continue_class = cur.read_u32()?;
+        let punctuation_chars = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "TOKS".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        entries.push(TokenPolicyDescriptor {
+            owner,
+            case_rule,
+            identifier_start_class,
+            identifier_continue_class,
+            punctuation_chars,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn encode_cpus_chunk(cpus: &[CpuDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(cpus.len(), "CPUS count")?);
@@ -1242,6 +1394,13 @@ fn u32_count(count: usize, context: &str) -> Result<u32, OpcpuCodecError> {
     })
 }
 
+fn canonicalize_ascii_char_set(value: &str) -> String {
+    let mut chars: Vec<char> = value.chars().collect();
+    chars.sort_unstable();
+    chars.dedup();
+    chars.into_iter().collect()
+}
+
 fn chunk_name(tag: &[u8; 4]) -> String {
     std::str::from_utf8(tag)
         .map(|value| value.to_string())
@@ -1426,6 +1585,39 @@ mod tests {
         ]
     }
 
+    fn sample_token_policies() -> Vec<TokenPolicyDescriptor> {
+        vec![
+            TokenPolicyDescriptor {
+                owner: ScopedOwner::Family("MOS6502".to_string()),
+                case_rule: TokenCaseRule::AsciiLower,
+                identifier_start_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::UNDERSCORE,
+                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::ASCII_DIGIT
+                    | token_identifier_class::UNDERSCORE,
+                punctuation_chars: ")(,+-".to_string(),
+            },
+            TokenPolicyDescriptor {
+                owner: ScopedOwner::Family("mos6502".to_string()),
+                case_rule: TokenCaseRule::AsciiLower,
+                identifier_start_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::UNDERSCORE,
+                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::ASCII_DIGIT
+                    | token_identifier_class::UNDERSCORE,
+                punctuation_chars: "-+(),".to_string(),
+            },
+            TokenPolicyDescriptor {
+                owner: ScopedOwner::Cpu("z80".to_string()),
+                case_rule: TokenCaseRule::Preserve,
+                identifier_start_class: token_identifier_class::ASCII_ALPHA,
+                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::ASCII_DIGIT,
+                punctuation_chars: "[]()".to_string(),
+            },
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
         let bytes = encode_hierarchy_chunks(
@@ -1520,6 +1712,7 @@ mod tests {
         assert_eq!(decoded.metadata.capability_flags, 0);
         assert!(decoded.strings.is_empty());
         assert!(decoded.diagnostics.is_empty());
+        assert!(decoded.token_policies.is_empty());
 
         let family_snapshot: Vec<String> = decoded
             .families
@@ -1706,5 +1899,87 @@ mod tests {
         assert_eq!(decoded.metadata, PackageMetaDescriptor::default());
         assert!(decoded.strings.is_empty());
         assert!(decoded.diagnostics.is_empty());
+        assert!(decoded.token_policies.is_empty());
+    }
+
+    #[test]
+    fn encode_decode_round_trip_preserves_toks_policy() {
+        let chunks = HierarchyChunks {
+            metadata: PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: Vec::new(),
+            token_policies: sample_token_policies(),
+            families: sample_families(),
+            cpus: sample_cpus(),
+            dialects: sample_dialects(),
+            registers: sample_registers(),
+            forms: sample_forms(),
+            tables: sample_tables(),
+            selectors: Vec::new(),
+        };
+        let bytes = encode_hierarchy_chunks_from_chunks(&chunks).expect("encode should succeed");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+
+        assert_eq!(decoded.token_policies.len(), 2);
+        assert_eq!(
+            decoded.token_policies[0],
+            TokenPolicyDescriptor {
+                owner: ScopedOwner::Family("mos6502".to_string()),
+                case_rule: TokenCaseRule::AsciiLower,
+                identifier_start_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::UNDERSCORE,
+                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::ASCII_DIGIT
+                    | token_identifier_class::UNDERSCORE,
+                punctuation_chars: "()+,-".to_string(),
+            }
+        );
+        assert_eq!(
+            decoded.token_policies[1],
+            TokenPolicyDescriptor {
+                owner: ScopedOwner::Cpu("z80".to_string()),
+                case_rule: TokenCaseRule::Preserve,
+                identifier_start_class: token_identifier_class::ASCII_ALPHA,
+                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                    | token_identifier_class::ASCII_DIGIT,
+                punctuation_chars: "()[]".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn decode_rejects_invalid_toks_case_rule() {
+        let families = sample_families();
+        let cpus = sample_cpus();
+        let dials = sample_dialects();
+        let mut toks = Vec::new();
+        write_u32(&mut toks, 1);
+        toks.push(0);
+        write_string(&mut toks, "TOKS", "mos6502").expect("owner");
+        toks.push(9);
+        write_u32(
+            &mut toks,
+            token_identifier_class::ASCII_ALPHA | token_identifier_class::UNDERSCORE,
+        );
+        write_u32(
+            &mut toks,
+            token_identifier_class::ASCII_ALPHA
+                | token_identifier_class::ASCII_DIGIT
+                | token_identifier_class::UNDERSCORE,
+        );
+        write_string(&mut toks, "TOKS", ",").expect("punctuation");
+        let chunks = vec![
+            (CHUNK_TOKS, toks),
+            (CHUNK_FAMS, encode_fams_chunk(&families).expect("fams")),
+            (CHUNK_CPUS, encode_cpus_chunk(&cpus).expect("cpus")),
+            (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+        let err = decode_hierarchy_chunks(&bytes).expect_err("invalid case rule should fail");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert_eq!(err.code(), "OPC009");
     }
 }
