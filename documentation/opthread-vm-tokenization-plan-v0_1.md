@@ -1,6 +1,6 @@
 # opThread VM Tokenization Plan v0.1
 
-Status: phase 1 complete
+Status: phase 4 complete
 Last updated: 2026-02-15
 Scope: full VM-based tokenization, family/cpu independent behavior
 
@@ -53,21 +53,40 @@ Phase 1 completion artifacts:
 
 ## Phase 2 - Tokenizer VM ISA
 
-- [ ] Define compact lexical VM instruction set and state-machine model.
-- [ ] Define hard limits (steps, tokens/line, lexeme length, error count).
-- [ ] Map tokenizer diagnostics to package-driven catalog.
+- [x] Define compact lexical VM instruction set and state-machine model.
+- [x] Define hard limits (steps, tokens/line, lexeme length, error count).
+- [x] Map tokenizer diagnostics to package-driven catalog.
+
+Phase 2 completion artifacts:
+- `src/opthread/package.rs` adds optional `TKVM` chunk support with owner-scoped tokenizer VM descriptors (`TokenizerVmProgramDescriptor`) including opcode version, state entry table, limits, and diagnostics map.
+- `src/opthread/package.rs` freezes the lexical opcode contract via `TokenizerVmOpcode` and `TOKENIZER_VM_OPCODE_VERSION_V1`.
+- `src/opthread/package.rs` adds deterministic tokenizer limits (`TokenizerVmLimits`) and package diagnostic-code mapping (`TokenizerVmDiagnosticMap`) with runtime catalog defaults.
+- `src/opthread/runtime.rs` loads `TKVM` descriptors into runtime-owned maps and resolves them with owner precedence (`dialect -> cpu -> family`) via `resolve_tokenizer_vm_program(..)` / `resolve_tokenizer_vm_limits(..)`.
+- `src/opthread/builder.rs` emits minimal family-scoped `TKVM` descriptors so generated `.opcpu` artifacts carry phase-2 tokenizer VM contracts.
+- Tests cover `TKVM` canonicalization/round-trip and invalid-shape rejection in `src/opthread/package.rs`, plus runtime owner-precedence resolution in `src/opthread/runtime.rs`.
 
 ## Phase 3 - Builder compiler path
 
-- [ ] Compile tokenizer VM programs/tables from Rust-authored lexical specs.
-- [ ] Keep Rust table/spec authoring path for onboarding new families/cpus.
-- [ ] Emit deterministic package bytes from identical inputs.
+- [x] Compile tokenizer VM programs/tables from Rust-authored lexical specs.
+- [x] Keep Rust table/spec authoring path for onboarding new families/cpus.
+- [x] Emit deterministic package bytes from identical inputs.
+
+Phase 3 completion artifacts:
+- `src/opthread/builder.rs` adds Rust-authored lexical spec structures (`TokenizerVmProgramSpec`, `TokenizerVmStateSpec`, `TokenizerVmInstructionSpec`) plus compiler path (`compile_tokenizer_vm_program_spec(..)`) that lowers specs into `TKVM` bytecode and state tables.
+- `src/opthread/builder.rs` routes default family `TKVM` emission through the new spec compiler (`default_family_tokenizer_vm_spec(..)` -> `compile_tokenizer_vm_program_spec(..)`), preserving package-driven builder ownership semantics.
+- `src/opthread/builder.rs` tests lock the authoring path and determinism (`builder_compiles_tokenizer_vm_program_from_rust_authored_spec` and `builder_encoding_is_deterministic`).
 
 ## Phase 4 - Runtime VM tokenizer engine
 
-- [ ] Add VM tokenizer executor in runtime.
-- [ ] Add runtime modes: host, delegated-core, vm.
-- [ ] Keep host tokenizer fallback for staged rollout.
+- [x] Add VM tokenizer executor in runtime.
+- [x] Add runtime modes: host, delegated-core, vm.
+- [x] Keep host tokenizer fallback for staged rollout.
+
+Phase 4 completion artifacts:
+- `src/opthread/runtime.rs` adds tokenizer runtime mode controls (`RuntimeTokenizerMode`, `tokenizer_mode()`, `set_tokenizer_mode(..)`) and mode-aware dispatch in `tokenize_portable_statement(..)`.
+- `src/opthread/runtime.rs` adds bounded `TKVM` opcode execution for tokenization (`tokenize_with_vm_core(..)`) with deterministic limit enforcement and opcode decoding helpers.
+- `src/opthread/runtime.rs` keeps staged rollout safety by preserving host tokenizer fallback when VM programs are missing, emit no tokens, or fail.
+- `src/opthread/runtime.rs` adds tests for host/delegated-core/vm dispatch and VM execution/fallback behavior.
 
 ## Phase 5 - Parity gates
 
