@@ -22,16 +22,16 @@ use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::i8085::handler::I8085CpuHandler;
 use crate::m65816::state;
-use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBuildError};
+use crate::opthread::builder::{build_hierarchy_package_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
 use crate::opthread::package::{
-    HierarchyChunks, ModeSelectorDescriptor, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
-    DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
-    DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+    decode_hierarchy_chunks, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
+    DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502, DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02,
+    DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
 };
 use crate::opthread::vm::{execute_program, VmError};
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
@@ -119,6 +119,7 @@ fn register_fn_resolver(
 pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
     Build(HierarchyBuildError),
+    Package(OpcpuCodecError),
     Hierarchy(HierarchyError),
     Resolve(String),
     Vm(VmError),
@@ -190,6 +191,7 @@ impl std::fmt::Display for RuntimeBridgeError {
         match self {
             Self::ActiveCpuNotSet => write!(f, "active cpu is not set"),
             Self::Build(err) => write!(f, "runtime model build error: {}", err),
+            Self::Package(err) => write!(f, "runtime package error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
             Self::Resolve(err) => write!(f, "{}", err),
             Self::Vm(err) => write!(f, "VM encode error: {}", err),
@@ -208,6 +210,12 @@ impl From<HierarchyError> for RuntimeBridgeError {
 impl From<HierarchyBuildError> for RuntimeBridgeError {
     fn from(value: HierarchyBuildError) -> Self {
         Self::Build(value)
+    }
+}
+
+impl From<OpcpuCodecError> for RuntimeBridgeError {
+    fn from(value: OpcpuCodecError) -> Self {
+        Self::Package(value)
     }
 }
 
@@ -375,7 +383,12 @@ pub struct HierarchyExecutionModel {
 
 impl HierarchyExecutionModel {
     pub fn from_registry(registry: &ModuleRegistry) -> Result<Self, RuntimeBridgeError> {
-        let chunks = build_hierarchy_chunks_from_registry(registry)?;
+        let package_bytes = build_hierarchy_package_from_registry(registry)?;
+        Self::from_package_bytes(package_bytes.as_slice())
+    }
+
+    pub fn from_package_bytes(bytes: &[u8]) -> Result<Self, RuntimeBridgeError> {
+        let chunks = decode_hierarchy_chunks(bytes)?;
         Self::from_chunks(chunks)
     }
 
@@ -1788,7 +1801,9 @@ mod tests {
     use crate::families::mos6502::Operand;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
-    use crate::opthread::builder::build_hierarchy_chunks_from_registry;
+    use crate::opthread::builder::{
+        build_hierarchy_chunks_from_registry, build_hierarchy_package_from_registry,
+    };
     use crate::opthread::hierarchy::{
         CpuDescriptor, DialectDescriptor, FamilyDescriptor, ResolvedHierarchy, ScopedOwner,
     };
@@ -2795,6 +2810,33 @@ mod tests {
             .expect("vm encode should succeed")
             .expect("m6502 vm program should be available");
         assert_eq!(bytes, vec![0xEA, 0x42]);
+    }
+
+    #[test]
+    fn execution_model_loads_from_encoded_package_bytes() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let package_bytes =
+            build_hierarchy_package_from_registry(&registry).expect("package bytes build");
+        let model = HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+            .expect("execution model build from package bytes");
+        let operands = MOS6502Operands(vec![Operand::Immediate(0x42, Span::default())]);
+        let bytes = model
+            .encode_instruction("m6502", None, "LDA", &operands)
+            .expect("vm encode should succeed")
+            .expect("m6502 vm program should be available");
+        assert_eq!(bytes, vec![0xA9, 0x42]);
+    }
+
+    #[test]
+    fn execution_model_rejects_invalid_package_bytes() {
+        let err = HierarchyExecutionModel::from_package_bytes(b"not-an-opcpu")
+            .expect_err("invalid package bytes should be rejected");
+        assert!(matches!(err, RuntimeBridgeError::Package(_)));
     }
 
     #[test]
