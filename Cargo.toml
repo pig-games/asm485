@@ -12,6 +12,7 @@ clap = { version = "4", features = ["derive"] }
 [features]
 default = []
 opthread-runtime = []
+opthread-runtime-intel8080-scaffold = []
 opthread-parity = []
 
 [profile.release]

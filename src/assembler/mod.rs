@@ -3288,7 +3288,7 @@ impl<'a> AsmLine<'a> {
             if self.opthread_runtime_enabled {
                 if let Some(model) = self.opthread_execution_model.as_ref() {
                     let strict_runtime_parse_resolve =
-                        model.supports_expr_resolution_for_family(pipeline.family_id.as_str());
+                        model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
                     match model.encode_instruction_from_exprs(
                         self.cpu.as_str(),
                         None,
@@ -3409,7 +3409,7 @@ impl<'a> AsmLine<'a> {
         if self.opthread_runtime_enabled {
             if let Some(model) = self.opthread_execution_model.as_ref() {
                 let strict_runtime_vm_programs =
-                    model.supports_expr_resolution_for_family(pipeline.family_id.as_str());
+                    model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
                 match model.encode_instruction(
                     self.cpu.as_str(),
                     None,

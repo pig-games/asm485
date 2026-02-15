@@ -58,6 +58,9 @@ fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineS
 fn assemble_bytes(cpu: crate::core::cpu::CpuType, line: &str) -> Vec<u8> {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
+    #[cfg(feature = "opthread-runtime")]
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, false);
+    #[cfg(not(feature = "opthread-runtime"))]
     let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
     asm.clear_conditionals();
     asm.clear_scopes();
@@ -77,6 +80,9 @@ fn assemble_line_status(
 ) -> (LineStatus, Option<String>) {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
+    #[cfg(feature = "opthread-runtime")]
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, false);
+    #[cfg(not(feature = "opthread-runtime"))]
     let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
     asm.clear_conditionals();
     asm.clear_scopes();

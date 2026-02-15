@@ -35,6 +35,67 @@ pub type ExprResolverFn = fn(
     &dyn AssemblerContext,
 ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError>;
 
+/// Generic family adapter contract for expr-based parse/resolve candidate generation.
+pub trait FamilyExprResolver: std::fmt::Debug + Send + Sync {
+    fn family_id(&self) -> &str;
+    fn resolve_candidates(
+        &self,
+        model: &HierarchyExecutionModel,
+        resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError>;
+}
+
+#[derive(Debug)]
+struct FnFamilyExprResolver {
+    family_id: String,
+    resolver: ExprResolverFn,
+}
+
+impl FamilyExprResolver for FnFamilyExprResolver {
+    fn family_id(&self) -> &str {
+        self.family_id.as_str()
+    }
+
+    fn resolve_candidates(
+        &self,
+        model: &HierarchyExecutionModel,
+        resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
+        (self.resolver)(model, resolved, mnemonic, operands, ctx)
+    }
+}
+
+#[derive(Debug)]
+struct ExprResolverEntry {
+    resolver: Box<dyn FamilyExprResolver>,
+    strict: bool,
+}
+
+fn register_fn_resolver(
+    map: &mut HashMap<String, ExprResolverEntry>,
+    family_id: &str,
+    resolver: ExprResolverFn,
+    strict: bool,
+) {
+    let key = family_id.to_ascii_lowercase();
+    map.insert(
+        key.clone(),
+        ExprResolverEntry {
+            resolver: Box::new(FnFamilyExprResolver {
+                family_id: key,
+                resolver,
+            }),
+            strict,
+        },
+    );
+}
+
 /// Errors emitted by the opThread host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeBridgeError {
@@ -160,7 +221,7 @@ pub struct HierarchyExecutionModel {
     dialect_forms: HashMap<String, HashSet<String>>,
     vm_programs: HashMap<(u8, String, String, String), Vec<u8>>,
     mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>>,
-    expr_resolvers: HashMap<String, ExprResolverFn>,
+    expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
 }
 
@@ -240,10 +301,19 @@ impl HierarchyExecutionModel {
                 }
             }
         }
-        let mut expr_resolvers: HashMap<String, ExprResolverFn> = HashMap::new();
-        expr_resolvers.insert(
-            "mos6502".to_string(),
+        let mut expr_resolvers: HashMap<String, ExprResolverEntry> = HashMap::new();
+        register_fn_resolver(
+            &mut expr_resolvers,
+            "mos6502",
             HierarchyExecutionModel::select_candidates_from_exprs_mos6502,
+            true,
+        );
+        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+        register_fn_resolver(
+            &mut expr_resolvers,
+            "intel8080",
+            HierarchyExecutionModel::select_candidates_from_exprs_intel8080_scaffold,
+            false,
         );
         let mut diag_templates = HashMap::new();
         for entry in diagnostics {
@@ -329,7 +399,10 @@ impl HierarchyExecutionModel {
         else {
             return Ok(None);
         };
-        let Some(candidates) = resolver(self, &resolved, mnemonic, operands, ctx)? else {
+        let Some(candidates) = resolver
+            .resolver
+            .resolve_candidates(self, &resolved, mnemonic, operands, ctx)?
+        else {
             return Ok(None);
         };
         match self.encode_candidates(&resolved, mnemonic, &candidates)? {
@@ -353,6 +426,17 @@ impl HierarchyExecutionModel {
             .contains_key(&family_id.to_ascii_lowercase())
     }
 
+    /// Returns `true` when expr parse/resolve is strict for this family.
+    ///
+    /// Strict means `encode_instruction_from_exprs(..)` returning `Ok(None)` should
+    /// be treated by callers as a hard runtime parse/resolve failure, not a fallback signal.
+    pub fn expr_resolution_is_strict_for_family(&self, family_id: &str) -> bool {
+        self.expr_resolvers
+            .get(&family_id.to_ascii_lowercase())
+            .map(|entry| entry.strict)
+            .unwrap_or(false)
+    }
+
     /// Registers or replaces an expr parse/resolve adapter for a family id.
     ///
     /// This is the extension seam used to onboard non-MOS family adapters without
@@ -361,9 +445,48 @@ impl HierarchyExecutionModel {
         &mut self,
         family_id: &str,
         resolver: ExprResolverFn,
-    ) -> Option<ExprResolverFn> {
+    ) -> Option<Box<dyn FamilyExprResolver>> {
+        self.register_expr_resolver_for_family_with_strict_mode(family_id, resolver, true)
+    }
+
+    /// Registers a trait-based family adapter as strict parse/resolve behavior.
+    pub fn register_family_expr_resolver(
+        &mut self,
+        resolver: Box<dyn FamilyExprResolver>,
+    ) -> Option<Box<dyn FamilyExprResolver>> {
+        self.register_family_expr_resolver_with_strict_mode(resolver, true)
+    }
+
+    fn register_expr_resolver_for_family_with_strict_mode(
+        &mut self,
+        family_id: &str,
+        resolver: ExprResolverFn,
+        strict: bool,
+    ) -> Option<Box<dyn FamilyExprResolver>> {
+        let key = family_id.to_ascii_lowercase();
         self.expr_resolvers
-            .insert(family_id.to_ascii_lowercase(), resolver)
+            .insert(
+                key.clone(),
+                ExprResolverEntry {
+                    resolver: Box::new(FnFamilyExprResolver {
+                        family_id: key,
+                        resolver,
+                    }),
+                    strict,
+                },
+            )
+            .map(|entry| entry.resolver)
+    }
+
+    fn register_family_expr_resolver_with_strict_mode(
+        &mut self,
+        resolver: Box<dyn FamilyExprResolver>,
+        strict: bool,
+    ) -> Option<Box<dyn FamilyExprResolver>> {
+        let key = resolver.family_id().to_ascii_lowercase();
+        self.expr_resolvers
+            .insert(key, ExprResolverEntry { resolver, strict })
+            .map(|entry| entry.resolver)
     }
 
     fn diag_message(&self, code: &str, fallback: &str, args: &[(&str, &str)]) -> String {
@@ -511,6 +634,19 @@ impl HierarchyExecutionModel {
             return Err(RuntimeBridgeError::Resolve(message));
         }
 
+        Ok(None)
+    }
+
+    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+    fn select_candidates_from_exprs_intel8080_scaffold(
+        &self,
+        _resolved: &ResolvedHierarchy,
+        _mnemonic: &str,
+        _operands: &[Expr],
+        _ctx: &dyn AssemblerContext,
+    ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
+        // Explicit scaffold: non-MOS adapter shape is wired, but candidate production is
+        // intentionally deferred until Phase 5 pilot enablement.
         Ok(None)
     }
 
@@ -1455,6 +1591,41 @@ mod tests {
         }]))
     }
 
+    #[derive(Debug)]
+    struct IntelDynResolver;
+
+    impl FamilyExprResolver for IntelDynResolver {
+        fn family_id(&self) -> &str {
+            "intel8080"
+        }
+
+        fn resolve_candidates(
+            &self,
+            _model: &HierarchyExecutionModel,
+            _resolved: &ResolvedHierarchy,
+            mnemonic: &str,
+            operands: &[Expr],
+            ctx: &dyn AssemblerContext,
+        ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
+            if !mnemonic.eq_ignore_ascii_case("mvi") || operands.len() != 1 {
+                return Ok(None);
+            }
+            let value = ctx
+                .eval_expr(&operands[0])
+                .map_err(RuntimeBridgeError::Resolve)?;
+            if !(0..=255).contains(&value) {
+                return Err(RuntimeBridgeError::Resolve(format!(
+                    "Immediate value {} out of range (0-255)",
+                    value
+                )));
+            }
+            Ok(Some(vec![VmEncodeCandidate {
+                mode_key: "immediate".to_string(),
+                operand_bytes: vec![vec![value as u8]],
+            }]))
+        }
+    }
+
     #[test]
     fn active_cpu_selection_and_resolution_work() {
         let mut bridge = HierarchyRuntimeBridge::new(sample_package());
@@ -1633,11 +1804,14 @@ mod tests {
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         assert!(model.supports_expr_resolution_for_family("mos6502"));
         assert!(model.supports_expr_resolution_for_family("MOS6502"));
+        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+        assert!(model.supports_expr_resolution_for_family("intel8080"));
+        #[cfg(not(feature = "opthread-runtime-intel8080-scaffold"))]
         assert!(!model.supports_expr_resolution_for_family("intel8080"));
     }
 
     #[test]
-    fn execution_model_expr_encode_returns_none_for_family_without_resolver() {
+    fn execution_model_expr_encode_returns_none_for_unimplemented_intel_resolver() {
         let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
             .expect("execution model build");
         let span = Span::default();
@@ -1648,15 +1822,21 @@ mod tests {
             .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
             .expect("expr encode should not error when family resolver is absent");
         assert!(bytes.is_none());
+        assert!(!model.expr_resolution_is_strict_for_family("intel8080"));
     }
 
     #[test]
-    fn execution_model_allows_registering_family_expr_resolver() {
+    fn execution_model_allows_registering_fn_family_expr_resolver() {
         let mut model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
             .expect("execution model build");
-        assert!(!model.supports_expr_resolution_for_family("intel8080"));
-        model.register_expr_resolver_for_family("intel8080", intel_test_expr_resolver);
+        let replaced =
+            model.register_expr_resolver_for_family("intel8080", intel_test_expr_resolver);
+        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+        assert!(replaced.is_some());
+        #[cfg(not(feature = "opthread-runtime-intel8080-scaffold"))]
+        assert!(replaced.is_none());
         assert!(model.supports_expr_resolution_for_family("intel8080"));
+        assert!(model.expr_resolution_is_strict_for_family("intel8080"));
 
         let span = Span::default();
         let operands = vec![Expr::Number("66".to_string(), span)];
@@ -1665,6 +1845,36 @@ mod tests {
             .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
             .expect("expr encode should succeed through registered resolver");
         assert_eq!(bytes, Some(vec![0x3E, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_allows_registering_trait_family_expr_resolver() {
+        let mut model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
+            .expect("execution model build");
+        let replaced = model.register_family_expr_resolver(Box::new(IntelDynResolver));
+        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+        assert!(replaced.is_some());
+        #[cfg(not(feature = "opthread-runtime-intel8080-scaffold"))]
+        assert!(replaced.is_none());
+        assert!(model.supports_expr_resolution_for_family("intel8080"));
+        assert!(model.expr_resolution_is_strict_for_family("intel8080"));
+
+        let span = Span::default();
+        let operands = vec![Expr::Number("66".to_string(), span)];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
+            .expect("expr encode should succeed through trait resolver");
+        assert_eq!(bytes, Some(vec![0x3E, 0x42]));
+    }
+
+    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
+    #[test]
+    fn execution_model_intel_scaffold_is_non_strict() {
+        let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
+            .expect("execution model build");
+        assert!(model.supports_expr_resolution_for_family("intel8080"));
+        assert!(!model.expr_resolution_is_strict_for_family("intel8080"));
     }
 
     #[test]
