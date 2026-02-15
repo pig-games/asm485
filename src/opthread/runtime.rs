@@ -150,6 +150,10 @@ pub struct RuntimeBudgetLimits {
     pub max_operand_bytes_per_operand: usize,
     pub max_vm_program_bytes: usize,
     pub max_selectors_scanned_per_instruction: usize,
+    pub max_tokenizer_steps_per_line: u32,
+    pub max_tokenizer_tokens_per_line: u32,
+    pub max_tokenizer_lexeme_bytes: u32,
+    pub max_tokenizer_errors_per_line: u32,
 }
 
 type VmProgramKey = (u8, u32, u32, u32);
@@ -441,6 +445,10 @@ impl RuntimeBudgetProfile {
                 max_operand_bytes_per_operand: 8,
                 max_vm_program_bytes: 128,
                 max_selectors_scanned_per_instruction: 512,
+                max_tokenizer_steps_per_line: 4096,
+                max_tokenizer_tokens_per_line: 256,
+                max_tokenizer_lexeme_bytes: 256,
+                max_tokenizer_errors_per_line: 16,
             },
             Self::RetroConstrained => RuntimeBudgetLimits {
                 max_candidate_count: 16,
@@ -448,6 +456,10 @@ impl RuntimeBudgetProfile {
                 max_operand_bytes_per_operand: 4,
                 max_vm_program_bytes: 48,
                 max_selectors_scanned_per_instruction: 128,
+                max_tokenizer_steps_per_line: 512,
+                max_tokenizer_tokens_per_line: 64,
+                max_tokenizer_lexeme_bytes: 32,
+                max_tokenizer_errors_per_line: 4,
             },
         }
     }
@@ -1202,6 +1214,26 @@ impl HierarchyExecutionModel {
         };
 
         let bytes = request.source_line.as_bytes();
+        let max_steps_per_line = vm_program
+            .limits
+            .max_steps_per_line
+            .min(self.budget_limits.max_tokenizer_steps_per_line);
+        let max_tokens_per_line = vm_program
+            .limits
+            .max_tokens_per_line
+            .min(self.budget_limits.max_tokenizer_tokens_per_line);
+        let max_lexeme_bytes = vm_program
+            .limits
+            .max_lexeme_bytes
+            .min(self.budget_limits.max_tokenizer_lexeme_bytes);
+        let max_errors_per_line = vm_program
+            .limits
+            .max_errors_per_line
+            .min(self.budget_limits.max_tokenizer_errors_per_line);
+        let max_lexeme_bytes_usize = usize::try_from(max_lexeme_bytes).unwrap_or(usize::MAX);
+        let max_tokens_per_line_usize = usize::try_from(max_tokens_per_line).unwrap_or(usize::MAX);
+        let lexeme_capacity = max_lexeme_bytes_usize.min(bytes.len());
+        let token_capacity = max_tokens_per_line_usize.min(bytes.len().saturating_add(1));
         let mut pc = vm_offset_to_pc(
             vm_program.program.as_slice(),
             start_offset,
@@ -1210,21 +1242,19 @@ impl HierarchyExecutionModel {
         )?;
         let mut cursor = 0usize;
         let mut current_byte: Option<u8> = None;
-        let mut lexeme = Vec::new();
+        let mut lexeme = Vec::with_capacity(lexeme_capacity);
         let mut lexeme_start = 0usize;
         let mut lexeme_end = 0usize;
-        let mut tokens = Vec::new();
+        let mut tokens = Vec::with_capacity(token_capacity);
         let mut emitted_errors = 0u32;
         let mut step_count = 0u32;
 
         loop {
             step_count = step_count.saturating_add(1);
-            if step_count > vm_program.limits.max_steps_per_line {
+            if step_count > max_steps_per_line {
                 return Err(RuntimeBridgeError::Resolve(format!(
                     "{}: tokenizer VM step budget exceeded ({}/{})",
-                    vm_program.diagnostics.step_limit_exceeded,
-                    step_count,
-                    vm_program.limits.max_steps_per_line
+                    vm_program.diagnostics.step_limit_exceeded, step_count, max_steps_per_line
                 )));
             }
 
@@ -1263,12 +1293,12 @@ impl HierarchyExecutionModel {
                             vm_program.diagnostics.invalid_char
                         )));
                     };
-                    if lexeme.len() as u32 >= vm_program.limits.max_lexeme_bytes {
+                    if lexeme.len() >= max_lexeme_bytes_usize {
                         return Err(RuntimeBridgeError::Resolve(format!(
                             "{}: tokenizer VM lexeme budget exceeded ({}/{})",
                             vm_program.diagnostics.lexeme_limit_exceeded,
                             lexeme.len().saturating_add(1),
-                            vm_program.limits.max_lexeme_bytes
+                            max_lexeme_bytes
                         )));
                     }
                     lexeme.push(byte);
@@ -1281,12 +1311,12 @@ impl HierarchyExecutionModel {
                         vm_program.diagnostics.invalid_char.as_str(),
                         "emit token kind",
                     )?;
-                    if tokens.len() as u32 >= vm_program.limits.max_tokens_per_line {
+                    if tokens.len() >= max_tokens_per_line_usize {
                         return Err(RuntimeBridgeError::Resolve(format!(
                             "{}: tokenizer VM token budget exceeded ({}/{})",
                             vm_program.diagnostics.token_limit_exceeded,
                             tokens.len().saturating_add(1),
-                            vm_program.limits.max_tokens_per_line
+                            max_tokens_per_line
                         )));
                     }
                     let token = vm_build_token(
@@ -1413,12 +1443,12 @@ impl HierarchyExecutionModel {
                         "diagnostic slot",
                     )?;
                     emitted_errors = emitted_errors.saturating_add(1);
-                    if emitted_errors > vm_program.limits.max_errors_per_line {
+                    if emitted_errors > max_errors_per_line {
                         return Err(RuntimeBridgeError::Resolve(format!(
                             "{}: tokenizer VM diagnostic budget exceeded ({}/{})",
                             vm_program.diagnostics.error_limit_exceeded,
                             emitted_errors,
-                            vm_program.limits.max_errors_per_line
+                            max_errors_per_line
                         )));
                     }
                     let code = vm_diag_code_for_slot(&vm_program.diagnostics, slot);
@@ -2116,12 +2146,15 @@ fn vm_build_token(
         col_start: span_start.saturating_add(1),
         col_end: span_end.saturating_add(1),
     };
-    let lexeme_text = String::from_utf8_lossy(lexeme).to_string();
     let kind = match kind_code {
-        VM_TOKEN_KIND_IDENTIFIER => PortableTokenKind::Identifier(lexeme_text),
-        VM_TOKEN_KIND_REGISTER => PortableTokenKind::Register(lexeme_text),
+        VM_TOKEN_KIND_IDENTIFIER => {
+            PortableTokenKind::Identifier(String::from_utf8_lossy(lexeme).to_string())
+        }
+        VM_TOKEN_KIND_REGISTER => {
+            PortableTokenKind::Register(String::from_utf8_lossy(lexeme).to_string())
+        }
         VM_TOKEN_KIND_NUMBER => {
-            let upper = lexeme_text.to_ascii_uppercase();
+            let upper = String::from_utf8_lossy(lexeme).to_ascii_uppercase();
             let base = if upper.starts_with('$') {
                 16
             } else if upper.starts_with('%') {
@@ -2138,7 +2171,7 @@ fn vm_build_token(
             PortableTokenKind::Number { text: upper, base }
         }
         VM_TOKEN_KIND_STRING => PortableTokenKind::String {
-            raw: lexeme_text,
+            raw: String::from_utf8_lossy(lexeme).to_string(),
             bytes: lexeme.to_vec(),
         },
         VM_TOKEN_KIND_COMMA => PortableTokenKind::Comma,
@@ -2850,6 +2883,25 @@ mod tests {
             .map_err(|err| err.to_string())
     }
 
+    fn tokenize_with_vm_program(
+        model: &HierarchyExecutionModel,
+        cpu_id: &str,
+        line: &str,
+        line_num: u32,
+        vm_program: &RuntimeTokenizerVmProgram,
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+        let resolved = model.resolve_pipeline(cpu_id, None)?;
+        let request = PortableTokenizeRequest {
+            family_id: resolved.family_id.as_str(),
+            cpu_id: resolved.cpu_id.as_str(),
+            dialect_id: resolved.dialect_id.as_str(),
+            source_line: line,
+            line_num,
+            token_policy: model.token_policy_for_resolved(&resolved),
+        };
+        model.tokenize_with_vm_core(&request, vm_program)
+    }
+
     fn tokenizer_edge_case_lines() -> Vec<String> {
         vec![
             "LDA #$42".to_string(),
@@ -2952,6 +3004,21 @@ mod tests {
                 error_limit_exceeded: "ott006".to_string(),
             },
             program: vec![TokenizerVmOpcode::End as u8],
+        }
+    }
+
+    fn runtime_vm_program_for_test(
+        program: Vec<u8>,
+        limits: TokenizerVmLimits,
+    ) -> RuntimeTokenizerVmProgram {
+        RuntimeTokenizerVmProgram {
+            opcode_version: TOKENIZER_VM_OPCODE_VERSION_V1,
+            start_state: 0,
+            state_entry_offsets: vec![0],
+            limits,
+            diagnostics: tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()))
+                .diagnostics,
+            program,
         }
     }
 
@@ -3751,6 +3818,122 @@ mod tests {
             &tokens[0].kind,
             PortableTokenKind::Identifier(name) if name == "a"
         ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_retro_profile_enforces_step_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_runtime_budget_profile(RuntimeBudgetProfile::RetroConstrained);
+
+        let vm_program = runtime_vm_program_for_test(
+            vec![TokenizerVmOpcode::Jump as u8, 0, 0, 0, 0],
+            TokenizerVmLimits {
+                max_steps_per_line: 4096,
+                max_tokens_per_line: 1024,
+                max_lexeme_bytes: 512,
+                max_errors_per_line: 16,
+            },
+        );
+        let err = tokenize_with_vm_program(&model, "m6502", "LDA #$42", 1, &vm_program)
+            .expect_err("retro step budget should cap VM execution");
+        assert!(err.to_string().contains("step budget exceeded"));
+        assert!(err.to_string().contains("/512)"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_retro_profile_enforces_lexeme_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_runtime_budget_profile(RuntimeBudgetProfile::RetroConstrained);
+
+        let vm_program = runtime_vm_program_for_test(
+            vec![
+                TokenizerVmOpcode::StartLexeme as u8,
+                TokenizerVmOpcode::ReadChar as u8,
+                TokenizerVmOpcode::JumpIfEol as u8,
+                14,
+                0,
+                0,
+                0,
+                TokenizerVmOpcode::PushChar as u8,
+                TokenizerVmOpcode::Advance as u8,
+                TokenizerVmOpcode::Jump as u8,
+                1,
+                0,
+                0,
+                0,
+                TokenizerVmOpcode::EmitToken as u8,
+                VM_TOKEN_KIND_IDENTIFIER,
+                TokenizerVmOpcode::End as u8,
+            ],
+            TokenizerVmLimits {
+                max_steps_per_line: 4096,
+                max_tokens_per_line: 1024,
+                max_lexeme_bytes: 512,
+                max_errors_per_line: 16,
+            },
+        );
+        let long_identifier = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD";
+        let err = tokenize_with_vm_program(&model, "m6502", long_identifier, 1, &vm_program)
+            .expect_err("retro lexeme budget should cap VM lexeme growth");
+        assert!(err.to_string().contains("lexeme budget exceeded"));
+        assert!(err.to_string().contains("/32)"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_retro_profile_enforces_token_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        model.set_runtime_budget_profile(RuntimeBudgetProfile::RetroConstrained);
+
+        let vm_program = runtime_vm_program_for_test(
+            vec![
+                TokenizerVmOpcode::ReadChar as u8,
+                TokenizerVmOpcode::JumpIfEol as u8,
+                16,
+                0,
+                0,
+                0,
+                TokenizerVmOpcode::StartLexeme as u8,
+                TokenizerVmOpcode::PushChar as u8,
+                TokenizerVmOpcode::EmitToken as u8,
+                VM_TOKEN_KIND_IDENTIFIER,
+                TokenizerVmOpcode::Advance as u8,
+                TokenizerVmOpcode::Jump as u8,
+                0,
+                0,
+                0,
+                0,
+                TokenizerVmOpcode::End as u8,
+            ],
+            TokenizerVmLimits {
+                max_steps_per_line: 4096,
+                max_tokens_per_line: 1024,
+                max_lexeme_bytes: 512,
+                max_errors_per_line: 16,
+            },
+        );
+        let dense = "A".repeat(70);
+        let err = tokenize_with_vm_program(&model, "m6502", dense.as_str(), 1, &vm_program)
+            .expect_err("retro token budget should cap token emission");
+        assert!(err.to_string().contains("token budget exceeded"));
+        assert!(err.to_string().contains("/64)"));
     }
 
     #[test]
