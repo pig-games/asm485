@@ -139,6 +139,31 @@ pub struct RuntimeBudgetLimits {
     pub max_selectors_scanned_per_instruction: usize,
 }
 
+type VmProgramKey = (u8, u32, u32, u32);
+type ModeSelectorKey = (u8, u32, u32, u32);
+
+#[derive(Debug, Default)]
+struct LowercaseIdInterner {
+    ids: HashMap<String, u32>,
+}
+
+impl LowercaseIdInterner {
+    fn intern(&mut self, value: &str) -> u32 {
+        let key = value.to_ascii_lowercase();
+        if let Some(id) = self.ids.get(&key) {
+            return *id;
+        }
+        let next = self.ids.len();
+        let id = u32::try_from(next).expect("interner id overflow");
+        self.ids.insert(key, id);
+        id
+    }
+
+    fn into_ids(self) -> HashMap<String, u32> {
+        self.ids
+    }
+}
+
 impl RuntimeBudgetProfile {
     fn limits(self) -> RuntimeBudgetLimits {
         match self {
@@ -273,8 +298,9 @@ pub struct HierarchyExecutionModel {
     family_forms: HashMap<String, HashSet<String>>,
     cpu_forms: HashMap<String, HashSet<String>>,
     dialect_forms: HashMap<String, HashSet<String>>,
-    vm_programs: HashMap<(u8, String, String, String), Vec<u8>>,
-    mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>>,
+    vm_programs: HashMap<VmProgramKey, Vec<u8>>,
+    mode_selectors: HashMap<ModeSelectorKey, Vec<ModeSelectorDescriptor>>,
+    interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
     budget_profile: RuntimeBudgetProfile,
@@ -301,30 +327,24 @@ impl HierarchyExecutionModel {
             selectors,
         } = chunks;
         let package = HierarchyPackage::new(families, cpus, dialects)?;
+        let mut interner = LowercaseIdInterner::default();
         let mut vm_programs = HashMap::new();
         for entry in tables {
             let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
-            vm_programs.insert(
-                (
-                    owner_tag,
-                    owner_id,
-                    entry.mnemonic.to_ascii_lowercase(),
-                    entry.mode_key.to_ascii_lowercase(),
-                ),
-                entry.program,
-            );
+            let owner_id = interner.intern(owner_id.as_str());
+            let mnemonic_id = interner.intern(entry.mnemonic.as_str());
+            let mode_id = interner.intern(entry.mode_key.as_str());
+            vm_programs.insert((owner_tag, owner_id, mnemonic_id, mode_id), entry.program);
         }
-        let mut mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>> =
+        let mut mode_selectors: HashMap<ModeSelectorKey, Vec<ModeSelectorDescriptor>> =
             HashMap::new();
         for entry in selectors {
             let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            let mnemonic_id = interner.intern(entry.mnemonic.as_str());
+            let shape_id = interner.intern(entry.shape_key.as_str());
             mode_selectors
-                .entry((
-                    owner_tag,
-                    owner_id,
-                    entry.mnemonic.to_ascii_lowercase(),
-                    entry.shape_key.to_ascii_lowercase(),
-                ))
+                .entry((owner_tag, owner_id, mnemonic_id, shape_id))
                 .or_default()
                 .push(entry);
         }
@@ -386,6 +406,7 @@ impl HierarchyExecutionModel {
             dialect_forms,
             vm_programs,
             mode_selectors,
+            interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
             budget_profile: RuntimeBudgetProfile::HostDefault,
@@ -574,6 +595,10 @@ impl HierarchyExecutionModel {
         render_diag_template(template, args)
     }
 
+    fn interned_id(&self, value_lower: &str) -> Option<u32> {
+        self.interned_ids.get(value_lower).copied()
+    }
+
     fn encode_candidates(
         &self,
         resolved: &ResolvedHierarchy,
@@ -581,23 +606,30 @@ impl HierarchyExecutionModel {
         candidates: &[VmEncodeCandidate],
     ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
         let normalized_mnemonic = mnemonic.to_ascii_lowercase();
+        let Some(mnemonic_id) = self.interned_id(&normalized_mnemonic) else {
+            return Ok(None);
+        };
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
         let owner_order = [
-            (2u8, resolved.dialect_id.as_str()),
-            (1u8, resolved.cpu_id.as_str()),
-            (0u8, resolved.family_id.as_str()),
+            (2u8, self.interned_id(&dialect_id)),
+            (1u8, self.interned_id(&cpu_id)),
+            (0u8, self.interned_id(&family_id)),
         ];
 
         for candidate in candidates {
             let mode_key = candidate.mode_key.to_ascii_lowercase();
+            let Some(mode_id) = self.interned_id(&mode_key) else {
+                continue;
+            };
             let operand_views: Vec<&[u8]> =
                 candidate.operand_bytes.iter().map(Vec::as_slice).collect();
-            for (owner_tag, owner_id) in &owner_order {
-                let key = (
-                    *owner_tag,
-                    owner_id.to_ascii_lowercase(),
-                    normalized_mnemonic.clone(),
-                    mode_key.clone(),
-                );
+            for (owner_tag, owner_id) in owner_order {
+                let Some(owner_id) = owner_id else {
+                    continue;
+                };
+                let key = (owner_tag, owner_id, mnemonic_id, mode_id);
                 if let Some(program) = self.vm_programs.get(&key) {
                     self.enforce_vm_program_budget(program.len())?;
                     return execute_program(program, operand_views.as_slice())
@@ -686,6 +718,13 @@ impl HierarchyExecutionModel {
 
         let upper_mnemonic = mnemonic.to_ascii_uppercase();
         let lower_mnemonic = mnemonic.to_ascii_lowercase();
+        let Some(mnemonic_id) = self.interned_id(&lower_mnemonic) else {
+            return Ok(None);
+        };
+        let shape_key = input.shape_key.to_ascii_lowercase();
+        let Some(shape_id) = self.interned_id(&shape_key) else {
+            return Ok(None);
+        };
         if !resolved.cpu_id.eq_ignore_ascii_case("65816")
             && input_shape_requires_m65816(&input.shape_key)
         {
@@ -708,19 +747,19 @@ impl HierarchyExecutionModel {
         let mut selectors_scanned = 0usize;
 
         for (owner_tag, owner_id) in owner_order {
-            let key = (
-                owner_tag,
-                owner_id.to_ascii_lowercase(),
-                lower_mnemonic.clone(),
-                input.shape_key.clone(),
-            );
+            let owner_id = owner_id.to_ascii_lowercase();
+            let Some(owner_id) = self.interned_id(&owner_id) else {
+                continue;
+            };
+            let key = (owner_tag, owner_id, mnemonic_id, shape_id);
             let Some(selectors) = self.mode_selectors.get(&key) else {
                 continue;
             };
             saw_selector = true;
 
             let has_wider = selectors.iter().any(|entry| {
-                entry.width_rank > 1 && self.mode_exists_for_owner(entry, owner_tag, owner_id)
+                entry.width_rank > 1
+                    && self.mode_exists_for_owner(entry, owner_tag, owner_id, mnemonic_id)
             });
 
             for selector in selectors {
@@ -831,14 +870,14 @@ impl HierarchyExecutionModel {
         &self,
         selector: &ModeSelectorDescriptor,
         owner_tag: u8,
-        owner_id: &str,
+        owner_id: u32,
+        mnemonic_id: u32,
     ) -> bool {
-        let key = (
-            owner_tag,
-            owner_id.to_ascii_lowercase(),
-            selector.mnemonic.to_ascii_lowercase(),
-            selector.mode_key.to_ascii_lowercase(),
-        );
+        let mode_key = selector.mode_key.to_ascii_lowercase();
+        let Some(mode_id) = self.interned_id(&mode_key) else {
+            return false;
+        };
+        let key = (owner_tag, owner_id, mnemonic_id, mode_id);
         self.vm_programs.contains_key(&key)
     }
 
