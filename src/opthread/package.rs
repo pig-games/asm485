@@ -39,6 +39,11 @@ const CHUNK_FORM: [u8; 4] = *b"FORM";
 const CHUNK_TABL: [u8; 4] = *b"TABL";
 const CHUNK_MSEL: [u8; 4] = *b"MSEL";
 
+pub const DIAG_OPTHREAD_MISSING_VM_PROGRAM: &str = "OTR001";
+pub const DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE: &str = "OTR002";
+pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02: &str = "OTR003";
+pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502: &str = "OTR004";
+
 /// Package metadata descriptor (`META` chunk).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackageMetaDescriptor {
@@ -257,19 +262,41 @@ pub fn encode_hierarchy_chunks_full(
     tables: &[VmProgramDescriptor],
     selectors: &[ModeSelectorDescriptor],
 ) -> Result<Vec<u8>, OpcpuCodecError> {
-    // Validate cross references and compatibility before encoding.
-    HierarchyPackage::new(families.to_vec(), cpus.to_vec(), dialects.to_vec())?;
+    let chunks = HierarchyChunks {
+        metadata: PackageMetaDescriptor::default(),
+        strings: Vec::new(),
+        diagnostics: Vec::new(),
+        families: families.to_vec(),
+        cpus: cpus.to_vec(),
+        dialects: dialects.to_vec(),
+        registers: registers.to_vec(),
+        forms: forms.to_vec(),
+        tables: tables.to_vec(),
+        selectors: selectors.to_vec(),
+    };
+    encode_hierarchy_chunks_from_chunks(&chunks)
+}
 
-    let metadata = PackageMetaDescriptor::default();
-    let mut strings = Vec::new();
-    let mut diagnostics = Vec::new();
-    let mut fams = families.to_vec();
-    let mut cpus = cpus.to_vec();
-    let mut dials = dialects.to_vec();
-    let mut regs = registers.to_vec();
-    let mut forms = forms.to_vec();
-    let mut tables = tables.to_vec();
-    let mut selectors = selectors.to_vec();
+pub fn encode_hierarchy_chunks_from_chunks(
+    chunks: &HierarchyChunks,
+) -> Result<Vec<u8>, OpcpuCodecError> {
+    // Validate cross references and compatibility before encoding.
+    HierarchyPackage::new(
+        chunks.families.clone(),
+        chunks.cpus.clone(),
+        chunks.dialects.clone(),
+    )?;
+
+    let metadata = chunks.metadata.clone();
+    let mut strings = chunks.strings.to_vec();
+    let mut diagnostics = chunks.diagnostics.to_vec();
+    let mut fams = chunks.families.to_vec();
+    let mut cpus = chunks.cpus.to_vec();
+    let mut dials = chunks.dialects.to_vec();
+    let mut regs = chunks.registers.to_vec();
+    let mut forms = chunks.forms.to_vec();
+    let mut tables = chunks.tables.to_vec();
+    let mut selectors = chunks.selectors.to_vec();
     canonicalize_hierarchy_metadata(
         &mut fams,
         &mut cpus,
@@ -295,6 +322,28 @@ pub fn encode_hierarchy_chunks_full(
     ];
 
     encode_container(&chunks)
+}
+
+pub fn default_runtime_diagnostic_catalog() -> Vec<DiagnosticDescriptor> {
+    vec![
+        DiagnosticDescriptor {
+            code: DIAG_OPTHREAD_MISSING_VM_PROGRAM.to_string(),
+            message_template: "missing opThread VM program for {mnemonic}".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE.to_string(),
+            message_template: "Explicit addressing override ',{force}' is not valid for {context}"
+                .to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02.to_string(),
+            message_template: "65816-only addressing mode not supported on 65C02".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502.to_string(),
+            message_template: "65816-only addressing mode not supported on base 6502".to_string(),
+        },
+    ]
 }
 
 fn canonicalize_package_support_chunks(

@@ -15,8 +15,9 @@ use crate::opthread::hierarchy::{
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::package::{
-    canonicalize_hierarchy_metadata, encode_hierarchy_chunks_full, HierarchyChunks,
-    ModeSelectorDescriptor, OpcpuCodecError, VmProgramDescriptor,
+    canonicalize_hierarchy_metadata, default_runtime_diagnostic_catalog,
+    encode_hierarchy_chunks_from_chunks, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
+    VmProgramDescriptor,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 
@@ -255,7 +256,7 @@ pub fn build_hierarchy_chunks_from_registry(
     Ok(HierarchyChunks {
         metadata: crate::opthread::package::PackageMetaDescriptor::default(),
         strings: Vec::new(),
-        diagnostics: Vec::new(),
+        diagnostics: default_runtime_diagnostic_catalog(),
         families,
         cpus,
         dialects,
@@ -597,16 +598,7 @@ pub fn build_hierarchy_package_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<Vec<u8>, HierarchyBuildError> {
     let chunks = build_hierarchy_chunks_from_registry(registry)?;
-    encode_hierarchy_chunks_full(
-        &chunks.families,
-        &chunks.cpus,
-        &chunks.dialects,
-        &chunks.registers,
-        &chunks.forms,
-        &chunks.tables,
-        &chunks.selectors,
-    )
-    .map_err(Into::into)
+    encode_hierarchy_chunks_from_chunks(&chunks).map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -618,7 +610,7 @@ mod tests {
     use crate::i8085::module::I8085CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
-    use crate::opthread::package::load_hierarchy_package;
+    use crate::opthread::package::{load_hierarchy_package, DIAG_OPTHREAD_MISSING_VM_PROGRAM};
     use crate::z80::module::Z80CpuModule;
 
     fn test_registry() -> ModuleRegistry {
@@ -642,6 +634,10 @@ mod tests {
         assert_eq!(chunks.families.len(), 2);
         assert_eq!(chunks.cpus.len(), 5);
         assert_eq!(chunks.dialects.len(), 3);
+        assert!(chunks
+            .diagnostics
+            .iter()
+            .any(|entry| entry.code == DIAG_OPTHREAD_MISSING_VM_PROGRAM));
         assert!(!chunks.selectors.is_empty());
         assert!(chunks.registers.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "intel8080")

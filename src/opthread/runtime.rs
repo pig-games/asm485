@@ -14,7 +14,11 @@ use crate::opthread::builder::{build_hierarchy_chunks_from_registry, HierarchyBu
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
-use crate::opthread::package::{HierarchyChunks, ModeSelectorDescriptor};
+use crate::opthread::package::{
+    HierarchyChunks, ModeSelectorDescriptor, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
+    DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
+    DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+};
 use crate::opthread::vm::{execute_program, VmError};
 
 /// Family-keyed operand parse/resolve adapter used by expr-based runtime encode.
@@ -157,6 +161,7 @@ pub struct HierarchyExecutionModel {
     vm_programs: HashMap<(u8, String, String, String), Vec<u8>>,
     mode_selectors: HashMap<(u8, String, String, String), Vec<ModeSelectorDescriptor>>,
     expr_resolvers: HashMap<String, ExprResolverFn>,
+    diag_templates: HashMap<String, String>,
 }
 
 impl HierarchyExecutionModel {
@@ -169,7 +174,7 @@ impl HierarchyExecutionModel {
         let HierarchyChunks {
             metadata: _,
             strings: _,
-            diagnostics: _,
+            diagnostics,
             families,
             cpus,
             dialects,
@@ -240,6 +245,13 @@ impl HierarchyExecutionModel {
             "mos6502".to_string(),
             HierarchyExecutionModel::select_candidates_from_exprs_mos6502,
         );
+        let mut diag_templates = HashMap::new();
+        for entry in diagnostics {
+            diag_templates.insert(
+                entry.code.to_ascii_lowercase(),
+                entry.message_template.to_string(),
+            );
+        }
 
         Ok(Self {
             bridge: HierarchyRuntimeBridge::new(package),
@@ -249,6 +261,7 @@ impl HierarchyExecutionModel {
             vm_programs,
             mode_selectors,
             expr_resolvers,
+            diag_templates,
         })
     }
 
@@ -321,10 +334,16 @@ impl HierarchyExecutionModel {
         };
         match self.encode_candidates(&resolved, mnemonic, &candidates)? {
             Some(bytes) => Ok(Some(bytes)),
-            None => Err(RuntimeBridgeError::Resolve(format!(
-                "missing opThread VM program for {}",
-                mnemonic.to_ascii_uppercase()
-            ))),
+            None => {
+                let upper = mnemonic.to_ascii_uppercase();
+                let fallback = format!("missing opThread VM program for {}", upper);
+                let message = self.diag_message(
+                    DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+                    fallback.as_str(),
+                    &[("mnemonic", upper.as_str())],
+                );
+                Err(RuntimeBridgeError::Resolve(message))
+            }
         }
     }
 
@@ -345,6 +364,13 @@ impl HierarchyExecutionModel {
     ) -> Option<ExprResolverFn> {
         self.expr_resolvers
             .insert(family_id.to_ascii_lowercase(), resolver)
+    }
+
+    fn diag_message(&self, code: &str, fallback: &str, args: &[(&str, &str)]) -> String {
+        let Some(template) = self.diag_templates.get(&code.to_ascii_lowercase()) else {
+            return fallback.to_string();
+        };
+        render_diag_template(template, args)
     }
 
     fn encode_candidates(
@@ -412,9 +438,9 @@ impl HierarchyExecutionModel {
         if !resolved.cpu_id.eq_ignore_ascii_case("65816")
             && input_shape_requires_m65816(&input.shape_key)
         {
-            return Err(RuntimeBridgeError::Resolve(non_m65816_force_error(
-                &resolved.cpu_id,
-            )));
+            return Err(RuntimeBridgeError::Resolve(
+                self.non_m65816_force_error(&resolved.cpu_id),
+            ));
         }
         let owner_order = [
             (2u8, resolved.dialect_id.as_str()),
@@ -467,18 +493,17 @@ impl HierarchyExecutionModel {
 
         if let Some(force) = input.force {
             if !resolved.cpu_id.eq_ignore_ascii_case("65816") {
-                return Err(RuntimeBridgeError::Resolve(non_m65816_force_error(
-                    &resolved.cpu_id,
-                )));
+                return Err(RuntimeBridgeError::Resolve(
+                    self.non_m65816_force_error(&resolved.cpu_id),
+                ));
             }
             if let Some(message) = candidate_error {
                 return Err(RuntimeBridgeError::Resolve(message));
             }
             if !saw_selector {
-                return Err(RuntimeBridgeError::Resolve(invalid_force_error(
-                    force,
-                    &upper_mnemonic,
-                )));
+                return Err(RuntimeBridgeError::Resolve(
+                    self.invalid_force_error(force, &upper_mnemonic),
+                ));
             }
         }
 
@@ -502,6 +527,29 @@ impl HierarchyExecutionModel {
             selector.mode_key.to_ascii_lowercase(),
         );
         self.vm_programs.contains_key(&key)
+    }
+
+    fn invalid_force_error(&self, force: OperandForce, context: &str) -> String {
+        let force_token = force_suffix(force);
+        let fallback = format!(
+            "Explicit addressing override ',{}' is not valid for {}",
+            force_token, context
+        );
+        self.diag_message(
+            DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
+            fallback.as_str(),
+            &[("force", force_token), ("context", context)],
+        )
+    }
+
+    fn non_m65816_force_error(&self, cpu_id: &str) -> String {
+        if cpu_id.eq_ignore_ascii_case("65c02") {
+            let fallback = "65816-only addressing mode not supported on 65C02";
+            self.diag_message(DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, fallback, &[])
+        } else {
+            let fallback = "65816-only addressing mode not supported on base 6502";
+            self.diag_message(DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502, fallback, &[])
+        }
     }
 }
 
@@ -620,20 +668,12 @@ fn force_suffix(force: OperandForce) -> &'static str {
     }
 }
 
-fn invalid_force_error(force: OperandForce, context: &str) -> String {
-    format!(
-        "Explicit addressing override ',{}' is not valid for {}",
-        force_suffix(force),
-        context
-    )
-}
-
-fn non_m65816_force_error(cpu_id: &str) -> String {
-    if cpu_id.eq_ignore_ascii_case("65c02") {
-        "65816-only addressing mode not supported on 65C02".to_string()
-    } else {
-        "65816-only addressing mode not supported on base 6502".to_string()
+fn render_diag_template(template: &str, args: &[(&str, &str)]) -> String {
+    let mut rendered = template.to_string();
+    for (key, value) in args {
+        rendered = rendered.replace(&format!("{{{}}}", key), value);
     }
+    rendered
 }
 
 fn input_shape_requires_m65816(shape_key: &str) -> bool {
@@ -1237,7 +1277,10 @@ mod tests {
     use crate::opthread::hierarchy::{
         CpuDescriptor, DialectDescriptor, FamilyDescriptor, ResolvedHierarchy, ScopedOwner,
     };
-    use crate::opthread::package::{HierarchyChunks, VmProgramDescriptor};
+    use crate::opthread::package::{
+        DiagnosticDescriptor, HierarchyChunks, VmProgramDescriptor,
+        DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+    };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use std::collections::HashMap;
 
@@ -1979,6 +2022,34 @@ mod tests {
             .encode_instruction("m6502", None, "LDA", &operands)
             .expect("vm encode should resolve");
         assert!(bytes.is_none());
+    }
+
+    #[test]
+    fn execution_model_uses_package_diag_template_for_missing_vm_program() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.tables.clear();
+        chunks.diagnostics = vec![DiagnosticDescriptor {
+            code: DIAG_OPTHREAD_MISSING_VM_PROGRAM.to_string(),
+            message_template: "no vm program for {mnemonic}".to_string(),
+        }];
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![Expr::Immediate(
+            Box::new(Expr::Number("66".to_string(), span)),
+            span,
+        )];
+        let ctx = TestAssemblerContext::new();
+        let err = model
+            .encode_instruction_from_exprs("m6502", None, "LDA", &operands, &ctx)
+            .expect_err("missing VM program should produce a resolve error");
+        assert_eq!(err.to_string(), "no vm program for LDA");
     }
 
     #[test]
