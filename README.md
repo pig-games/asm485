@@ -44,9 +44,17 @@ Run MOS6502 runtime/package parity checks (feature-gated):
 
     make test-opthread-runtime
 
+Run Intel8080-family runtime/package parity checks (feature-gated):
+
+    make test-opthread-runtime-intel
+
 Run the local MOS6502 CI gate bundle:
 
     make ci-opthread-mos6502
+
+Run the local Intel8080-family pilot CI gate bundle:
+
+    make ci-opthread-intel8080
 
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
