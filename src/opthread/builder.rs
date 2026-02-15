@@ -163,6 +163,7 @@ pub fn build_hierarchy_chunks_from_registry(
         .iter()
         .map(|cpu| cpu.as_str().to_ascii_lowercase())
         .collect();
+    let has_m65816 = registered_cpu_ids.contains(M65816_CPU_ID.as_str());
 
     if registered_family_ids.contains(MOS6502_FAMILY_ID.as_str()) {
         for entry in FAMILY_INSTRUCTION_TABLE {
@@ -182,6 +183,9 @@ pub fn build_hierarchy_chunks_from_registry(
                 false,
             ) {
                 selectors.push(selector);
+            }
+            if has_m65816 {
+                selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
             }
         }
     }
@@ -227,6 +231,7 @@ pub fn build_hierarchy_chunks_from_registry(
             ) {
                 selectors.push(selector);
             }
+            selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
         }
     }
 
@@ -311,6 +316,66 @@ fn compile_m65c02_bit_branch_selectors() -> Vec<ModeSelectorDescriptor> {
             width_rank: 1,
         });
     }
+    selectors
+}
+
+fn compile_m65816_force_selectors(
+    mnemonic: &str,
+    mode: AddressMode,
+) -> Vec<ModeSelectorDescriptor> {
+    let mut selectors = Vec::new();
+    let forced_shape_key = match mode {
+        AddressMode::AbsoluteLong => "direct",
+        AddressMode::AbsoluteLongX => "direct_x",
+        other => match selector_shape_key(other) {
+            Some(shape_key) => shape_key,
+            None => return selectors,
+        },
+    };
+    let upper_mnemonic = mnemonic.to_ascii_uppercase();
+
+    let mut emit = |suffix: &str, operand_plan: &str| {
+        selectors.push(ModeSelectorDescriptor {
+            owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+            mnemonic: mnemonic.to_string(),
+            shape_key: format!("{forced_shape_key}:force_{suffix}"),
+            mode_key: format!("{:?}", mode),
+            operand_plan: operand_plan.to_string(),
+            priority: selector_priority(mode),
+            unstable_widen: false,
+            width_rank: selector_width_rank(mode),
+        });
+    };
+
+    match mode {
+        AddressMode::ZeroPage
+        | AddressMode::ZeroPageX
+        | AddressMode::ZeroPageY
+        | AddressMode::IndexedIndirectX
+        | AddressMode::IndirectIndexedY
+        | AddressMode::ZeroPageIndirect => emit("d", "force_d_u8"),
+        AddressMode::Absolute => {
+            if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
+                emit("k", "force_k_abs16_pbr");
+            } else {
+                emit("b", "force_b_abs16_dbr");
+            }
+        }
+        AddressMode::AbsoluteX | AddressMode::AbsoluteY => emit("b", "force_b_abs16_dbr"),
+        AddressMode::AbsoluteIndexedIndirect => {
+            if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
+                emit("k", "force_k_abs16_pbr");
+            }
+        }
+        AddressMode::Indirect => {
+            if upper_mnemonic == "JMP" {
+                emit("k", "force_k_abs16_pbr");
+            }
+        }
+        AddressMode::AbsoluteLong | AddressMode::AbsoluteLongX => emit("l", "u24"),
+        _ => {}
+    }
+
     selectors
 }
 
@@ -617,6 +682,42 @@ mod tests {
             &chunks,
             &ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
         );
+    }
+
+    #[test]
+    fn builder_emits_m65816_force_mode_selectors() {
+        let registry = test_registry();
+        let chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("builder should succeed");
+
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "lda"
+                && entry.shape_key == "direct:force_d"
+                && entry.mode_key == "zeropage"
+                && entry.operand_plan == "force_d_u8"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "lda"
+                && entry.shape_key == "direct:force_b"
+                && entry.mode_key == "absolute"
+                && entry.operand_plan == "force_b_abs16_dbr"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "lda"
+                && entry.shape_key == "direct:force_l"
+                && entry.mode_key == "absolutelong"
+                && entry.operand_plan == "u24"
+        }));
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "jmp"
+                && entry.shape_key == "direct:force_k"
+                && entry.mode_key == "absolute"
+                && entry.operand_plan == "force_k_abs16_pbr"
+        }));
     }
 
     fn assert_forms_have_tabl_programs_for_owner(chunks: &HierarchyChunks, owner: &ScopedOwner) {

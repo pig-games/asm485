@@ -332,12 +332,11 @@ impl HierarchyExecutionModel {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct SelectorInput<'a> {
-    shape_key: &'static str,
+    shape_key: String,
     expr0: Option<&'a Expr>,
     expr1: Option<&'a Expr>,
-    force: Option<OperandForce>,
 }
 
 impl HierarchyExecutionModel {
@@ -351,9 +350,6 @@ impl HierarchyExecutionModel {
         let family = MOS6502FamilyHandler::new();
         let parsed = family.parse_operands(mnemonic, operands).ok()?;
         let input = selector_input_from_family_operands(&parsed)?;
-        if input.force.is_some() {
-            return None;
-        }
 
         let upper_mnemonic = mnemonic.to_ascii_uppercase();
         let lower_mnemonic = mnemonic.to_ascii_lowercase();
@@ -373,7 +369,7 @@ impl HierarchyExecutionModel {
                 owner_tag,
                 owner_id.to_ascii_lowercase(),
                 lower_mnemonic.clone(),
-                input.shape_key.to_string(),
+                input.shape_key.clone(),
             );
             let Some(selectors) = self.mode_selectors.get(&key) else {
                 continue;
@@ -421,105 +417,99 @@ impl HierarchyExecutionModel {
 fn selector_input_from_family_operands(operands: &[FamilyOperand]) -> Option<SelectorInput<'_>> {
     match operands {
         [] => Some(SelectorInput {
-            shape_key: "implied",
+            shape_key: "implied".to_string(),
             expr0: None,
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::Accumulator(_)] => Some(SelectorInput {
-            shape_key: "accumulator",
+            shape_key: "accumulator".to_string(),
             expr0: None,
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::Immediate(expr)] => Some(SelectorInput {
-            shape_key: "immediate",
+            shape_key: "immediate".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::Direct(expr)] => Some(SelectorInput {
-            shape_key: "direct",
+            shape_key: "direct".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::DirectX(expr)] => Some(SelectorInput {
-            shape_key: "direct_x",
+            shape_key: "direct_x".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::DirectY(expr)] => Some(SelectorInput {
-            shape_key: "direct_y",
+            shape_key: "direct_y".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::IndexedIndirectX(expr) | FamilyOperand::IndirectX(expr)] => {
             Some(SelectorInput {
-                shape_key: "indexed_indirect_x",
+                shape_key: "indexed_indirect_x".to_string(),
                 expr0: Some(expr),
                 expr1: None,
-                force: None,
             })
         }
         [FamilyOperand::IndirectIndexedY(expr)] => Some(SelectorInput {
-            shape_key: "indirect_indexed_y",
+            shape_key: "indirect_indexed_y".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::Indirect(expr)] => Some(SelectorInput {
-            shape_key: "indirect",
+            shape_key: "indirect".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::IndirectLong(expr)] => Some(SelectorInput {
-            shape_key: "indirect_long",
+            shape_key: "indirect_long".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::IndirectLongY(expr)] => Some(SelectorInput {
-            shape_key: "indirect_long_y",
+            shape_key: "indirect_long_y".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::StackRelative(expr)] => Some(SelectorInput {
-            shape_key: "stack_relative",
+            shape_key: "stack_relative".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::StackRelativeIndirectIndexedY(expr)] => Some(SelectorInput {
-            shape_key: "stack_relative_indirect_y",
+            shape_key: "stack_relative_indirect_y".to_string(),
             expr0: Some(expr),
             expr1: None,
-            force: None,
         }),
         [FamilyOperand::BlockMove { src, dst, .. }] => Some(SelectorInput {
-            shape_key: "pair_direct",
+            shape_key: "pair_direct".to_string(),
             expr0: Some(src),
             expr1: Some(dst),
-            force: None,
         }),
         [FamilyOperand::Forced { inner, force, .. }] => {
             let nested = selector_input_from_family_operands(std::slice::from_ref(inner.as_ref()))?;
             Some(SelectorInput {
-                force: Some(*force),
+                shape_key: format!("{}:force_{}", nested.shape_key, force_suffix(*force)),
                 ..nested
             })
         }
         [FamilyOperand::Direct(first), FamilyOperand::Direct(second)] => Some(SelectorInput {
-            shape_key: "pair_direct",
+            shape_key: "pair_direct".to_string(),
             expr0: Some(first),
             expr1: Some(second),
-            force: None,
         }),
         _ => None,
+    }
+}
+
+fn force_suffix(force: OperandForce) -> &'static str {
+    match force {
+        OperandForce::DirectPage => "d",
+        OperandForce::DataBank => "b",
+        OperandForce::ProgramBank => "k",
+        OperandForce::Long => "l",
     }
 }
 
@@ -546,6 +536,19 @@ fn selector_to_candidate(
             packed.extend(encode_expr_u8(input.expr1?, ctx)?);
             packed
         }],
+        "force_d_u8" => vec![encode_expr_force_d_u8(input.expr0?, ctx)?],
+        "force_b_abs16_dbr" => {
+            if matches!(upper_mnemonic, "JMP" | "JSR") {
+                return None;
+            }
+            vec![encode_expr_force_abs16(input.expr0?, false, ctx)?]
+        }
+        "force_k_abs16_pbr" => {
+            if !matches!(upper_mnemonic, "JMP" | "JSR") {
+                return None;
+            }
+            vec![encode_expr_force_abs16(input.expr0?, true, ctx)?]
+        }
         "imm_mx" => vec![encode_expr_m65816_immediate(
             input.expr0?,
             upper_mnemonic,
@@ -626,6 +629,66 @@ fn encode_expr_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
     } else {
         None
     }
+}
+
+fn encode_expr_force_d_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    if (0..=255).contains(&value) {
+        return Some(vec![value as u8]);
+    }
+    if !(0..=0xFFFF).contains(&value) {
+        return None;
+    }
+    let dp_offset = direct_page_offset_for_absolute_address(value as u16, ctx)?;
+    Some(vec![dp_offset])
+}
+
+fn encode_expr_force_abs16(
+    expr: &Expr,
+    use_program_bank: bool,
+    ctx: &dyn AssemblerContext,
+) -> Option<Vec<u8>> {
+    let value = ctx.eval_expr(expr).ok()?;
+    if (0..=65535).contains(&value) {
+        return Some(vec![
+            (value as u16 & 0xFF) as u8,
+            ((value as u16 >> 8) & 0xFF) as u8,
+        ]);
+    }
+    if !(0..=0xFF_FFFF).contains(&value) {
+        return None;
+    }
+    let assumed_known = if use_program_bank {
+        state::program_bank_known(ctx)
+    } else {
+        state::data_bank_known(ctx)
+    };
+    if !assumed_known {
+        return None;
+    }
+    let assumed_bank = if use_program_bank {
+        state::program_bank(ctx)
+    } else {
+        state::data_bank(ctx)
+    };
+    let absolute_bank = ((value as u32) >> 16) as u8;
+    if absolute_bank != assumed_bank {
+        return None;
+    }
+    let absolute = (value as u32 & 0xFFFF) as u16;
+    Some(vec![
+        (absolute & 0xFF) as u8,
+        ((absolute >> 8) & 0xFF) as u8,
+    ])
+}
+
+fn direct_page_offset_for_absolute_address(address: u16, ctx: &dyn AssemblerContext) -> Option<u8> {
+    if !state::direct_page_known(ctx) || address <= 0x00FF {
+        return None;
+    }
+    let dp = state::direct_page(ctx);
+    let offset = address.wrapping_sub(dp);
+    (offset <= 0x00FF).then_some(offset as u8)
 }
 
 fn encode_expr_rel8(expr: &Expr, ctx: &dyn AssemblerContext, instr_len: i64) -> Option<Vec<u8>> {
@@ -726,6 +789,7 @@ mod tests {
     struct TestAssemblerContext {
         values: HashMap<String, i64>,
         finalized: HashMap<String, bool>,
+        cpu_flags: HashMap<String, u32>,
         addr: u32,
         pass: u8,
     }
@@ -735,6 +799,7 @@ mod tests {
             Self {
                 values: HashMap::new(),
                 finalized: HashMap::new(),
+                cpu_flags: HashMap::new(),
                 addr: 0,
                 pass: 2,
             }
@@ -775,6 +840,10 @@ mod tests {
 
         fn pass(&self) -> u8 {
             self.pass
+        }
+
+        fn cpu_state_flag(&self, key: &str) -> Option<u32> {
+            self.cpu_flags.get(key).copied()
         }
     }
 
@@ -992,6 +1061,99 @@ mod tests {
             .encode_instruction_from_exprs("65816", None, "MVN", &operands, &ctx)
             .expect("vm expr encode should succeed");
         assert_eq!(bytes, Some(vec![0x54, 0x01, 0x02]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_forced_long_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Number("1193046".to_string(), span),
+            Expr::Register("l".to_string(), span),
+        ];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xAF, 0x56, 0x34, 0x12]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_forced_data_bank_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Number("4660".to_string(), span),
+            Expr::Register("b".to_string(), span),
+        ];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xAD, 0x34, 0x12]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_forced_program_bank_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Number("4660".to_string(), span),
+            Expr::Register("k".to_string(), span),
+        ];
+        let ctx = TestAssemblerContext::new();
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "JMP", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0x4C, 0x34, 0x12]));
+    }
+
+    #[test]
+    fn execution_model_encodes_m65816_forced_direct_page_from_expr_operands() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let span = Span::default();
+        let operands = vec![
+            Expr::Identifier("target".to_string(), span),
+            Expr::Register("d".to_string(), span),
+        ];
+        let mut ctx = TestAssemblerContext::new();
+        ctx.values.insert("target".to_string(), 0x20F0);
+        ctx.cpu_flags
+            .insert(crate::m65816::state::DIRECT_PAGE_KEY.to_string(), 0x2000);
+        ctx.cpu_flags
+            .insert(crate::m65816::state::DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
+        let bytes = model
+            .encode_instruction_from_exprs("65816", None, "LDA", &operands, &ctx)
+            .expect("vm expr encode should succeed");
+        assert_eq!(bytes, Some(vec![0xA5, 0xF0]));
     }
 
     #[test]
