@@ -32,9 +32,10 @@ use crate::opthread::hierarchy::{
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
 use crate::opthread::package::{
-    decode_hierarchy_chunks, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
-    TokenCaseRule, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502, DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02,
-    DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+    decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
+    ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
+    DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
+    DIAG_OPTHREAD_MISSING_VM_PROGRAM,
 };
 use crate::opthread::vm::{execute_program, VmError};
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
@@ -153,15 +154,36 @@ pub struct RuntimeTokenPolicy {
     pub identifier_start_class: u32,
     pub identifier_continue_class: u32,
     pub punctuation_chars: String,
+    pub comment_prefix: String,
+    pub quote_chars: String,
+    pub escape_char: Option<char>,
+    pub number_prefix_chars: String,
+    pub number_suffix_binary: String,
+    pub number_suffix_octal: String,
+    pub number_suffix_decimal: String,
+    pub number_suffix_hex: String,
+    pub operator_chars: String,
+    pub multi_char_operators: Vec<String>,
 }
 
 impl Default for RuntimeTokenPolicy {
     fn default() -> Self {
+        let defaults = default_token_policy_lexical_defaults();
         Self {
             case_rule: TokenCaseRule::Preserve,
             identifier_start_class: 0,
             identifier_continue_class: 0,
             punctuation_chars: String::new(),
+            comment_prefix: defaults.comment_prefix,
+            quote_chars: defaults.quote_chars,
+            escape_char: defaults.escape_char,
+            number_prefix_chars: defaults.number_prefix_chars,
+            number_suffix_binary: defaults.number_suffix_binary,
+            number_suffix_octal: defaults.number_suffix_octal,
+            number_suffix_decimal: defaults.number_suffix_decimal,
+            number_suffix_hex: defaults.number_suffix_hex,
+            operator_chars: defaults.operator_chars,
+            multi_char_operators: defaults.multi_char_operators,
         }
     }
 }
@@ -718,6 +740,16 @@ impl HierarchyExecutionModel {
                     identifier_start_class: entry.identifier_start_class,
                     identifier_continue_class: entry.identifier_continue_class,
                     punctuation_chars: entry.punctuation_chars,
+                    comment_prefix: entry.comment_prefix,
+                    quote_chars: entry.quote_chars,
+                    escape_char: entry.escape_char,
+                    number_prefix_chars: entry.number_prefix_chars,
+                    number_suffix_binary: entry.number_suffix_binary,
+                    number_suffix_octal: entry.number_suffix_octal,
+                    number_suffix_decimal: entry.number_suffix_decimal,
+                    number_suffix_hex: entry.number_suffix_hex,
+                    operator_chars: entry.operator_chars,
+                    multi_char_operators: entry.multi_char_operators,
                 },
             );
         }
@@ -2173,8 +2205,9 @@ mod tests {
         CpuDescriptor, DialectDescriptor, FamilyDescriptor, ResolvedHierarchy, ScopedOwner,
     };
     use crate::opthread::package::{
-        token_identifier_class, DiagnosticDescriptor, HierarchyChunks, TokenCaseRule,
-        TokenPolicyDescriptor, VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
+        HierarchyChunks, TokenCaseRule, TokenPolicyDescriptor, VmProgramDescriptor,
+        DIAG_OPTHREAD_MISSING_VM_PROGRAM,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use std::collections::HashMap;
@@ -2190,6 +2223,33 @@ mod tests {
             tokens.push(PortableToken::from_core_token(token));
         }
         tokens
+    }
+
+    fn token_policy_for_test(
+        owner: ScopedOwner,
+        case_rule: TokenCaseRule,
+        identifier_start_class: u32,
+        identifier_continue_class: u32,
+        punctuation_chars: &str,
+    ) -> TokenPolicyDescriptor {
+        let defaults = default_token_policy_lexical_defaults();
+        TokenPolicyDescriptor {
+            owner,
+            case_rule,
+            identifier_start_class,
+            identifier_continue_class,
+            punctuation_chars: punctuation_chars.to_string(),
+            comment_prefix: defaults.comment_prefix,
+            quote_chars: defaults.quote_chars,
+            escape_char: defaults.escape_char,
+            number_prefix_chars: defaults.number_prefix_chars,
+            number_suffix_binary: defaults.number_suffix_binary,
+            number_suffix_octal: defaults.number_suffix_octal,
+            number_suffix_decimal: defaults.number_suffix_decimal,
+            number_suffix_hex: defaults.number_suffix_hex,
+            operator_chars: defaults.operator_chars,
+            multi_char_operators: defaults.multi_char_operators,
+        }
     }
 
     struct TestAssemblerContext {
@@ -2696,16 +2756,15 @@ mod tests {
 
         let mut chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
-        chunks.token_policies.push(TokenPolicyDescriptor {
-            owner: ScopedOwner::Cpu("m6502".to_string()),
-            case_rule: TokenCaseRule::Preserve,
-            identifier_start_class: token_identifier_class::ASCII_ALPHA
-                | token_identifier_class::UNDERSCORE,
-            identifier_continue_class: token_identifier_class::ASCII_ALPHA
+        chunks.token_policies.push(token_policy_for_test(
+            ScopedOwner::Cpu("m6502".to_string()),
+            TokenCaseRule::Preserve,
+            token_identifier_class::ASCII_ALPHA | token_identifier_class::UNDERSCORE,
+            token_identifier_class::ASCII_ALPHA
                 | token_identifier_class::ASCII_DIGIT
                 | token_identifier_class::UNDERSCORE,
-            punctuation_chars: ",()[]{}+-*/#<>:=.&|^%!~;".to_string(),
-        });
+            ",()[]{}+-*/#<>:=.&|^%!~;",
+        ));
 
         let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
         let policy = model
@@ -2773,27 +2832,27 @@ mod tests {
 
         let mut chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
-        chunks.token_policies.push(TokenPolicyDescriptor {
-            owner: ScopedOwner::Family("mos6502".to_string()),
-            case_rule: TokenCaseRule::AsciiLower,
-            identifier_start_class: token_identifier_class::ASCII_ALPHA,
-            identifier_continue_class: token_identifier_class::ASCII_ALPHA,
-            punctuation_chars: ",".to_string(),
-        });
-        chunks.token_policies.push(TokenPolicyDescriptor {
-            owner: ScopedOwner::Cpu("m6502".to_string()),
-            case_rule: TokenCaseRule::Preserve,
-            identifier_start_class: token_identifier_class::ASCII_ALPHA,
-            identifier_continue_class: token_identifier_class::ASCII_ALPHA,
-            punctuation_chars: ",".to_string(),
-        });
-        chunks.token_policies.push(TokenPolicyDescriptor {
-            owner: ScopedOwner::Dialect("transparent".to_string()),
-            case_rule: TokenCaseRule::AsciiUpper,
-            identifier_start_class: token_identifier_class::ASCII_ALPHA,
-            identifier_continue_class: token_identifier_class::ASCII_ALPHA,
-            punctuation_chars: ",".to_string(),
-        });
+        chunks.token_policies.push(token_policy_for_test(
+            ScopedOwner::Family("mos6502".to_string()),
+            TokenCaseRule::AsciiLower,
+            token_identifier_class::ASCII_ALPHA,
+            token_identifier_class::ASCII_ALPHA,
+            ",",
+        ));
+        chunks.token_policies.push(token_policy_for_test(
+            ScopedOwner::Cpu("m6502".to_string()),
+            TokenCaseRule::Preserve,
+            token_identifier_class::ASCII_ALPHA,
+            token_identifier_class::ASCII_ALPHA,
+            ",",
+        ));
+        chunks.token_policies.push(token_policy_for_test(
+            ScopedOwner::Dialect("transparent".to_string()),
+            TokenCaseRule::AsciiUpper,
+            token_identifier_class::ASCII_ALPHA,
+            token_identifier_class::ASCII_ALPHA,
+            ",",
+        ));
         let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
 
         let policy = model

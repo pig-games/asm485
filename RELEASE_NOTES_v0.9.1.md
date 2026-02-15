@@ -22,6 +22,7 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 - opThread hierarchy groundwork (in-progress, feature-gated development surface):
   - hierarchy package chunks for `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`
   - optional `TOKS` package chunk for scoped token-policy hints (case folding, identifier classes, punctuation set)
+  - phase-1 `TOKS` schema closure with full lexical policy fields (comment/quote/escape/number/operator policy) and backward-compatible legacy decode defaults
   - portable tokenizer ABI and delegation path (`PortableTokenizerAdapter` + `tokenize_portable_statement`) using package-scoped token policy selection
   - phase-0 tokenizer contract lock with portable token model (`PortableToken*`) and precedence/parity contract tests
   - tokenization parity coverage between host mode and VM-policy delegated mode for MOS6502 paths

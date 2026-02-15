@@ -343,7 +343,7 @@ Bytecode encoding:
 `TOKS` entries are scoped by owner (`family`, `cpu`, or `dialect`) and provide
 portable tokenization hints for future VM/portable-host tokenizer paths.
 
-Each entry defines:
+Base entry defines:
 - owner scope tag + owner id
 - `case_rule`:
   - `0`: preserve
@@ -352,6 +352,18 @@ Each entry defines:
 - `identifier_start_class` bitmask
 - `identifier_continue_class` bitmask
 - `punctuation_chars` (deduplicated ordered character set)
+
+Extended lexical policy fields (Phase 1 closure):
+- `comment_prefix` (line comment marker, default `;`)
+- `quote_chars` (allowed string delimiters, default `\"'`)
+- `escape_char` (optional escape introducer, default `\\`)
+- `number_prefix_chars` (default `$%@`)
+- `number_suffix_binary` (default `bB`)
+- `number_suffix_octal` (default `oOqQ`)
+- `number_suffix_decimal` (default `dD`)
+- `number_suffix_hex` (default `hH`)
+- `operator_chars` (single-char operator set)
+- `multi_char_operators` (ordered operator list, default includes `**`, `==`, `!=`, `&&`, `||`, `^^`, `<<`, `>>`, `<=`, `>=`, `<>`)
 
 Identifier class bitmask assignments:
 - `1<<0`: ASCII alpha (`A-Z`, `a-z`)
@@ -364,6 +376,7 @@ Identifier class bitmask assignments:
 Compatibility:
 - `TOKS` is optional in v0.1 and MUST default to empty policy when absent.
 - Unknown owner ids in `TOKS` are allowed (forward compatibility) but SHOULD be ignored by hosts that cannot resolve that scope.
+- Legacy `TOKS` payloads without extended lexical fields MUST decode with the defaults above.
 
 ## 7. Host Adapter Interface (normative)
 

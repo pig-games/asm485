@@ -23,9 +23,10 @@ use crate::opthread::intel8080_vm::{
 };
 use crate::opthread::package::{
     canonicalize_hierarchy_metadata, canonicalize_token_policies,
-    default_runtime_diagnostic_catalog, encode_hierarchy_chunks_from_chunks,
-    token_identifier_class, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
-    TokenCaseRule, TokenPolicyDescriptor, VmProgramDescriptor,
+    default_runtime_diagnostic_catalog, default_token_policy_lexical_defaults,
+    encode_hierarchy_chunks_from_chunks, token_identifier_class, HierarchyChunks,
+    ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenPolicyDescriptor,
+    VmProgramDescriptor,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
@@ -324,6 +325,7 @@ pub fn build_hierarchy_chunks_from_registry(
 }
 
 fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
+    let defaults = default_token_policy_lexical_defaults();
     TokenPolicyDescriptor {
         owner: ScopedOwner::Family(family_id.to_string()),
         case_rule: TokenCaseRule::AsciiLower,
@@ -337,6 +339,16 @@ fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
             | token_identifier_class::AT_SIGN
             | token_identifier_class::DOT,
         punctuation_chars: ",()[]{}+-*/#<>:=.&|^%!~;".to_string(),
+        comment_prefix: defaults.comment_prefix,
+        quote_chars: defaults.quote_chars,
+        escape_char: defaults.escape_char,
+        number_prefix_chars: defaults.number_prefix_chars,
+        number_suffix_binary: defaults.number_suffix_binary,
+        number_suffix_octal: defaults.number_suffix_octal,
+        number_suffix_decimal: defaults.number_suffix_decimal,
+        number_suffix_hex: defaults.number_suffix_hex,
+        operator_chars: defaults.operator_chars,
+        multi_char_operators: defaults.multi_char_operators,
     }
 }
 

@@ -125,6 +125,19 @@ pub mod token_identifier_class {
     pub const DOT: u32 = 1 << 5;
 }
 
+const TOKS_EXT_MARKER: u8 = 0xFF;
+const TOKS_DEFAULT_COMMENT_PREFIX: &str = ";";
+const TOKS_DEFAULT_QUOTE_CHARS: &str = "\"'";
+const TOKS_DEFAULT_NUMBER_PREFIX_CHARS: &str = "$%@";
+const TOKS_DEFAULT_NUMBER_SUFFIX_BINARY: &str = "bB";
+const TOKS_DEFAULT_NUMBER_SUFFIX_OCTAL: &str = "oOqQ";
+const TOKS_DEFAULT_NUMBER_SUFFIX_DECIMAL: &str = "dD";
+const TOKS_DEFAULT_NUMBER_SUFFIX_HEX: &str = "hH";
+const TOKS_DEFAULT_OPERATOR_CHARS: &str = "+-*/%~!&|^<>=?";
+const TOKS_DEFAULT_MULTI_CHAR_OPERATORS: [&str; 11] = [
+    "**", "==", "!=", "&&", "||", "^^", "<<", ">>", "<=", ">=", "<>",
+];
+
 /// Token policy descriptor (`TOKS` chunk), scoped by family/cpu/dialect owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TokenPolicyDescriptor {
@@ -133,6 +146,48 @@ pub struct TokenPolicyDescriptor {
     pub identifier_start_class: u32,
     pub identifier_continue_class: u32,
     pub punctuation_chars: String,
+    pub comment_prefix: String,
+    pub quote_chars: String,
+    pub escape_char: Option<char>,
+    pub number_prefix_chars: String,
+    pub number_suffix_binary: String,
+    pub number_suffix_octal: String,
+    pub number_suffix_decimal: String,
+    pub number_suffix_hex: String,
+    pub operator_chars: String,
+    pub multi_char_operators: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenPolicyLexicalDefaults {
+    pub comment_prefix: String,
+    pub quote_chars: String,
+    pub escape_char: Option<char>,
+    pub number_prefix_chars: String,
+    pub number_suffix_binary: String,
+    pub number_suffix_octal: String,
+    pub number_suffix_decimal: String,
+    pub number_suffix_hex: String,
+    pub operator_chars: String,
+    pub multi_char_operators: Vec<String>,
+}
+
+pub fn default_token_policy_lexical_defaults() -> TokenPolicyLexicalDefaults {
+    TokenPolicyLexicalDefaults {
+        comment_prefix: TOKS_DEFAULT_COMMENT_PREFIX.to_string(),
+        quote_chars: TOKS_DEFAULT_QUOTE_CHARS.to_string(),
+        escape_char: Some('\\'),
+        number_prefix_chars: TOKS_DEFAULT_NUMBER_PREFIX_CHARS.to_string(),
+        number_suffix_binary: TOKS_DEFAULT_NUMBER_SUFFIX_BINARY.to_string(),
+        number_suffix_octal: TOKS_DEFAULT_NUMBER_SUFFIX_OCTAL.to_string(),
+        number_suffix_decimal: TOKS_DEFAULT_NUMBER_SUFFIX_DECIMAL.to_string(),
+        number_suffix_hex: TOKS_DEFAULT_NUMBER_SUFFIX_HEX.to_string(),
+        operator_chars: TOKS_DEFAULT_OPERATOR_CHARS.to_string(),
+        multi_char_operators: TOKS_DEFAULT_MULTI_CHAR_OPERATORS
+            .iter()
+            .map(|value| value.to_string())
+            .collect(),
+    }
 }
 
 /// Decoded hierarchy-chunk payload set.
@@ -599,32 +654,77 @@ pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDe
             }
         }
         entry.punctuation_chars = canonicalize_ascii_char_set(&entry.punctuation_chars);
+        entry.quote_chars = canonicalize_ascii_char_set(&entry.quote_chars);
+        entry.number_prefix_chars = canonicalize_ascii_char_set(&entry.number_prefix_chars);
+        entry.number_suffix_binary = canonicalize_ascii_char_set(&entry.number_suffix_binary);
+        entry.number_suffix_octal = canonicalize_ascii_char_set(&entry.number_suffix_octal);
+        entry.number_suffix_decimal = canonicalize_ascii_char_set(&entry.number_suffix_decimal);
+        entry.number_suffix_hex = canonicalize_ascii_char_set(&entry.number_suffix_hex);
+        entry.operator_chars = canonicalize_ascii_char_set(&entry.operator_chars);
+        entry.multi_char_operators.retain(|value| !value.is_empty());
+        entry.multi_char_operators.sort();
+        entry.multi_char_operators.dedup();
     }
-    token_policies.sort_by_key(|entry| {
-        let owner_kind = match entry.owner {
+    token_policies.sort_by(|left, right| {
+        let left_owner_kind = match left.owner {
             ScopedOwner::Family(_) => 0u8,
             ScopedOwner::Cpu(_) => 1u8,
             ScopedOwner::Dialect(_) => 2u8,
         };
-        let owner_id = match &entry.owner {
+        let right_owner_kind = match right.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let left_owner_id = match &left.owner {
             ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
                 id.to_ascii_lowercase()
             }
         };
-        (
-            owner_kind,
-            owner_id,
-            entry.case_rule as u8,
-            entry.identifier_start_class,
-            entry.identifier_continue_class,
-            entry.punctuation_chars.clone(),
-        )
+        let right_owner_id = match &right.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        left_owner_kind
+            .cmp(&right_owner_kind)
+            .then_with(|| left_owner_id.cmp(&right_owner_id))
+            .then_with(|| (left.case_rule as u8).cmp(&(right.case_rule as u8)))
+            .then_with(|| {
+                left.identifier_start_class
+                    .cmp(&right.identifier_start_class)
+            })
+            .then_with(|| {
+                left.identifier_continue_class
+                    .cmp(&right.identifier_continue_class)
+            })
+            .then_with(|| left.punctuation_chars.cmp(&right.punctuation_chars))
+            .then_with(|| left.comment_prefix.cmp(&right.comment_prefix))
+            .then_with(|| left.quote_chars.cmp(&right.quote_chars))
+            .then_with(|| left.escape_char.cmp(&right.escape_char))
+            .then_with(|| left.number_prefix_chars.cmp(&right.number_prefix_chars))
+            .then_with(|| left.number_suffix_binary.cmp(&right.number_suffix_binary))
+            .then_with(|| left.number_suffix_octal.cmp(&right.number_suffix_octal))
+            .then_with(|| left.number_suffix_decimal.cmp(&right.number_suffix_decimal))
+            .then_with(|| left.number_suffix_hex.cmp(&right.number_suffix_hex))
+            .then_with(|| left.operator_chars.cmp(&right.operator_chars))
+            .then_with(|| left.multi_char_operators.cmp(&right.multi_char_operators))
     });
     token_policies.dedup_by(|left, right| {
         left.case_rule == right.case_rule
             && left.identifier_start_class == right.identifier_start_class
             && left.identifier_continue_class == right.identifier_continue_class
             && left.punctuation_chars == right.punctuation_chars
+            && left.comment_prefix == right.comment_prefix
+            && left.quote_chars == right.quote_chars
+            && left.escape_char == right.escape_char
+            && left.number_prefix_chars == right.number_prefix_chars
+            && left.number_suffix_binary == right.number_suffix_binary
+            && left.number_suffix_octal == right.number_suffix_octal
+            && left.number_suffix_decimal == right.number_suffix_decimal
+            && left.number_suffix_hex == right.number_suffix_hex
+            && left.operator_chars == right.operator_chars
+            && left.multi_char_operators == right.multi_char_operators
             && match (&left.owner, &right.owner) {
                 (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
                 (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
@@ -1025,6 +1125,38 @@ fn encode_toks_chunk(policies: &[TokenPolicyDescriptor]) -> Result<Vec<u8>, Opcp
         write_u32(&mut out, entry.identifier_start_class);
         write_u32(&mut out, entry.identifier_continue_class);
         write_string(&mut out, "TOKS", &entry.punctuation_chars)?;
+        out.push(TOKS_EXT_MARKER);
+        write_string(&mut out, "TOKS", &entry.comment_prefix)?;
+        write_string(&mut out, "TOKS", &entry.quote_chars)?;
+        match entry.escape_char {
+            Some(ch) if ch.is_ascii() => {
+                out.push(1);
+                out.push(ch as u8);
+            }
+            Some(ch) => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "TOKS".to_string(),
+                    detail: format!("escape_char must be ASCII: {:?}", ch),
+                });
+            }
+            None => out.push(0),
+        }
+        write_string(&mut out, "TOKS", &entry.number_prefix_chars)?;
+        write_string(&mut out, "TOKS", &entry.number_suffix_binary)?;
+        write_string(&mut out, "TOKS", &entry.number_suffix_octal)?;
+        write_string(&mut out, "TOKS", &entry.number_suffix_decimal)?;
+        write_string(&mut out, "TOKS", &entry.number_suffix_hex)?;
+        write_string(&mut out, "TOKS", &entry.operator_chars)?;
+        write_u32(
+            &mut out,
+            u32_count(
+                entry.multi_char_operators.len(),
+                "TOKS multi-char operator count",
+            )?,
+        );
+        for operator in &entry.multi_char_operators {
+            write_string(&mut out, "TOKS", operator)?;
+        }
     }
     Ok(out)
 }
@@ -1040,6 +1172,47 @@ fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCo
         let identifier_start_class = cur.read_u32()?;
         let identifier_continue_class = cur.read_u32()?;
         let punctuation_chars = cur.read_string()?;
+        let defaults = default_token_policy_lexical_defaults();
+        let mut comment_prefix = defaults.comment_prefix;
+        let mut quote_chars = defaults.quote_chars;
+        let mut escape_char = defaults.escape_char;
+        let mut number_prefix_chars = defaults.number_prefix_chars;
+        let mut number_suffix_binary = defaults.number_suffix_binary;
+        let mut number_suffix_octal = defaults.number_suffix_octal;
+        let mut number_suffix_decimal = defaults.number_suffix_decimal;
+        let mut number_suffix_hex = defaults.number_suffix_hex;
+        let mut operator_chars = defaults.operator_chars;
+        let mut multi_char_operators = defaults.multi_char_operators;
+        if cur.has_remaining() {
+            let marker = cur.peek_u8()?;
+            if marker == TOKS_EXT_MARKER {
+                let _ = cur.read_u8()?;
+                comment_prefix = cur.read_string()?;
+                quote_chars = cur.read_string()?;
+                escape_char = match cur.read_u8()? {
+                    0 => None,
+                    1 => Some(cur.read_u8()? as char),
+                    other => {
+                        return Err(OpcpuCodecError::InvalidChunkFormat {
+                            chunk: "TOKS".to_string(),
+                            detail: format!("invalid bool flag for escape_char: {}", other),
+                        });
+                    }
+                };
+                number_prefix_chars = cur.read_string()?;
+                number_suffix_binary = cur.read_string()?;
+                number_suffix_octal = cur.read_string()?;
+                number_suffix_decimal = cur.read_string()?;
+                number_suffix_hex = cur.read_string()?;
+                operator_chars = cur.read_string()?;
+                let operator_count = cur.read_u32()? as usize;
+                let mut operators = Vec::with_capacity(operator_count);
+                for _ in 0..operator_count {
+                    operators.push(cur.read_string()?);
+                }
+                multi_char_operators = operators;
+            }
+        }
         let owner = match owner_tag {
             0 => ScopedOwner::Family(owner_id),
             1 => ScopedOwner::Cpu(owner_id),
@@ -1057,6 +1230,16 @@ fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCo
             identifier_start_class,
             identifier_continue_class,
             punctuation_chars,
+            comment_prefix,
+            quote_chars,
+            escape_char,
+            number_prefix_chars,
+            number_suffix_binary,
+            number_suffix_octal,
+            number_suffix_decimal,
+            number_suffix_hex,
+            operator_chars,
+            multi_char_operators,
         });
     }
     cur.finish()?;
@@ -1427,6 +1610,19 @@ impl<'a> Decoder<'a> {
         Ok(slice[0])
     }
 
+    fn peek_u8(&self) -> Result<u8, OpcpuCodecError> {
+        self.bytes
+            .get(self.pos)
+            .copied()
+            .ok_or_else(|| OpcpuCodecError::UnexpectedEof {
+                context: format!("chunk {} u8", self.chunk),
+            })
+    }
+
+    fn has_remaining(&self) -> bool {
+        self.pos < self.bytes.len()
+    }
+
     fn read_u32(&mut self) -> Result<u32, OpcpuCodecError> {
         let slice = self.read_exact(4, "u32")?;
         Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
@@ -1585,36 +1781,60 @@ mod tests {
         ]
     }
 
+    fn token_policy_for_test(
+        owner: ScopedOwner,
+        case_rule: TokenCaseRule,
+        identifier_start_class: u32,
+        identifier_continue_class: u32,
+        punctuation_chars: &str,
+    ) -> TokenPolicyDescriptor {
+        let defaults = default_token_policy_lexical_defaults();
+        TokenPolicyDescriptor {
+            owner,
+            case_rule,
+            identifier_start_class,
+            identifier_continue_class,
+            punctuation_chars: punctuation_chars.to_string(),
+            comment_prefix: defaults.comment_prefix,
+            quote_chars: defaults.quote_chars,
+            escape_char: defaults.escape_char,
+            number_prefix_chars: defaults.number_prefix_chars,
+            number_suffix_binary: defaults.number_suffix_binary,
+            number_suffix_octal: defaults.number_suffix_octal,
+            number_suffix_decimal: defaults.number_suffix_decimal,
+            number_suffix_hex: defaults.number_suffix_hex,
+            operator_chars: defaults.operator_chars,
+            multi_char_operators: defaults.multi_char_operators,
+        }
+    }
+
     fn sample_token_policies() -> Vec<TokenPolicyDescriptor> {
         vec![
-            TokenPolicyDescriptor {
-                owner: ScopedOwner::Family("MOS6502".to_string()),
-                case_rule: TokenCaseRule::AsciiLower,
-                identifier_start_class: token_identifier_class::ASCII_ALPHA
-                    | token_identifier_class::UNDERSCORE,
-                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+            token_policy_for_test(
+                ScopedOwner::Family("MOS6502".to_string()),
+                TokenCaseRule::AsciiLower,
+                token_identifier_class::ASCII_ALPHA | token_identifier_class::UNDERSCORE,
+                token_identifier_class::ASCII_ALPHA
                     | token_identifier_class::ASCII_DIGIT
                     | token_identifier_class::UNDERSCORE,
-                punctuation_chars: ")(,+-".to_string(),
-            },
-            TokenPolicyDescriptor {
-                owner: ScopedOwner::Family("mos6502".to_string()),
-                case_rule: TokenCaseRule::AsciiLower,
-                identifier_start_class: token_identifier_class::ASCII_ALPHA
-                    | token_identifier_class::UNDERSCORE,
-                identifier_continue_class: token_identifier_class::ASCII_ALPHA
+                ")(,+-",
+            ),
+            token_policy_for_test(
+                ScopedOwner::Family("mos6502".to_string()),
+                TokenCaseRule::AsciiLower,
+                token_identifier_class::ASCII_ALPHA | token_identifier_class::UNDERSCORE,
+                token_identifier_class::ASCII_ALPHA
                     | token_identifier_class::ASCII_DIGIT
                     | token_identifier_class::UNDERSCORE,
-                punctuation_chars: "-+(),".to_string(),
-            },
-            TokenPolicyDescriptor {
-                owner: ScopedOwner::Cpu("z80".to_string()),
-                case_rule: TokenCaseRule::Preserve,
-                identifier_start_class: token_identifier_class::ASCII_ALPHA,
-                identifier_continue_class: token_identifier_class::ASCII_ALPHA
-                    | token_identifier_class::ASCII_DIGIT,
-                punctuation_chars: "[]()".to_string(),
-            },
+                "-+(),",
+            ),
+            token_policy_for_test(
+                ScopedOwner::Cpu("z80".to_string()),
+                TokenCaseRule::Preserve,
+                token_identifier_class::ASCII_ALPHA,
+                token_identifier_class::ASCII_ALPHA | token_identifier_class::ASCII_DIGIT,
+                "[]()",
+            ),
         ]
     }
 
@@ -1921,30 +2141,30 @@ mod tests {
         let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
 
         assert_eq!(decoded.token_policies.len(), 2);
+        assert!(matches!(
+            &decoded.token_policies[0].owner,
+            ScopedOwner::Family(owner) if owner == "mos6502"
+        ));
         assert_eq!(
-            decoded.token_policies[0],
-            TokenPolicyDescriptor {
-                owner: ScopedOwner::Family("mos6502".to_string()),
-                case_rule: TokenCaseRule::AsciiLower,
-                identifier_start_class: token_identifier_class::ASCII_ALPHA
-                    | token_identifier_class::UNDERSCORE,
-                identifier_continue_class: token_identifier_class::ASCII_ALPHA
-                    | token_identifier_class::ASCII_DIGIT
-                    | token_identifier_class::UNDERSCORE,
-                punctuation_chars: "()+,-".to_string(),
-            }
+            decoded.token_policies[0].case_rule,
+            TokenCaseRule::AsciiLower
         );
+        assert_eq!(decoded.token_policies[0].punctuation_chars, "()+,-");
+        assert_eq!(decoded.token_policies[0].comment_prefix, ";");
+        assert_eq!(decoded.token_policies[0].quote_chars, "\"'");
+        assert_eq!(decoded.token_policies[0].escape_char, Some('\\'));
+        assert_eq!(decoded.token_policies[0].number_prefix_chars, "$%@");
         assert_eq!(
-            decoded.token_policies[1],
-            TokenPolicyDescriptor {
-                owner: ScopedOwner::Cpu("z80".to_string()),
-                case_rule: TokenCaseRule::Preserve,
-                identifier_start_class: token_identifier_class::ASCII_ALPHA,
-                identifier_continue_class: token_identifier_class::ASCII_ALPHA
-                    | token_identifier_class::ASCII_DIGIT,
-                punctuation_chars: "()[]".to_string(),
-            }
+            decoded.token_policies[0].multi_char_operators,
+            vec!["!=", "&&", "**", "<<", "<=", "<>", "==", ">=", ">>", "^^", "||"]
         );
+
+        assert!(matches!(
+            &decoded.token_policies[1].owner,
+            ScopedOwner::Cpu(owner) if owner == "z80"
+        ));
+        assert_eq!(decoded.token_policies[1].case_rule, TokenCaseRule::Preserve);
+        assert_eq!(decoded.token_policies[1].punctuation_chars, "()[]");
     }
 
     #[test]
@@ -1981,5 +2201,49 @@ mod tests {
         let err = decode_hierarchy_chunks(&bytes).expect_err("invalid case rule should fail");
         assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
         assert_eq!(err.code(), "OPC009");
+    }
+
+    #[test]
+    fn decode_legacy_toks_entries_default_extended_fields() {
+        let families = sample_families();
+        let cpus = sample_cpus();
+        let dials = sample_dialects();
+        let mut toks = Vec::new();
+        write_u32(&mut toks, 1);
+        toks.push(0);
+        write_string(&mut toks, "TOKS", "mos6502").expect("owner");
+        toks.push(TokenCaseRule::AsciiLower as u8);
+        write_u32(
+            &mut toks,
+            token_identifier_class::ASCII_ALPHA | token_identifier_class::UNDERSCORE,
+        );
+        write_u32(
+            &mut toks,
+            token_identifier_class::ASCII_ALPHA
+                | token_identifier_class::ASCII_DIGIT
+                | token_identifier_class::UNDERSCORE,
+        );
+        write_string(&mut toks, "TOKS", ",()").expect("punctuation");
+        let chunks = vec![
+            (CHUNK_TOKS, toks),
+            (CHUNK_FAMS, encode_fams_chunk(&families).expect("fams")),
+            (CHUNK_CPUS, encode_cpus_chunk(&cpus).expect("cpus")),
+            (CHUNK_DIAL, encode_dial_chunk(&dials).expect("dial")),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("legacy TOKS decode should succeed");
+        assert_eq!(decoded.token_policies.len(), 1);
+        let policy = &decoded.token_policies[0];
+        assert_eq!(policy.comment_prefix, ";");
+        assert_eq!(policy.quote_chars, "\"'");
+        assert_eq!(policy.escape_char, Some('\\'));
+        assert_eq!(policy.number_prefix_chars, "$%@");
+        assert_eq!(
+            policy.multi_char_operators,
+            vec!["**", "==", "!=", "&&", "||", "^^", "<<", ">>", "<=", ">=", "<>"]
+        );
     }
 }

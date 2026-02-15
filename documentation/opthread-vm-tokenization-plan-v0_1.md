@@ -1,6 +1,6 @@
 # opThread VM Tokenization Plan v0.1
 
-Status: phase 0 complete
+Status: phase 1 complete
 Last updated: 2026-02-15
 Scope: full VM-based tokenization, family/cpu independent behavior
 
@@ -39,9 +39,17 @@ Phase 0 completion artifacts:
 
 ## Phase 1 - TOKS schema closure
 
-- [ ] Extend `TOKS` from hints to complete lexical policy (comment, quote, escape, number policy, operators).
-- [ ] Preserve decode compatibility for existing packages.
-- [ ] Add schema/canonicalization tests for all new fields.
+- [x] Extend `TOKS` from hints to complete lexical policy (comment, quote, escape, number policy, operators).
+- [x] Preserve decode compatibility for existing packages.
+- [x] Add schema/canonicalization tests for all new fields.
+
+Phase 1 completion artifacts:
+- `src/opthread/package.rs` extends `TokenPolicyDescriptor` with full lexical policy fields.
+- `src/opthread/package.rs` encodes extended `TOKS` entries with a backward-compatible extension marker and defaults legacy entries when fields are absent.
+- `src/opthread/package.rs` canonicalizes and deduplicates lexical policy fields deterministically.
+- `src/opthread/builder.rs` emits default lexical policy closures for family-scoped token policies.
+- `src/opthread/runtime.rs` carries extended lexical fields in `RuntimeTokenPolicy` and `PortableTokenizeRequest`.
+- Tests cover extended round-trip and legacy `TOKS` compatibility defaults.
 
 ## Phase 2 - Tokenizer VM ISA
 
