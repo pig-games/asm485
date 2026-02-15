@@ -643,6 +643,10 @@ fn m65c02_bit_branch_opcode(bit: u8, is_set: bool) -> u8 {
 }
 
 /// Build and encode an `.opcpu` container with hierarchy chunks from registry metadata.
+///
+/// This remains the primary Rust-table-driven authoring path for onboarding
+/// new families/CPUs, even when runtime execution consumes loaded package bytes
+/// as source of truth.
 pub fn build_hierarchy_package_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<Vec<u8>, HierarchyBuildError> {
@@ -663,6 +667,7 @@ mod tests {
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
     use crate::opthread::package::{load_hierarchy_package, DIAG_OPTHREAD_MISSING_VM_PROGRAM};
+    use crate::opthread::runtime::HierarchyExecutionModel;
     use crate::z80::extensions::lookup_extension as lookup_z80_extension;
     use crate::z80::module::Z80CpuModule;
 
@@ -788,6 +793,22 @@ mod tests {
         let a = build_hierarchy_package_from_registry(&registry).expect("first build failed");
         let b = build_hierarchy_package_from_registry(&registry).expect("second build failed");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn builder_authoring_path_feeds_runtime_model_construction() {
+        let registry = test_registry();
+        let package_bytes =
+            build_hierarchy_package_from_registry(&registry).expect("encoded package build failed");
+        let model = HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+            .expect("runtime model build from package bytes");
+
+        assert!(model
+            .supports_mnemonic("m6502", None, "lda")
+            .expect("m6502 lda support query"));
+        assert!(model
+            .supports_mnemonic("8085", None, "mvi")
+            .expect("8085 mvi support query"));
     }
 
     #[test]

@@ -71,6 +71,7 @@ opThread rollout status (`opthread-runtime` feature):
 Optional on-disk runtime package artifact mode:
 - Enable feature `opthread-runtime-opcpu-artifact` (in addition to `opthread-runtime`).
 - Runtime then loads/writes `.opcpu` bytes at `target/opthread/opforge-runtime.opcpu` with registry-build fallback.
+- Rust-table-driven package generation remains the supported authoring path for new families/CPUs (`build_hierarchy_package_from_registry`).
 
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
