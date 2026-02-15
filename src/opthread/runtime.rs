@@ -10,7 +10,9 @@ use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
 use crate::core::parser::Expr;
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
-use crate::core::tokenizer::{Token, TokenKind, Tokenizer};
+use crate::core::tokenizer::{
+    NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
+};
 #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::families::intel8080::table::{
     lookup_instruction, ArgType as IntelArgType, InstructionEntry as IntelInstructionEntry,
@@ -160,6 +162,210 @@ impl Default for RuntimeTokenPolicy {
             identifier_start_class: 0,
             identifier_continue_class: 0,
             punctuation_chars: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PortableSpan {
+    pub line: u32,
+    pub col_start: usize,
+    pub col_end: usize,
+}
+
+impl From<Span> for PortableSpan {
+    fn from(value: Span) -> Self {
+        Self {
+            line: value.line,
+            col_start: value.col_start,
+            col_end: value.col_end,
+        }
+    }
+}
+
+impl From<PortableSpan> for Span {
+    fn from(value: PortableSpan) -> Self {
+        Self {
+            line: value.line,
+            col_start: value.col_start,
+            col_end: value.col_end,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortableOperatorKind {
+    Plus,
+    Minus,
+    Multiply,
+    Power,
+    Divide,
+    Mod,
+    Shl,
+    Shr,
+    BitNot,
+    LogicNot,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LogicAnd,
+    LogicOr,
+    LogicXor,
+    Eq,
+    Ne,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+}
+
+impl From<OperatorKind> for PortableOperatorKind {
+    fn from(value: OperatorKind) -> Self {
+        match value {
+            OperatorKind::Plus => Self::Plus,
+            OperatorKind::Minus => Self::Minus,
+            OperatorKind::Multiply => Self::Multiply,
+            OperatorKind::Power => Self::Power,
+            OperatorKind::Divide => Self::Divide,
+            OperatorKind::Mod => Self::Mod,
+            OperatorKind::Shl => Self::Shl,
+            OperatorKind::Shr => Self::Shr,
+            OperatorKind::BitNot => Self::BitNot,
+            OperatorKind::LogicNot => Self::LogicNot,
+            OperatorKind::BitAnd => Self::BitAnd,
+            OperatorKind::BitOr => Self::BitOr,
+            OperatorKind::BitXor => Self::BitXor,
+            OperatorKind::LogicAnd => Self::LogicAnd,
+            OperatorKind::LogicOr => Self::LogicOr,
+            OperatorKind::LogicXor => Self::LogicXor,
+            OperatorKind::Eq => Self::Eq,
+            OperatorKind::Ne => Self::Ne,
+            OperatorKind::Ge => Self::Ge,
+            OperatorKind::Gt => Self::Gt,
+            OperatorKind::Le => Self::Le,
+            OperatorKind::Lt => Self::Lt,
+        }
+    }
+}
+
+impl From<PortableOperatorKind> for OperatorKind {
+    fn from(value: PortableOperatorKind) -> Self {
+        match value {
+            PortableOperatorKind::Plus => Self::Plus,
+            PortableOperatorKind::Minus => Self::Minus,
+            PortableOperatorKind::Multiply => Self::Multiply,
+            PortableOperatorKind::Power => Self::Power,
+            PortableOperatorKind::Divide => Self::Divide,
+            PortableOperatorKind::Mod => Self::Mod,
+            PortableOperatorKind::Shl => Self::Shl,
+            PortableOperatorKind::Shr => Self::Shr,
+            PortableOperatorKind::BitNot => Self::BitNot,
+            PortableOperatorKind::LogicNot => Self::LogicNot,
+            PortableOperatorKind::BitAnd => Self::BitAnd,
+            PortableOperatorKind::BitOr => Self::BitOr,
+            PortableOperatorKind::BitXor => Self::BitXor,
+            PortableOperatorKind::LogicAnd => Self::LogicAnd,
+            PortableOperatorKind::LogicOr => Self::LogicOr,
+            PortableOperatorKind::LogicXor => Self::LogicXor,
+            PortableOperatorKind::Eq => Self::Eq,
+            PortableOperatorKind::Ne => Self::Ne,
+            PortableOperatorKind::Ge => Self::Ge,
+            PortableOperatorKind::Gt => Self::Gt,
+            PortableOperatorKind::Le => Self::Le,
+            PortableOperatorKind::Lt => Self::Lt,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PortableTokenKind {
+    Identifier(String),
+    Register(String),
+    Number { text: String, base: u32 },
+    String { raw: String, bytes: Vec<u8> },
+    Comma,
+    Colon,
+    Dollar,
+    Dot,
+    Hash,
+    Question,
+    OpenBracket,
+    CloseBracket,
+    OpenBrace,
+    CloseBrace,
+    OpenParen,
+    CloseParen,
+    Operator(PortableOperatorKind),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableToken {
+    pub kind: PortableTokenKind,
+    pub span: PortableSpan,
+}
+
+impl PortableToken {
+    fn from_core_token(value: Token) -> Self {
+        let kind = match value.kind {
+            TokenKind::Identifier(name) => PortableTokenKind::Identifier(name),
+            TokenKind::Register(name) => PortableTokenKind::Register(name),
+            TokenKind::Number(NumberLiteral { text, base }) => {
+                PortableTokenKind::Number { text, base }
+            }
+            TokenKind::String(StringLiteral { raw, bytes }) => {
+                PortableTokenKind::String { raw, bytes }
+            }
+            TokenKind::Comma => PortableTokenKind::Comma,
+            TokenKind::Colon => PortableTokenKind::Colon,
+            TokenKind::Dollar => PortableTokenKind::Dollar,
+            TokenKind::Dot => PortableTokenKind::Dot,
+            TokenKind::Hash => PortableTokenKind::Hash,
+            TokenKind::Question => PortableTokenKind::Question,
+            TokenKind::OpenBracket => PortableTokenKind::OpenBracket,
+            TokenKind::CloseBracket => PortableTokenKind::CloseBracket,
+            TokenKind::OpenBrace => PortableTokenKind::OpenBrace,
+            TokenKind::CloseBrace => PortableTokenKind::CloseBrace,
+            TokenKind::OpenParen => PortableTokenKind::OpenParen,
+            TokenKind::CloseParen => PortableTokenKind::CloseParen,
+            TokenKind::Operator(op) => PortableTokenKind::Operator(op.into()),
+            TokenKind::End => unreachable!("end token is not representable as portable token"),
+        };
+        Self {
+            kind,
+            span: value.span.into(),
+        }
+    }
+
+    #[cfg(test)]
+    fn to_core_token(&self) -> Token {
+        let kind = match &self.kind {
+            PortableTokenKind::Identifier(name) => TokenKind::Identifier(name.clone()),
+            PortableTokenKind::Register(name) => TokenKind::Register(name.clone()),
+            PortableTokenKind::Number { text, base } => TokenKind::Number(NumberLiteral {
+                text: text.clone(),
+                base: *base,
+            }),
+            PortableTokenKind::String { raw, bytes } => TokenKind::String(StringLiteral {
+                raw: raw.clone(),
+                bytes: bytes.clone(),
+            }),
+            PortableTokenKind::Comma => TokenKind::Comma,
+            PortableTokenKind::Colon => TokenKind::Colon,
+            PortableTokenKind::Dollar => TokenKind::Dollar,
+            PortableTokenKind::Dot => TokenKind::Dot,
+            PortableTokenKind::Hash => TokenKind::Hash,
+            PortableTokenKind::Question => TokenKind::Question,
+            PortableTokenKind::OpenBracket => TokenKind::OpenBracket,
+            PortableTokenKind::CloseBracket => TokenKind::CloseBracket,
+            PortableTokenKind::OpenBrace => TokenKind::OpenBrace,
+            PortableTokenKind::CloseBrace => TokenKind::CloseBrace,
+            PortableTokenKind::OpenParen => TokenKind::OpenParen,
+            PortableTokenKind::CloseParen => TokenKind::CloseParen,
+            PortableTokenKind::Operator(op) => TokenKind::Operator((*op).into()),
+        };
+        Token {
+            kind,
+            span: self.span.into(),
         }
     }
 }
@@ -341,7 +547,7 @@ pub trait PortableTokenizerAdapter: std::fmt::Debug {
     fn tokenize_statement(
         &self,
         request: &PortableTokenizeRequest<'_>,
-    ) -> Result<Vec<Token>, RuntimeBridgeError>;
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError>;
 }
 
 /// Portable tokenization request envelope for host adapter integration.
@@ -364,7 +570,7 @@ impl PortableTokenizerAdapter for CoreTokenizerAdapter {
     fn tokenize_statement(
         &self,
         request: &PortableTokenizeRequest<'_>,
-    ) -> Result<Vec<Token>, RuntimeBridgeError> {
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
         let mut tokenizer = Tokenizer::new(request.source_line, request.line_num);
         let mut tokens = Vec::new();
         loop {
@@ -374,7 +580,8 @@ impl PortableTokenizerAdapter for CoreTokenizerAdapter {
             if matches!(token.kind, TokenKind::End) {
                 break;
             }
-            tokens.push(apply_token_policy_to_token(token, &request.token_policy));
+            let portable = PortableToken::from_core_token(token);
+            tokens.push(apply_token_policy_to_token(portable, &request.token_policy));
         }
         Ok(tokens)
     }
@@ -646,7 +853,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
         source_line: &str,
         line_num: u32,
-    ) -> Result<Vec<Token>, RuntimeBridgeError> {
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
         let request = PortableTokenizeRequest {
             family_id: resolved.family_id.as_str(),
@@ -1330,17 +1537,17 @@ fn force_suffix(force: OperandForce) -> &'static str {
     }
 }
 
-fn apply_token_policy_to_token(token: Token, policy: &RuntimeTokenPolicy) -> Token {
+fn apply_token_policy_to_token(token: PortableToken, policy: &RuntimeTokenPolicy) -> PortableToken {
     let kind = match token.kind {
-        TokenKind::Identifier(name) => {
-            TokenKind::Identifier(apply_identifier_case_rule(name, policy.case_rule))
+        PortableTokenKind::Identifier(name) => {
+            PortableTokenKind::Identifier(apply_identifier_case_rule(name, policy.case_rule))
         }
-        TokenKind::Register(name) => {
-            TokenKind::Register(apply_identifier_case_rule(name, policy.case_rule))
+        PortableTokenKind::Register(name) => {
+            PortableTokenKind::Register(apply_identifier_case_rule(name, policy.case_rule))
         }
         other => other,
     };
-    Token {
+    PortableToken {
         kind,
         span: token.span,
     }
@@ -1972,7 +2179,7 @@ mod tests {
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use std::collections::HashMap;
 
-    fn tokenize_host_line(line: &str, line_num: u32) -> Vec<Token> {
+    fn tokenize_host_line(line: &str, line_num: u32) -> Vec<PortableToken> {
         let mut tokenizer = Tokenizer::new(line, line_num);
         let mut tokens = Vec::new();
         loop {
@@ -1980,7 +2187,7 @@ mod tests {
             if matches!(token.kind, TokenKind::End) {
                 break;
             }
-            tokens.push(token);
+            tokens.push(PortableToken::from_core_token(token));
         }
         tokens
     }
@@ -2527,7 +2734,80 @@ mod tests {
         let tokens = model
             .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, "LDA #$42", 1)
             .expect("portable tokenization should succeed");
-        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(name) if name == "lda"));
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "lda"
+        ));
+    }
+
+    #[test]
+    fn portable_token_contract_round_trips_core_token_model() {
+        let mut tokenizer = Tokenizer::new("LDA #$42", 3);
+        let mut core_tokens = Vec::new();
+        loop {
+            let token = tokenizer.next_token().expect("token");
+            if matches!(token.kind, TokenKind::End) {
+                break;
+            }
+            core_tokens.push(token);
+        }
+        let portable_tokens: Vec<PortableToken> = core_tokens
+            .iter()
+            .cloned()
+            .map(PortableToken::from_core_token)
+            .collect();
+        let round_trip: Vec<Token> = portable_tokens
+            .iter()
+            .map(PortableToken::to_core_token)
+            .collect();
+        assert_eq!(core_tokens, round_trip);
+    }
+
+    #[test]
+    fn execution_model_token_policy_resolution_prefers_dialect_then_cpu_then_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.token_policies.push(TokenPolicyDescriptor {
+            owner: ScopedOwner::Family("mos6502".to_string()),
+            case_rule: TokenCaseRule::AsciiLower,
+            identifier_start_class: token_identifier_class::ASCII_ALPHA,
+            identifier_continue_class: token_identifier_class::ASCII_ALPHA,
+            punctuation_chars: ",".to_string(),
+        });
+        chunks.token_policies.push(TokenPolicyDescriptor {
+            owner: ScopedOwner::Cpu("m6502".to_string()),
+            case_rule: TokenCaseRule::Preserve,
+            identifier_start_class: token_identifier_class::ASCII_ALPHA,
+            identifier_continue_class: token_identifier_class::ASCII_ALPHA,
+            punctuation_chars: ",".to_string(),
+        });
+        chunks.token_policies.push(TokenPolicyDescriptor {
+            owner: ScopedOwner::Dialect("transparent".to_string()),
+            case_rule: TokenCaseRule::AsciiUpper,
+            identifier_start_class: token_identifier_class::ASCII_ALPHA,
+            identifier_continue_class: token_identifier_class::ASCII_ALPHA,
+            punctuation_chars: ",".to_string(),
+        });
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+
+        let policy = model
+            .resolve_token_policy("m6502", None)
+            .expect("policy should resolve");
+        assert_eq!(policy.case_rule, TokenCaseRule::AsciiUpper);
+
+        let tokens = model
+            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, "lda", 1)
+            .expect("tokenization should succeed");
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "LDA"
+        ));
     }
 
     #[test]
