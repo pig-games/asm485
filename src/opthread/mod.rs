@@ -6,6 +6,7 @@
 pub mod builder;
 pub mod hierarchy;
 pub(crate) mod intel8080_vm;
+pub mod native6502;
 pub mod package;
 pub mod rewrite;
 pub(crate) mod rollout;

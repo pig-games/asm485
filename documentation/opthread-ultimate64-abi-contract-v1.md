@@ -85,4 +85,5 @@ The Rust host includes ABI-oriented conformance tests for this contract, includi
 - contiguous TOC payload layout checks
 - diagnostic catalog coverage for parser/tokenizer/runtime code namespaces
 - runtime ownership independence after loading from package bytes
-
+- 6502-native harness envelope smoke flow (`load_package -> set_pipeline -> tokenize/parse/encode`)
+- fixture-backed failure namespace shakeout through harness boundary (`OPC`, `OTR`, `ott`, `otp`)

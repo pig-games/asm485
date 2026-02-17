@@ -13,7 +13,8 @@ use crate::core::parser::{
 };
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::core::tokenizer::{
-    ConditionalKind, NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
+    register_checker_none, ConditionalKind, NumberLiteral, OperatorKind, Span, StringLiteral,
+    Token, TokenKind, Tokenizer,
 };
 use crate::families::intel8080::handler::resolve_operands as resolve_intel8080_operands;
 use crate::families::intel8080::table::{
@@ -1827,6 +1828,25 @@ impl HierarchyExecutionModel {
             })?;
 
         Parser::parse_expr_from_tokens(tokens, end_span, end_token_text)
+    }
+
+    pub fn parse_portable_line_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        line: &str,
+        line_num: u32,
+    ) -> Result<PortableLineAst, ParseError> {
+        let register_checker = register_checker_none();
+        let (line_ast, _, _) = crate::opthread::token_bridge::parse_line_with_model(
+            self,
+            cpu_id,
+            dialect_override,
+            line,
+            line_num,
+            &register_checker,
+        )?;
+        Ok(PortableLineAst::from_core_line_ast(&line_ast))
     }
 
     pub fn resolve_tokenizer_vm_parity_checklist(

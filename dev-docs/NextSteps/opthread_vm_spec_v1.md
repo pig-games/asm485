@@ -159,6 +159,18 @@ Forward-compatibility is explicit:
 Conformance for this envelope is locked by runtime constants/tests in:
 - `src/opthread/runtime.rs`
 
+Reference harness implementation for this envelope is:
+- `src/opthread/native6502.rs`
+
+The harness flow for v1 smoke conformance is:
+1. `init`
+2. `load_package`
+3. `set_pipeline`
+4. `tokenize_line`
+5. `parse_line`
+6. `encode_instruction`
+7. `last_error`
+
 ABI-facing contract details for this target class are captured in:
 - `documentation/opthread-ultimate64-abi-contract-v1.md`
 

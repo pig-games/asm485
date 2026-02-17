@@ -29,12 +29,14 @@ All items below are true:
 - Expression diagnostic shape/span parity corpus is covered by regression tests.
 - Parser VM envelope now includes dedicated staged primitives for dot-directive, star-org, assignment, and instruction forms.
 - Default parser VM sequencing now uses primitive envelopes plus deterministic terminal parser diagnostics (no default statement-envelope fallback dependency).
+- Native 6502 host harness v1 envelope is implemented with ordinal-driven entrypoints and control-block status/length reporting.
+- Native harness shakeout fixtures now cover deterministic success flow and `OPC`/`OTR`/`ott`/`otp` failure namespaces through the harness boundary.
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
 - Phase P4 retro profile enforcement is complete.
 - Phase P5 Ultimate64 portability contract hardening is complete.
-- Phase P6 6502-native host ABI shakeout is in progress.
+- Phase P6 6502-native host ABI shakeout is complete.
 
 ## 4. Workstream Phases
 
@@ -92,8 +94,8 @@ Acceptance:
 - [x] Define and freeze a 6502-native host control-block envelope with fixed offsets/widths.
 - [x] Define and freeze stable native entrypoint ordinals for v1 jump-table integration.
 - [x] Reserve capability bits for forward-compatible `.struct`/`.enum` ABI growth.
-- [ ] Build external harness smoke flow (`load package -> set pipeline -> tokenize/parse/encode`) against the frozen envelope.
-- [ ] Add fixture-backed shakeout cases for deterministic success and failure (`OPC`, `OTR`, `ott`, `otp`) through the harness boundary.
+- [x] Build external harness smoke flow (`load package -> set pipeline -> tokenize/parse/encode`) against the frozen envelope.
+- [x] Add fixture-backed shakeout cases for deterministic success and failure (`OPC`, `OTR`, `ott`, `otp`) through the harness boundary.
 
 Acceptance:
 - A 6502 assembler/machine-language host can integrate against one stable v1 in-memory envelope without relying on C ABI assumptions.
@@ -121,4 +123,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Implement the external 6502-native harness smoke flow for the frozen v1 envelope and validate deterministic success/failure fixture behavior.
+Bridge the Rust native harness envelope to a real external Ultimate64-class host harness and validate identical fixture outcomes across the process boundary.
