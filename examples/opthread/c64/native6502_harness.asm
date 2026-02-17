@@ -70,6 +70,10 @@ OPC_BAD_HEADER_LEN    .const 11
 
 ; PETSCII "m6502\0"
 SET_PIPELINE_PAYLOAD_LEN .const 6
+SET_PIPELINE_MIN_LEN     .const 2
+SET_PIPELINE_CPU_LEN     .const 5
+OTR_NO_PACKAGE_ERROR_LEN .const 10
+OTR_BAD_PIPELINE_LEN     .const 11
 UNIMPL_ERROR_LEN         .const 12
 
 .region c64mem, $0801, $2000, align=1
@@ -131,6 +135,10 @@ entry_load_package:
 entry_set_pipeline:
     lda #ENTRY_ORD_SET_PIPELINE
     sta current_entry
+    lda #<set_pipeline_payload
+    sta control_block + CB_INPUT_PTR_LO
+    lda #>set_pipeline_payload
+    sta control_block + CB_INPUT_PTR_HI
     lda #SET_PIPELINE_PAYLOAD_LEN
     sta current_input_len
     jsr prepare_request
@@ -214,6 +222,10 @@ handle_init:
     sta control_block + CB_CAP_FLAGS_LO
     lda #$00
     sta control_block + CB_CAP_FLAGS_HI
+
+    lda #0
+    sta package_is_loaded
+    sta pipeline_is_set
 
     lda #STATUS_OK
     ldy #0
@@ -347,6 +359,8 @@ handle_load_package:
 
     lda load_pkg_loaded_flag_table, x
     sta package_is_loaded
+    lda #0
+    sta pipeline_is_set
 
     lda load_pkg_status_table, x
     ldy #0
@@ -359,7 +373,79 @@ handle_load_package:
     rts
 
 handle_set_pipeline:
-    jsr set_unimplemented_runtime_error
+    lda package_is_loaded
+    bne set_pipeline_check_ptr
+    lda #OTR_NO_PACKAGE_ERROR_LEN
+    jsr set_runtime_error_len
+    rts
+
+set_pipeline_check_ptr:
+    lda control_block + CB_INPUT_PTR_LO
+    sta ZP_INPUT_PTR_LO
+    lda control_block + CB_INPUT_PTR_HI
+    sta ZP_INPUT_PTR_HI
+    lda ZP_INPUT_PTR_LO
+    ora ZP_INPUT_PTR_HI
+    bne set_pipeline_check_len
+    lda #OTR_BAD_REQ_ERROR_LEN
+    jsr set_bad_request_len
+    rts
+
+set_pipeline_check_len:
+    lda control_block + CB_INPUT_LEN_HI
+    bne set_pipeline_bad_request
+    lda control_block + CB_INPUT_LEN_LO
+    cmp #SET_PIPELINE_MIN_LEN
+    bcs set_pipeline_find_separator
+set_pipeline_bad_request:
+    lda #OTR_BAD_REQ_ERROR_LEN
+    jsr set_bad_request_len
+    rts
+
+set_pipeline_find_separator:
+    ldy #0
+set_pipeline_find_separator_loop:
+    cpy control_block + CB_INPUT_LEN_LO
+    beq set_pipeline_bad_request
+    lda (ZP_INPUT_PTR_LO), y
+    beq set_pipeline_separator_found
+    iny
+    bne set_pipeline_find_separator_loop
+    beq set_pipeline_bad_request
+
+set_pipeline_separator_found:
+    ; y contains cpu_id byte length.
+    cpy #0
+    beq set_pipeline_bad_request
+    cpy #SET_PIPELINE_CPU_LEN
+    bne set_pipeline_unsupported
+
+    ldy #0
+set_pipeline_compare_cpu_loop:
+    lda (ZP_INPUT_PTR_LO), y
+    cmp set_pipeline_payload, y
+    bne set_pipeline_unsupported
+    iny
+    cpy #SET_PIPELINE_CPU_LEN
+    bne set_pipeline_compare_cpu_loop
+
+    ; v1 scaffold supports cpu_id "m6502" with no dialect suffix.
+    lda control_block + CB_INPUT_LEN_LO
+    cmp #SET_PIPELINE_PAYLOAD_LEN
+    bne set_pipeline_unsupported
+
+    lda #1
+    sta pipeline_is_set
+    lda #STATUS_OK
+    ldy #0
+    jsr set_status
+    jsr clear_output_len
+    jsr clear_last_error_len
+    rts
+
+set_pipeline_unsupported:
+    lda #OTR_BAD_PIPELINE_LEN
+    jsr set_runtime_error_len
     rts
 
 handle_tokenize:
@@ -479,6 +565,8 @@ last_status_snapshot:
     .byte 0
 package_is_loaded:
     .byte 0
+pipeline_is_set:
+    .byte 0
 loaded_pkg_ptr_lo:
     .byte 0
 loaded_pkg_ptr_hi:
@@ -522,6 +610,12 @@ sample_opcpu_header:
 otr_bad_req_error:
     ; "OTR_BAD_REQ"
     .byte $4f, $54, $52, $5f, $42, $41, $44, $5f, $52, $45, $51
+otr_no_package_error:
+    ; "OTR_NO_PKG"
+    .byte $4f, $54, $52, $5f, $4e, $4f, $5f, $50, $4b, $47
+otr_bad_pipeline_error:
+    ; "OTR_BAD_CPU"
+    .byte $4f, $54, $52, $5f, $42, $41, $44, $5f, $43, $50, $55
 opc_bad_header_error:
     ; "OPC_BAD_HDR"
     .byte $4f, $50, $43, $5f, $42, $41, $44, $5f, $48, $44, $52

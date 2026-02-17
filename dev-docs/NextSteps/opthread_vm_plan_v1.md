@@ -108,7 +108,7 @@ Acceptance:
 ## Phase P7: External Native Host PoC (C64/VICE first)
 - [x] Add a real opForge-format C64/VICE harness scaffold that runs as PRG and exercises entrypoint dispatch/control-block status handling.
 - [x] Replace `load_package` runtime-error stub with pointer/length + minimal package-header validation (`OPCP`, version, endian marker).
-- [ ] Replace `set_pipeline` runtime-error stub with native pipeline-selection checks against loaded-package state.
+- [x] Replace `set_pipeline` runtime-error stub with native pipeline-selection checks against loaded-package state.
 - [ ] Replace line/token/encode runtime-error stubs incrementally while preserving control-block and wire payload contracts.
 - [ ] Replay `.optst` fixture vectors through the native harness wire payload path and assert deterministic status/error namespace parity.
 
@@ -138,4 +138,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Wire the C64/VICE harness scaffold to the next native handler (`set_pipeline`) while keeping control-block and wire payload behavior stable.
+Wire the C64/VICE harness scaffold to the next native handlers (`tokenize_line`, `parse_line`, `encode_instruction`) while keeping control-block and wire payload behavior stable.
