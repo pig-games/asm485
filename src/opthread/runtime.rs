@@ -26,7 +26,8 @@ use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 use crate::opthread::intel8080_vm::{
-    mode_key_for_instruction_entry, mode_key_for_z80_interrupt_mode, prefix_len,
+    mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb, mode_key_for_z80_interrupt_mode,
+    prefix_len,
 };
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
@@ -1775,6 +1776,12 @@ impl HierarchyExecutionModel {
             Err(_) => return Ok(None),
         };
 
+        if let Some(candidate) =
+            intel8080_indexed_cb_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
+        {
+            return Ok(Some(vec![candidate]));
+        }
+
         let Some(entry) = intel8080_lookup_instruction_entry(
             mnemonic,
             resolved.cpu_id.as_str(),
@@ -1938,6 +1945,69 @@ fn intel8080_interrupt_mode_for_entry(
     };
     if mode <= 2 {
         Some(mode)
+    } else {
+        None
+    }
+}
+
+fn intel8080_indexed_cb_candidate(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+) -> Option<VmEncodeCandidate> {
+    if !cpu_id.eq_ignore_ascii_case("z80") {
+        return None;
+    }
+
+    let upper = mnemonic.to_ascii_uppercase();
+    let (base, displacement) = match upper.as_str() {
+        "BIT" | "RES" | "SET" => {
+            if operands.len() != 2 {
+                return None;
+            }
+            let bit = intel8080_bit_value(&operands[0])?;
+            let (base, displacement) = intel8080_indexed_base_disp(&operands[1])?;
+            let mode_key = mode_key_for_z80_indexed_cb(base, &upper, Some(bit))?;
+            return Some(VmEncodeCandidate {
+                mode_key,
+                operand_bytes: vec![vec![displacement]],
+            });
+        }
+        "RLC" | "RRC" | "RL" | "RR" | "SLA" | "SRA" | "SLL" | "SRL" => {
+            if operands.len() != 1 {
+                return None;
+            }
+            intel8080_indexed_base_disp(&operands[0])?
+        }
+        _ => return None,
+    };
+
+    let mode_key = mode_key_for_z80_indexed_cb(base, &upper, None)?;
+    Some(VmEncodeCandidate {
+        mode_key,
+        operand_bytes: vec![vec![displacement]],
+    })
+}
+
+fn intel8080_indexed_base_disp(operand: &IntelOperand) -> Option<(&str, u8)> {
+    match operand {
+        IntelOperand::Indexed { base, offset, .. }
+            if base.eq_ignore_ascii_case("ix") || base.eq_ignore_ascii_case("iy") =>
+        {
+            Some((base.as_str(), *offset as u8))
+        }
+        _ => None,
+    }
+}
+
+fn intel8080_bit_value(operand: &IntelOperand) -> Option<u8> {
+    let bit = match operand {
+        IntelOperand::BitNumber(value, _) | IntelOperand::Immediate8(value, _) => *value,
+        IntelOperand::Immediate16(value, _) => (*value).try_into().ok()?,
+        _ => return None,
+    };
+    if bit <= 7 {
+        Some(bit)
     } else {
         None
     }
@@ -4579,6 +4649,42 @@ mod tests {
         assert_eq!(im0, Some(vec![0xED, 0x46]));
         assert_eq!(im1, Some(vec![0xED, 0x56]));
         assert_eq!(im2, Some(vec![0xED, 0x5E]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_indexed_cb_rotate() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+        let operands = [Expr::Indirect(
+            Box::new(Expr::Identifier("IX".to_string(), span)),
+            span,
+        )];
+
+        let bytes = model
+            .encode_instruction_from_exprs("z80", None, "RLC", &operands, &ctx)
+            .expect("RLC (IX) should resolve");
+
+        assert_eq!(bytes, Some(vec![0xDD, 0xCB, 0x00, 0x06]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_indexed_cb_bit() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+        let operands = [
+            Expr::Number("2".to_string(), span),
+            Expr::Indirect(Box::new(Expr::Identifier("IY".to_string(), span)), span),
+        ];
+
+        let bytes = model
+            .encode_instruction_from_exprs("z80", None, "BIT", &operands, &ctx)
+            .expect("BIT 2,(IY) should resolve");
+
+        assert_eq!(bytes, Some(vec![0xFD, 0xCB, 0x00, 0x56]));
     }
 
     #[test]

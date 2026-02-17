@@ -20,7 +20,7 @@ pub(crate) fn mode_key_for_instruction_entry(entry: &InstructionEntry) -> String
 pub(crate) fn compile_vm_program_for_instruction_entry(
     entry: &InstructionEntry,
 ) -> Option<Vec<u8>> {
-    // DD/FD CB forms still require host-side encode specialization.
+    // `IM` and indexed CB forms are emitted via dedicated helpers.
     if matches!(entry.arg_type, ArgType::Im) {
         return None;
     }
@@ -66,6 +66,55 @@ pub(crate) fn compile_vm_program_for_z80_interrupt_mode(mode: u8) -> Option<Vec<
     Some(vec![OP_EMIT_U8, 0xED, OP_EMIT_U8, opcode, OP_END])
 }
 
+pub(crate) fn mode_key_for_z80_indexed_cb(
+    base: &str,
+    mnemonic: &str,
+    bit: Option<u8>,
+) -> Option<String> {
+    let base_key = indexed_cb_base_key(base)?;
+    let upper = mnemonic.to_ascii_uppercase();
+    let mnemonic_key = upper.to_ascii_lowercase();
+    if matches!(upper.as_str(), "BIT" | "RES" | "SET") {
+        let bit = bit?;
+        if bit > 7 {
+            return None;
+        }
+        Some(format!("cbidx={base_key}:{mnemonic_key}:{bit}"))
+    } else {
+        if bit.is_some() {
+            return None;
+        }
+        if !matches!(
+            upper.as_str(),
+            "RLC" | "RRC" | "RL" | "RR" | "SLA" | "SRA" | "SLL" | "SRL"
+        ) {
+            return None;
+        }
+        Some(format!("cbidx={base_key}:{mnemonic_key}"))
+    }
+}
+
+pub(crate) fn compile_vm_program_for_z80_indexed_cb(
+    base: &str,
+    mnemonic: &str,
+    bit: Option<u8>,
+) -> Option<Vec<u8>> {
+    let prefix = indexed_cb_prefix(base)?;
+    let opcode = z80_indexed_cb_opcode(mnemonic, bit)?;
+
+    Some(vec![
+        OP_EMIT_U8,
+        prefix,
+        OP_EMIT_U8,
+        0xCB,
+        OP_EMIT_OPERAND,
+        0,
+        OP_EMIT_U8,
+        opcode,
+        OP_END,
+    ])
+}
+
 pub(crate) fn prefix_len(prefix: Prefix) -> usize {
     prefix_bytes(prefix).len()
 }
@@ -109,5 +158,49 @@ fn reg_key(reg: &str) -> String {
         "_".to_string()
     } else {
         reg.to_ascii_lowercase()
+    }
+}
+
+fn indexed_cb_prefix(base: &str) -> Option<u8> {
+    match base.to_ascii_uppercase().as_str() {
+        "IX" => Some(0xDD),
+        "IY" => Some(0xFD),
+        _ => None,
+    }
+}
+
+fn indexed_cb_base_key(base: &str) -> Option<&'static str> {
+    match base.to_ascii_uppercase().as_str() {
+        "IX" => Some("ix"),
+        "IY" => Some("iy"),
+        _ => None,
+    }
+}
+
+fn z80_indexed_cb_opcode(mnemonic: &str, bit: Option<u8>) -> Option<u8> {
+    let upper = mnemonic.to_ascii_uppercase();
+    match upper.as_str() {
+        "RLC" => Some(0x06),
+        "RRC" => Some(0x0E),
+        "RL" => Some(0x16),
+        "RR" => Some(0x1E),
+        "SLA" => Some(0x26),
+        "SRA" => Some(0x2E),
+        "SLL" => Some(0x36),
+        "SRL" => Some(0x3E),
+        "BIT" | "RES" | "SET" => {
+            let bit = bit?;
+            if bit > 7 {
+                return None;
+            }
+            let base = match upper.as_str() {
+                "BIT" => 0x40,
+                "RES" => 0x80,
+                "SET" => 0xC0,
+                _ => unreachable!(),
+            };
+            Some(base | (bit << 3) | 0x06)
+        }
+        _ => None,
     }
 }
