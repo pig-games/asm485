@@ -37,7 +37,7 @@ impl Assembler {
             registry,
             root_metadata: RootMetadata::default(),
             module_macro_names: HashMap::new(),
-            opthread_runtime_enabled: false,
+            opthread_runtime_enabled: true,
         }
     }
 

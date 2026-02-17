@@ -989,7 +989,7 @@ impl<'a> AsmLine<'a> {
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
             opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
-            opthread_runtime_enabled: false,
+            opthread_runtime_enabled: true,
             text_encoding_registry,
             active_text_encoding,
             encoding_scope_stack: Vec::new(),
