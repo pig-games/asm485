@@ -150,6 +150,9 @@ pub struct RuntimeBudgetLimits {
     pub max_operand_bytes_per_operand: usize,
     pub max_vm_program_bytes: usize,
     pub max_selectors_scanned_per_instruction: usize,
+    pub max_parser_tokens_per_line: usize,
+    pub max_parser_ast_nodes_per_line: usize,
+    pub max_parser_vm_program_bytes: usize,
     pub max_tokenizer_steps_per_line: u32,
     pub max_tokenizer_tokens_per_line: u32,
     pub max_tokenizer_lexeme_bytes: u32,
@@ -1087,6 +1090,9 @@ impl RuntimeBudgetProfile {
                 max_operand_bytes_per_operand: 8,
                 max_vm_program_bytes: 128,
                 max_selectors_scanned_per_instruction: 512,
+                max_parser_tokens_per_line: 512,
+                max_parser_ast_nodes_per_line: 1024,
+                max_parser_vm_program_bytes: 256,
                 max_tokenizer_steps_per_line: 4096,
                 max_tokenizer_tokens_per_line: 256,
                 max_tokenizer_lexeme_bytes: 256,
@@ -1098,6 +1104,9 @@ impl RuntimeBudgetProfile {
                 max_operand_bytes_per_operand: 4,
                 max_vm_program_bytes: 48,
                 max_selectors_scanned_per_instruction: 128,
+                max_parser_tokens_per_line: 128,
+                max_parser_ast_nodes_per_line: 128,
+                max_parser_vm_program_bytes: 96,
                 max_tokenizer_steps_per_line: 512,
                 max_tokenizer_tokens_per_line: 64,
                 max_tokenizer_lexeme_bytes: 32,
@@ -1719,13 +1728,20 @@ impl HierarchyExecutionModel {
                 ))
             })?;
         self.ensure_parser_contract_compatible_for_assembler(&contract)?;
-        let max_nodes = contract.max_ast_nodes_per_line as usize;
+        let error_code = parser_contract_error_code(&contract);
+        let parser_token_budget = self.budget_limits.max_parser_tokens_per_line;
+        if estimated_ast_nodes > parser_token_budget {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: parser token budget exceeded ({} > {})",
+                error_code, estimated_ast_nodes, parser_token_budget
+            )));
+        }
+        let max_nodes = (contract.max_ast_nodes_per_line as usize)
+            .min(self.budget_limits.max_parser_ast_nodes_per_line);
         if estimated_ast_nodes > max_nodes {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: parser AST node budget exceeded ({} > {})",
-                parser_contract_error_code(&contract),
-                estimated_ast_nodes,
-                max_nodes
+                error_code, estimated_ast_nodes, max_nodes
             )));
         }
         Ok(contract)
@@ -1738,6 +1754,24 @@ impl HierarchyExecutionModel {
     ) -> Result<Option<RuntimeParserVmProgram>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
         Ok(self.parser_vm_program_for_resolved(&resolved))
+    }
+
+    pub fn enforce_parser_vm_program_budget_for_assembler(
+        &self,
+        parser_contract: &RuntimeParserContract,
+        parser_vm_program: &RuntimeParserVmProgram,
+    ) -> Result<(), RuntimeBridgeError> {
+        let max_bytes = self.budget_limits.max_parser_vm_program_bytes;
+        let actual = parser_vm_program.program.len();
+        if actual > max_bytes {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: parser VM program byte budget exceeded ({} > {})",
+                parser_contract_error_code(parser_contract),
+                actual,
+                max_bytes
+            )));
+        }
+        Ok(())
     }
 
     pub fn parse_expression_for_assembler(
@@ -5145,6 +5179,76 @@ mod tests {
             .encode_instruction_from_exprs("m6502", None, "LDA", &operands, &ctx)
             .expect_err("selector scan budget should reject evaluation");
         assert!(err.to_string().contains("selector_scan_count"));
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_parser_token_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_parser_tokens_per_line = 1;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let (tokens, end_span) = tokenize_core_expr_tokens("1+2", 1);
+        let err = model
+            .parse_expression_for_assembler("m6502", None, tokens, end_span, None)
+            .expect_err("parser token budget should reject oversized expression token stream");
+        assert!(err.message.contains("parser token budget exceeded"));
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_parser_ast_node_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_parser_ast_nodes_per_line = 1;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 2)
+            .expect_err("runtime parser AST budget should cap estimated nodes");
+        assert!(err.to_string().contains("parser AST node budget exceeded"));
+    }
+
+    #[test]
+    fn execution_model_budget_rejects_parser_vm_program_byte_overflow() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_parser_vm_program_bytes = 1;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let contract = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect("parser contract should validate");
+        let program = model
+            .resolve_parser_vm_program("m6502", None)
+            .expect("parser VM program resolution should succeed")
+            .expect("parser VM program should exist");
+        let err = model
+            .enforce_parser_vm_program_budget_for_assembler(&contract, &program)
+            .expect_err("runtime parser VM program budget should reject oversized program");
+        assert!(err
+            .to_string()
+            .contains("parser VM program byte budget exceeded"));
     }
 
     #[test]

@@ -104,6 +104,9 @@ pub(crate) fn parse_line_with_model(
                 ),
             )
         })?;
+    model
+        .enforce_parser_vm_program_budget_for_assembler(&parser_contract, &parser_vm_program)
+        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
     let line_ast = parse_line_with_parser_vm(
         tokens,
         end_span,
@@ -2790,5 +2793,46 @@ mod tests {
             message.to_ascii_lowercase().contains("otp004"),
             "expected parser contract diagnostic code in error, got: {message}"
         );
+    }
+
+    #[test]
+    fn parse_line_with_model_enforces_parser_vm_program_byte_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+            .expect("hierarchy chunks build");
+        for program in &mut chunks.parser_vm_programs {
+            if matches!(
+                program.owner,
+                crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("mos6502")
+            ) {
+                program.program = vec![ParserVmOpcode::ParseInstructionEnvelope as u8; 100];
+            }
+        }
+        let mut model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
+        model.set_runtime_budget_profile(
+            crate::opthread::runtime::RuntimeBudgetProfile::RetroConstrained,
+        );
+        let register_checker = register_checker_none();
+        let err = parse_line_with_model(
+            &model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "    NOP",
+            1,
+            &register_checker,
+        )
+        .expect_err("oversized parser VM program should fail in retro profile");
+        assert!(err
+            .message
+            .contains("parser VM program byte budget exceeded"));
     }
 }
