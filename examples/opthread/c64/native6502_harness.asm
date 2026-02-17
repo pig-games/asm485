@@ -44,11 +44,21 @@ CAP_STRUCT_META .const 2
 CAP_ENUM_META   .const 4
 CAP_FLAGS_V1    .const CAP_EXT_TLV | CAP_STRUCT_META | CAP_ENUM_META
 
-C64_SCREEN      .const $0400
 C64_BGCOLOR     .const $D021
 C64_BORDERCOLOR .const $D020
+C64_CHROUT      .const $FFD2
 
-; "m6502\0"
+PETSCII_CLR_HOME .const $93
+PETSCII_O        .const $4f
+PETSCII_T        .const $54
+PETSCII_6        .const $36
+PETSCII_5        .const $35
+PETSCII_SPACE    .const $20
+PETSCII_S        .const $53
+PETSCII_C        .const $43
+PETSCII_F        .const $46
+
+; PETSCII "m6502\0"
 SET_PIPELINE_PAYLOAD_LEN .const 6
 UNIMPL_ERROR_LEN         .const 12
 
@@ -267,23 +277,25 @@ apply_status_color:
     lda status_color_table, x
     sta C64_BORDERCOLOR
 
-    ; screen signature so bring-up status is visible in emulator screenshots.
-    lda #$4f ; O
-    sta C64_SCREEN + 0
-    lda #$54 ; T
-    sta C64_SCREEN + 1
-    lda #$36 ; 6
-    sta C64_SCREEN + 2
-    lda #$35 ; 5
-    sta C64_SCREEN + 3
-    lda #$20 ; space
-    sta C64_SCREEN + 4
-    lda #$53 ; S
-    sta C64_SCREEN + 5
-    lda #$43 ; C
-    sta C64_SCREEN + 6
-    lda #$46 ; F
-    sta C64_SCREEN + 7
+    ; Print signature via KERNAL CHROUT using PETSCII bytes.
+    lda #PETSCII_CLR_HOME
+    jsr C64_CHROUT
+    lda #PETSCII_O
+    jsr C64_CHROUT
+    lda #PETSCII_T
+    jsr C64_CHROUT
+    lda #PETSCII_6
+    jsr C64_CHROUT
+    lda #PETSCII_5
+    jsr C64_CHROUT
+    lda #PETSCII_SPACE
+    jsr C64_CHROUT
+    lda #PETSCII_S
+    jsr C64_CHROUT
+    lda #PETSCII_C
+    jsr C64_CHROUT
+    lda #PETSCII_F
+    jsr C64_CHROUT
     rts
 .endsection
 
