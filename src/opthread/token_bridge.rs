@@ -252,6 +252,19 @@ fn parse_line_with_parser_vm(
                     parsed_line = Some(line);
                 }
             }
+            ParserVmOpcode::ParseStarOrgEnvelope => {
+                if parsed_line.is_some() {
+                    continue;
+                }
+                if let Some(line) = parse_star_org_envelope_from_tokens(
+                    &tokens,
+                    end_span,
+                    end_token_text.clone(),
+                    &exec_ctx.expr_parse_ctx,
+                )? {
+                    parsed_line = Some(line);
+                }
+            }
             ParserVmOpcode::ParseAssignmentEnvelope => {
                 if parsed_line.is_some() {
                     continue;
@@ -363,24 +376,15 @@ fn parse_statement_envelope_from_tokens(
         }));
     }
 
-    if label.is_none() && is_star_org_assignment(tokens, idx) {
-        if idx.saturating_add(2) >= tokens.len() {
-            return Err(ParseError {
-                message: "Expected expression".to_string(),
-                span: end_span,
-            });
-        }
-        let expr = parse_expr_with_vm_contract(
-            expr_parse_ctx,
-            tokens[idx.saturating_add(2)..].to_vec(),
-            end_span,
-            end_token_text,
-        )?;
-        return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
-            label,
-            mnemonic: Some(".org".to_string()),
-            operands: vec![expr],
-        }));
+    if let Some(line) = parse_star_org_at(
+        tokens,
+        idx,
+        label.clone(),
+        end_span,
+        end_token_text.clone(),
+        expr_parse_ctx,
+    )? {
+        return Ok(PortableLineAst::from_core_line_ast(&line));
     }
     if let Some(line) = parse_assignment_at(
         tokens,
@@ -493,6 +497,49 @@ fn parse_dot_directive_envelope_from_tokens(
         expr_parse_ctx,
     )
     .map(Some)
+}
+
+fn parse_star_org_envelope_from_tokens(
+    tokens: &[Token],
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<Option<LineAst>, ParseError> {
+    if tokens.is_empty() {
+        return Ok(None);
+    }
+    let (label, idx) = parse_optional_leading_label(tokens);
+    parse_star_org_at(tokens, idx, label, end_span, end_token_text, expr_parse_ctx)
+}
+
+fn parse_star_org_at(
+    tokens: &[Token],
+    idx: usize,
+    label: Option<Label>,
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<Option<LineAst>, ParseError> {
+    if label.is_some() || !is_star_org_assignment(tokens, idx) {
+        return Ok(None);
+    }
+    if idx.saturating_add(2) >= tokens.len() {
+        return Err(ParseError {
+            message: "Expected expression".to_string(),
+            span: end_span,
+        });
+    }
+    let expr = parse_expr_with_vm_contract(
+        expr_parse_ctx,
+        tokens[idx.saturating_add(2)..].to_vec(),
+        end_span,
+        end_token_text,
+    )?;
+    Ok(Some(LineAst::Statement {
+        label: None,
+        mnemonic: Some(".org".to_string()),
+        operands: vec![expr],
+    }))
 }
 
 fn parse_assignment_envelope_from_tokens(
@@ -2155,6 +2202,7 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
@@ -2241,6 +2289,61 @@ mod tests {
     }
 
     #[test]
+    fn parse_line_with_parser_vm_supports_star_org_envelope_opcode() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    * = $2000";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseStarOrgEnvelope as u8,
+                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let line = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect("parse should succeed");
+        assert!(
+            matches!(
+                line,
+                LineAst::Statement {
+                    mnemonic: Some(ref m),
+                    ..
+                } if m.eq_ignore_ascii_case(".org")
+            ),
+            "expected .org statement from star-org primitive, got {line:?}"
+        );
+    }
+
+    #[test]
     fn parse_line_with_parser_vm_supports_instruction_envelope_opcode() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
@@ -2316,6 +2419,7 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
