@@ -33,6 +33,7 @@ All items below are true:
 - Native harness shakeout fixtures now cover deterministic success flow and `OPC`/`OTR`/`ott`/`otp` failure namespaces through the harness boundary.
 - Native harness now exposes byte-payload wire entrypoints for process-boundary driving of `set_pipeline`, `tokenize_line`, `parse_line`, `encode_instruction`, and `last_error`.
 - Basic C64/VICE opForge-format host harness scaffold now assembles to PRG with control-block/status signaling visible in-program.
+- C64/VICE harness `load_package` path now validates `CB_INPUT_PTR`/`CB_INPUT_LEN` and minimal `OPCP` header fields with deterministic `OTR`/`OPC` error signaling.
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
@@ -106,7 +107,9 @@ Acceptance:
 
 ## Phase P7: External Native Host PoC (C64/VICE first)
 - [x] Add a real opForge-format C64/VICE harness scaffold that runs as PRG and exercises entrypoint dispatch/control-block status handling.
-- [ ] Replace runtime-error stubs in the native harness with VM-backed handlers incrementally (`load_package` then `set_pipeline` then line/token/encode path).
+- [x] Replace `load_package` runtime-error stub with pointer/length + minimal package-header validation (`OPCP`, version, endian marker).
+- [ ] Replace `set_pipeline` runtime-error stub with native pipeline-selection checks against loaded-package state.
+- [ ] Replace line/token/encode runtime-error stubs incrementally while preserving control-block and wire payload contracts.
 - [ ] Replay `.optst` fixture vectors through the native harness wire payload path and assert deterministic status/error namespace parity.
 
 Acceptance:
@@ -135,4 +138,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Wire the C64/VICE harness scaffold to the first VM-backed native handler (`load_package`) while keeping control-block and wire payload behavior stable.
+Wire the C64/VICE harness scaffold to the next native handler (`set_pipeline`) while keeping control-block and wire payload behavior stable.

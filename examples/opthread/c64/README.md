@@ -18,8 +18,9 @@ This directory contains a basic opForge-format host harness scaffold that assemb
 7. `last_error`
 - Runs a tiny in-program scaffold flow:
 1. Calls `init`.
-2. Calls `set_pipeline` (currently stubbed to runtime error `3`).
-3. Calls `last_error`.
+2. Calls `load_package` with a sample in-memory `OPCP` header (magic/version/endian checks).
+3. Calls `set_pipeline` (currently stubbed to runtime error `3`).
+4. Calls `last_error`.
 
 Visual result:
 - Border color is mapped from the most recent snapshotted status code.
@@ -51,4 +52,4 @@ Load and run the PRG normally. The BASIC line autostarts via `SYS 2062`.
 
 ## Current status
 
-This is a harness scaffold only. VM-backed handlers for `load_package`, `set_pipeline`, `tokenize_line`, `parse_line`, and `encode_instruction` are intentionally stubbed to runtime error until the native VM implementation lands.
+This is still a harness scaffold. `load_package` now validates control-block pointer/length and the minimal package header (`OPCP`, version `0x0001`, endian marker `0x1234`) and persists loaded-package state. `set_pipeline`, `tokenize_line`, `parse_line`, and `encode_instruction` remain runtime-error stubs until native VM handlers land.
