@@ -39,9 +39,6 @@ impl Assembler {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_opthread_runtime_enabled(&mut self, _enabled: bool) {}
-
     pub(crate) fn cpu(&self) -> CpuType {
         self.cpu
     }

@@ -88,6 +88,7 @@ Current note 4: `RuntimeTokenizerMode::Vm` no longer performs implicit host fall
 Current note 5: in `opthread-runtime` builds, `AsmLine::process` no longer uses the runtime-enabled flag as a tokenizer gate; assembler line parsing now always routes through VM tokenization and errors if the runtime tokenizer model is unavailable.
 Current note 6: parser-bridge token mapping restores source lexeme spelling from VM spans to keep symbol casing and listing/reference outputs parity-stable while remaining VM-tokenized.
 Current note 7: tokenizer VM string lexeme budgets now measure payload bytes (not quoted raw width), preserving directive-level diagnostics parity for long string literals.
+Current note 8: assembler/runtime-toggle plumbing has been removed from assembler construction paths (`set_opthread_runtime_enabled`, `with_cpu_runtime_mode`); assembler tests now construct VM-backed `AsmLine`/`Assembler` directly.
 
 #### B1) Replace placeholder tokenizer VM programs with real bytecode
 - [x] Replace `TokenizerVmOpcode::End` placeholder programs emitted by builder with bootstrap tokenizer VM bytecode per rollout family (deterministic line-walk, non-emitting).

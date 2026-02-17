@@ -154,9 +154,6 @@ fn runtime_token_bridge_rejects_invalid_spans() {
 fn assemble_bytes(cpu: crate::core::cpu::CpuType, line: &str) -> Vec<u8> {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    #[cfg(feature = "opthread-runtime")]
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, false);
-    #[cfg(not(feature = "opthread-runtime"))]
     let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
     asm.clear_conditionals();
     asm.clear_scopes();
@@ -176,9 +173,6 @@ fn assemble_line_status(
 ) -> (LineStatus, Option<String>) {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    #[cfg(feature = "opthread-runtime")]
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, false);
-    #[cfg(not(feature = "opthread-runtime"))]
     let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
     asm.clear_conditionals();
     asm.clear_scopes();
@@ -191,14 +185,13 @@ fn assemble_line_status(
 fn assemble_line_with_runtime_mode(
     cpu: crate::core::cpu::CpuType,
     line: &str,
-    enable_opthread_runtime: bool,
+    _enable_opthread_runtime: bool,
 ) -> (LineStatus, Option<String>, Vec<u8>) {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm =
-        AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, enable_opthread_runtime);
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
     #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
-    if enable_opthread_runtime {
+    if _enable_opthread_runtime {
         let enable_intel_runtime = registry
             .resolve_pipeline(cpu, None)
             .map(|pipeline| {
@@ -228,12 +221,11 @@ fn assemble_line_with_runtime_mode(
 fn assemble_line_with_runtime_mode_no_injection(
     cpu: crate::core::cpu::CpuType,
     line: &str,
-    enable_opthread_runtime: bool,
+    _enable_opthread_runtime: bool,
 ) -> (LineStatus, Option<String>, Vec<u8>, bool) {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm =
-        AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, enable_opthread_runtime);
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
     let has_model = asm.opthread_execution_model.is_some();
     asm.clear_conditionals();
     asm.clear_scopes();
@@ -245,10 +237,9 @@ fn assemble_line_with_runtime_mode_no_injection(
 #[cfg(feature = "opthread-runtime")]
 fn assemble_source_entries_with_runtime_mode(
     lines: &[&str],
-    enable_opthread_runtime: bool,
+    _enable_opthread_runtime: bool,
 ) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
     let mut assembler = Assembler::new();
-    assembler.set_opthread_runtime_enabled(enable_opthread_runtime);
     assembler.clear_diagnostics();
 
     let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
@@ -364,7 +355,7 @@ fn assemble_example_with_base(
 #[cfg(feature = "opthread-runtime")]
 fn assemble_example_entries_with_runtime_mode(
     asm_path: &Path,
-    enable_opthread_runtime: bool,
+    _enable_opthread_runtime: bool,
 ) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
     let root_lines =
         expand_source_file(asm_path, &[], 64).map_err(|err| format!("Preprocess failed: {err}"))?;
@@ -373,7 +364,6 @@ fn assemble_example_entries_with_runtime_mode(
     let expanded_lines = graph.lines;
 
     let mut assembler = Assembler::new();
-    assembler.set_opthread_runtime_enabled(enable_opthread_runtime);
     assembler.root_metadata.root_module_id =
         Some(root_module_id_from_lines(asm_path, &root_lines).map_err(|err| err.to_string())?);
     assembler.module_macro_names = graph.module_macro_names;
@@ -6616,7 +6606,7 @@ fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
     let registry = default_registry();
 
     for cpu in [m6502_cpu_id, m65c02_cpu_id, m65816_cpu_id] {
-        let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, cpu, &registry, true);
+        let asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
         assert!(
             asm.opthread_execution_model.is_some(),
             "expected runtime execution model for {}",
@@ -6631,10 +6621,10 @@ fn opthread_runtime_model_is_available_for_staged_family_cpus_for_vm_tokenizatio
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
 
-    let i8085_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
+    let i8085_asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
     assert!(i8085_asm.opthread_execution_model.is_some());
 
-    let z80_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
+    let z80_asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
     assert!(z80_asm.opthread_execution_model.is_some());
 }
 
@@ -6676,7 +6666,7 @@ fn opthread_runtime_artifact_helpers_round_trip_model_load() {
         "expected runtime model from artifact bytes"
     );
 
-    let asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
     assert!(
         asm.opthread_execution_model.is_some(),
         "runtime model should still initialize for authoritative family"
@@ -6824,7 +6814,7 @@ fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
 fn opthread_runtime_intel8085_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
     let mvi_a = crate::families::intel8080::table::lookup_instruction("MVI", Some("A"), None)
@@ -6857,7 +6847,7 @@ fn opthread_runtime_intel8085_path_uses_package_forms() {
 fn opthread_runtime_z80_dialect_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
     let mov_a_b =
@@ -6981,7 +6971,7 @@ fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
 fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7010,7 +7000,7 @@ fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
 fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7044,7 +7034,7 @@ fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallb
 fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7078,7 +7068,7 @@ fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallba
 fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7115,7 +7105,7 @@ fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallb
 fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7149,7 +7139,7 @@ fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of
 fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_authoritative() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7183,7 +7173,7 @@ fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_author
 fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime_flag_is_off() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, false);
+    let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7217,7 +7207,7 @@ fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime
 fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7244,7 +7234,7 @@ fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() 
 fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m65c02_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m65c02_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7271,7 +7261,7 @@ fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback()
 fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m65816_cpu_id, &registry, true);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m65816_cpu_id, &registry);
 
     let mut chunks =
         build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -7459,7 +7449,7 @@ fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
 
     let (status_a, message_a) = {
         let mut symbols = SymbolTable::new();
-        let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
         asm.opthread_execution_model = Some(
             HierarchyExecutionModel::from_chunks(chunks.clone()).expect("execution model build"),
         );
@@ -7472,7 +7462,7 @@ fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
 
     let (status_b, message_b) = {
         let mut symbols = SymbolTable::new();
-        let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
         asm.opthread_execution_model =
             Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
         asm.clear_conditionals();
