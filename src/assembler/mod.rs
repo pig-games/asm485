@@ -2430,7 +2430,7 @@ impl<'a> AsmLine<'a> {
         AsmError::new(AsmErrorKind::Symbol, "Symbol is private", Some(name))
     }
     #[cfg(feature = "opthread-runtime")]
-    fn process_with_runtime_tokenizer(&mut self, line: &str, line_num: u32) -> Option<LineStatus> {
+    fn process_with_runtime_tokenizer(&mut self, line: &str, line_num: u32) -> LineStatus {
         let model = match self.opthread_execution_model.as_ref() {
             Some(model) => model,
             None => {
@@ -2451,7 +2451,7 @@ impl<'a> AsmLine<'a> {
                 self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
                 self.last_error_column = Some(err.span.col_start);
                 self.last_parser_error = Some(err);
-                return Some(LineStatus::Error);
+                return LineStatus::Error;
             }
         };
 
@@ -2469,7 +2469,7 @@ impl<'a> AsmLine<'a> {
                 self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
                 self.last_error_column = Some(err.span.col_start);
                 self.last_parser_error = Some(err);
-                return Some(LineStatus::Error);
+                return LineStatus::Error;
             }
         };
 
@@ -2477,12 +2477,12 @@ impl<'a> AsmLine<'a> {
         self.line_end_span = Some(parser.end_span());
         self.line_end_token = parser.end_token_text().map(|s| s.to_string());
         match parser.parse_line() {
-            Ok(ast) => Some(self.process_ast(ast)),
+            Ok(ast) => self.process_ast(ast),
             Err(err) => {
                 self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
                 self.last_error_column = Some(err.span.col_start);
                 self.last_parser_error = Some(err);
-                Some(LineStatus::Error)
+                LineStatus::Error
             }
         }
     }
@@ -2502,12 +2502,15 @@ impl<'a> AsmLine<'a> {
         self.mnemonic = None;
 
         #[cfg(feature = "opthread-runtime")]
-        if let Some(status) = self.process_with_runtime_tokenizer(line, line_num) {
-            return status;
+        {
+            return self.process_with_runtime_tokenizer(line, line_num);
         }
+
+        #[cfg(not(feature = "opthread-runtime"))]
         // Use the cached register checker
         let is_register_fn = self.register_checker.clone();
 
+        #[cfg(not(feature = "opthread-runtime"))]
         match asm_parser::Parser::from_line_with_registers(line, line_num, is_register_fn) {
             Ok(mut parser) => {
                 self.line_end_span = Some(parser.end_span());
