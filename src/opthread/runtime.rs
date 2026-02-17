@@ -155,6 +155,7 @@ pub struct RuntimeBudgetLimits {
 type VmProgramKey = (u8, u32, u32, u32);
 type ModeSelectorKey = (u8, u32, u32, u32);
 type TokenPolicyKey = (u8, u32);
+type ParserContractKey = (u8, u32);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeTokenizerVmProgram {
@@ -164,6 +165,23 @@ pub struct RuntimeTokenizerVmProgram {
     pub limits: TokenizerVmLimits,
     pub diagnostics: TokenizerVmDiagnosticMap,
     pub program: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RuntimeParserDiagnosticMap {
+    pub unexpected_token: String,
+    pub expected_expression: String,
+    pub expected_operand: String,
+    pub invalid_statement: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeParserContract {
+    pub grammar_id: String,
+    pub ast_schema_id: String,
+    pub opcode_version: u16,
+    pub max_ast_nodes_per_line: u32,
+    pub diagnostics: RuntimeParserDiagnosticMap,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -661,6 +679,7 @@ pub struct HierarchyExecutionModel {
     mode_selectors: HashMap<ModeSelectorKey, Vec<ModeSelectorDescriptor>>,
     token_policies: HashMap<TokenPolicyKey, RuntimeTokenPolicy>,
     tokenizer_vm_programs: HashMap<TokenPolicyKey, RuntimeTokenizerVmProgram>,
+    parser_contracts: HashMap<ParserContractKey, RuntimeParserContract>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
@@ -687,6 +706,7 @@ impl HierarchyExecutionModel {
             diagnostics,
             token_policies,
             tokenizer_vm_programs,
+            parser_contracts,
             families,
             cpus,
             dialects,
@@ -761,6 +781,27 @@ impl HierarchyExecutionModel {
                 },
             );
         }
+        let mut scoped_parser_contracts: HashMap<ParserContractKey, RuntimeParserContract> =
+            HashMap::new();
+        for entry in parser_contracts {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            scoped_parser_contracts.insert(
+                (owner_tag, owner_id),
+                RuntimeParserContract {
+                    grammar_id: entry.grammar_id,
+                    ast_schema_id: entry.ast_schema_id,
+                    opcode_version: entry.opcode_version,
+                    max_ast_nodes_per_line: entry.max_ast_nodes_per_line,
+                    diagnostics: RuntimeParserDiagnosticMap {
+                        unexpected_token: entry.diagnostics.unexpected_token,
+                        expected_expression: entry.diagnostics.expected_expression,
+                        expected_operand: entry.diagnostics.expected_operand,
+                        invalid_statement: entry.diagnostics.invalid_statement,
+                    },
+                },
+            );
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -817,6 +858,7 @@ impl HierarchyExecutionModel {
             mode_selectors,
             token_policies: scoped_token_policies,
             tokenizer_vm_programs: scoped_tokenizer_vm_programs,
+            parser_contracts: scoped_parser_contracts,
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
@@ -1005,6 +1047,15 @@ impl HierarchyExecutionModel {
             .tokenizer_vm_program_for_resolved(&resolved)
             .map(|entry| entry.limits)
             .unwrap_or_default())
+    }
+
+    pub fn resolve_parser_contract(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<RuntimeParserContract>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self.parser_contract_for_resolved(&resolved))
     }
 
     pub fn resolve_tokenizer_vm_parity_checklist(
@@ -1208,6 +1259,29 @@ impl HierarchyExecutionModel {
             };
             if let Some(program) = self.tokenizer_vm_programs.get(&(owner_tag, owner_id)) {
                 return Some(program.clone());
+            }
+        }
+        None
+    }
+
+    fn parser_contract_for_resolved(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> Option<RuntimeParserContract> {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, self.interned_id(dialect_id.as_str())),
+            (1u8, self.interned_id(cpu_id.as_str())),
+            (0u8, self.interned_id(family_id.as_str())),
+        ];
+        for (owner_tag, owner_id) in owner_order {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(contract) = self.parser_contracts.get(&(owner_tag, owner_id)) {
+                return Some(contract.clone());
             }
         }
         None
@@ -3529,9 +3603,9 @@ mod tests {
     };
     use crate::opthread::package::{
         default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
-        HierarchyChunks, TokenCaseRule, TokenPolicyDescriptor, TokenizerVmOpcode,
-        TokenizerVmProgramDescriptor, VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
-        TOKENIZER_VM_OPCODE_VERSION_V1,
+        HierarchyChunks, ParserContractDescriptor, ParserDiagnosticMap, TokenCaseRule,
+        TokenPolicyDescriptor, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
+        VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM, TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use crate::z80::module::Z80CpuModule;
@@ -3717,6 +3791,22 @@ mod tests {
         }
     }
 
+    fn parser_contract_for_test(owner: ScopedOwner) -> ParserContractDescriptor {
+        ParserContractDescriptor {
+            owner,
+            grammar_id: "opforge.line.v1".to_string(),
+            ast_schema_id: "opforge.ast.line.v1".to_string(),
+            opcode_version: 1,
+            max_ast_nodes_per_line: 512,
+            diagnostics: ParserDiagnosticMap {
+                unexpected_token: "otp001".to_string(),
+                expected_expression: "otp002".to_string(),
+                expected_operand: "otp003".to_string(),
+                invalid_statement: "otp004".to_string(),
+            },
+        }
+    }
+
     fn runtime_vm_program_for_test(
         program: Vec<u8>,
         limits: TokenizerVmLimits,
@@ -3854,6 +3944,7 @@ mod tests {
             diagnostics: Vec::new(),
             token_policies: Vec::new(),
             tokenizer_vm_programs: Vec::new(),
+            parser_contracts: Vec::new(),
             families: vec![FamilyDescriptor {
                 id: "intel8080".to_string(),
                 canonical_dialect: "intel".to_string(),
@@ -4414,6 +4505,60 @@ mod tests {
             .resolve_tokenizer_vm_limits("m6502", None)
             .expect("tokenizer vm limits should resolve");
         assert_eq!(limits, TokenizerVmLimits::default());
+    }
+
+    #[test]
+    fn execution_model_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.parser_contracts.clear();
+        chunks
+            .parser_contracts
+            .push(parser_contract_for_test(ScopedOwner::Family(
+                "mos6502".to_string(),
+            )));
+        chunks
+            .parser_contracts
+            .push(parser_contract_for_test(ScopedOwner::Cpu(
+                "m6502".to_string(),
+            )));
+        let mut dialect_contract =
+            parser_contract_for_test(ScopedOwner::Dialect("transparent".to_string()));
+        dialect_contract.max_ast_nodes_per_line = 42;
+        chunks.parser_contracts.push(dialect_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let contract = model
+            .resolve_parser_contract("m6502", None)
+            .expect("parser contract resolution")
+            .expect("parser contract should resolve");
+        assert_eq!(contract.max_ast_nodes_per_line, 42);
+        assert_eq!(contract.diagnostics.unexpected_token, "otp001");
+    }
+
+    #[test]
+    fn execution_model_from_registry_exposes_default_family_parser_contract() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let contract = model
+            .resolve_parser_contract("m6502", None)
+            .expect("parser contract resolution")
+            .expect("parser contract should resolve");
+        assert_eq!(contract.grammar_id, "opforge.line.v1");
+        assert_eq!(contract.ast_schema_id, "opforge.ast.line.v1");
+        assert_eq!(contract.opcode_version, 1);
     }
 
     #[test]

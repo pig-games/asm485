@@ -15,6 +15,7 @@
 //! - `FORM` (scoped form descriptors)
 //! - `TABL` (scoped VM instruction program descriptors)
 //! - `TKVM` (scoped tokenizer VM program descriptors)
+//! - `PARS` (scoped parser/AST contract descriptors)
 
 use std::collections::HashMap;
 
@@ -42,12 +43,16 @@ const CHUNK_FORM: [u8; 4] = *b"FORM";
 const CHUNK_TABL: [u8; 4] = *b"TABL";
 const CHUNK_MSEL: [u8; 4] = *b"MSEL";
 const CHUNK_TKVM: [u8; 4] = *b"TKVM";
+const CHUNK_PARS: [u8; 4] = *b"PARS";
 
 pub const DIAG_OPTHREAD_MISSING_VM_PROGRAM: &str = "OTR001";
 pub const DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE: &str = "OTR002";
 pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02: &str = "OTR003";
 pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502: &str = "OTR004";
 pub const TOKENIZER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
+pub const PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
+pub const PARSER_GRAMMAR_ID_LINE_V1: &str = "opforge.line.v1";
+pub const PARSER_AST_SCHEMA_ID_LINE_V1: &str = "opforge.ast.line.v1";
 
 /// Package metadata descriptor (`META` chunk).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,6 +184,24 @@ pub struct TokenizerVmProgramDescriptor {
     pub program: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ParserDiagnosticMap {
+    pub unexpected_token: String,
+    pub expected_expression: String,
+    pub expected_operand: String,
+    pub invalid_statement: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParserContractDescriptor {
+    pub owner: ScopedOwner,
+    pub grammar_id: String,
+    pub ast_schema_id: String,
+    pub opcode_version: u16,
+    pub max_ast_nodes_per_line: u32,
+    pub diagnostics: ParserDiagnosticMap,
+}
+
 /// Case-folding behavior for tokenizer/literal matching policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenCaseRule {
@@ -284,6 +307,7 @@ pub struct HierarchyChunks {
     pub diagnostics: Vec<DiagnosticDescriptor>,
     pub token_policies: Vec<TokenPolicyDescriptor>,
     pub tokenizer_vm_programs: Vec<TokenizerVmProgramDescriptor>,
+    pub parser_contracts: Vec<ParserContractDescriptor>,
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
@@ -455,6 +479,7 @@ pub fn encode_hierarchy_chunks_full(
         diagnostics: Vec::new(),
         token_policies: Vec::new(),
         tokenizer_vm_programs: Vec::new(),
+        parser_contracts: Vec::new(),
         families: families.to_vec(),
         cpus: cpus.to_vec(),
         dialects: dialects.to_vec(),
@@ -481,6 +506,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     let mut diagnostics = chunks.diagnostics.to_vec();
     let mut token_policies = chunks.token_policies.to_vec();
     let mut tokenizer_vm_programs = chunks.tokenizer_vm_programs.to_vec();
+    let mut parser_contracts = chunks.parser_contracts.to_vec();
     let mut fams = chunks.families.to_vec();
     let mut cpus = chunks.cpus.to_vec();
     let mut dials = chunks.dialects.to_vec();
@@ -499,12 +525,24 @@ pub fn encode_hierarchy_chunks_from_chunks(
     );
     canonicalize_token_policies(&mut token_policies);
     canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
+    canonicalize_parser_contracts(&mut parser_contracts);
     canonicalize_package_support_chunks(&mut strings, &mut diagnostics);
 
     let mut chunks = vec![
         (CHUNK_META, encode_meta_chunk(&metadata)?),
         (CHUNK_STRS, encode_strs_chunk(&strings)?),
         (CHUNK_DIAG, encode_diag_chunk(&diagnostics)?),
+    ];
+    if !token_policies.is_empty() {
+        chunks.push((CHUNK_TOKS, encode_toks_chunk(&token_policies)?));
+    }
+    if !tokenizer_vm_programs.is_empty() {
+        chunks.push((CHUNK_TKVM, encode_tkvm_chunk(&tokenizer_vm_programs)?));
+    }
+    if !parser_contracts.is_empty() {
+        chunks.push((CHUNK_PARS, encode_pars_chunk(&parser_contracts)?));
+    }
+    chunks.extend_from_slice(&[
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
         (CHUNK_CPUS, encode_cpus_chunk(&cpus)?),
         (CHUNK_DIAL, encode_dial_chunk(&dials)?),
@@ -512,13 +550,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
         (CHUNK_FORM, encode_form_chunk(&forms)?),
         (CHUNK_TABL, encode_tabl_chunk(&tables)?),
         (CHUNK_MSEL, encode_msel_chunk(&selectors)?),
-    ];
-    if !token_policies.is_empty() {
-        chunks.insert(3, (CHUNK_TOKS, encode_toks_chunk(&token_policies)?));
-    }
-    if !tokenizer_vm_programs.is_empty() {
-        chunks.insert(4, (CHUNK_TKVM, encode_tkvm_chunk(&tokenizer_vm_programs)?));
-    }
+    ]);
 
     encode_container(&chunks)
 }
@@ -932,6 +964,83 @@ pub(crate) fn canonicalize_tokenizer_vm_programs(
     });
 }
 
+pub(crate) fn canonicalize_parser_contracts(parser_contracts: &mut Vec<ParserContractDescriptor>) {
+    for entry in parser_contracts.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+        entry.grammar_id = entry.grammar_id.to_ascii_lowercase();
+        entry.ast_schema_id = entry.ast_schema_id.to_ascii_lowercase();
+    }
+    parser_contracts.sort_by(|left, right| {
+        let left_owner_kind = match left.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let right_owner_kind = match right.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let left_owner_id = match &left.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        let right_owner_id = match &right.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        left_owner_kind
+            .cmp(&right_owner_kind)
+            .then_with(|| left_owner_id.cmp(&right_owner_id))
+            .then_with(|| left.grammar_id.cmp(&right.grammar_id))
+            .then_with(|| left.ast_schema_id.cmp(&right.ast_schema_id))
+            .then_with(|| left.opcode_version.cmp(&right.opcode_version))
+            .then_with(|| {
+                left.max_ast_nodes_per_line
+                    .cmp(&right.max_ast_nodes_per_line)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .unexpected_token
+                    .cmp(&right.diagnostics.unexpected_token)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .expected_expression
+                    .cmp(&right.diagnostics.expected_expression)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .expected_operand
+                    .cmp(&right.diagnostics.expected_operand)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .invalid_statement
+                    .cmp(&right.diagnostics.invalid_statement)
+            })
+    });
+    parser_contracts.dedup_by(|left, right| {
+        left.grammar_id == right.grammar_id
+            && left.ast_schema_id == right.ast_schema_id
+            && left.opcode_version == right.opcode_version
+            && left.max_ast_nodes_per_line == right.max_ast_nodes_per_line
+            && left.diagnostics == right.diagnostics
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+}
+
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
     let toc = parse_toc(bytes)?;
     let meta_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_META)?;
@@ -939,6 +1048,7 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let diag_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_DIAG)?;
     let toks_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TOKS)?;
     let tkvm_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TKVM)?;
+    let pars_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_PARS)?;
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
@@ -966,6 +1076,10 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         },
         tokenizer_vm_programs: match tkvm_bytes {
             Some(payload) => decode_tkvm_chunk(payload)?,
+            None => Vec::new(),
+        },
+        parser_contracts: match pars_bytes {
+            Some(payload) => decode_pars_chunk(payload)?,
             None => Vec::new(),
         },
         families: decode_fams_chunk(fams_bytes)?,
@@ -1862,6 +1976,70 @@ fn decode_tkvm_chunk(bytes: &[u8]) -> Result<Vec<TokenizerVmProgramDescriptor>, 
     Ok(entries)
 }
 
+fn encode_pars_chunk(contracts: &[ParserContractDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(contracts.len(), "PARS count")?);
+    for entry in contracts {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "PARS", owner_id)?;
+        write_string(&mut out, "PARS", &entry.grammar_id)?;
+        write_string(&mut out, "PARS", &entry.ast_schema_id)?;
+        write_u16(&mut out, entry.opcode_version);
+        write_u32(&mut out, entry.max_ast_nodes_per_line);
+        write_string(&mut out, "PARS", &entry.diagnostics.unexpected_token)?;
+        write_string(&mut out, "PARS", &entry.diagnostics.expected_expression)?;
+        write_string(&mut out, "PARS", &entry.diagnostics.expected_operand)?;
+        write_string(&mut out, "PARS", &entry.diagnostics.invalid_statement)?;
+    }
+    Ok(out)
+}
+
+fn decode_pars_chunk(bytes: &[u8]) -> Result<Vec<ParserContractDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "PARS");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "PARS".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        let grammar_id = cur.read_string()?;
+        let ast_schema_id = cur.read_string()?;
+        let opcode_version = cur.read_u16()?;
+        let max_ast_nodes_per_line = cur.read_u32()?;
+        let diagnostics = ParserDiagnosticMap {
+            unexpected_token: cur.read_string()?,
+            expected_expression: cur.read_string()?,
+            expected_operand: cur.read_string()?,
+            invalid_statement: cur.read_string()?,
+        };
+        entries.push(ParserContractDescriptor {
+            owner,
+            grammar_id,
+            ast_schema_id,
+            opcode_version,
+            max_ast_nodes_per_line,
+            diagnostics,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -2151,6 +2329,30 @@ mod tests {
         ]
     }
 
+    fn parser_contract_for_test(owner: ScopedOwner) -> ParserContractDescriptor {
+        ParserContractDescriptor {
+            owner,
+            grammar_id: PARSER_GRAMMAR_ID_LINE_V1.to_string(),
+            ast_schema_id: PARSER_AST_SCHEMA_ID_LINE_V1.to_string(),
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            max_ast_nodes_per_line: 256,
+            diagnostics: ParserDiagnosticMap {
+                unexpected_token: "otp001".to_string(),
+                expected_expression: "otp002".to_string(),
+                expected_operand: "otp003".to_string(),
+                invalid_statement: "otp004".to_string(),
+            },
+        }
+    }
+
+    fn sample_parser_contracts() -> Vec<ParserContractDescriptor> {
+        vec![
+            parser_contract_for_test(ScopedOwner::Family("MOS6502".to_string())),
+            parser_contract_for_test(ScopedOwner::Family("mos6502".to_string())),
+            parser_contract_for_test(ScopedOwner::Cpu("z80".to_string())),
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
         let bytes = encode_hierarchy_chunks(
@@ -2246,6 +2448,7 @@ mod tests {
         assert!(decoded.strings.is_empty());
         assert!(decoded.diagnostics.is_empty());
         assert!(decoded.token_policies.is_empty());
+        assert!(decoded.parser_contracts.is_empty());
 
         let family_snapshot: Vec<String> = decoded
             .families
@@ -2433,6 +2636,7 @@ mod tests {
         assert!(decoded.strings.is_empty());
         assert!(decoded.diagnostics.is_empty());
         assert!(decoded.token_policies.is_empty());
+        assert!(decoded.parser_contracts.is_empty());
     }
 
     #[test]
@@ -2443,6 +2647,7 @@ mod tests {
             diagnostics: Vec::new(),
             token_policies: sample_token_policies(),
             tokenizer_vm_programs: Vec::new(),
+            parser_contracts: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -2479,6 +2684,55 @@ mod tests {
         ));
         assert_eq!(decoded.token_policies[1].case_rule, TokenCaseRule::Preserve);
         assert_eq!(decoded.token_policies[1].punctuation_chars, "()[]");
+    }
+
+    #[test]
+    fn encode_decode_round_trip_preserves_parser_contracts() {
+        let chunks = HierarchyChunks {
+            metadata: PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: Vec::new(),
+            token_policies: Vec::new(),
+            tokenizer_vm_programs: Vec::new(),
+            parser_contracts: sample_parser_contracts(),
+            families: sample_families(),
+            cpus: sample_cpus(),
+            dialects: sample_dialects(),
+            registers: sample_registers(),
+            forms: sample_forms(),
+            tables: sample_tables(),
+            selectors: Vec::new(),
+        };
+        let bytes = encode_hierarchy_chunks_from_chunks(&chunks).expect("encode should succeed");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+
+        assert_eq!(decoded.parser_contracts.len(), 2);
+        assert!(matches!(
+            &decoded.parser_contracts[0].owner,
+            ScopedOwner::Family(owner) if owner == "mos6502"
+        ));
+        assert_eq!(
+            decoded.parser_contracts[0].grammar_id,
+            PARSER_GRAMMAR_ID_LINE_V1
+        );
+        assert_eq!(
+            decoded.parser_contracts[0].ast_schema_id,
+            PARSER_AST_SCHEMA_ID_LINE_V1
+        );
+        assert_eq!(
+            decoded.parser_contracts[0].opcode_version,
+            PARSER_VM_OPCODE_VERSION_V1
+        );
+        assert_eq!(decoded.parser_contracts[0].max_ast_nodes_per_line, 256);
+        assert_eq!(
+            decoded.parser_contracts[0].diagnostics.unexpected_token,
+            "otp001"
+        );
+
+        assert!(matches!(
+            &decoded.parser_contracts[1].owner,
+            ScopedOwner::Cpu(owner) if owner == "z80"
+        ));
     }
 
     #[test]

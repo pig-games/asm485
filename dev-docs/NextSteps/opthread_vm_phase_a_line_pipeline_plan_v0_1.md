@@ -112,9 +112,14 @@ Current note 9: base `opthread-runtime` feature gating has been removed; VM runt
 - [x] Expand the same strict-authoritative tokenizer gate to Intel8080 family after parity/diagnostic gates are green.
 
 ### Phase C (post-Phase B): VM parser/AST pipeline
-- [ ] Define package-level parser grammar/AST contract and chunk schema.
+- [x] Define package-level parser grammar/AST contract and chunk schema.
 - [ ] Implement parser VM execution + diagnostics contract.
 - [ ] Migrate assembler, macro, and bootstrap parse call sites to VM parser path with compatibility gates.
+
+Phase C progress note:
+- `PARS` optional package chunk is now implemented with owner-scoped parser/AST contract descriptors (`grammar_id`, `ast_schema_id`, parser opcode version, bounded AST node limit, and parser diagnostic code map).
+- Runtime now loads/resolves parser contracts with the same precedence model as token policy and tokenizer VM programs (`dialect -> cpu -> family`).
+- Builder emits default family parser contracts so assembler-owned VM token bridge paths can assert parser-contract availability before host parser fallback removal work.
 
 ### Optional Phase D: full pre-assembly parse-path unification
 - [ ] Migrate bootstrap and macro statement pre-scan parsing to shared runtime tokenization/parser abstractions (`src/assembler/bootstrap.rs:345`, `src/core/macro_processor.rs:553`, `src/core/macro_processor.rs:661`).

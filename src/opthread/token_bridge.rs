@@ -51,6 +51,16 @@ pub(crate) fn parse_line_with_default_model(
             col_end: 1,
         },
     })?;
+    let parser_contract = model
+        .resolve_parser_contract(DEFAULT_TOKENIZER_CPU_ID, None)
+        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
+    if parser_contract.is_none() {
+        return Err(parse_error_at_end(
+            line,
+            line_num,
+            "opThread parser contract is unavailable for the active CPU pipeline",
+        ));
+    }
     let register_checker = register_checker_none();
     let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
         model,
@@ -262,6 +272,10 @@ mod tests {
             .resolve_pipeline(DEFAULT_TOKENIZER_CPU_ID, None)
             .expect("default tokenizer cpu should resolve");
         assert_eq!(resolved.family_id.to_ascii_lowercase(), "mos6502");
+        assert!(model
+            .resolve_parser_contract(DEFAULT_TOKENIZER_CPU_ID, None)
+            .expect("parser contract resolution")
+            .is_some());
     }
 
     #[test]
