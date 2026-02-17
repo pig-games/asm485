@@ -151,6 +151,14 @@ For 6502 assembler/machine-language host integrations, the v1 native envelope is
 6. `encode_instruction`
 7. `last_error`
 
+For process-boundary transport, v1 wire payload conventions are:
+- `set_pipeline`: `cpu_id` UTF-8 bytes, `0x00` separator, optional `dialect_override` UTF-8 suffix
+- `tokenize_line` / `parse_line`: `line_num` (`u32` little-endian) followed by raw UTF-8 source line bytes
+- `encode_instruction`: compact length-prefixed payload:
+1. mnemonic length (`u8`) + mnemonic bytes
+2. candidate count (`u8`)
+3. per candidate: mode length (`u8`) + mode bytes, operand count (`u8`), then per operand: byte-length (`u8`) + operand bytes
+
 Forward-compatibility is explicit:
 - capability bit 0: extension TLV presence
 - capability bit 1: structured layout metadata channel (`.struct`-oriented)

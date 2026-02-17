@@ -31,6 +31,7 @@ All items below are true:
 - Default parser VM sequencing now uses primitive envelopes plus deterministic terminal parser diagnostics (no default statement-envelope fallback dependency).
 - Native 6502 host harness v1 envelope is implemented with ordinal-driven entrypoints and control-block status/length reporting.
 - Native harness shakeout fixtures now cover deterministic success flow and `OPC`/`OTR`/`ott`/`otp` failure namespaces through the harness boundary.
+- Native harness now exposes byte-payload wire entrypoints for process-boundary driving of `set_pipeline`, `tokenize_line`, `parse_line`, `encode_instruction`, and `last_error`.
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
@@ -123,4 +124,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Bridge the Rust native harness envelope to a real external Ultimate64-class host harness and validate identical fixture outcomes across the process boundary.
+Implement an external Ultimate64-class host harness PoC that calls the wire payload interface directly and replays the same smoke/failure fixture suite.
