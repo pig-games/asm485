@@ -202,6 +202,7 @@ impl Assembler {
             }
 
             self.root_metadata = asm_line.take_root_metadata();
+            self.sections = asm_line.take_sections();
             self.regions = asm_line.take_regions();
         }
 
@@ -228,6 +229,16 @@ impl Assembler {
         let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
         asm_line.clear_conditionals();
         asm_line.clear_scopes();
+        // Seed pass2 with pass1 placement/layout state so section-local encoding
+        // (especially relative branches) uses rebased absolute addresses even if
+        // .place/.pack directives appear later in source order.
+        asm_line.sections = self.sections.clone();
+        asm_line.regions = self.regions.clone();
+        for section in asm_line.sections.values_mut() {
+            section.pc = 0;
+            section.bytes.clear();
+            section.emitted = false;
+        }
         self.image = ImageStore::new(65536);
 
         let mut addr: u32 = 0;

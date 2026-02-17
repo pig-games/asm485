@@ -2403,6 +2403,12 @@ impl<'a> AsmLine<'a> {
                 }
             };
         if section_placed {
+            if self.pass > 1 {
+                // Pass2 is seeded from pass1 placement state. Treat repeated
+                // placement directives as idempotent so source-order .place/.pack
+                // does not perturb already-rebased section addresses.
+                return LineStatus::Ok;
+            }
             return self.failure_at_span(
                 LineStatus::Error,
                 AsmErrorKind::Directive,

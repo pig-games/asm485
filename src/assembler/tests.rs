@@ -4692,6 +4692,37 @@ fn m65c02_forward_boundary_label_uses_stable_absolute_sizing() {
 }
 
 #[test]
+fn m6502_branch_in_packed_section_uses_rebased_address_before_pack_line() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 6502",
+        ".region c64, $0801, $08FF",
+        ".section code, align=1",
+        "start:",
+        "    BEQ done",
+        "    NOP",
+        "done:",
+        "    RTS",
+        ".endsection",
+        ".pack in c64 : code",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0801, 0xF0),
+            (0x0802, 0x01),
+            (0x0803, 0xEA),
+            (0x0804, 0x60),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.start"), Some(0x0801));
+    assert_eq!(assembler.symbols().lookup("main.done"), Some(0x0804));
+}
+
+#[test]
 fn m65816_direct_page_indirect_long_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA [$10]"),

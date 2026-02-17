@@ -8,7 +8,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                5  .section code  ; [section code]
 ----                                6  .pub  ; [section code]
 ----                                7  start:  ; [section code]
-0000    42 43                       8      .byte $42, $43  ; [section code]
+1000    42 43                       8      .byte $42, $43  ; [section code]
 ----                                9  .priv  ; [section code]
 ----                               10  .endsection
 ----                               11  
