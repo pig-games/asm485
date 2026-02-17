@@ -1725,6 +1725,7 @@ impl HierarchyExecutionModel {
                 contract.diagnostics.invalid_statement, estimated_ast_nodes, max_nodes
             )));
         }
+        Self::ensure_parser_contract_compatible_for_assembler(&contract)?;
         Ok(contract)
     }
 
@@ -1745,46 +1746,11 @@ impl HierarchyExecutionModel {
         end_span: Span,
         end_token_text: Option<String>,
     ) -> Result<Expr, ParseError> {
-        let contract = self
-            .validate_parser_contract_for_assembler(cpu_id, dialect_override, tokens.len())
+        self.validate_parser_contract_for_assembler(cpu_id, dialect_override, tokens.len())
             .map_err(|err| ParseError {
                 message: err.to_string(),
                 span: end_span,
             })?;
-
-        if contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
-            return Err(ParseError {
-                message: format!(
-                    "{}: unsupported parser contract opcode version {}",
-                    contract.diagnostics.invalid_statement, contract.opcode_version
-                ),
-                span: end_span,
-            });
-        }
-        if !contract
-            .grammar_id
-            .eq_ignore_ascii_case(PARSER_GRAMMAR_ID_LINE_V1)
-        {
-            return Err(ParseError {
-                message: format!(
-                    "{}: unsupported parser grammar id '{}'",
-                    contract.diagnostics.invalid_statement, contract.grammar_id
-                ),
-                span: end_span,
-            });
-        }
-        if !contract
-            .ast_schema_id
-            .eq_ignore_ascii_case(PARSER_AST_SCHEMA_ID_LINE_V1)
-        {
-            return Err(ParseError {
-                message: format!(
-                    "{}: unsupported parser AST schema id '{}'",
-                    contract.diagnostics.invalid_statement, contract.ast_schema_id
-                ),
-                span: end_span,
-            });
-        }
 
         Parser::parse_expr_from_tokens(tokens, end_span, end_token_text)
     }
@@ -2039,6 +2005,36 @@ impl HierarchyExecutionModel {
             }
         }
         None
+    }
+
+    fn ensure_parser_contract_compatible_for_assembler(
+        contract: &RuntimeParserContract,
+    ) -> Result<(), RuntimeBridgeError> {
+        if contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: unsupported parser contract opcode version {}",
+                contract.diagnostics.invalid_statement, contract.opcode_version
+            )));
+        }
+        if !contract
+            .grammar_id
+            .eq_ignore_ascii_case(PARSER_GRAMMAR_ID_LINE_V1)
+        {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: unsupported parser grammar id '{}'",
+                contract.diagnostics.invalid_statement, contract.grammar_id
+            )));
+        }
+        if !contract
+            .ast_schema_id
+            .eq_ignore_ascii_case(PARSER_AST_SCHEMA_ID_LINE_V1)
+        {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: unsupported parser AST schema id '{}'",
+                contract.diagnostics.invalid_statement, contract.ast_schema_id
+            )));
+        }
+        Ok(())
     }
 
     fn tokenize_with_vm_core(
@@ -5568,6 +5564,69 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_validate_parser_contract_for_assembler_rejects_incompatible_grammar() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.grammar_id = "opforge.line.v0".to_string();
+        chunks.parser_contracts.push(cpu_contract);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("incompatible parser grammar should fail");
+        assert!(err.to_string().contains("unsupported parser grammar id"));
+    }
+
+    #[test]
+    fn execution_model_validate_parser_contract_for_assembler_rejects_incompatible_ast_schema() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.ast_schema_id = "opforge.ast.line.v0".to_string();
+        chunks.parser_contracts.push(cpu_contract);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("incompatible parser AST schema should fail");
+        assert!(err.to_string().contains("unsupported parser AST schema id"));
+    }
+
+    #[test]
+    fn execution_model_validate_parser_contract_for_assembler_rejects_incompatible_opcode_version()
+    {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.opcode_version = PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+        chunks.parser_contracts.push(cpu_contract);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("incompatible parser opcode version should fail");
+        assert!(err
+            .to_string()
+            .contains("unsupported parser contract opcode version"));
+    }
+
+    #[test]
     fn execution_model_parse_expression_for_assembler_uses_contract_entrypoint() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -5775,6 +5834,30 @@ mod tests {
             .to_string()
             .to_ascii_lowercase()
             .contains("missing opthread tokenizer vm program"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_authoritative_mode_rejects_incompatible_opcode_version() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.opcode_version = TOKENIZER_VM_OPCODE_VERSION_V1.saturating_add(1);
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect_err("authoritative vm tokenization should reject incompatible opcode version");
+        assert!(
+            err.to_string()
+                .to_ascii_lowercase()
+                .contains("unsupported tokenizer vm opcode version"),
+            "expected tokenizer opcode version error, got: {err}"
+        );
     }
 
     #[test]

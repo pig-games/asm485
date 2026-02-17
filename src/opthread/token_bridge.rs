@@ -177,26 +177,6 @@ fn parse_line_with_parser_vm(
     parser_vm_program: &RuntimeParserVmProgram,
     exec_ctx: ParserVmExecContext<'_>,
 ) -> Result<LineAst, ParseError> {
-    if parser_contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
-        return Err(parse_error_at_end(
-            exec_ctx.source_line,
-            exec_ctx.line_num,
-            format!(
-                "{}: unsupported parser contract opcode version {}",
-                parser_contract.diagnostics.invalid_statement, parser_contract.opcode_version
-            ),
-        ));
-    }
-    if parser_vm_program.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
-        return Err(parse_error_at_end(
-            exec_ctx.source_line,
-            exec_ctx.line_num,
-            format!(
-                "{}: unsupported parser VM opcode version {}",
-                parser_contract.diagnostics.invalid_statement, parser_vm_program.opcode_version
-            ),
-        ));
-    }
     if parser_contract.opcode_version != parser_vm_program.opcode_version {
         return Err(parse_error_at_end(
             exec_ctx.source_line,
@@ -206,6 +186,16 @@ fn parse_line_with_parser_vm(
                 parser_contract.diagnostics.invalid_statement,
                 parser_contract.opcode_version,
                 parser_vm_program.opcode_version
+            ),
+        ));
+    }
+    if parser_contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
+        return Err(parse_error_at_end(
+            exec_ctx.source_line,
+            exec_ctx.line_num,
+            format!(
+                "{}: unsupported parser contract opcode version {}",
+                parser_contract.diagnostics.invalid_statement, parser_contract.opcode_version
             ),
         ));
     }
@@ -2208,6 +2198,101 @@ mod tests {
     }
 
     #[test]
+    fn parse_line_with_parser_vm_rejects_incompatible_contract_opcode_version() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    LDA #$42";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let mut parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        parser_contract.opcode_version = PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: parser_contract.opcode_version,
+            program: vec![
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let err = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect_err("incompatible parser contract opcode version must fail");
+        assert!(err
+            .message
+            .contains("unsupported parser contract opcode version"));
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_rejects_contract_program_opcode_version_mismatch() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    LDA #$42";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1.saturating_add(1),
+            program: vec![
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let err = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect_err("parser contract/program opcode version mismatch must fail");
+        assert!(err
+            .message
+            .contains("parser contract/program opcode version mismatch"));
+    }
+
+    #[test]
     fn parse_line_with_parser_vm_supports_dot_directive_primitive_opcode() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
@@ -2643,25 +2728,63 @@ mod tests {
         let model =
             HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
         let register_checker = register_checker_none();
-        let (ast, _, _) = parse_line_with_model(
+        let err = parse_line_with_model(
             &model,
             DEFAULT_TOKENIZER_CPU_ID,
             None,
-            "    .if 1",
+            "    NOP",
             1,
             &register_checker,
         )
-        .expect("statement envelope parse should return conditional AST with expression error");
-        let LineAst::Conditional { exprs, .. } = ast else {
-            panic!("expected conditional AST, got: {ast:?}");
-        };
-        assert_eq!(exprs.len(), 1, "expected one conditional expression");
-        let Expr::Error(message, _) = &exprs[0] else {
-            panic!("expected expression error, got: {:?}", exprs[0]);
-        };
+        .expect_err("incompatible parser contract should fail before AST parsing");
+        let message = err.message;
         assert!(
             message.contains("unsupported parser grammar id"),
             "expected deterministic contract compatibility error, got: {message}"
+        );
+        assert!(
+            message.to_ascii_lowercase().contains("otp004"),
+            "expected parser contract diagnostic code in error, got: {message}"
+        );
+    }
+
+    #[test]
+    fn parse_line_with_model_requires_parser_ast_schema_compatibility() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+            .expect("hierarchy chunks build");
+        for contract in &mut chunks.parser_contracts {
+            if matches!(
+                contract.owner,
+                crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("mos6502")
+            ) {
+                contract.ast_schema_id = "opforge.ast.line.v0".to_string();
+            }
+        }
+        let model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
+        let register_checker = register_checker_none();
+        let err = parse_line_with_model(
+            &model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "    NOP",
+            1,
+            &register_checker,
+        )
+        .expect_err("incompatible parser contract should fail before AST parsing");
+        let message = err.message;
+        assert!(
+            message.contains("unsupported parser AST schema id"),
+            "expected deterministic parser AST schema compatibility error, got: {message}"
         );
         assert!(
             message.to_ascii_lowercase().contains("otp004"),
