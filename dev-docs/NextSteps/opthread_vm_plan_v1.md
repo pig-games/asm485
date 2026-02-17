@@ -32,12 +32,14 @@ All items below are true:
 - Native 6502 host harness v1 envelope is implemented with ordinal-driven entrypoints and control-block status/length reporting.
 - Native harness shakeout fixtures now cover deterministic success flow and `OPC`/`OTR`/`ott`/`otp` failure namespaces through the harness boundary.
 - Native harness now exposes byte-payload wire entrypoints for process-boundary driving of `set_pipeline`, `tokenize_line`, `parse_line`, `encode_instruction`, and `last_error`.
+- Basic C64/VICE opForge-format host harness scaffold now assembles to PRG with self-test and visual pass/fail signaling.
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
 - Phase P4 retro profile enforcement is complete.
 - Phase P5 Ultimate64 portability contract hardening is complete.
 - Phase P6 6502-native host ABI shakeout is complete.
+- Phase P7 external native host PoC is in progress.
 
 ## 4. Workstream Phases
 
@@ -102,6 +104,15 @@ Acceptance:
 - A 6502 assembler/machine-language host can integrate against one stable v1 in-memory envelope without relying on C ABI assumptions.
 - Harness smoke coverage proves deterministic end-to-end behavior through the native interface boundary.
 
+## Phase P7: External Native Host PoC (C64/VICE first)
+- [x] Add a real opForge-format C64/VICE harness scaffold that runs as PRG and exercises entrypoint dispatch/control-block status handling.
+- [ ] Replace runtime-error stubs in the native harness with VM-backed handlers incrementally (`load_package` then `set_pipeline` then line/token/encode path).
+- [ ] Replay `.optst` fixture vectors through the native harness wire payload path and assert deterministic status/error namespace parity.
+
+Acceptance:
+- A host program running in VICE/real C64 can execute the same harness flow without Rust runtime dependencies.
+- Stub-to-VM migration preserves control-block and wire contract behavior without churn in host call sites.
+
 ## 5. Non-goals for this plan iteration
 
 - Full VM migration of macro/preprocessor/module/linker orchestration.
@@ -124,4 +135,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Implement an external Ultimate64-class host harness PoC that calls the wire payload interface directly and replays the same smoke/failure fixture suite.
+Wire the C64/VICE harness scaffold to the first VM-backed native handler (`load_package`) while keeping control-block and wire payload behavior stable.

@@ -88,3 +88,6 @@ The Rust host includes ABI-oriented conformance tests for this contract, includi
 - 6502-native harness envelope smoke flow (`load_package -> set_pipeline -> tokenize/parse/encode`)
 - fixture-backed failure namespace shakeout through harness boundary (`OPC`, `OTR`, `ott`, `otp`)
 - wire-payload smoke flow over byte interfaces (`set_pipeline`, `tokenize_line`, `parse_line`, `encode_instruction`, `last_error`)
+
+Reference C64/VICE host scaffold (opForge assembly) for external-native integration bring-up:
+- `examples/opthread/c64/native6502_harness.asm`
