@@ -16,6 +16,7 @@ All items below are true:
 - Mode selection and instruction emission remain package/runtime-authoritative.
 - Runtime contracts are deterministic, bounded, versioned, and validated.
 - Ultimate64-focused ABI/contract constraints are documented and test-backed.
+- 6502-native host ABI envelope (control-block layout + entrypoint ordinals) is versioned and test-backed.
 
 ## 3. Current Status Snapshot
 
@@ -33,6 +34,7 @@ All items below are true:
 - Phase P3 contract freeze/validation hardening is complete.
 - Phase P4 retro profile enforcement is complete.
 - Phase P5 Ultimate64 portability contract hardening is complete.
+- Phase P6 6502-native host ABI shakeout is in progress.
 
 ## 4. Workstream Phases
 
@@ -86,6 +88,17 @@ Acceptance:
 Acceptance:
 - Native implementers can build to one stable contract without relying on hidden host behavior.
 
+## Phase P6: 6502-Native Host ABI Envelope and Harness
+- [x] Define and freeze a 6502-native host control-block envelope with fixed offsets/widths.
+- [x] Define and freeze stable native entrypoint ordinals for v1 jump-table integration.
+- [x] Reserve capability bits for forward-compatible `.struct`/`.enum` ABI growth.
+- [ ] Build external harness smoke flow (`load package -> set pipeline -> tokenize/parse/encode`) against the frozen envelope.
+- [ ] Add fixture-backed shakeout cases for deterministic success and failure (`OPC`, `OTR`, `ott`, `otp`) through the harness boundary.
+
+Acceptance:
+- A 6502 assembler/machine-language host can integrate against one stable v1 in-memory envelope without relying on C ABI assumptions.
+- Harness smoke coverage proves deterministic end-to-end behavior through the native interface boundary.
+
 ## 5. Non-goals for this plan iteration
 
 - Full VM migration of macro/preprocessor/module/linker orchestration.
@@ -100,12 +113,12 @@ Acceptance:
 
 ## 7. Validation Gates (every implementation batch)
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy -- -D warnings`
-- [ ] `cargo audit`
-- [ ] `make test`
-- [ ] `make reference-test`
+- [x] `cargo fmt`
+- [x] `cargo clippy -- -D warnings`
+- [x] `cargo audit`
+- [x] `make test`
+- [x] `make reference-test`
 
 ## 8. Immediate Next Step
 
-Plan v1 is complete; proceed with native-integration shakeout against an external Ultimate64-class host harness.
+Implement the external 6502-native harness smoke flow for the frozen v1 envelope and validate deterministic success/failure fixture behavior.

@@ -137,6 +137,28 @@ For constrained native targets (including Ultimate64-class environments):
 - explicit ABI-safe payloads with fixed semantics
 - no hidden host parser/tokenizer dependencies in VM-authoritative paths
 
+### 10.1 6502-native host ABI envelope (v1 kickoff)
+
+For 6502 assembler/machine-language host integrations, the v1 native envelope is defined as:
+- fixed 32-byte control block with little-endian `u16` fields
+- fixed field offsets for magic/version/size/capabilities/status/request-id/input/output/extension/last-error pointers and lengths
+- fixed jump-table ordinals:
+1. `init`
+2. `load_package`
+3. `set_pipeline`
+4. `tokenize_line`
+5. `parse_line`
+6. `encode_instruction`
+7. `last_error`
+
+Forward-compatibility is explicit:
+- capability bit 0: extension TLV presence
+- capability bit 1: structured layout metadata channel (`.struct`-oriented)
+- capability bit 2: enum metadata channel (`.enum`-oriented)
+
+Conformance for this envelope is locked by runtime constants/tests in:
+- `src/opthread/runtime.rs`
+
 ABI-facing contract details for this target class are captured in:
 - `documentation/opthread-ultimate64-abi-contract-v1.md`
 

@@ -1229,6 +1229,44 @@ impl HierarchyRuntimeBridge {
     }
 }
 
+/// opThread v1 native host ABI marker for 6502-class integrations.
+pub const NATIVE_6502_ABI_MAGIC_V1: [u8; 4] = *b"OT65";
+pub const NATIVE_6502_ABI_VERSION_V1: u16 = 0x0001;
+
+/// Fixed control-block size for the 6502-native host ABI v1 envelope.
+pub const NATIVE_6502_CONTROL_BLOCK_SIZE_V1: u16 = 32;
+
+pub const NATIVE_6502_CB_MAGIC_OFFSET: usize = 0;
+pub const NATIVE_6502_CB_ABI_VERSION_OFFSET: usize = 4;
+pub const NATIVE_6502_CB_STRUCT_SIZE_OFFSET: usize = 6;
+pub const NATIVE_6502_CB_CAPABILITY_FLAGS_OFFSET: usize = 8;
+pub const NATIVE_6502_CB_STATUS_CODE_OFFSET: usize = 10;
+pub const NATIVE_6502_CB_REQUEST_ID_OFFSET: usize = 12;
+pub const NATIVE_6502_CB_RESERVED0_OFFSET: usize = 14;
+pub const NATIVE_6502_CB_INPUT_PTR_OFFSET: usize = 16;
+pub const NATIVE_6502_CB_INPUT_LEN_OFFSET: usize = 18;
+pub const NATIVE_6502_CB_OUTPUT_PTR_OFFSET: usize = 20;
+pub const NATIVE_6502_CB_OUTPUT_LEN_OFFSET: usize = 22;
+pub const NATIVE_6502_CB_EXTENSION_PTR_OFFSET: usize = 24;
+pub const NATIVE_6502_CB_EXTENSION_LEN_OFFSET: usize = 26;
+pub const NATIVE_6502_CB_LAST_ERROR_PTR_OFFSET: usize = 28;
+pub const NATIVE_6502_CB_LAST_ERROR_LEN_OFFSET: usize = 30;
+
+/// Capability bits for forward-compatible native ABI growth.
+pub const NATIVE_6502_CAPABILITY_EXT_TLV_V1: u16 = 1 << 0;
+pub const NATIVE_6502_CAPABILITY_STRUCT_LAYOUTS_V1: u16 = 1 << 1;
+pub const NATIVE_6502_CAPABILITY_ENUM_TABLES_V1: u16 = 1 << 2;
+
+/// Stable jump-table ordinals for 6502-native host runtimes.
+pub const NATIVE_6502_ENTRYPOINT_INIT_V1: u8 = 0;
+pub const NATIVE_6502_ENTRYPOINT_LOAD_PACKAGE_V1: u8 = 1;
+pub const NATIVE_6502_ENTRYPOINT_SET_PIPELINE_V1: u8 = 2;
+pub const NATIVE_6502_ENTRYPOINT_TOKENIZE_LINE_V1: u8 = 3;
+pub const NATIVE_6502_ENTRYPOINT_PARSE_LINE_V1: u8 = 4;
+pub const NATIVE_6502_ENTRYPOINT_ENCODE_INSTRUCTION_V1: u8 = 5;
+pub const NATIVE_6502_ENTRYPOINT_LAST_ERROR_V1: u8 = 6;
+pub const NATIVE_6502_ENTRYPOINT_COUNT_V1: u8 = 7;
+
 /// Minimal host-to-runtime ABI for portable/native targets.
 ///
 /// Hosts provide resolved VM candidates plus active hierarchy ids; runtime lookup
@@ -7421,6 +7459,106 @@ mod tests {
             !tokens.is_empty(),
             "expected tokens after package buffer reuse"
         );
+    }
+
+    #[test]
+    fn native6502_abi_control_block_v1_layout_is_stable() {
+        assert_eq!(NATIVE_6502_ABI_MAGIC_V1, *b"OT65");
+        assert_eq!(NATIVE_6502_ABI_VERSION_V1, 0x0001);
+        assert_eq!(NATIVE_6502_CONTROL_BLOCK_SIZE_V1, 32);
+
+        assert_eq!(NATIVE_6502_CB_MAGIC_OFFSET, 0);
+        assert_eq!(NATIVE_6502_CB_ABI_VERSION_OFFSET, 4);
+        assert_eq!(NATIVE_6502_CB_STRUCT_SIZE_OFFSET, 6);
+        assert_eq!(NATIVE_6502_CB_CAPABILITY_FLAGS_OFFSET, 8);
+        assert_eq!(NATIVE_6502_CB_STATUS_CODE_OFFSET, 10);
+        assert_eq!(NATIVE_6502_CB_REQUEST_ID_OFFSET, 12);
+        assert_eq!(NATIVE_6502_CB_RESERVED0_OFFSET, 14);
+        assert_eq!(NATIVE_6502_CB_INPUT_PTR_OFFSET, 16);
+        assert_eq!(NATIVE_6502_CB_INPUT_LEN_OFFSET, 18);
+        assert_eq!(NATIVE_6502_CB_OUTPUT_PTR_OFFSET, 20);
+        assert_eq!(NATIVE_6502_CB_OUTPUT_LEN_OFFSET, 22);
+        assert_eq!(NATIVE_6502_CB_EXTENSION_PTR_OFFSET, 24);
+        assert_eq!(NATIVE_6502_CB_EXTENSION_LEN_OFFSET, 26);
+        assert_eq!(NATIVE_6502_CB_LAST_ERROR_PTR_OFFSET, 28);
+        assert_eq!(NATIVE_6502_CB_LAST_ERROR_LEN_OFFSET, 30);
+        assert_eq!(
+            NATIVE_6502_CB_LAST_ERROR_LEN_OFFSET + std::mem::size_of::<u16>(),
+            NATIVE_6502_CONTROL_BLOCK_SIZE_V1 as usize
+        );
+
+        assert_eq!(NATIVE_6502_CAPABILITY_EXT_TLV_V1, 1 << 0);
+        assert_eq!(NATIVE_6502_CAPABILITY_STRUCT_LAYOUTS_V1, 1 << 1);
+        assert_eq!(NATIVE_6502_CAPABILITY_ENUM_TABLES_V1, 1 << 2);
+
+        let mut control_block = [0u8; NATIVE_6502_CONTROL_BLOCK_SIZE_V1 as usize];
+        control_block[NATIVE_6502_CB_MAGIC_OFFSET..NATIVE_6502_CB_MAGIC_OFFSET + 4]
+            .copy_from_slice(&NATIVE_6502_ABI_MAGIC_V1);
+        control_block[NATIVE_6502_CB_ABI_VERSION_OFFSET..NATIVE_6502_CB_ABI_VERSION_OFFSET + 2]
+            .copy_from_slice(&NATIVE_6502_ABI_VERSION_V1.to_le_bytes());
+        control_block[NATIVE_6502_CB_STRUCT_SIZE_OFFSET..NATIVE_6502_CB_STRUCT_SIZE_OFFSET + 2]
+            .copy_from_slice(&NATIVE_6502_CONTROL_BLOCK_SIZE_V1.to_le_bytes());
+        control_block
+            [NATIVE_6502_CB_CAPABILITY_FLAGS_OFFSET..NATIVE_6502_CB_CAPABILITY_FLAGS_OFFSET + 2]
+            .copy_from_slice(
+                &(NATIVE_6502_CAPABILITY_EXT_TLV_V1
+                    | NATIVE_6502_CAPABILITY_STRUCT_LAYOUTS_V1
+                    | NATIVE_6502_CAPABILITY_ENUM_TABLES_V1)
+                    .to_le_bytes(),
+            );
+
+        assert_eq!(
+            &control_block[NATIVE_6502_CB_MAGIC_OFFSET..NATIVE_6502_CB_MAGIC_OFFSET + 4],
+            b"OT65"
+        );
+        assert_eq!(
+            u16::from_le_bytes([
+                control_block[NATIVE_6502_CB_ABI_VERSION_OFFSET],
+                control_block[NATIVE_6502_CB_ABI_VERSION_OFFSET + 1],
+            ]),
+            NATIVE_6502_ABI_VERSION_V1
+        );
+        assert_eq!(
+            u16::from_le_bytes([
+                control_block[NATIVE_6502_CB_STRUCT_SIZE_OFFSET],
+                control_block[NATIVE_6502_CB_STRUCT_SIZE_OFFSET + 1],
+            ]),
+            NATIVE_6502_CONTROL_BLOCK_SIZE_V1
+        );
+        assert_eq!(
+            u16::from_le_bytes([
+                control_block[NATIVE_6502_CB_CAPABILITY_FLAGS_OFFSET],
+                control_block[NATIVE_6502_CB_CAPABILITY_FLAGS_OFFSET + 1],
+            ]),
+            NATIVE_6502_CAPABILITY_EXT_TLV_V1
+                | NATIVE_6502_CAPABILITY_STRUCT_LAYOUTS_V1
+                | NATIVE_6502_CAPABILITY_ENUM_TABLES_V1
+        );
+    }
+
+    #[test]
+    fn native6502_abi_entrypoint_ordinals_are_stable() {
+        assert_eq!(NATIVE_6502_ENTRYPOINT_INIT_V1, 0);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_LOAD_PACKAGE_V1, 1);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_SET_PIPELINE_V1, 2);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_TOKENIZE_LINE_V1, 3);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_PARSE_LINE_V1, 4);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_ENCODE_INSTRUCTION_V1, 5);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_LAST_ERROR_V1, 6);
+        assert_eq!(NATIVE_6502_ENTRYPOINT_COUNT_V1, 7);
+
+        let ordinals = [
+            NATIVE_6502_ENTRYPOINT_INIT_V1,
+            NATIVE_6502_ENTRYPOINT_LOAD_PACKAGE_V1,
+            NATIVE_6502_ENTRYPOINT_SET_PIPELINE_V1,
+            NATIVE_6502_ENTRYPOINT_TOKENIZE_LINE_V1,
+            NATIVE_6502_ENTRYPOINT_PARSE_LINE_V1,
+            NATIVE_6502_ENTRYPOINT_ENCODE_INSTRUCTION_V1,
+            NATIVE_6502_ENTRYPOINT_LAST_ERROR_V1,
+        ];
+        for (expected, ordinal) in ordinals.into_iter().enumerate() {
+            assert_eq!(ordinal as usize, expected);
+        }
     }
 
     #[test]
