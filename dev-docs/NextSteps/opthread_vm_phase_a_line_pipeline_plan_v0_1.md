@@ -78,12 +78,13 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
 ## Following phases
 ### Phase B (post-Phase A): VM-authoritative emission and tokenizer ubiquity
 
-Status: in progress (refreshed 2026-02-17, post non-delegating TKVM scan-loop rollout)
+Status: in progress (refreshed 2026-02-17, post strict VM-mode fallback removal)
 
 Requested target: all assembler tokenization in opForge runs through VM tokenization paths, with authoritative VM behavior for certified families.
 Current note: tokenizer authority now covers MOS6502 + Intel8080 families; Intel instruction-emission runtime rollout policy remains staged.
 Current note 2: default family TKVM programs no longer emit `DelegateCore`; they execute VM scan loops (`ScanCoreToken`) for authoritative tokenizer dispatch.
 Current note 3: authoritative tokenizer entrypoints reject `DelegateCore` opcode execution, preventing silent host-tokenizer fallback through VM bytecode.
+Current note 4: `RuntimeTokenizerMode::Vm` no longer performs implicit host fallback; host/delegated tokenization now requires explicit mode selection.
 
 #### B1) Replace placeholder tokenizer VM programs with real bytecode
 - [x] Replace `TokenizerVmOpcode::End` placeholder programs emitted by builder with bootstrap tokenizer VM bytecode per rollout family (deterministic line-walk, non-emitting).
