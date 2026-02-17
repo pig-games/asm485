@@ -81,7 +81,7 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
 - [x] Add strict VM tokenizer entrypoint for assembler-owned callers (no host fallback for authoritative VM tokenization requests).
 - [x] Keep staged-family emission behavior while allowing VM tokenization model availability across families.
 - [x] Tighten native emission fallback behavior for authoritative families (`src/assembler/mod.rs:3472`, `src/assembler/mod.rs:3539`).
-- [ ] Resolve current `runtime.rs` <-> `package.rs` tokenizer VM schema mismatch before final rollout gate sign-off.
+- [x] Resolve current `runtime.rs` <-> `package.rs` tokenizer VM schema mismatch before final rollout gate sign-off.
 
 ### Phase C (post-Phase B): VM parser/AST pipeline
 - [ ] Define package-level parser grammar/AST contract and chunk schema.
