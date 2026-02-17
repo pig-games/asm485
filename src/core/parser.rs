@@ -240,6 +240,31 @@ impl Parser {
         Self::from_token_parts(tokens, end_span, end_token_text)
     }
 
+    pub fn parse_line_from_tokens(
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<LineAst, ParseError> {
+        let mut parser = Self::from_token_parts(tokens, end_span, end_token_text);
+        parser.parse_line()
+    }
+
+    pub fn parse_expr_from_tokens(
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<Expr, ParseError> {
+        let mut parser = Self::from_token_parts(tokens, end_span, end_token_text);
+        let expr = parser.parse_expr()?;
+        if parser.index < parser.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: parser.tokens[parser.index].span,
+            });
+        }
+        Ok(expr)
+    }
+
     pub fn from_line_with_registers(
         line: &str,
         line_num: u32,

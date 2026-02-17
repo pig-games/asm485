@@ -3,10 +3,12 @@
 
 use std::sync::OnceLock;
 
-use crate::core::parser::{LineAst, ParseError, Parser};
+use crate::core::parser::{Expr, Label, LineAst, ParseError, Parser};
 use crate::core::registry::ModuleRegistry;
 use crate::core::text_utils::is_ident_start;
-use crate::core::tokenizer::{register_checker_none, RegisterChecker, Span, Token, TokenKind};
+use crate::core::tokenizer::{
+    register_checker_none, OperatorKind, RegisterChecker, Span, Token, TokenKind,
+};
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
@@ -205,10 +207,21 @@ fn parse_line_with_parser_vm(
                         ),
                     ));
                 }
-                let mut parser =
-                    Parser::from_tokens(tokens.clone(), end_span, end_token_text.clone());
-                let parsed = parser.parse_line()?;
-                let envelope = PortableLineAst::from_core_line_ast(&parsed);
+                let envelope = match parse_statement_envelope_from_tokens(
+                    &tokens,
+                    end_span,
+                    end_token_text.clone(),
+                )? {
+                    Some(envelope) => envelope,
+                    None => {
+                        let parsed = Parser::parse_line_from_tokens(
+                            tokens.clone(),
+                            end_span,
+                            end_token_text.clone(),
+                        )?;
+                        PortableLineAst::from_core_line_ast(&parsed)
+                    }
+                };
                 parsed_line = Some(envelope.to_core_line_ast());
             }
             ParserVmOpcode::EmitDiag => {
@@ -261,6 +274,266 @@ fn parser_diag_code_for_slot(
         1 => diagnostics.expected_expression.as_str(),
         2 => diagnostics.expected_operand.as_str(),
         _ => diagnostics.invalid_statement.as_str(),
+    }
+}
+
+fn parse_statement_envelope_from_tokens(
+    tokens: &[Token],
+    end_span: Span,
+    end_token_text: Option<String>,
+) -> Result<Option<PortableLineAst>, ParseError> {
+    if tokens.is_empty() {
+        return Ok(Some(PortableLineAst::Empty));
+    }
+
+    let mut label: Option<Label> = None;
+    let mut idx = 0usize;
+    if let Some(first) = tokens.first() {
+        let label_name = match &first.kind {
+            TokenKind::Identifier(name) => Some(name.clone()),
+            TokenKind::Register(name) => Some(name.clone()),
+            _ => None,
+        };
+        if let Some(name) = label_name {
+            if first.span.col_start == 1 {
+                if let Some(colon) = tokens.get(1) {
+                    if matches!(colon.kind, TokenKind::Colon)
+                        && colon.span.col_start == first.span.col_end
+                    {
+                        label = Some(Label {
+                            name: name.clone(),
+                            span: first.span,
+                        });
+                        idx = 2;
+                    }
+                    if label.is_none() {
+                        label = Some(Label {
+                            name,
+                            span: first.span,
+                        });
+                        idx = 1;
+                    }
+                } else {
+                    label = Some(Label {
+                        name,
+                        span: first.span,
+                    });
+                    idx = 1;
+                }
+            }
+        }
+    }
+
+    if idx >= tokens.len() {
+        return Ok(Some(PortableLineAst::from_core_line_ast(
+            &LineAst::Statement {
+                label,
+                mnemonic: None,
+                operands: Vec::new(),
+            },
+        )));
+    }
+
+    if label.is_none() && is_star_org_assignment(tokens, idx) {
+        return Ok(None);
+    }
+    if label.is_some() && is_assignment_at(tokens, idx) {
+        return Ok(None);
+    }
+    if matches!(
+        tokens.get(idx),
+        Some(Token {
+            kind: TokenKind::Dot,
+            ..
+        })
+    ) {
+        return Ok(None);
+    }
+
+    let mnemonic = match tokens.get(idx) {
+        Some(Token {
+            kind: TokenKind::Identifier(name),
+            ..
+        }) => name.clone(),
+        _ => return Ok(None),
+    };
+    idx = idx.saturating_add(1);
+
+    let mut operands: Vec<Expr> = Vec::new();
+    if idx < tokens.len() {
+        let mut depth_paren = 0i32;
+        let mut depth_bracket = 0i32;
+        let mut depth_brace = 0i32;
+        let mut start = idx;
+        let mut cursor = idx;
+        while cursor < tokens.len() {
+            let token = &tokens[cursor];
+            match token.kind {
+                TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
+                TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
+                TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
+                TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
+                TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
+                _ => {}
+            }
+            if matches!(token.kind, TokenKind::Comma)
+                && depth_paren == 0
+                && depth_bracket == 0
+                && depth_brace == 0
+            {
+                parse_operand_expr_range(
+                    tokens,
+                    start,
+                    cursor,
+                    cursor,
+                    end_span,
+                    end_token_text.clone(),
+                    &mut operands,
+                )?;
+                if matches!(operands.last(), Some(Expr::Error(_, _))) {
+                    break;
+                }
+                start = cursor.saturating_add(1);
+            }
+            cursor = cursor.saturating_add(1);
+        }
+        if !matches!(operands.last(), Some(Expr::Error(_, _))) {
+            parse_operand_expr_range(
+                tokens,
+                start,
+                tokens.len(),
+                tokens.len(),
+                end_span,
+                end_token_text,
+                &mut operands,
+            )?;
+        }
+    }
+
+    Ok(Some(PortableLineAst::from_core_line_ast(
+        &LineAst::Statement {
+            label,
+            mnemonic: Some(mnemonic),
+            operands,
+        },
+    )))
+}
+
+fn parse_operand_expr_range(
+    tokens: &[Token],
+    start: usize,
+    end: usize,
+    error_span_index: usize,
+    end_span: Span,
+    end_token_text: Option<String>,
+    operands: &mut Vec<Expr>,
+) -> Result<(), ParseError> {
+    if start >= end {
+        let span = tokens
+            .get(error_span_index)
+            .map(|token| token.span)
+            .unwrap_or(end_span);
+        operands.push(Expr::Error("Expected expression".to_string(), span));
+        return Ok(());
+    }
+    let expr_end_span = tokens.get(end).map(|token| token.span).unwrap_or(end_span);
+    match Parser::parse_expr_from_tokens(tokens[start..end].to_vec(), expr_end_span, end_token_text)
+    {
+        Ok(expr) => operands.push(expr),
+        Err(err) => operands.push(Expr::Error(err.message, err.span)),
+    }
+    Ok(())
+}
+
+fn is_star_org_assignment(tokens: &[Token], idx: usize) -> bool {
+    matches!(
+        tokens.get(idx),
+        Some(Token {
+            kind: TokenKind::Operator(OperatorKind::Multiply),
+            ..
+        })
+    ) && matches!(
+        tokens.get(idx.saturating_add(1)),
+        Some(Token {
+            kind: TokenKind::Operator(OperatorKind::Eq),
+            ..
+        })
+    )
+}
+
+fn is_assignment_at(tokens: &[Token], idx: usize) -> bool {
+    match tokens.get(idx).map(|token| &token.kind) {
+        Some(TokenKind::Operator(OperatorKind::Eq)) => true,
+        Some(TokenKind::Colon) => {
+            let next = tokens.get(idx.saturating_add(1));
+            let next2 = tokens.get(idx.saturating_add(2));
+            (matches!(
+                next,
+                Some(Token {
+                    kind: TokenKind::Question,
+                    ..
+                })
+            ) && matches!(
+                next2,
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            )) || matches!(
+                next,
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            )
+        }
+        Some(TokenKind::Operator(
+            OperatorKind::Plus
+            | OperatorKind::Minus
+            | OperatorKind::Multiply
+            | OperatorKind::Divide
+            | OperatorKind::Mod
+            | OperatorKind::Power
+            | OperatorKind::BitOr
+            | OperatorKind::BitXor
+            | OperatorKind::BitAnd
+            | OperatorKind::LogicOr
+            | OperatorKind::LogicAnd
+            | OperatorKind::Shl
+            | OperatorKind::Shr,
+        )) => matches!(
+            tokens.get(idx.saturating_add(1)),
+            Some(Token {
+                kind: TokenKind::Operator(OperatorKind::Eq),
+                ..
+            })
+        ),
+        Some(TokenKind::Dot) => {
+            matches!(
+                tokens.get(idx.saturating_add(1)),
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            ) || (matches!(
+                tokens.get(idx.saturating_add(1)),
+                Some(Token {
+                    kind: TokenKind::Identifier(name),
+                    ..
+                }) if name.eq_ignore_ascii_case("min")
+                    || name.eq_ignore_ascii_case("max")
+                    || name.eq_ignore_ascii_case("rep")
+                    || name.eq_ignore_ascii_case("member")
+            ) && matches!(
+                tokens.get(idx.saturating_add(2)),
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            ))
+        }
+        _ => false,
     }
 }
 
@@ -448,6 +721,60 @@ mod tests {
             }
             other => panic!("expected instruction line ast, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_statement_envelope_from_tokens_handles_instruction_line() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "label: LDA ($10),Y",
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+
+        let parsed = parse_statement_envelope_from_tokens(&tokens, end_span, end_token_text)
+            .expect("vm statement envelope parse should succeed")
+            .expect("instruction line should use statement envelope fast path")
+            .to_core_line_ast();
+        match parsed {
+            LineAst::Statement {
+                label: Some(label),
+                mnemonic: Some(mnemonic),
+                operands,
+            } => {
+                assert_eq!(label.name.to_ascii_lowercase(), "label");
+                assert_eq!(mnemonic.to_ascii_lowercase(), "lda");
+                assert_eq!(operands.len(), 2);
+            }
+            other => panic!("expected statement line ast, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_statement_envelope_from_tokens_returns_none_for_directive_line() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "    .if 1",
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+
+        let parsed = parse_statement_envelope_from_tokens(&tokens, end_span, end_token_text)
+            .expect("vm statement envelope parse should succeed");
+        assert!(
+            parsed.is_none(),
+            "directive line should defer to full parser path"
+        );
     }
 
     #[test]
