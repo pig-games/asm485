@@ -2504,7 +2504,6 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseStatementEnvelope as u8,
-                ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8,
             ],
         }
@@ -2938,7 +2937,6 @@ mod tests {
             decoded.parser_vm_programs[0].program,
             vec![
                 ParserVmOpcode::ParseStatementEnvelope as u8,
-                ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8
             ]
         );

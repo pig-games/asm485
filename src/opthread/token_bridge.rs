@@ -167,7 +167,6 @@ fn parse_line_with_parser_vm(
 
     let mut pc = 0usize;
     let mut parsed_line: Option<LineAst> = None;
-    let mut statement_envelope: Option<PortableLineAst> = None;
     let mut token_buffer = Some(tokens);
 
     while pc < parser_vm_program.program.len() {
@@ -210,12 +209,11 @@ fn parse_line_with_parser_vm(
                 let mut parser =
                     Parser::from_tokens(core_tokens.clone(), end_span, end_token_text.clone());
                 let parsed = parser.parse_line()?;
-                statement_envelope = PortableLineAst::from_core_line_ast(&parsed);
+                let envelope = PortableLineAst::from_core_line_ast(&parsed);
+                parsed_line = Some(envelope.to_core_line_ast());
             }
             ParserVmOpcode::ParseCoreLine => {
-                if let Some(envelope) = statement_envelope.take() {
-                    parsed_line = Some(envelope.to_core_line_ast());
-                    token_buffer = None;
+                if parsed_line.is_some() {
                     continue;
                 }
                 let Some(core_tokens) = token_buffer.take() else {
@@ -491,7 +489,6 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseStatementEnvelope as u8,
-                ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8,
             ],
         };
@@ -516,10 +513,51 @@ mod tests {
     }
 
     #[test]
-    fn parse_line_with_parser_vm_statement_envelope_falls_back_to_core_for_non_statement() {
+    fn parse_line_with_parser_vm_statement_envelope_supports_non_statement_ast() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
         let source = "    .if 1";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let line = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            source,
+            1,
+        )
+        .expect("parse should succeed");
+        assert!(
+            matches!(line, LineAst::Conditional { .. }),
+            "expected conditional line ast from statement envelope parse, got {line:?}"
+        );
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_keeps_legacy_parse_core_line_compatibility() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    LDA #$42";
         let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
             model,
             DEFAULT_TOKENIZER_CPU_ID,
@@ -552,8 +590,8 @@ mod tests {
         )
         .expect("parse should succeed");
         assert!(
-            matches!(line, LineAst::Conditional { .. }),
-            "expected conditional line ast from fallback parse, got {line:?}"
+            matches!(line, LineAst::Statement { .. }),
+            "expected statement line ast for legacy program, got {line:?}"
         );
     }
 }

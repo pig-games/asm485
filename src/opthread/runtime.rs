@@ -7,10 +7,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
-use crate::core::parser::{BinaryOp, Expr, Label, LineAst, UnaryOp};
+use crate::core::parser::{
+    AssignOp, BinaryOp, Expr, Label, LineAst, SignatureAtom, StatementSignature, UnaryOp, UseItem,
+    UseParam,
+};
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::core::tokenizer::{
-    NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
+    ConditionalKind, NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
 };
 use crate::families::intel8080::handler::resolve_operands as resolve_intel8080_operands;
 use crate::families::intel8080::table::{
@@ -440,6 +443,22 @@ pub struct PortableAstLabel {
     pub span: PortableSpan,
 }
 
+impl PortableAstLabel {
+    fn from_core_label(label: &Label) -> Self {
+        Self {
+            name: label.name.clone(),
+            span: label.span.into(),
+        }
+    }
+
+    fn to_core_label(&self) -> Label {
+        Label {
+            name: self.name.clone(),
+            span: self.span.into(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortableAstUnaryOp {
     Plus,
@@ -690,8 +709,179 @@ impl PortableAstExpr {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableAstUseItem {
+    pub name: String,
+    pub alias: Option<String>,
+    pub span: PortableSpan,
+}
+
+impl PortableAstUseItem {
+    fn from_core_item(item: &UseItem) -> Self {
+        Self {
+            name: item.name.clone(),
+            alias: item.alias.clone(),
+            span: item.span.into(),
+        }
+    }
+
+    fn to_core_item(&self) -> UseItem {
+        UseItem {
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            span: self.span.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableAstUseParam {
+    pub name: String,
+    pub value: PortableAstExpr,
+    pub span: PortableSpan,
+}
+
+impl PortableAstUseParam {
+    fn from_core_param(param: &UseParam) -> Self {
+        Self {
+            name: param.name.clone(),
+            value: PortableAstExpr::from_core_expr(&param.value),
+            span: param.span.into(),
+        }
+    }
+
+    fn to_core_param(&self) -> UseParam {
+        UseParam {
+            name: self.name.clone(),
+            value: self.value.to_core_expr(),
+            span: self.span.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PortableAstSignatureAtom {
+    Literal(Vec<u8>, PortableSpan),
+    Capture {
+        type_name: String,
+        name: String,
+        span: PortableSpan,
+    },
+    Boundary {
+        atoms: Vec<PortableAstSignatureAtom>,
+        span: PortableSpan,
+    },
+}
+
+impl PortableAstSignatureAtom {
+    fn from_core_atom(atom: &SignatureAtom) -> Self {
+        match atom {
+            SignatureAtom::Literal(bytes, span) => Self::Literal(bytes.clone(), (*span).into()),
+            SignatureAtom::Capture {
+                type_name,
+                name,
+                span,
+            } => Self::Capture {
+                type_name: type_name.clone(),
+                name: name.clone(),
+                span: (*span).into(),
+            },
+            SignatureAtom::Boundary { atoms, span } => Self::Boundary {
+                atoms: atoms.iter().map(Self::from_core_atom).collect(),
+                span: (*span).into(),
+            },
+        }
+    }
+
+    fn to_core_atom(&self) -> SignatureAtom {
+        match self {
+            Self::Literal(bytes, span) => SignatureAtom::Literal(bytes.clone(), (*span).into()),
+            Self::Capture {
+                type_name,
+                name,
+                span,
+            } => SignatureAtom::Capture {
+                type_name: type_name.clone(),
+                name: name.clone(),
+                span: (*span).into(),
+            },
+            Self::Boundary { atoms, span } => SignatureAtom::Boundary {
+                atoms: atoms
+                    .iter()
+                    .map(PortableAstSignatureAtom::to_core_atom)
+                    .collect(),
+                span: (*span).into(),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableAstStatementSignature {
+    pub atoms: Vec<PortableAstSignatureAtom>,
+}
+
+impl PortableAstStatementSignature {
+    fn from_core_signature(signature: &StatementSignature) -> Self {
+        Self {
+            atoms: signature
+                .atoms
+                .iter()
+                .map(PortableAstSignatureAtom::from_core_atom)
+                .collect(),
+        }
+    }
+
+    fn to_core_signature(&self) -> StatementSignature {
+        StatementSignature {
+            atoms: self
+                .atoms
+                .iter()
+                .map(PortableAstSignatureAtom::to_core_atom)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PortableLineAst {
     Empty,
+    Conditional {
+        kind: ConditionalKind,
+        exprs: Vec<PortableAstExpr>,
+        span: PortableSpan,
+    },
+    Place {
+        section: String,
+        region: String,
+        align: Option<PortableAstExpr>,
+        span: PortableSpan,
+    },
+    Pack {
+        region: String,
+        sections: Vec<String>,
+        span: PortableSpan,
+    },
+    Use {
+        module_id: String,
+        alias: Option<String>,
+        items: Vec<PortableAstUseItem>,
+        params: Vec<PortableAstUseParam>,
+        span: PortableSpan,
+    },
+    StatementDef {
+        keyword: String,
+        signature: PortableAstStatementSignature,
+        span: PortableSpan,
+    },
+    StatementEnd {
+        span: PortableSpan,
+    },
+    Assignment {
+        label: PortableAstLabel,
+        op: AssignOp,
+        expr: PortableAstExpr,
+        span: PortableSpan,
+    },
     Statement {
         label: Option<PortableAstLabel>,
         mnemonic: Option<String>,
@@ -700,40 +890,164 @@ pub enum PortableLineAst {
 }
 
 impl PortableLineAst {
-    pub fn from_core_line_ast(value: &LineAst) -> Option<Self> {
+    pub fn from_core_line_ast(value: &LineAst) -> Self {
         match value {
-            LineAst::Empty => Some(Self::Empty),
+            LineAst::Empty => Self::Empty,
+            LineAst::Conditional { kind, exprs, span } => Self::Conditional {
+                kind: *kind,
+                exprs: exprs.iter().map(PortableAstExpr::from_core_expr).collect(),
+                span: (*span).into(),
+            },
+            LineAst::Place {
+                section,
+                region,
+                align,
+                span,
+            } => Self::Place {
+                section: section.clone(),
+                region: region.clone(),
+                align: align.as_ref().map(PortableAstExpr::from_core_expr),
+                span: (*span).into(),
+            },
+            LineAst::Pack {
+                region,
+                sections,
+                span,
+            } => Self::Pack {
+                region: region.clone(),
+                sections: sections.clone(),
+                span: (*span).into(),
+            },
+            LineAst::Use {
+                module_id,
+                alias,
+                items,
+                params,
+                span,
+            } => Self::Use {
+                module_id: module_id.clone(),
+                alias: alias.clone(),
+                items: items
+                    .iter()
+                    .map(PortableAstUseItem::from_core_item)
+                    .collect(),
+                params: params
+                    .iter()
+                    .map(PortableAstUseParam::from_core_param)
+                    .collect(),
+                span: (*span).into(),
+            },
+            LineAst::StatementDef {
+                keyword,
+                signature,
+                span,
+            } => Self::StatementDef {
+                keyword: keyword.clone(),
+                signature: PortableAstStatementSignature::from_core_signature(signature),
+                span: (*span).into(),
+            },
+            LineAst::StatementEnd { span } => Self::StatementEnd {
+                span: (*span).into(),
+            },
+            LineAst::Assignment {
+                label,
+                op,
+                expr,
+                span,
+            } => Self::Assignment {
+                label: PortableAstLabel::from_core_label(label),
+                op: *op,
+                expr: PortableAstExpr::from_core_expr(expr),
+                span: (*span).into(),
+            },
             LineAst::Statement {
                 label,
                 mnemonic,
                 operands,
-            } => Some(Self::Statement {
-                label: label.as_ref().map(|label| PortableAstLabel {
-                    name: label.name.clone(),
-                    span: label.span.into(),
-                }),
+            } => Self::Statement {
+                label: label.as_ref().map(PortableAstLabel::from_core_label),
                 mnemonic: mnemonic.clone(),
                 operands: operands
                     .iter()
                     .map(PortableAstExpr::from_core_expr)
                     .collect(),
-            }),
-            _ => None,
+            },
         }
     }
 
     pub fn to_core_line_ast(&self) -> LineAst {
         match self {
             Self::Empty => LineAst::Empty,
+            Self::Conditional { kind, exprs, span } => LineAst::Conditional {
+                kind: *kind,
+                exprs: exprs.iter().map(PortableAstExpr::to_core_expr).collect(),
+                span: (*span).into(),
+            },
+            Self::Place {
+                section,
+                region,
+                align,
+                span,
+            } => LineAst::Place {
+                section: section.clone(),
+                region: region.clone(),
+                align: align.as_ref().map(PortableAstExpr::to_core_expr),
+                span: (*span).into(),
+            },
+            Self::Pack {
+                region,
+                sections,
+                span,
+            } => LineAst::Pack {
+                region: region.clone(),
+                sections: sections.clone(),
+                span: (*span).into(),
+            },
+            Self::Use {
+                module_id,
+                alias,
+                items,
+                params,
+                span,
+            } => LineAst::Use {
+                module_id: module_id.clone(),
+                alias: alias.clone(),
+                items: items.iter().map(PortableAstUseItem::to_core_item).collect(),
+                params: params
+                    .iter()
+                    .map(PortableAstUseParam::to_core_param)
+                    .collect(),
+                span: (*span).into(),
+            },
+            Self::StatementDef {
+                keyword,
+                signature,
+                span,
+            } => LineAst::StatementDef {
+                keyword: keyword.clone(),
+                signature: signature.to_core_signature(),
+                span: (*span).into(),
+            },
+            Self::StatementEnd { span } => LineAst::StatementEnd {
+                span: (*span).into(),
+            },
+            Self::Assignment {
+                label,
+                op,
+                expr,
+                span,
+            } => LineAst::Assignment {
+                label: label.to_core_label(),
+                op: *op,
+                expr: expr.to_core_expr(),
+                span: (*span).into(),
+            },
             Self::Statement {
                 label,
                 mnemonic,
                 operands,
             } => LineAst::Statement {
-                label: label.as_ref().map(|label| Label {
-                    name: label.name.clone(),
-                    span: label.span.into(),
-                }),
+                label: label.as_ref().map(PortableAstLabel::to_core_label),
                 mnemonic: mnemonic.clone(),
                 operands: operands.iter().map(PortableAstExpr::to_core_expr).collect(),
             },
@@ -3973,9 +4287,11 @@ fn contains_form(map: &HashMap<String, HashSet<String>>, owner_id: &str, mnemoni
 mod tests {
     use super::*;
     use crate::core::family::AssemblerContext;
-    use crate::core::parser::Expr;
+    use crate::core::parser::{
+        AssignOp, Expr, Label, LineAst, SignatureAtom, StatementSignature, UseItem, UseParam,
+    };
     use crate::core::registry::{ModuleRegistry, VmEncodeCandidate};
-    use crate::core::tokenizer::{Span, Token, TokenKind, Tokenizer};
+    use crate::core::tokenizer::{ConditionalKind, Span, Token, TokenKind, Tokenizer};
     use crate::families::intel8080::module::Intel8080FamilyModule;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
     use crate::families::mos6502::Operand;
@@ -4201,7 +4517,6 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseStatementEnvelope as u8,
-                ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8,
             ],
         }
@@ -4809,6 +5124,112 @@ mod tests {
     }
 
     #[test]
+    fn portable_line_ast_contract_round_trips_core_line_model() {
+        let span = Span {
+            line: 7,
+            col_start: 3,
+            col_end: 9,
+        };
+        let num_expr = Expr::Number("42".to_string(), span);
+        let id_expr = Expr::Identifier("value".to_string(), span);
+        let unary_expr = Expr::Unary {
+            op: super::UnaryOp::Minus,
+            expr: Box::new(num_expr.clone()),
+            span,
+        };
+        let binary_expr = Expr::Binary {
+            op: super::BinaryOp::Add,
+            left: Box::new(id_expr.clone()),
+            right: Box::new(unary_expr.clone()),
+            span,
+        };
+        let line_cases = vec![
+            LineAst::Empty,
+            LineAst::Conditional {
+                kind: ConditionalKind::If,
+                exprs: vec![binary_expr.clone()],
+                span,
+            },
+            LineAst::Place {
+                section: "code".to_string(),
+                region: "rom".to_string(),
+                align: Some(num_expr.clone()),
+                span,
+            },
+            LineAst::Pack {
+                region: "rom".to_string(),
+                sections: vec!["code".to_string(), "data".to_string()],
+                span,
+            },
+            LineAst::Use {
+                module_id: "math".to_string(),
+                alias: Some("m".to_string()),
+                items: vec![UseItem {
+                    name: "add".to_string(),
+                    alias: Some("sum".to_string()),
+                    span,
+                }],
+                params: vec![UseParam {
+                    name: "width".to_string(),
+                    value: num_expr.clone(),
+                    span,
+                }],
+                span,
+            },
+            LineAst::StatementDef {
+                keyword: "op".to_string(),
+                signature: StatementSignature {
+                    atoms: vec![
+                        SignatureAtom::Literal(b"op".to_vec(), span),
+                        SignatureAtom::Capture {
+                            type_name: "word".to_string(),
+                            name: "arg".to_string(),
+                            span,
+                        },
+                        SignatureAtom::Boundary {
+                            atoms: vec![SignatureAtom::Literal(b",".to_vec(), span)],
+                            span,
+                        },
+                    ],
+                },
+                span,
+            },
+            LineAst::StatementEnd { span },
+            LineAst::Assignment {
+                label: Label {
+                    name: "foo".to_string(),
+                    span,
+                },
+                op: AssignOp::Add,
+                expr: binary_expr.clone(),
+                span,
+            },
+            LineAst::Statement {
+                label: Some(Label {
+                    name: "start".to_string(),
+                    span,
+                }),
+                mnemonic: Some("lda".to_string()),
+                operands: vec![
+                    Expr::Immediate(Box::new(num_expr.clone()), span),
+                    Expr::IndirectLong(Box::new(id_expr.clone()), span),
+                    Expr::Tuple(vec![id_expr, num_expr], span),
+                ],
+            },
+        ];
+
+        for (idx, line) in line_cases.iter().enumerate() {
+            let portable = PortableLineAst::from_core_line_ast(line);
+            let round_trip = portable.to_core_line_ast();
+            assert_eq!(
+                format!("{line:?}"),
+                format!("{round_trip:?}"),
+                "line ast round-trip mismatch at index {idx}"
+            );
+        }
+    }
+
+    #[test]
     fn execution_model_token_policy_resolution_prefers_dialect_then_cpu_then_family() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -5018,7 +5439,6 @@ mod tests {
             program.program,
             vec![
                 ParserVmOpcode::ParseStatementEnvelope as u8,
-                ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8
             ]
         );

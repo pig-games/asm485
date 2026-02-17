@@ -775,7 +775,6 @@ fn default_family_parser_vm_program(family_id: &str) -> ParserVmProgramDescripto
 fn default_family_parser_vm_program_bytes() -> Vec<u8> {
     vec![
         ParserVmOpcode::ParseStatementEnvelope as u8,
-        ParserVmOpcode::ParseCoreLine as u8,
         ParserVmOpcode::End as u8,
     ]
 }
@@ -1224,7 +1223,7 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
                 && entry
                     .program
-                    .contains(&(ParserVmOpcode::ParseCoreLine as u8))
+                    .contains(&(ParserVmOpcode::ParseStatementEnvelope as u8))
         }));
         assert!(!chunks.selectors.is_empty());
         assert!(chunks.registers.iter().any(|entry| {
@@ -1397,10 +1396,10 @@ mod tests {
                 program.owner
             );
             assert!(
-                program
+                !program
                     .program
                     .contains(&(ParserVmOpcode::ParseCoreLine as u8)),
-                "default parser VM program for {:?} must include ParseCoreLine",
+                "default parser VM program for {:?} must not require ParseCoreLine",
                 program.owner
             );
             assert!(
