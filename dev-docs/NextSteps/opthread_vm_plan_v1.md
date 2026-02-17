@@ -31,8 +31,8 @@ All items below are true:
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
-- Phase P4 bounded-allocation hot-path hardening is still in progress.
-- Retro-native ABI hardening/conformance is not yet finalized.
+- Phase P4 retro profile enforcement is complete.
+- Phase P5 Ultimate64 portability contract hardening is complete.
 
 ## 4. Workstream Phases
 
@@ -72,16 +72,16 @@ Acceptance:
 
 ## Phase P4: Retro Profile Enforcement
 - [x] Define and enforce strict retro runtime budgets for tokenizer/parser/expression.
-- [ ] Ensure bounded allocation behavior on hot path.
+- [x] Ensure bounded allocation behavior on hot path.
 - [x] Add determinism and budget-exhaustion test suites.
 
 Acceptance:
 - Retro profile consistently enforces limits with stable outputs and diagnostics.
 
 ## Phase P5: Ultimate64 Portability Contract
-- [ ] Produce ABI-facing contract note for Ultimate64-class native runtime integration.
-- [ ] Define byte-order/layout/ownership/error-code expectations.
-- [ ] Add host-side conformance tests to emulate constrained native integration assumptions.
+- [x] Produce ABI-facing contract note for Ultimate64-class native runtime integration.
+- [x] Define byte-order/layout/ownership/error-code expectations.
+- [x] Add host-side conformance tests to emulate constrained native integration assumptions.
 
 Acceptance:
 - Native implementers can build to one stable contract without relying on hidden host behavior.
@@ -108,4 +108,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Phase P3: freeze parser/tokenizer/expression contract payload/version behavior and add explicit mismatch compatibility tests.
+Plan v1 is complete; proceed with native-integration shakeout against an external Ultimate64-class host harness.
