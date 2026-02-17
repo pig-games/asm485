@@ -63,7 +63,7 @@ Acceptance:
 
 ## Phase P3: Contract Freeze and Validation Hardening
 - [ ] Freeze tokenizer/parser/expression contract payloads and version checks.
-- [ ] Add explicit compatibility/error behavior for version mismatches.
+- [x] Add explicit compatibility/error behavior for version mismatches.
 - [ ] Ensure diagnostics mappings are stable and package-scoped.
 
 Acceptance:
