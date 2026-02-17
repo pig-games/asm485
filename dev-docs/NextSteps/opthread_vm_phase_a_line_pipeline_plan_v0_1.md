@@ -78,9 +78,10 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
 ## Following phases
 ### Phase B (post-Phase A): VM-authoritative emission and tokenizer ubiquity
 
-Status: in progress (refreshed 2026-02-17, post strict-authoritative regression hardening)
+Status: in progress (refreshed 2026-02-17, post Intel8080 tokenizer authority expansion)
 
 Requested target: all assembler tokenization in opForge runs through VM tokenization paths, with authoritative VM behavior for certified families.
+Current note: tokenizer authority now covers MOS6502 + Intel8080 families; Intel instruction-emission runtime rollout policy remains staged.
 
 #### B1) Replace placeholder tokenizer VM programs with real bytecode
 - [x] Replace `TokenizerVmOpcode::End` placeholder programs emitted by builder with bootstrap tokenizer VM bytecode per rollout family (deterministic line-walk, non-emitting).
@@ -100,7 +101,7 @@ Requested target: all assembler tokenization in opForge runs through VM tokeniza
 #### B4) Rollout and expansion sequence
 - [x] Enable authoritative strict VM tokenization for one family lane first (MOS6502 family).
 - [x] Re-run full validation gates (`cargo fmt`, `cargo clippy -- -D warnings`, `cargo audit`, `make test`, runtime-feature suites).
-- [ ] Expand the same strict-authoritative gate to Intel8080 family after parity/diagnostic gates are green.
+- [x] Expand the same strict-authoritative tokenizer gate to Intel8080 family after parity/diagnostic gates are green.
 
 ### Phase C (post-Phase B): VM parser/AST pipeline
 - [ ] Define package-level parser grammar/AST contract and chunk schema.
