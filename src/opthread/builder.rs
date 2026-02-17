@@ -247,6 +247,11 @@ pub fn build_hierarchy_chunks_from_registry(
                 selectors.push(selector);
             }
             if has_m65816 {
+                if let Some(selector) =
+                    compile_m65816_immediate_width_selector(entry.mnemonic, entry.mode)
+                {
+                    selectors.push(selector);
+                }
                 selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
             }
         }
@@ -361,6 +366,21 @@ fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
 }
 
 fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDescriptor {
+    let program = vec![
+        TokenizerVmOpcode::ReadChar as u8,
+        TokenizerVmOpcode::JumpIfEol as u8,
+        12,
+        0,
+        0,
+        0,
+        TokenizerVmOpcode::Advance as u8,
+        TokenizerVmOpcode::Jump as u8,
+        0,
+        0,
+        0,
+        0,
+        TokenizerVmOpcode::End as u8,
+    ];
     TokenizerVmProgramDescriptor {
         owner: ScopedOwner::Family(family_id.to_string()),
         opcode_version: TOKENIZER_VM_OPCODE_VERSION_V1,
@@ -380,9 +400,9 @@ fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDes
             lexeme_limit_exceeded: "ott005".to_string(),
             error_limit_exceeded: "ott006".to_string(),
         },
-        // Empty-token VM program: runtime auto-mode falls back to host tokenizer
-        // until tokenizer VM programs are fully productionized.
-        program: vec![TokenizerVmOpcode::End as u8],
+        // Bootstrap VM scanner: consume the line deterministically and terminate
+        // without emitting tokens so staged paths still fall back to host.
+        program,
     }
 }
 
@@ -504,6 +524,25 @@ fn compile_m65816_force_selectors(
     }
 
     selectors
+}
+
+fn compile_m65816_immediate_width_selector(
+    mnemonic: &str,
+    mode: AddressMode,
+) -> Option<ModeSelectorDescriptor> {
+    if mode != AddressMode::Immediate || !m65816_immediate_width_mnemonic(mnemonic) {
+        return None;
+    }
+    Some(ModeSelectorDescriptor {
+        owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+        mnemonic: mnemonic.to_string(),
+        shape_key: "immediate".to_string(),
+        mode_key: format!("{:?}", AddressMode::Immediate),
+        operand_plan: "imm_mx".to_string(),
+        priority: selector_priority(AddressMode::Immediate),
+        unstable_widen: false,
+        width_rank: selector_width_rank(AddressMode::Immediate),
+    })
 }
 
 fn compile_m65816_long_mode_selectors(
@@ -916,6 +955,13 @@ mod tests {
         let chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("builder should succeed");
 
+        assert!(chunks.selectors.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
+                && entry.mnemonic == "lda"
+                && entry.shape_key == "immediate"
+                && entry.mode_key == "immediate"
+                && entry.operand_plan == "imm_mx"
+        }));
         assert!(chunks.selectors.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65816")
                 && entry.mnemonic == "lda"

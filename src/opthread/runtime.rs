@@ -2082,7 +2082,17 @@ fn tokenizer_vm_certification_for_family(
         .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
 }
 fn tokenizer_vm_authoritative_for_family(family_id: &str) -> bool {
-    tokenizer_vm_certification_for_family(family_id).is_some()
+    if tokenizer_vm_certification_for_family(family_id).is_none() {
+        return false;
+    }
+    #[cfg(feature = "opthread-runtime")]
+    {
+        return crate::opthread::rollout::package_runtime_default_enabled_for_family(family_id);
+    }
+    #[cfg(not(feature = "opthread-runtime"))]
+    {
+        family_id.eq_ignore_ascii_case("mos6502")
+    }
 }
 
 fn tokenizer_vm_parity_checklist_for_family(family_id: &str) -> Option<&'static str> {
@@ -3910,18 +3920,17 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_auto_mode_uses_vm_for_intel8080_family() {
+    fn execution_model_tokenizer_auto_mode_keeps_intel8080_family_staged() {
         let registry = parity_registry();
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
-        let tokens = model
+        let err = model
             .tokenize_portable_statement(&FailingTokenizerAdapter, "z80", None, "LD A,B", 1)
-            .expect("auto mode should route certified intel8080 family to VM tokenizer");
-        assert!(!tokens.is_empty());
-        assert!(matches!(
-            &tokens[0].kind,
-            PortableTokenKind::Identifier(name) if name == "ld"
-        ));
+            .expect_err("intel8080 family remains staged and should route via delegated adapter");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("failing delegated adapter"));
     }
 
     #[test]
