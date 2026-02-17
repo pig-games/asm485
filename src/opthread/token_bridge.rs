@@ -1657,6 +1657,67 @@ fn first_comment_semicolon_outside_quotes(line: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
+    #[derive(Debug, PartialEq, Eq)]
+    enum NormalizedExprDiag {
+        None,
+        ParseError { message: String, span: Span },
+        ExprError { message: String, span: Span },
+    }
+
+    fn first_expr_error_from_ast(ast: &LineAst) -> Option<(String, Span)> {
+        fn find_in_exprs(exprs: &[Expr]) -> Option<(String, Span)> {
+            for expr in exprs {
+                if let Expr::Error(message, span) = expr {
+                    return Some((message.clone(), *span));
+                }
+            }
+            None
+        }
+
+        match ast {
+            LineAst::Statement { operands, .. } => find_in_exprs(operands),
+            LineAst::Assignment { expr, .. } => {
+                if let Expr::Error(message, span) = expr {
+                    Some((message.clone(), *span))
+                } else {
+                    None
+                }
+            }
+            LineAst::Conditional { exprs, .. } => find_in_exprs(exprs),
+            LineAst::Place { align, .. } => align.as_ref().and_then(|expr| {
+                if let Expr::Error(message, span) = expr {
+                    Some((message.clone(), *span))
+                } else {
+                    None
+                }
+            }),
+            LineAst::Use { params, .. } => {
+                for param in params {
+                    if let Expr::Error(message, span) = &param.value {
+                        return Some((message.clone(), *span));
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn normalize_expr_diag(result: Result<LineAst, ParseError>) -> NormalizedExprDiag {
+        match result {
+            Ok(ast) => first_expr_error_from_ast(&ast).map_or(NormalizedExprDiag::None, |diag| {
+                NormalizedExprDiag::ExprError {
+                    message: diag.0,
+                    span: diag.1,
+                }
+            }),
+            Err(err) => NormalizedExprDiag::ParseError {
+                message: err.message,
+                span: err.span,
+            },
+        }
+    }
+
     #[test]
     fn default_model_resolves_bridge_cpu_to_mos6502_family() {
         let model = default_runtime_model().expect("default runtime model should be available");
@@ -1900,6 +1961,44 @@ mod tests {
         )
         .expect_err("retired opcode should fail");
         assert!(err.message.contains("invalid parser VM opcode 0x01"));
+    }
+
+    #[test]
+    fn parse_line_with_model_preserves_expression_diagnostic_shape_and_span_parity() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let corpus = [
+            "label = 1 +",
+            "    LDA #(",
+            "    .if 1 +",
+            "    .place code in ram, align=1+",
+        ];
+
+        for (idx, line) in corpus.iter().enumerate() {
+            let line_num = (idx + 1) as u32;
+            let bridge = parse_line_with_model(
+                model,
+                DEFAULT_TOKENIZER_CPU_ID,
+                None,
+                line,
+                line_num,
+                &register_checker,
+            )
+            .map(|(ast, _, _)| ast);
+            let host = crate::core::parser::Parser::from_line_with_registers(
+                line,
+                line_num,
+                register_checker.clone(),
+            )
+            .and_then(|mut parser| parser.parse_line());
+            let bridge_diag = normalize_expr_diag(bridge);
+            let host_diag = normalize_expr_diag(host);
+            assert_eq!(
+                bridge_diag, host_diag,
+                "expression diagnostic parity mismatch for line {:?}",
+                line
+            );
+        }
     }
 
     #[test]
