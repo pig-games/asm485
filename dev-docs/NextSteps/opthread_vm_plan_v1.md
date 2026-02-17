@@ -27,9 +27,10 @@ All items below are true:
 - VM-authoritative expression parse contract path is active in bridge hot paths.
 - Expression diagnostic shape/span parity corpus is covered by regression tests.
 - Parser VM envelope now includes dedicated staged primitives for dot-directive, star-org, assignment, and instruction forms.
+- Default parser VM sequencing now uses primitive envelopes plus deterministic terminal parser diagnostics (no default statement-envelope fallback dependency).
 
 ### 3.2 In progress / pending
-- Remaining statement-envelope behavior is still partially centralized in fallback envelope helpers.
+- Parser contract/version freeze and compatibility hardening are still pending.
 - Retro-native ABI hardening/conformance is not yet finalized.
 
 ## 4. Workstream Phases
@@ -53,9 +54,9 @@ Acceptance:
 - Intentional expression-contract breakage causes deterministic runtime errors (not fallback).
 
 ## Phase P2: Minimal Parser VM Envelope Completion
-- [ ] Move remaining statement-envelope primitives to contract-driven parser VM behavior.
-- [ ] Keep scope narrow: do not migrate full directive orchestration.
-- [ ] Preserve AST shape compatibility consumed by assembler execution.
+- [x] Move remaining statement-envelope primitives to contract-driven parser VM behavior.
+- [x] Keep scope narrow: do not migrate full directive orchestration.
+- [x] Preserve AST shape compatibility consumed by assembler execution.
 
 Acceptance:
 - Statement-envelope parse behavior for hot-path forms is parser-VM contract-led and deterministic.
@@ -106,4 +107,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Phase P2: continue moving remaining fallback statement-envelope behavior into explicit parser-VM primitives while preserving assembler AST compatibility.
+Phase P3: freeze parser/tokenizer/expression contract payload/version behavior and add explicit mismatch compatibility tests.
