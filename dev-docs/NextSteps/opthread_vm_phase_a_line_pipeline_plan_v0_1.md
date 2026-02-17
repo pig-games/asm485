@@ -78,28 +78,28 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
 ## Following phases
 ### Phase B (post-Phase A): VM-authoritative emission and tokenizer ubiquity
 
-Status: in progress (refreshed 2026-02-17)
+Status: in progress (refreshed 2026-02-17, post strict-authoritative regression hardening)
 
 Requested target: all assembler tokenization in opForge runs through VM tokenization paths, with authoritative VM behavior for certified families.
 
 #### B1) Replace placeholder tokenizer VM programs with real bytecode
 - [x] Replace `TokenizerVmOpcode::End` placeholder programs emitted by builder with bootstrap tokenizer VM bytecode per rollout family (deterministic line-walk, non-emitting).
-- [ ] Keep policy ownership and precedence unchanged (`dialect -> cpu -> family`), but ensure authoritative families have runnable tokenizer VM programs.
-- [ ] Add tokenizer VM parity corpus gates for each rollout family before enabling strict authority.
+- [x] Keep policy ownership and precedence unchanged (`dialect -> cpu -> family`), but ensure authoritative families have runnable tokenizer VM programs.
+- [x] Add tokenizer VM parity corpus gates for each rollout family before enabling strict authority.
 
 #### B2) Switch assembler-owned tokenization calls to strict VM for authoritative families
-- [ ] Move assembler-owned call sites to strict VM tokenization entrypoints for authoritative families (`tokenize_portable_statement_vm_authoritative` path).
-- [ ] Remove implicit host fallback from authoritative-family assembler tokenization call paths.
-- [ ] Keep host/delegated fallback only for staged families and explicit debug/compatibility modes.
+- [x] Move assembler-owned call sites to strict VM tokenization entrypoints for authoritative families (`tokenize_portable_statement_vm_authoritative` path).
+- [x] Remove implicit host fallback from authoritative-family assembler tokenization call paths.
+- [x] Keep host/delegated fallback only for staged families and explicit debug/compatibility modes.
 
 #### B3) Prove host tokenizer is not used for authoritative families
-- [ ] Add tests that fail if authoritative-family tokenization silently falls back to host path.
-- [ ] Add regression tests for empty-token, invalid-opcode, and malformed-state failure behavior under strict authoritative mode.
-- [ ] Keep deterministic diagnostics and span behavior in strict mode.
+- [x] Add tests that fail if authoritative-family tokenization silently falls back to host path.
+- [x] Add regression tests for empty-token, invalid-opcode, and malformed-state failure behavior under strict authoritative mode.
+- [x] Keep deterministic diagnostics and span behavior in strict mode.
 
 #### B4) Rollout and expansion sequence
-- [ ] Enable authoritative strict VM tokenization for one family lane first (MOS6502 family).
-- [ ] Re-run full validation gates (`cargo fmt`, `cargo clippy -- -D warnings`, `cargo audit`, `make test`, runtime-feature suites).
+- [x] Enable authoritative strict VM tokenization for one family lane first (MOS6502 family).
+- [x] Re-run full validation gates (`cargo fmt`, `cargo clippy -- -D warnings`, `cargo audit`, `make test`, runtime-feature suites).
 - [ ] Expand the same strict-authoritative gate to Intel8080 family after parity/diagnostic gates are green.
 
 ### Phase C (post-Phase B): VM parser/AST pipeline
