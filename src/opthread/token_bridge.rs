@@ -2835,4 +2835,53 @@ mod tests {
             .message
             .contains("parser VM program byte budget exceeded"));
     }
+
+    #[test]
+    fn parse_line_with_model_parser_vm_budget_error_is_deterministic() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+            .expect("hierarchy chunks build");
+        for program in &mut chunks.parser_vm_programs {
+            if matches!(
+                program.owner,
+                crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("mos6502")
+            ) {
+                program.program = vec![ParserVmOpcode::ParseInstructionEnvelope as u8; 100];
+            }
+        }
+        let mut model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
+        model.set_runtime_budget_profile(
+            crate::opthread::runtime::RuntimeBudgetProfile::RetroConstrained,
+        );
+        let register_checker = register_checker_none();
+        let first = parse_line_with_model(
+            &model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "    NOP",
+            1,
+            &register_checker,
+        )
+        .expect_err("oversized parser VM program should fail in retro profile");
+        let second = parse_line_with_model(
+            &model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "    NOP",
+            1,
+            &register_checker,
+        )
+        .expect_err("oversized parser VM program should fail in retro profile");
+        assert_eq!(first.message, second.message);
+        assert_eq!(first.span, second.span);
+    }
 }

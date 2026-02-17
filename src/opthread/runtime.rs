@@ -5252,6 +5252,33 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_parser_token_budget_overflow_is_deterministic() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mut limits = model.runtime_budget_limits();
+        limits.max_parser_tokens_per_line = 1;
+        model.set_runtime_budget_limits_for_tests(limits);
+
+        let (tokens_a, end_span_a) = tokenize_core_expr_tokens("1+2", 1);
+        let first = model
+            .parse_expression_for_assembler("m6502", None, tokens_a, end_span_a, None)
+            .expect_err("parser token budget should reject oversized expression token stream");
+        let (tokens_b, end_span_b) = tokenize_core_expr_tokens("1+2", 1);
+        let second = model
+            .parse_expression_for_assembler("m6502", None, tokens_b, end_span_b, None)
+            .expect_err("parser token budget should reject oversized expression token stream");
+
+        assert_eq!(first.message, second.message);
+        assert_eq!(first.span, second.span);
+    }
+
+    #[test]
     fn execution_model_encodes_base_6502_instruction_via_vm() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
