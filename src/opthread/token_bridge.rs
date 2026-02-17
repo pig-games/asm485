@@ -1020,11 +1020,12 @@ fn parse_use_directive_from_tokens(
                 .get(*cursor)
                 .map(|token| token.span)
                 .unwrap_or(end_span);
-            let value = parse_expr_with_vm_contract(
+            let value = parse_expr_with_vm_contract_and_boundary(
                 expr_parse_ctx,
                 tokens[value_start..*cursor].to_vec(),
                 expr_end_span,
                 end_token_text.clone(),
+                tokens.get(*cursor),
             )?;
             params.push(UseParam { name, value, span });
             if consume_kind_at(tokens, cursor, TokenKind::CloseParen) {
@@ -1308,6 +1309,26 @@ fn parse_expr_with_vm_contract(
     )
 }
 
+fn parse_expr_with_vm_contract_and_boundary(
+    expr_parse_ctx: &VmExprParseContext<'_>,
+    tokens: Vec<Token>,
+    end_span: Span,
+    end_token_text: Option<String>,
+    boundary_token: Option<&Token>,
+) -> Result<Expr, ParseError> {
+    match parse_expr_with_vm_contract(expr_parse_ctx, tokens, end_span, end_token_text) {
+        Ok(expr) => Ok(expr),
+        Err(err) if err.message == "Unexpected end of expression" && boundary_token.is_some() => {
+            let boundary_span = boundary_token.map(|token| token.span).unwrap_or(err.span);
+            Err(ParseError {
+                message: "Unexpected token in expression".to_string(),
+                span: boundary_span,
+            })
+        }
+        Err(err) => Err(err),
+    }
+}
+
 fn parse_operand_expr_range(
     tokens: &[Token],
     start: usize,
@@ -1325,12 +1346,14 @@ fn parse_operand_expr_range(
         operands.push(Expr::Error("Expected expression".to_string(), span));
         return Ok(());
     }
-    let expr_end_span = tokens.get(end).map(|token| token.span).unwrap_or(end_span);
-    match parse_expr_with_vm_contract(
+    let boundary_token = tokens.get(end);
+    let expr_end_span = boundary_token.map(|token| token.span).unwrap_or(end_span);
+    match parse_expr_with_vm_contract_and_boundary(
         expr_parse_ctx,
         tokens[start..end].to_vec(),
         expr_end_span,
         end_token_text,
+        boundary_token,
     ) {
         Ok(expr) => operands.push(expr),
         Err(err) => operands.push(Expr::Error(err.message, err.span)),
@@ -1972,6 +1995,7 @@ mod tests {
             "    LDA #(",
             "    .if 1 +",
             "    .place code in ram, align=1+",
+            "    .use foo with(x=1+)",
         ];
 
         for (idx, line) in corpus.iter().enumerate() {
