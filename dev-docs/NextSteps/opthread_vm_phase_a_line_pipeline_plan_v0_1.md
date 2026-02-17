@@ -76,10 +76,12 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
   - [x] Mitigate by keeping those call sites unchanged in Phase A and scheduling later migration.
 
 ## Following phases
-### Phase B (post-Phase A): VM-authoritative emission
-- [ ] Expand strict expr-resolver coverage and VM program completeness per family/CPU.
-- [ ] Tighten/replace native fallback chain for authoritative families (`src/assembler/mod.rs:3472`, `src/assembler/mod.rs:3539`).
-- [ ] Align rollout policy/model availability as needed (`src/opthread/rollout.rs:22`).
+### Phase B (post-Phase A): VM-authoritative emission and tokenizer ubiquity
+- [x] Expand VM-tokenized parsing beyond `AsmLine::process` into bootstrap/macro pre-scan entry points (`src/assembler/bootstrap.rs:345`, `src/core/macro_processor.rs:553`, `src/core/macro_processor.rs:661`).
+- [x] Add strict VM tokenizer entrypoint for assembler-owned callers (no host fallback for authoritative VM tokenization requests).
+- [x] Keep staged-family emission behavior while allowing VM tokenization model availability across families.
+- [x] Tighten native emission fallback behavior for authoritative families (`src/assembler/mod.rs:3472`, `src/assembler/mod.rs:3539`).
+- [ ] Resolve current `runtime.rs` <-> `package.rs` tokenizer VM schema mismatch before final rollout gate sign-off.
 
 ### Phase C (post-Phase B): VM parser/AST pipeline
 - [ ] Define package-level parser grammar/AST contract and chunk schema.
@@ -92,3 +94,10 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
 
 ## Recommended execution order
 Run Phase A steps 1 -> 6 in order, then hold a checkpoint review before Phase B strictness/rollout changes.
+
+## Phase B extension (requested outcome)
+Requested target: all assembler tokenization in opForge runs through opThread VM tokenization paths.
+
+Implementation intent in this pass:
+- Route assembly-line parsing, bootstrap pre-scan parsing, and macro statement tokenization through a shared VM token bridge.
+- Keep host tokenization as compatibility/debug mode only, not as the authoritative path for assembler-owned tokenization call sites.

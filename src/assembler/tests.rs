@@ -113,7 +113,7 @@ fn runtime_token_bridge_maps_portable_tokens_to_core_tokens() {
         },
     ];
 
-    let mapped = super::runtime_tokens_to_core_tokens(
+    let mapped = crate::opthread::token_bridge::runtime_tokens_to_core_tokens(
         &runtime_tokens,
         &crate::core::tokenizer::register_checker_none(),
     )
@@ -141,7 +141,7 @@ fn runtime_token_bridge_rejects_invalid_spans() {
         },
     }];
 
-    let err = super::runtime_tokens_to_core_tokens(
+    let err = crate::opthread::token_bridge::runtime_tokens_to_core_tokens(
         &runtime_tokens,
         &crate::core::tokenizer::register_checker_none(),
     )
@@ -6620,15 +6620,15 @@ fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
-fn opthread_runtime_model_stays_disabled_for_non_mos6502_family_cpu() {
+fn opthread_runtime_model_is_available_for_staged_family_cpus_for_vm_tokenization() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
 
     let i8085_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, i8085_cpu_id, &registry, true);
-    assert!(i8085_asm.opthread_execution_model.is_none());
+    assert!(i8085_asm.opthread_execution_model.is_some());
 
     let z80_asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
-    assert!(z80_asm.opthread_execution_model.is_none());
+    assert!(z80_asm.opthread_execution_model.is_some());
 }
 
 #[cfg(all(
@@ -6753,8 +6753,8 @@ fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enable
         let native = assemble_line_with_runtime_mode_no_injection(cpu, line, false);
         let runtime = assemble_line_with_runtime_mode_no_injection(cpu, line, true);
         assert!(
-            !runtime.3,
-            "staged family should not auto-enable opthread model for {}",
+            runtime.3,
+            "staged family should still initialize opthread model for VM tokenization on {}",
             cpu.as_str()
         );
         assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);

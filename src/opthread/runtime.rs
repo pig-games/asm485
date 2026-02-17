@@ -975,6 +975,40 @@ impl HierarchyExecutionModel {
         }
     }
 
+    pub fn tokenize_portable_statement_vm_authoritative(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        source_line: &str,
+        line_num: u32,
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        let request = PortableTokenizeRequest {
+            family_id: resolved.family_id.as_str(),
+            cpu_id: resolved.cpu_id.as_str(),
+            dialect_id: resolved.dialect_id.as_str(),
+            source_line,
+            line_num,
+            token_policy: self.token_policy_for_resolved(&resolved),
+        };
+        let vm_program = self
+            .tokenizer_vm_program_for_resolved(&resolved)
+            .ok_or_else(|| {
+                RuntimeBridgeError::Resolve(format!(
+                    "missing opThread tokenizer VM program for family '{}'",
+                    resolved.family_id
+                ))
+            })?;
+        let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
+        if tokens.is_empty() && !source_line.trim().is_empty() {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: tokenizer VM produced no tokens for non-empty source line",
+                vm_program.diagnostics.invalid_char
+            )));
+        }
+        Ok(tokens)
+    }
+
     pub fn resolve_tokenizer_vm_program(
         &self,
         cpu_id: &str,
@@ -3948,6 +3982,48 @@ mod tests {
             &tokens[0].kind,
             PortableTokenKind::Identifier(name) if name == "lda"
         ));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_authoritative_mode_requires_program() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.tokenizer_vm_programs.clear();
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect_err("authoritative vm tokenization should require a vm program");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("missing opthread tokenizer vm program"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_authoritative_mode_rejects_empty_tokens() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.program = vec![TokenizerVmOpcode::End as u8];
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect_err("authoritative vm tokenization should reject empty non-comment output");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("produced no tokens"));
     }
 
     #[test]

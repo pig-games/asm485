@@ -44,8 +44,6 @@ use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
-#[cfg(feature = "opthread-runtime")]
-use crate::core::text_utils::is_ident_start;
 use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
 use std::sync::Arc;
@@ -58,7 +56,9 @@ use crate::m65c02::module::M65C02CpuModule;
 #[cfg(feature = "opthread-runtime")]
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 #[cfg(feature = "opthread-runtime")]
-use crate::opthread::runtime::{CoreTokenizerAdapter, HierarchyExecutionModel, PortableToken};
+use crate::opthread::runtime::HierarchyExecutionModel;
+#[cfg(feature = "opthread-runtime")]
+use crate::opthread::token_bridge::tokenize_parser_tokens_with_model;
 use crate::z80::module::Z80CpuModule;
 
 use cli::{
@@ -881,95 +881,6 @@ struct EncodingScopeState {
     definition_name: String,
     previous_active_encoding: String,
 }
-#[cfg(feature = "opthread-runtime")]
-#[derive(Debug, Clone)]
-struct RuntimeTokenBridgeError {
-    message: String,
-    span: Option<Span>,
-}
-
-#[cfg(feature = "opthread-runtime")]
-fn runtime_tokens_to_core_tokens(
-    tokens: &[PortableToken],
-    register_checker: &RegisterChecker,
-) -> Result<Vec<crate::core::tokenizer::Token>, RuntimeTokenBridgeError> {
-    use crate::core::tokenizer::TokenKind;
-    let mut core_tokens = Vec::with_capacity(tokens.len());
-    for token in tokens {
-        let span: Span = token.span.into();
-        if span.col_start == 0 || span.col_end < span.col_start {
-            return Err(RuntimeTokenBridgeError {
-                message: "runtime tokenizer produced invalid token span".to_string(),
-                span: Some(span),
-            });
-        }
-        let mut core_token = token.to_core_token();
-        if let TokenKind::Identifier(name) = &core_token.kind {
-            let upper = name.to_ascii_uppercase();
-            if register_checker(upper.as_str()) {
-                core_token.kind = TokenKind::Register(name.clone());
-            }
-        }
-        core_tokens.push(core_token);
-    }
-    Ok(core_tokens)
-}
-
-#[cfg(feature = "opthread-runtime")]
-fn runtime_parser_end_metadata(
-    line: &str,
-    line_num: u32,
-    tokens: &[crate::core::tokenizer::Token],
-) -> (Span, Option<String>) {
-    let mut end_col = line.len().saturating_add(1);
-    let mut end_token_text = None;
-    if let Some(comment_idx) = first_comment_semicolon_outside_quotes(line) {
-        end_col = comment_idx.saturating_add(1);
-        end_token_text = Some(";".to_string());
-    }
-    if let Some(last_token) = tokens.last() {
-        if last_token.span.col_end >= end_col {
-            end_col = last_token.span.col_end;
-            end_token_text = None;
-        }
-    }
-    (
-        Span {
-            line: line_num,
-            col_start: end_col,
-            col_end: end_col,
-        },
-        end_token_text,
-    )
-}
-
-#[cfg(feature = "opthread-runtime")]
-fn first_comment_semicolon_outside_quotes(line: &str) -> Option<usize> {
-    let bytes = line.as_bytes();
-    let mut idx = 0usize;
-    let mut quote: Option<u8> = None;
-    while idx < bytes.len() {
-        let byte = bytes[idx];
-        if let Some(active_quote) = quote {
-            if byte == b'\\' {
-                idx = idx.saturating_add(2);
-                continue;
-            }
-            if byte == active_quote {
-                quote = None;
-            }
-            idx = idx.saturating_add(1);
-            continue;
-        }
-        match byte {
-            b'\'' | b'"' => quote = Some(byte),
-            b';' => return Some(idx),
-            _ => {}
-        }
-        idx = idx.saturating_add(1);
-    }
-    None
-}
 
 /// Per-line assembler state.
 struct AsmLine<'a> {
@@ -1141,12 +1052,7 @@ impl<'a> AsmLine<'a> {
         registry: &ModuleRegistry,
         cpu: CpuType,
     ) -> Option<HierarchyExecutionModel> {
-        let Ok(pipeline) = registry.resolve_pipeline(cpu, None) else {
-            return None;
-        };
-        if !crate::opthread::rollout::package_runtime_default_enabled_for_family(
-            pipeline.family_id.as_str(),
-        ) {
+        if registry.resolve_pipeline(cpu, None).is_err() {
             return None;
         }
 
@@ -2087,10 +1993,15 @@ impl<'a> AsmLine<'a> {
     #[cfg(feature = "opthread-runtime")]
     fn opthread_form_allows_mnemonic(
         &self,
-        _pipeline: &crate::core::registry::ResolvedPipeline<'_>,
+        pipeline: &crate::core::registry::ResolvedPipeline<'_>,
         mapped_mnemonic: &str,
     ) -> Result<bool, String> {
         if !self.opthread_runtime_enabled {
+            return Ok(true);
+        }
+        if !crate::opthread::rollout::package_runtime_default_enabled_for_family(
+            pipeline.family_id.as_str(),
+        ) {
             return Ok(true);
         }
         let Some(model) = self.opthread_execution_model.as_ref() else {
@@ -2523,71 +2434,53 @@ impl<'a> AsmLine<'a> {
         if !self.opthread_runtime_enabled {
             return None;
         }
-        let model = self.opthread_execution_model.as_ref()?;
-        if let Some(first) = line.as_bytes().first().copied() {
-            if !first.is_ascii_whitespace()
-                && first != b';'
-                && first != b'.'
-                && first != b'*'
-                && !is_ident_start(first)
-            {
-                let err = ParseError {
-                    message: format!(
-                        "Illegal character in column 1. Must be symbol, '.', '*', comment, or space. Found: {}",
-                        line
-                    ),
-                    span: Span {
-                        line: line_num,
-                        col_start: 1,
-                        col_end: 1,
-                    },
-                };
+        let model = match self.opthread_execution_model.as_ref() {
+            Some(model) => model,
+            None => {
+                if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
+                    if crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                        pipeline.family_id.as_str(),
+                    ) {
+                        let err = ParseError {
+                            message: format!(
+                                "opThread runtime model unavailable for authoritative family '{}'",
+                                pipeline.family_id.as_str()
+                            ),
+                            span: Span {
+                                line: line_num,
+                                col_start: 1,
+                                col_end: 1,
+                            },
+                        };
+                        self.last_error =
+                            Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                        self.last_error_column = Some(err.span.col_start);
+                        self.last_parser_error = Some(err);
+                        return Some(LineStatus::Error);
+                    }
+                }
+                return None;
+            }
+        };
+
+        let (core_tokens, end_span, end_token_text) = match tokenize_parser_tokens_with_model(
+            model,
+            self.cpu.as_str(),
+            None,
+            line,
+            line_num,
+            &self.register_checker,
+        ) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                self.line_end_span = Some(err.span);
                 self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
                 self.last_error_column = Some(err.span.col_start);
                 self.last_parser_error = Some(err);
                 return Some(LineStatus::Error);
             }
-        }
-
-        let portable_tokens = match model.tokenize_portable_statement(
-            &CoreTokenizerAdapter,
-            self.cpu.as_str(),
-            None,
-            line,
-            line_num,
-        ) {
-            Ok(tokens) => tokens,
-            Err(err) => {
-                let (end_span, _) = runtime_parser_end_metadata(line, line_num, &[]);
-                self.line_end_span = Some(end_span);
-                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.to_string(), None));
-                self.last_error_column = Some(end_span.col_start);
-                self.last_parser_error = Some(ParseError {
-                    message: err.to_string(),
-                    span: end_span,
-                });
-                return Some(LineStatus::Error);
-            }
         };
 
-        let core_tokens =
-            match runtime_tokens_to_core_tokens(&portable_tokens, &self.register_checker) {
-                Ok(tokens) => tokens,
-                Err(err) => {
-                    let (end_span, _) = runtime_parser_end_metadata(line, line_num, &[]);
-                    let span = err.span.unwrap_or(end_span);
-                    self.line_end_span = Some(end_span);
-                    self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                    self.last_error_column = Some(span.col_start);
-                    self.last_parser_error = Some(ParseError {
-                        message: err.message,
-                        span,
-                    });
-                    return Some(LineStatus::Error);
-                }
-            };
-
-        let (end_span, end_token_text) = runtime_parser_end_metadata(line, line_num, &core_tokens);
         let mut parser = asm_parser::Parser::from_tokens(core_tokens, end_span, end_token_text);
         self.line_end_span = Some(parser.end_span());
         self.line_end_token = parser.end_token_text().map(|s| s.to_string());
@@ -3506,6 +3399,12 @@ impl<'a> AsmLine<'a> {
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
 
         #[cfg(feature = "opthread-runtime")]
+        let family_runtime_authoritative =
+            crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                pipeline.family_id.as_str(),
+            );
+
+        #[cfg(feature = "opthread-runtime")]
         {
             let allow = match self.opthread_form_allows_mnemonic(&pipeline, &mapped_mnemonic) {
                 Ok(allow) => allow,
@@ -3528,9 +3427,20 @@ impl<'a> AsmLine<'a> {
             }
 
             if self.opthread_runtime_enabled {
+                if self.opthread_execution_model.is_none() && family_runtime_authoritative {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &format!(
+                            "opThread runtime model unavailable for authoritative family '{}'",
+                            pipeline.family_id.as_str()
+                        ),
+                        None,
+                    );
+                }
                 if let Some(model) = self.opthread_execution_model.as_ref() {
-                    let strict_runtime_parse_resolve =
-                        model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
+                    let strict_runtime_parse_resolve = family_runtime_authoritative
+                        || model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
                     match model.encode_instruction_from_exprs(
                         self.cpu.as_str(),
                         None,
@@ -3649,9 +3559,20 @@ impl<'a> AsmLine<'a> {
 
         #[cfg(feature = "opthread-runtime")]
         if self.opthread_runtime_enabled {
+            if self.opthread_execution_model.is_none() && family_runtime_authoritative {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &format!(
+                        "opThread runtime model unavailable for authoritative family '{}'",
+                        pipeline.family_id.as_str()
+                    ),
+                    None,
+                );
+            }
             if let Some(model) = self.opthread_execution_model.as_ref() {
-                let strict_runtime_vm_programs =
-                    model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
+                let strict_runtime_vm_programs = family_runtime_authoritative
+                    || model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
                 match model.encode_instruction(
                     self.cpu.as_str(),
                     None,
