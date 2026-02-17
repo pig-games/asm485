@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
 use crate::core::parser::{
-    AssignOp, BinaryOp, Expr, Label, LineAst, SignatureAtom, StatementSignature, UnaryOp, UseItem,
-    UseParam,
+    AssignOp, BinaryOp, Expr, Label, LineAst, ParseError, Parser, SignatureAtom,
+    StatementSignature, UnaryOp, UseItem, UseParam,
 };
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::core::tokenizer::{
@@ -38,7 +38,8 @@ use crate::opthread::package::{
     ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenizerVmDiagnosticMap,
     TokenizerVmLimits, TokenizerVmOpcode, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
     DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
-    DIAG_OPTHREAD_MISSING_VM_PROGRAM, TOKENIZER_VM_OPCODE_VERSION_V1,
+    DIAG_OPTHREAD_MISSING_VM_PROGRAM, PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1,
+    PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{execute_program, VmError};
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
@@ -1734,6 +1735,58 @@ impl HierarchyExecutionModel {
     ) -> Result<Option<RuntimeParserVmProgram>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
         Ok(self.parser_vm_program_for_resolved(&resolved))
+    }
+
+    pub fn parse_expression_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<Expr, ParseError> {
+        let contract = self
+            .validate_parser_contract_for_assembler(cpu_id, dialect_override, tokens.len())
+            .map_err(|err| ParseError {
+                message: err.to_string(),
+                span: end_span,
+            })?;
+
+        if contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
+            return Err(ParseError {
+                message: format!(
+                    "{}: unsupported parser contract opcode version {}",
+                    contract.diagnostics.invalid_statement, contract.opcode_version
+                ),
+                span: end_span,
+            });
+        }
+        if !contract
+            .grammar_id
+            .eq_ignore_ascii_case(PARSER_GRAMMAR_ID_LINE_V1)
+        {
+            return Err(ParseError {
+                message: format!(
+                    "{}: unsupported parser grammar id '{}'",
+                    contract.diagnostics.invalid_statement, contract.grammar_id
+                ),
+                span: end_span,
+            });
+        }
+        if !contract
+            .ast_schema_id
+            .eq_ignore_ascii_case(PARSER_AST_SCHEMA_ID_LINE_V1)
+        {
+            return Err(ParseError {
+                message: format!(
+                    "{}: unsupported parser AST schema id '{}'",
+                    contract.diagnostics.invalid_statement, contract.ast_schema_id
+                ),
+                span: end_span,
+            });
+        }
+
+        Parser::parse_expr_from_tokens(tokens, end_span, end_token_text)
     }
 
     pub fn resolve_tokenizer_vm_parity_checklist(
@@ -4330,6 +4383,19 @@ mod tests {
         Ok(tokens)
     }
 
+    fn tokenize_core_expr_tokens(expr: &str, line_num: u32) -> (Vec<Token>, Span) {
+        let mut tokenizer = Tokenizer::new(expr, line_num);
+        let mut tokens = Vec::new();
+        let end_span = loop {
+            let token = tokenizer.next_token().expect("expression tokenization");
+            if matches!(token.kind, TokenKind::End) {
+                break token.span;
+            }
+            tokens.push(token);
+        };
+        (tokens, end_span)
+    }
+
     fn tokenize_host_line_with_policy(
         model: &HierarchyExecutionModel,
         cpu_id: &str,
@@ -5488,6 +5554,61 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("missing opthread parser contract"),
             "expected missing contract error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn execution_model_parse_expression_for_assembler_uses_contract_entrypoint() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+        let (tokens, end_span) = tokenize_core_expr_tokens("1+2", 1);
+        let expr = model
+            .parse_expression_for_assembler("m6502", None, tokens, end_span, None)
+            .expect("expression parsing should succeed through runtime entrypoint");
+        assert!(matches!(
+            expr,
+            Expr::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn execution_model_parse_expression_for_assembler_rejects_incompatible_contract() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        for contract in &mut chunks.parser_contracts {
+            if matches!(
+                contract.owner,
+                ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("mos6502")
+            ) {
+                contract.grammar_id = "opforge.line.v0".to_string();
+            }
+        }
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let (tokens, end_span) = tokenize_core_expr_tokens("1", 1);
+        let err = model
+            .parse_expression_for_assembler("m6502", None, tokens, end_span, None)
+            .expect_err("incompatible expression contract should fail");
+        assert!(err.message.contains("unsupported parser grammar id"));
+        assert!(
+            err.message.to_ascii_lowercase().contains("otp004"),
+            "expected parser invalid-statement diagnostic code, got: {}",
+            err.message
         );
     }
 

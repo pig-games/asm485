@@ -4,7 +4,7 @@
 use std::sync::OnceLock;
 
 use crate::core::parser::{
-    AssignOp, Expr, Label, LineAst, ParseError, Parser, SignatureAtom, StatementSignature, UseItem,
+    AssignOp, Expr, Label, LineAst, ParseError, SignatureAtom, StatementSignature, UseItem,
     UseParam,
 };
 use crate::core::registry::ModuleRegistry;
@@ -110,8 +110,15 @@ pub(crate) fn parse_line_with_model(
         end_token_text.clone(),
         &parser_contract,
         &parser_vm_program,
-        line,
-        line_num,
+        ParserVmExecContext {
+            source_line: line,
+            line_num,
+            expr_parse_ctx: VmExprParseContext {
+                model,
+                cpu_id,
+                dialect_override,
+            },
+        },
     )?;
     Ok((line_ast, end_span, end_token_text))
 }
@@ -148,19 +155,32 @@ fn parse_error_at_end(line: &str, line_num: u32, message: impl Into<String>) -> 
     }
 }
 
+#[derive(Clone, Copy)]
+struct VmExprParseContext<'a> {
+    model: &'a HierarchyExecutionModel,
+    cpu_id: &'a str,
+    dialect_override: Option<&'a str>,
+}
+
+#[derive(Clone, Copy)]
+struct ParserVmExecContext<'a> {
+    source_line: &'a str,
+    line_num: u32,
+    expr_parse_ctx: VmExprParseContext<'a>,
+}
+
 fn parse_line_with_parser_vm(
     tokens: Vec<Token>,
     end_span: Span,
     end_token_text: Option<String>,
     parser_contract: &RuntimeParserContract,
     parser_vm_program: &RuntimeParserVmProgram,
-    line: &str,
-    line_num: u32,
+    exec_ctx: ParserVmExecContext<'_>,
 ) -> Result<LineAst, ParseError> {
     if parser_contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
         return Err(parse_error_at_end(
-            line,
-            line_num,
+            exec_ctx.source_line,
+            exec_ctx.line_num,
             format!(
                 "{}: unsupported parser contract opcode version {}",
                 parser_contract.diagnostics.invalid_statement, parser_contract.opcode_version
@@ -169,8 +189,8 @@ fn parse_line_with_parser_vm(
     }
     if parser_vm_program.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
         return Err(parse_error_at_end(
-            line,
-            line_num,
+            exec_ctx.source_line,
+            exec_ctx.line_num,
             format!(
                 "{}: unsupported parser VM opcode version {}",
                 parser_contract.diagnostics.invalid_statement, parser_vm_program.opcode_version
@@ -179,8 +199,8 @@ fn parse_line_with_parser_vm(
     }
     if parser_contract.opcode_version != parser_vm_program.opcode_version {
         return Err(parse_error_at_end(
-            line,
-            line_num,
+            exec_ctx.source_line,
+            exec_ctx.line_num,
             format!(
                 "{}: parser contract/program opcode version mismatch ({} != {})",
                 parser_contract.diagnostics.invalid_statement,
@@ -198,8 +218,8 @@ fn parse_line_with_parser_vm(
         pc = pc.saturating_add(1);
         let Some(opcode) = ParserVmOpcode::from_u8(opcode_byte) else {
             return Err(parse_error_at_end(
-                line,
-                line_num,
+                exec_ctx.source_line,
+                exec_ctx.line_num,
                 format!(
                     "{}: invalid parser VM opcode 0x{opcode_byte:02X}",
                     parser_contract.diagnostics.invalid_statement
@@ -210,8 +230,8 @@ fn parse_line_with_parser_vm(
             ParserVmOpcode::End => {
                 return parsed_line.ok_or_else(|| {
                     parse_error_at_end(
-                        line,
-                        line_num,
+                        exec_ctx.source_line,
+                        exec_ctx.line_num,
                         format!(
                             "{}: parser VM ended without producing an AST",
                             parser_contract.diagnostics.invalid_statement
@@ -222,8 +242,8 @@ fn parse_line_with_parser_vm(
             ParserVmOpcode::ParseStatementEnvelope => {
                 if parsed_line.is_some() {
                     return Err(parse_error_at_end(
-                        line,
-                        line_num,
+                        exec_ctx.source_line,
+                        exec_ctx.line_num,
                         format!(
                             "{}: parser VM attempted duplicate ParseStatementEnvelope execution",
                             parser_contract.diagnostics.invalid_statement
@@ -234,14 +254,15 @@ fn parse_line_with_parser_vm(
                     &tokens,
                     end_span,
                     end_token_text.clone(),
+                    &exec_ctx.expr_parse_ctx,
                 )?;
                 parsed_line = Some(envelope.to_core_line_ast());
             }
             ParserVmOpcode::EmitDiag => {
                 let Some(slot) = parser_vm_program.program.get(pc).copied() else {
                     return Err(parse_error_at_end(
-                        line,
-                        line_num,
+                        exec_ctx.source_line,
+                        exec_ctx.line_num,
                         format!(
                             "{}: parser VM EmitDiag missing slot operand",
                             parser_contract.diagnostics.invalid_statement
@@ -250,15 +271,15 @@ fn parse_line_with_parser_vm(
                 };
                 let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
                 return Err(parse_error_at_end(
-                    line,
-                    line_num,
+                    exec_ctx.source_line,
+                    exec_ctx.line_num,
                     format!("{code}: parser VM emitted diagnostic slot {slot}"),
                 ));
             }
             ParserVmOpcode::Fail => {
                 return Err(parse_error_at_end(
-                    line,
-                    line_num,
+                    exec_ctx.source_line,
+                    exec_ctx.line_num,
                     format!(
                         "{}: parser VM requested failure",
                         parser_contract.diagnostics.invalid_statement
@@ -269,8 +290,8 @@ fn parse_line_with_parser_vm(
     }
 
     Err(parse_error_at_end(
-        line,
-        line_num,
+        exec_ctx.source_line,
+        exec_ctx.line_num,
         format!(
             "{}: parser VM program terminated without End opcode",
             parser_contract.diagnostics.invalid_statement
@@ -294,6 +315,7 @@ fn parse_statement_envelope_from_tokens(
     tokens: &[Token],
     end_span: Span,
     end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
 ) -> Result<PortableLineAst, ParseError> {
     if tokens.is_empty() {
         return Ok(PortableLineAst::Empty);
@@ -352,7 +374,8 @@ fn parse_statement_envelope_from_tokens(
                 span: end_span,
             });
         }
-        let expr = Parser::parse_expr_from_tokens(
+        let expr = parse_expr_with_vm_contract(
+            expr_parse_ctx,
             tokens[idx.saturating_add(2)..].to_vec(),
             end_span,
             end_token_text,
@@ -367,7 +390,8 @@ fn parse_statement_envelope_from_tokens(
         (label.clone(), match_assignment_op_at(tokens, idx))
     {
         let expr = match tokens.get(idx.saturating_add(consumed)) {
-            Some(_) => match Parser::parse_expr_from_tokens(
+            Some(_) => match parse_expr_with_vm_contract(
+                expr_parse_ctx,
                 tokens[idx.saturating_add(consumed)..].to_vec(),
                 end_span,
                 end_token_text,
@@ -391,8 +415,15 @@ fn parse_statement_envelope_from_tokens(
             ..
         })
     ) {
-        return parse_dot_directive_line_from_tokens(tokens, idx, label, end_span, end_token_text)
-            .map(|line| PortableLineAst::from_core_line_ast(&line));
+        return parse_dot_directive_line_from_tokens(
+            tokens,
+            idx,
+            label,
+            end_span,
+            end_token_text,
+            expr_parse_ctx,
+        )
+        .map(|line| PortableLineAst::from_core_line_ast(&line));
     }
 
     let mnemonic = match tokens.get(idx) {
@@ -443,9 +474,9 @@ fn parse_statement_envelope_from_tokens(
                     tokens,
                     start,
                     cursor,
-                    cursor,
                     end_span,
                     end_token_text.clone(),
+                    expr_parse_ctx,
                     &mut operands,
                 )?;
                 if matches!(operands.last(), Some(Expr::Error(_, _))) {
@@ -460,9 +491,9 @@ fn parse_statement_envelope_from_tokens(
                 tokens,
                 start,
                 tokens.len(),
-                tokens.len(),
                 end_span,
                 end_token_text,
+                expr_parse_ctx,
                 &mut operands,
             )?;
         }
@@ -481,6 +512,7 @@ fn parse_dot_directive_line_from_tokens(
     label: Option<Label>,
     end_span: Span,
     end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
 ) -> Result<LineAst, ParseError> {
     let mut cursor = dot_index.saturating_add(1);
     let (name, name_span) = parse_ident_like_at(
@@ -551,6 +583,7 @@ fn parse_dot_directive_line_from_tokens(
             name_span,
             end_span,
             end_token_text,
+            expr_parse_ctx,
         );
     }
     if upper.as_str() == "PLACE" {
@@ -560,6 +593,7 @@ fn parse_dot_directive_line_from_tokens(
             name_span,
             end_span,
             end_token_text,
+            expr_parse_ctx,
         );
     }
     if upper.as_str() == "PACK" {
@@ -605,9 +639,9 @@ fn parse_dot_directive_line_from_tokens(
                             tokens,
                             start,
                             cursor,
-                            cursor,
                             end_span,
                             end_token_text.clone(),
+                            expr_parse_ctx,
                             &mut exprs,
                         )?;
                         if matches!(exprs.last(), Some(Expr::Error(_, _))) {
@@ -622,14 +656,15 @@ fn parse_dot_directive_line_from_tokens(
                         tokens,
                         start,
                         tokens.len(),
-                        tokens.len(),
                         end_span,
                         end_token_text,
+                        expr_parse_ctx,
                         &mut exprs,
                     )?;
                 }
             } else {
-                let expr = match Parser::parse_expr_from_tokens(
+                let expr = match parse_expr_with_vm_contract(
+                    expr_parse_ctx,
                     tokens[cursor..].to_vec(),
                     end_span,
                     end_token_text,
@@ -673,9 +708,9 @@ fn parse_dot_directive_line_from_tokens(
                     tokens,
                     start,
                     cursor,
-                    cursor,
                     end_span,
                     end_token_text.clone(),
+                    expr_parse_ctx,
                     &mut operands,
                 )?;
                 if matches!(operands.last(), Some(Expr::Error(_, _))) {
@@ -690,9 +725,9 @@ fn parse_dot_directive_line_from_tokens(
                 tokens,
                 start,
                 tokens.len(),
-                tokens.len(),
                 end_span,
                 end_token_text,
+                expr_parse_ctx,
                 &mut operands,
             )?;
         }
@@ -711,6 +746,7 @@ fn parse_place_directive_from_tokens(
     start_span: Span,
     end_span: Span,
     end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
 ) -> Result<LineAst, ParseError> {
     let (section, section_span) =
         parse_ident_like_at(tokens, cursor, "Expected section name for .place", end_span)?;
@@ -749,7 +785,8 @@ fn parse_place_directive_from_tokens(
                 span: current_span_at(tokens, *cursor, end_span),
             });
         }
-        align = Some(Parser::parse_expr_from_tokens(
+        align = Some(parse_expr_with_vm_contract(
+            expr_parse_ctx,
             tokens[*cursor..].to_vec(),
             end_span,
             end_token_text,
@@ -846,6 +883,7 @@ fn parse_use_directive_from_tokens(
     start_span: Span,
     end_span: Span,
     end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
 ) -> Result<LineAst, ParseError> {
     let (module_id, _) =
         parse_ident_like_at(tokens, cursor, "Expected module id after .use", end_span)?;
@@ -982,7 +1020,8 @@ fn parse_use_directive_from_tokens(
                 .get(*cursor)
                 .map(|token| token.span)
                 .unwrap_or(end_span);
-            let value = Parser::parse_expr_from_tokens(
+            let value = parse_expr_with_vm_contract(
+                expr_parse_ctx,
                 tokens[value_start..*cursor].to_vec(),
                 expr_end_span,
                 end_token_text.clone(),
@@ -1254,26 +1293,45 @@ fn current_span_at(tokens: &[Token], cursor: usize, fallback: Span) -> Span {
         .unwrap_or(fallback)
 }
 
+fn parse_expr_with_vm_contract(
+    expr_parse_ctx: &VmExprParseContext<'_>,
+    tokens: Vec<Token>,
+    end_span: Span,
+    end_token_text: Option<String>,
+) -> Result<Expr, ParseError> {
+    expr_parse_ctx.model.parse_expression_for_assembler(
+        expr_parse_ctx.cpu_id,
+        expr_parse_ctx.dialect_override,
+        tokens,
+        end_span,
+        end_token_text,
+    )
+}
+
 fn parse_operand_expr_range(
     tokens: &[Token],
     start: usize,
     end: usize,
-    error_span_index: usize,
     end_span: Span,
     end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
     operands: &mut Vec<Expr>,
 ) -> Result<(), ParseError> {
     if start >= end {
         let span = tokens
-            .get(error_span_index)
+            .get(start)
             .map(|token| token.span)
             .unwrap_or(end_span);
         operands.push(Expr::Error("Expected expression".to_string(), span));
         return Ok(());
     }
     let expr_end_span = tokens.get(end).map(|token| token.span).unwrap_or(end_span);
-    match Parser::parse_expr_from_tokens(tokens[start..end].to_vec(), expr_end_span, end_token_text)
-    {
+    match parse_expr_with_vm_contract(
+        expr_parse_ctx,
+        tokens[start..end].to_vec(),
+        expr_end_span,
+        end_token_text,
+    ) {
         Ok(expr) => operands.push(expr),
         Err(err) => operands.push(Expr::Error(err.message, err.span)),
     }
@@ -1639,10 +1697,20 @@ mod tests {
             &register_checker,
         )
         .expect("tokenization should succeed");
+        let expr_parse_ctx = VmExprParseContext {
+            model,
+            cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+            dialect_override: None,
+        };
 
-        let parsed = parse_statement_envelope_from_tokens(&tokens, end_span, end_token_text)
-            .expect("vm statement envelope parse should succeed")
-            .to_core_line_ast();
+        let parsed = parse_statement_envelope_from_tokens(
+            &tokens,
+            end_span,
+            end_token_text,
+            &expr_parse_ctx,
+        )
+        .expect("vm statement envelope parse should succeed")
+        .to_core_line_ast();
         match parsed {
             LineAst::Statement {
                 label: Some(label),
@@ -1670,10 +1738,20 @@ mod tests {
             &register_checker,
         )
         .expect("tokenization should succeed");
+        let expr_parse_ctx = VmExprParseContext {
+            model,
+            cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+            dialect_override: None,
+        };
 
-        let parsed = parse_statement_envelope_from_tokens(&tokens, end_span, end_token_text)
-            .expect("vm statement envelope parse should succeed")
-            .to_core_line_ast();
+        let parsed = parse_statement_envelope_from_tokens(
+            &tokens,
+            end_span,
+            end_token_text,
+            &expr_parse_ctx,
+        )
+        .expect("vm statement envelope parse should succeed")
+        .to_core_line_ast();
         assert!(
             matches!(parsed, LineAst::Conditional { .. }),
             "directive line should parse as conditional, got {parsed:?}"
@@ -1710,8 +1788,15 @@ mod tests {
             end_token_text,
             &parser_contract,
             &parser_vm_program,
-            "    LDA ($10),Y",
-            1,
+            ParserVmExecContext {
+                source_line: "    LDA ($10),Y",
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
         )
         .expect("parse should succeed");
         match line {
@@ -1754,8 +1839,15 @@ mod tests {
             end_token_text,
             &parser_contract,
             &parser_vm_program,
-            source,
-            1,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
         )
         .expect("parse should succeed");
         assert!(
@@ -1796,10 +1888,67 @@ mod tests {
             end_token_text,
             &parser_contract,
             &parser_vm_program,
-            source,
-            1,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
         )
         .expect_err("retired opcode should fail");
         assert!(err.message.contains("invalid parser VM opcode 0x01"));
+    }
+
+    #[test]
+    fn parse_line_with_model_requires_expression_contract_compatibility() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+            .expect("hierarchy chunks build");
+        for contract in &mut chunks.parser_contracts {
+            if matches!(
+                contract.owner,
+                crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("mos6502")
+            ) {
+                contract.grammar_id = "opforge.line.v0".to_string();
+            }
+        }
+        let model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
+        let register_checker = register_checker_none();
+        let (ast, _, _) = parse_line_with_model(
+            &model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            "    .if 1",
+            1,
+            &register_checker,
+        )
+        .expect("statement envelope parse should return conditional AST with expression error");
+        let LineAst::Conditional { exprs, .. } = ast else {
+            panic!("expected conditional AST, got: {ast:?}");
+        };
+        assert_eq!(exprs.len(), 1, "expected one conditional expression");
+        let Expr::Error(message, _) = &exprs[0] else {
+            panic!("expected expression error, got: {:?}", exprs[0]);
+        };
+        assert!(
+            message.contains("unsupported parser grammar id"),
+            "expected deterministic contract compatibility error, got: {message}"
+        );
+        assert!(
+            message.to_ascii_lowercase().contains("otp004"),
+            "expected parser contract diagnostic code in error, got: {message}"
+        );
     }
 }
