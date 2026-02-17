@@ -23,8 +23,7 @@ use crate::opthread::builder::build_hierarchy_chunks_from_registry;
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 use crate::opthread::hierarchy::ScopedOwner;
 use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
-use crate::opthread::package::ModeSelectorDescriptor;
-use crate::opthread::package::TokenizerVmOpcode;
+use crate::opthread::package::{ModeSelectorDescriptor, ParserVmOpcode, TokenizerVmOpcode};
 use crate::opthread::rollout::{
     family_runtime_mode, family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
     FamilyRuntimeMode,
@@ -6948,6 +6947,42 @@ fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
     assert!(message
         .to_ascii_lowercase()
         .contains("missing opthread vm program"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_parser_vm_failure_errors_instead_of_host_parser_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .parser_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family parser vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.program = vec![ParserVmOpcode::Fail as u8, ParserVmOpcode::End as u8];
+    chunks.parser_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("parser vm requested failure"),
+        "expected parser VM failure diagnostics, got: {message}"
+    );
 }
 
 #[test]
