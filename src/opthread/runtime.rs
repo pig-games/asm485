@@ -960,22 +960,24 @@ impl HierarchyExecutionModel {
             RuntimeTokenizerMode::Host => Self::tokenize_with_host_core(&request),
             RuntimeTokenizerMode::DelegatedCore => adapter.tokenize_statement(&request),
             RuntimeTokenizerMode::Vm => {
-                let vm_result = self
+                let vm_program = self
                     .tokenizer_vm_program_for_resolved(&resolved)
-                    .map(|program| self.tokenize_with_vm_core(&request, &program, true))
-                    .transpose();
-                match vm_result {
-                    Ok(Some(tokens))
-                        if !tokens.is_empty()
-                            || source_line_can_tokenize_to_empty(
-                                source_line,
-                                &request.token_policy,
-                            ) =>
-                    {
-                        Ok(tokens)
-                    }
-                    _ => Self::tokenize_with_host_core(&request),
+                    .ok_or_else(|| {
+                        RuntimeBridgeError::Resolve(format!(
+                            "missing opThread tokenizer VM program for family '{}'",
+                            resolved.family_id
+                        ))
+                    })?;
+                let tokens = self.tokenize_with_vm_core(&request, &vm_program, false)?;
+                if tokens.is_empty()
+                    && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
+                {
+                    return Err(RuntimeBridgeError::Resolve(format!(
+                        "{}: tokenizer VM produced no tokens for non-empty source line",
+                        vm_program.diagnostics.invalid_char
+                    )));
                 }
+                Ok(tokens)
             }
             RuntimeTokenizerMode::Auto => unreachable!("auto mode is resolved before dispatch"),
         }
@@ -4100,23 +4102,28 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_mode_vm_falls_back_to_host() {
+    fn execution_model_tokenizer_mode_vm_is_strict_for_empty_non_comment_output() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
         registry.register_cpu(Box::new(M65C02CpuModule));
         registry.register_cpu(Box::new(M65816CpuModule));
 
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.program = vec![TokenizerVmOpcode::End as u8];
+        chunks.tokenizer_vm_programs.push(program);
         let mut model =
-            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
         model.set_tokenizer_mode(RuntimeTokenizerMode::Vm);
-        let tokens = model
+        let err = model
             .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "LDA #$42", 1)
-            .expect("vm mode should fall back to host path");
-        assert!(matches!(
-            &tokens[0].kind,
-            PortableTokenKind::Identifier(name) if name == "lda"
-        ));
+            .expect_err("vm mode should stay strict and reject empty token output");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("produced no tokens"));
     }
 
     #[test]
