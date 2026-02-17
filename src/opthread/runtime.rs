@@ -26,8 +26,8 @@ use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 use crate::opthread::intel8080_vm::{
-    mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb, mode_key_for_z80_interrupt_mode,
-    prefix_len,
+    mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
+    mode_key_for_z80_interrupt_mode, prefix_len,
 };
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
@@ -1776,6 +1776,14 @@ impl HierarchyExecutionModel {
             Err(_) => return Ok(None),
         };
 
+        if let Some(candidate) = intel8080_indexed_memory_candidate(
+            mnemonic,
+            resolved.cpu_id.as_str(),
+            &resolved_operands,
+        ) {
+            return Ok(Some(vec![candidate]));
+        }
+
         if let Some(candidate) =
             intel8080_indexed_cb_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
         {
@@ -1948,6 +1956,128 @@ fn intel8080_interrupt_mode_for_entry(
     } else {
         None
     }
+}
+
+fn intel8080_indexed_memory_candidate(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+) -> Option<VmEncodeCandidate> {
+    if !cpu_id.eq_ignore_ascii_case("z80") {
+        return None;
+    }
+
+    let (indexed_pos, base, displacement) = intel8080_single_indexed_operand(operands)?;
+    let upper = mnemonic.to_ascii_uppercase();
+
+    let (form, operand_bytes) = match upper.as_str() {
+        "LD" => {
+            if operands.len() != 2 {
+                return None;
+            }
+            match (&operands[0], &operands[1], indexed_pos) {
+                (IntelOperand::Register(dst, _), IntelOperand::Indexed { .. }, 1) => {
+                    let _ = intel8080_z80_indexed_reg_code(dst)?;
+                    (
+                        format!("ld_r_from_idx_{}", dst.to_ascii_lowercase()),
+                        vec![vec![displacement]],
+                    )
+                }
+                (IntelOperand::Indexed { .. }, IntelOperand::Register(src, _), 0) => {
+                    let _ = intel8080_z80_indexed_reg_code(src)?;
+                    (
+                        format!("ld_idx_from_r_{}", src.to_ascii_lowercase()),
+                        vec![vec![displacement]],
+                    )
+                }
+                (IntelOperand::Indexed { .. }, IntelOperand::Immediate8(value, _), 0) => (
+                    "ld_idx_imm".to_string(),
+                    vec![vec![displacement], vec![*value]],
+                ),
+                _ => return None,
+            }
+        }
+        "INC" | "DEC" if operands.len() == 1 && indexed_pos == 0 => (
+            if upper == "INC" {
+                "inc_idx".to_string()
+            } else {
+                "dec_idx".to_string()
+            },
+            vec![vec![displacement]],
+        ),
+        "ADD" | "ADC" | "SBC"
+            if operands.len() == 2 && indexed_pos == 1 && intel8080_is_register_a(&operands[0]) =>
+        {
+            let form = match upper.as_str() {
+                "ADD" => "add_a_idx",
+                "ADC" => "adc_a_idx",
+                "SBC" => "sbc_a_idx",
+                _ => unreachable!(),
+            };
+            (form.to_string(), vec![vec![displacement]])
+        }
+        "SUB"
+            if (indexed_pos == 0 && operands.len() == 1)
+                || (indexed_pos == 1
+                    && operands.len() == 2
+                    && intel8080_is_register_a(&operands[0])) =>
+        {
+            ("sub_idx".to_string(), vec![vec![displacement]])
+        }
+        "AND" | "XOR" | "OR" | "CP"
+            if (indexed_pos == 0 && operands.len() == 1)
+                || (indexed_pos == 1
+                    && operands.len() == 2
+                    && intel8080_is_register_a(&operands[0])) =>
+        {
+            let form = match upper.as_str() {
+                "AND" => "and_idx",
+                "XOR" => "xor_idx",
+                "OR" => "or_idx",
+                "CP" => "cp_idx",
+                _ => unreachable!(),
+            };
+            (form.to_string(), vec![vec![displacement]])
+        }
+        _ => return None,
+    };
+
+    let mode_key = mode_key_for_z80_indexed_memory(base, form.as_str())?;
+    Some(VmEncodeCandidate {
+        mode_key,
+        operand_bytes,
+    })
+}
+
+fn intel8080_single_indexed_operand(operands: &[IntelOperand]) -> Option<(usize, &str, u8)> {
+    let mut found = None;
+    for (idx, operand) in operands.iter().enumerate() {
+        let Some((base, displacement)) = intel8080_indexed_base_disp(operand) else {
+            continue;
+        };
+        if found.is_some() {
+            return None;
+        }
+        found = Some((idx, base, displacement));
+    }
+    found
+}
+
+fn intel8080_z80_indexed_reg_code(name: &str) -> Option<u8> {
+    match name.to_ascii_uppercase().as_str() {
+        "B" => Some(0),
+        "C" => Some(1),
+        "D" => Some(2),
+        "E" => Some(3),
+        "H" => Some(4),
+        "L" => Some(5),
+        "A" => Some(7),
+        _ => None,
+    }
+}
+
+fn intel8080_is_register_a(operand: &IntelOperand) -> bool {
+    matches!(operand, IntelOperand::Register(name, _) if name.eq_ignore_ascii_case("a"))
 }
 
 fn intel8080_indexed_cb_candidate(
@@ -4685,6 +4815,58 @@ mod tests {
             .expect("BIT 2,(IY) should resolve");
 
         assert_eq!(bytes, Some(vec![0xFD, 0xCB, 0x00, 0x56]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_indexed_memory_ld_forms() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+        let load_from_idx = [
+            Expr::Identifier("A".to_string(), span),
+            Expr::Indirect(Box::new(Expr::Identifier("IX".to_string(), span)), span),
+        ];
+        let store_imm_idx = [
+            Expr::Indirect(Box::new(Expr::Identifier("IY".to_string(), span)), span),
+            Expr::Number("66".to_string(), span),
+        ];
+
+        let load_bytes = model
+            .encode_instruction_from_exprs("z80", None, "LD", &load_from_idx, &ctx)
+            .expect("LD A,(IX) should resolve");
+        let store_bytes = model
+            .encode_instruction_from_exprs("z80", None, "LD", &store_imm_idx, &ctx)
+            .expect("LD (IY),n should resolve");
+
+        assert_eq!(load_bytes, Some(vec![0xDD, 0x7E, 0x00]));
+        assert_eq!(store_bytes, Some(vec![0xFD, 0x36, 0x00, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_indexed_memory_alu_forms() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+        let and_idx = [Expr::Indirect(
+            Box::new(Expr::Identifier("IX".to_string(), span)),
+            span,
+        )];
+        let sub_a_idx = [
+            Expr::Identifier("A".to_string(), span),
+            Expr::Indirect(Box::new(Expr::Identifier("IY".to_string(), span)), span),
+        ];
+
+        let and_bytes = model
+            .encode_instruction_from_exprs("z80", None, "AND", &and_idx, &ctx)
+            .expect("AND (IX) should resolve");
+        let sub_bytes = model
+            .encode_instruction_from_exprs("z80", None, "SUB", &sub_a_idx, &ctx)
+            .expect("SUB A,(IY) should resolve");
+
+        assert_eq!(and_bytes, Some(vec![0xDD, 0xA6, 0x00]));
+        assert_eq!(sub_bytes, Some(vec![0xFD, 0x96, 0x00]));
     }
 
     #[test]

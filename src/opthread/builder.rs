@@ -22,8 +22,9 @@ use crate::opthread::hierarchy::{
 };
 use crate::opthread::intel8080_vm::{
     compile_vm_program_for_instruction_entry, compile_vm_program_for_z80_indexed_cb,
-    compile_vm_program_for_z80_interrupt_mode, mode_key_for_instruction_entry,
-    mode_key_for_z80_indexed_cb, mode_key_for_z80_interrupt_mode,
+    compile_vm_program_for_z80_indexed_memory, compile_vm_program_for_z80_interrupt_mode,
+    mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
+    mode_key_for_z80_interrupt_mode,
 };
 use crate::opthread::package::{
     canonicalize_hierarchy_metadata, canonicalize_token_policies,
@@ -252,6 +253,78 @@ pub fn build_hierarchy_chunks_from_registry(
                         program,
                     });
                 }
+            }
+
+            for (reg, code) in [
+                ("B", 0u8),
+                ("C", 1),
+                ("D", 2),
+                ("E", 3),
+                ("H", 4),
+                ("L", 5),
+                ("A", 7),
+            ] {
+                let from_idx_form = format!("ld_r_from_idx_{}", reg.to_ascii_lowercase());
+                let Some(mode_key) = mode_key_for_z80_indexed_memory(base, from_idx_form.as_str())
+                else {
+                    continue;
+                };
+                let Some(program) =
+                    compile_vm_program_for_z80_indexed_memory(base, 0x46 | (code << 3), 1)
+                else {
+                    continue;
+                };
+                tables.push(VmProgramDescriptor {
+                    owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                    mnemonic: "LD".to_string(),
+                    mode_key,
+                    program,
+                });
+
+                let to_idx_form = format!("ld_idx_from_r_{}", reg.to_ascii_lowercase());
+                let Some(mode_key) = mode_key_for_z80_indexed_memory(base, to_idx_form.as_str())
+                else {
+                    continue;
+                };
+                let Some(program) = compile_vm_program_for_z80_indexed_memory(base, 0x70 | code, 1)
+                else {
+                    continue;
+                };
+                tables.push(VmProgramDescriptor {
+                    owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                    mnemonic: "LD".to_string(),
+                    mode_key,
+                    program,
+                });
+            }
+
+            for (form, opcode, operand_count, mnemonic) in [
+                ("ld_idx_imm", 0x36u8, 2u8, "LD"),
+                ("inc_idx", 0x34, 1, "INC"),
+                ("dec_idx", 0x35, 1, "DEC"),
+                ("add_a_idx", 0x86, 1, "ADD"),
+                ("adc_a_idx", 0x8E, 1, "ADC"),
+                ("sub_idx", 0x96, 1, "SUB"),
+                ("sbc_a_idx", 0x9E, 1, "SBC"),
+                ("and_idx", 0xA6, 1, "AND"),
+                ("xor_idx", 0xAE, 1, "XOR"),
+                ("or_idx", 0xB6, 1, "OR"),
+                ("cp_idx", 0xBE, 1, "CP"),
+            ] {
+                let Some(mode_key) = mode_key_for_z80_indexed_memory(base, form) else {
+                    continue;
+                };
+                let Some(program) =
+                    compile_vm_program_for_z80_indexed_memory(base, opcode, operand_count)
+                else {
+                    continue;
+                };
+                tables.push(VmProgramDescriptor {
+                    owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                    mnemonic: mnemonic.to_string(),
+                    mode_key,
+                    program,
+                });
             }
         }
 
@@ -875,7 +948,7 @@ mod tests {
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::intel8080_vm::{
         mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb,
-        mode_key_for_z80_interrupt_mode,
+        mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode,
     };
     use crate::opthread::package::{
         load_hierarchy_package, token_identifier_class, TokenizerVmOpcode,
@@ -986,6 +1059,19 @@ mod tests {
                 && entry.mnemonic == "bit"
                 && entry.mode_key
                     == mode_key_for_z80_indexed_cb("IY", "BIT", Some(2)).expect("valid mode key")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "ld"
+                && entry.mode_key
+                    == mode_key_for_z80_indexed_memory("IX", "ld_r_from_idx_a")
+                        .expect("valid mode key")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "ld"
+                && entry.mode_key
+                    == mode_key_for_z80_indexed_memory("IY", "ld_idx_imm").expect("valid mode key")
         }));
         assert!(chunks.tables.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")
