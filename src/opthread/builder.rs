@@ -21,7 +21,8 @@ use crate::opthread::hierarchy::{
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::intel8080_vm::{
-    compile_vm_program_for_instruction_entry, mode_key_for_instruction_entry,
+    compile_vm_program_for_instruction_entry, compile_vm_program_for_z80_interrupt_mode,
+    mode_key_for_instruction_entry, mode_key_for_z80_interrupt_mode,
 };
 use crate::opthread::package::{
     canonicalize_hierarchy_metadata, canonicalize_token_policies,
@@ -217,6 +218,23 @@ pub fn build_hierarchy_chunks_from_registry(
     }
     if registered_cpu_ids.contains(Z80_CPU_ID.as_str()) {
         for entry in Z80_EXTENSION_TABLE {
+            if entry.mnemonic.eq_ignore_ascii_case("IM") {
+                for mode in 0u8..=2 {
+                    let Some(mode_key) = mode_key_for_z80_interrupt_mode(mode) else {
+                        continue;
+                    };
+                    let Some(program) = compile_vm_program_for_z80_interrupt_mode(mode) else {
+                        continue;
+                    };
+                    tables.push(VmProgramDescriptor {
+                        owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                        mnemonic: entry.mnemonic.to_string(),
+                        mode_key,
+                        program,
+                    });
+                }
+                continue;
+            }
             let Some(program) = compile_vm_program_for_instruction_entry(entry) else {
                 continue;
             };
@@ -817,7 +835,9 @@ mod tests {
     use crate::i8085::module::I8085CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
-    use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
+    use crate::opthread::intel8080_vm::{
+        mode_key_for_instruction_entry, mode_key_for_z80_interrupt_mode,
+    };
     use crate::opthread::package::{
         load_hierarchy_package, token_identifier_class, TokenizerVmOpcode,
         DIAG_OPTHREAD_MISSING_VM_PROGRAM,
@@ -900,6 +920,21 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
                 && entry.mnemonic == "djnz"
                 && entry.mode_key == mode_key_for_instruction_entry(djnz)
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "im"
+                && entry.mode_key == mode_key_for_z80_interrupt_mode(0).expect("valid mode key")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "im"
+                && entry.mode_key == mode_key_for_z80_interrupt_mode(1).expect("valid mode key")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "im"
+                && entry.mode_key == mode_key_for_z80_interrupt_mode(2).expect("valid mode key")
         }));
         assert!(chunks.tables.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "65c02")

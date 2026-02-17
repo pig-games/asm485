@@ -25,7 +25,9 @@ use crate::opthread::builder::{build_hierarchy_package_from_registry, HierarchyB
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
-use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
+use crate::opthread::intel8080_vm::{
+    mode_key_for_instruction_entry, mode_key_for_z80_interrupt_mode, prefix_len,
+};
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
     ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenizerVmDiagnosticMap,
@@ -1780,6 +1782,18 @@ impl HierarchyExecutionModel {
         ) else {
             return Ok(None);
         };
+        if matches!(entry.arg_type, IntelArgType::Im) {
+            let Some(mode) = intel8080_interrupt_mode_for_entry(entry, &resolved_operands) else {
+                return Ok(None);
+            };
+            let Some(mode_key) = mode_key_for_z80_interrupt_mode(mode) else {
+                return Ok(None);
+            };
+            return Ok(Some(vec![VmEncodeCandidate {
+                mode_key,
+                operand_bytes: Vec::new(),
+            }]));
+        }
         let Some(operand_bytes) = intel8080_operand_bytes_for_entry(entry, &resolved_operands, ctx)
         else {
             return Ok(None);
@@ -1906,6 +1920,26 @@ fn intel8080_operand_bytes_for_entry(
             Some(vec![vec![value]])
         }
         IntelArgType::Im => None,
+    }
+}
+
+fn intel8080_interrupt_mode_for_entry(
+    entry: &IntelInstructionEntry,
+    operands: &[IntelOperand],
+) -> Option<u8> {
+    if !matches!(entry.arg_type, IntelArgType::Im) {
+        return None;
+    }
+    let imm_index = entry.num_regs as usize;
+    let mode = match operands.get(imm_index)? {
+        IntelOperand::InterruptMode(value, _) | IntelOperand::Immediate8(value, _) => *value,
+        IntelOperand::Immediate16(value, _) => (*value).try_into().ok()?,
+        _ => return None,
+    };
+    if mode <= 2 {
+        Some(mode)
+    } else {
+        None
     }
 }
 
@@ -4505,6 +4539,46 @@ mod tests {
 
         assert_eq!(ix_bytes, Some(vec![0xDD, 0xE9]));
         assert_eq!(iy_bytes, Some(vec![0xFD, 0xE9]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_im_modes() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+
+        let im0 = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "IM",
+                &[Expr::Number("0".into(), span)],
+                &ctx,
+            )
+            .expect("IM 0 should resolve");
+        let im1 = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "IM",
+                &[Expr::Number("1".into(), span)],
+                &ctx,
+            )
+            .expect("IM 1 should resolve");
+        let im2 = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "IM",
+                &[Expr::Number("2".into(), span)],
+                &ctx,
+            )
+            .expect("IM 2 should resolve");
+
+        assert_eq!(im0, Some(vec![0xED, 0x46]));
+        assert_eq!(im1, Some(vec![0xED, 0x56]));
+        assert_eq!(im2, Some(vec![0xED, 0x5E]));
     }
 
     #[test]

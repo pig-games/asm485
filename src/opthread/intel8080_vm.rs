@@ -20,7 +20,7 @@ pub(crate) fn mode_key_for_instruction_entry(entry: &InstructionEntry) -> String
 pub(crate) fn compile_vm_program_for_instruction_entry(
     entry: &InstructionEntry,
 ) -> Option<Vec<u8>> {
-    // IM and DD/FD CB forms still require host-side encode specialization.
+    // DD/FD CB forms still require host-side encode specialization.
     if matches!(entry.arg_type, ArgType::Im) {
         return None;
     }
@@ -46,6 +46,24 @@ pub(crate) fn compile_vm_program_for_instruction_entry(
 
     program.push(OP_END);
     Some(program)
+}
+
+pub(crate) fn mode_key_for_z80_interrupt_mode(mode: u8) -> Option<String> {
+    if mode > 2 {
+        return None;
+    }
+    Some(format!("im={mode}"))
+}
+
+pub(crate) fn compile_vm_program_for_z80_interrupt_mode(mode: u8) -> Option<Vec<u8>> {
+    let opcode = match mode {
+        0 => 0x46,
+        1 => 0x56,
+        2 => 0x5E,
+        _ => return None,
+    };
+
+    Some(vec![OP_EMIT_U8, 0xED, OP_EMIT_U8, opcode, OP_END])
 }
 
 pub(crate) fn prefix_len(prefix: Prefix) -> usize {
