@@ -53,11 +53,8 @@ use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::builder::build_hierarchy_package_from_registry;
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::HierarchyExecutionModel;
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::token_bridge::tokenize_parser_tokens_with_model;
 use crate::z80::module::Z80CpuModule;
 
@@ -71,10 +68,7 @@ pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as
 pub use cli::VERSION;
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-opcpu-artifact"
-))]
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
 const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
     "target/opthread/opforge-runtime.opcpu";
 
@@ -920,9 +914,7 @@ struct AsmLine<'a> {
     cpu_word_size_bytes: u32,
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
-    #[cfg(feature = "opthread-runtime")]
     opthread_execution_model: Option<HierarchyExecutionModel>,
-    #[cfg(feature = "opthread-runtime")]
     opthread_runtime_enabled: bool,
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
@@ -940,7 +932,6 @@ impl<'a> AsmLine<'a> {
         Self::with_cpu_and_metadata(symbols, cpu, registry, RootMetadata::default())
     }
 
-    #[cfg(feature = "opthread-runtime")]
     fn with_cpu_runtime_mode(
         symbols: &'a mut SymbolTable,
         cpu: CpuType,
@@ -997,9 +988,7 @@ impl<'a> AsmLine<'a> {
             cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
-            #[cfg(feature = "opthread-runtime")]
             opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
-            #[cfg(feature = "opthread-runtime")]
             opthread_runtime_enabled: false,
             text_encoding_registry,
             active_text_encoding,
@@ -1047,7 +1036,6 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    #[cfg(feature = "opthread-runtime")]
     fn build_opthread_execution_model(
         registry: &ModuleRegistry,
         cpu: CpuType,
@@ -1078,37 +1066,25 @@ impl<'a> AsmLine<'a> {
         HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
     }
 
-    #[cfg(all(
-        feature = "opthread-runtime",
-        feature = "opthread-runtime-opcpu-artifact"
-    ))]
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
     fn opthread_package_artifact_path_for_dir(base_dir: &Path) -> PathBuf {
         base_dir.join(OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH)
     }
 
-    #[cfg(all(
-        feature = "opthread-runtime",
-        feature = "opthread-runtime-opcpu-artifact"
-    ))]
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
     fn opthread_package_artifact_path() -> Option<PathBuf> {
         std::env::current_dir()
             .ok()
             .map(|base_dir| Self::opthread_package_artifact_path_for_dir(base_dir.as_path()))
     }
 
-    #[cfg(all(
-        feature = "opthread-runtime",
-        feature = "opthread-runtime-opcpu-artifact"
-    ))]
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
     fn load_opthread_execution_model_from_artifact(path: &Path) -> Option<HierarchyExecutionModel> {
         let bytes = fs::read(path).ok()?;
         HierarchyExecutionModel::from_package_bytes(bytes.as_slice()).ok()
     }
 
-    #[cfg(all(
-        feature = "opthread-runtime",
-        feature = "opthread-runtime-opcpu-artifact"
-    ))]
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
     fn persist_opthread_package_artifact(path: &Path, package_bytes: &[u8]) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
@@ -1990,7 +1966,6 @@ impl<'a> AsmLine<'a> {
         result
     }
 
-    #[cfg(feature = "opthread-runtime")]
     fn opthread_form_allows_mnemonic(
         &self,
         pipeline: &crate::core::registry::ResolvedPipeline<'_>,
@@ -2429,7 +2404,6 @@ impl<'a> AsmLine<'a> {
     fn visibility_error(&self, name: &str) -> AsmError {
         AsmError::new(AsmErrorKind::Symbol, "Symbol is private", Some(name))
     }
-    #[cfg(feature = "opthread-runtime")]
     fn process_with_runtime_tokenizer(&mut self, line: &str, line_num: u32) -> LineStatus {
         let model = match self.opthread_execution_model.as_ref() {
             Some(model) => model,
@@ -3362,13 +3336,11 @@ impl<'a> AsmLine<'a> {
             .map_mnemonic(mnemonic, family_operands.as_ref())
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
 
-        #[cfg(feature = "opthread-runtime")]
         let family_runtime_authoritative =
             crate::opthread::rollout::package_runtime_default_enabled_for_family(
                 pipeline.family_id.as_str(),
             );
 
-        #[cfg(feature = "opthread-runtime")]
         {
             let allow = match self.opthread_form_allows_mnemonic(&pipeline, &mapped_mnemonic) {
                 Ok(allow) => allow,
@@ -3546,7 +3518,6 @@ impl<'a> AsmLine<'a> {
             }
         }
 
-        #[cfg(feature = "opthread-runtime")]
         if self.opthread_runtime_enabled {
             if self.opthread_execution_model.is_none() && family_runtime_authoritative {
                 return self.failure(

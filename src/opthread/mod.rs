@@ -8,9 +8,7 @@ pub mod hierarchy;
 pub(crate) mod intel8080_vm;
 pub mod package;
 pub mod rewrite;
-#[cfg(feature = "opthread-runtime")]
 pub(crate) mod rollout;
 pub mod runtime;
-#[cfg(feature = "opthread-runtime")]
 pub(crate) mod token_bridge;
 pub mod vm;

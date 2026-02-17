@@ -13,7 +13,6 @@ pub(crate) struct Assembler {
     pub(crate) registry: ModuleRegistry,
     pub(crate) root_metadata: RootMetadata,
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
-    #[cfg(feature = "opthread-runtime")]
     pub(crate) opthread_runtime_enabled: bool,
 }
 
@@ -38,12 +37,11 @@ impl Assembler {
             registry,
             root_metadata: RootMetadata::default(),
             module_macro_names: HashMap::new(),
-            #[cfg(feature = "opthread-runtime")]
             opthread_runtime_enabled: false,
         }
     }
 
-    #[cfg(all(feature = "opthread-runtime", test))]
+    #[cfg(test)]
     pub(crate) fn set_opthread_runtime_enabled(&mut self, enabled: bool) {
         self.opthread_runtime_enabled = enabled;
     }
@@ -86,24 +84,13 @@ impl Assembler {
 
         {
             let root_metadata = std::mem::take(&mut self.root_metadata);
-            #[cfg(feature = "opthread-runtime")]
             let mut asm_line = AsmLine::with_cpu_runtime_mode(
                 &mut self.symbols,
                 self.cpu,
                 &self.registry,
                 self.opthread_runtime_enabled,
             );
-            #[cfg(not(feature = "opthread-runtime"))]
-            let mut asm_line = AsmLine::with_cpu_and_metadata(
-                &mut self.symbols,
-                self.cpu,
-                &self.registry,
-                root_metadata,
-            );
-            #[cfg(feature = "opthread-runtime")]
-            {
-                asm_line.root_metadata = root_metadata;
-            }
+            asm_line.root_metadata = root_metadata;
             asm_line.clear_conditionals();
             asm_line.clear_scopes();
 
@@ -250,15 +237,12 @@ impl Assembler {
         lines: &[String],
         listing: &mut ListingWriter<W>,
     ) -> std::io::Result<PassCounts> {
-        #[cfg(feature = "opthread-runtime")]
         let mut asm_line = AsmLine::with_cpu_runtime_mode(
             &mut self.symbols,
             self.cpu,
             &self.registry,
             self.opthread_runtime_enabled,
         );
-        #[cfg(not(feature = "opthread-runtime"))]
-        let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
         asm_line.clear_conditionals();
         asm_line.clear_scopes();
         self.image = ImageStore::new(65536);
