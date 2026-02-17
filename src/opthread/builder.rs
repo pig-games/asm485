@@ -774,6 +774,7 @@ fn default_family_parser_vm_program(family_id: &str) -> ParserVmProgramDescripto
 
 fn default_family_parser_vm_program_bytes() -> Vec<u8> {
     vec![
+        ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
         ParserVmOpcode::ParseStatementEnvelope as u8,
         ParserVmOpcode::End as u8,
     ]

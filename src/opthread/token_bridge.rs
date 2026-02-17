@@ -239,16 +239,22 @@ fn parse_line_with_parser_vm(
                     )
                 });
             }
+            ParserVmOpcode::ParseDotDirectiveEnvelope => {
+                if parsed_line.is_some() {
+                    continue;
+                }
+                if let Some(line) = parse_dot_directive_envelope_from_tokens(
+                    &tokens,
+                    end_span,
+                    end_token_text.clone(),
+                    &exec_ctx.expr_parse_ctx,
+                )? {
+                    parsed_line = Some(line);
+                }
+            }
             ParserVmOpcode::ParseStatementEnvelope => {
                 if parsed_line.is_some() {
-                    return Err(parse_error_at_end(
-                        exec_ctx.source_line,
-                        exec_ctx.line_num,
-                        format!(
-                            "{}: parser VM attempted duplicate ParseStatementEnvelope execution",
-                            parser_contract.diagnostics.invalid_statement
-                        ),
-                    ));
+                    continue;
                 }
                 let envelope = parse_statement_envelope_from_tokens(
                     &tokens,
@@ -321,43 +327,7 @@ fn parse_statement_envelope_from_tokens(
         return Ok(PortableLineAst::Empty);
     }
 
-    let mut label: Option<Label> = None;
-    let mut idx = 0usize;
-    if let Some(first) = tokens.first() {
-        let label_name = match &first.kind {
-            TokenKind::Identifier(name) => Some(name.clone()),
-            TokenKind::Register(name) => Some(name.clone()),
-            _ => None,
-        };
-        if let Some(name) = label_name {
-            if first.span.col_start == 1 {
-                if let Some(colon) = tokens.get(1) {
-                    if matches!(colon.kind, TokenKind::Colon)
-                        && colon.span.col_start == first.span.col_end
-                    {
-                        label = Some(Label {
-                            name: name.clone(),
-                            span: first.span,
-                        });
-                        idx = 2;
-                    }
-                    if label.is_none() {
-                        label = Some(Label {
-                            name,
-                            span: first.span,
-                        });
-                        idx = 1;
-                    }
-                } else {
-                    label = Some(Label {
-                        name,
-                        span: first.span,
-                    });
-                    idx = 1;
-                }
-            }
-        }
-    }
+    let (label, mut idx) = parse_optional_leading_label(tokens);
 
     if idx >= tokens.len() {
         return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
@@ -504,6 +474,80 @@ fn parse_statement_envelope_from_tokens(
         mnemonic: Some(mnemonic),
         operands,
     }))
+}
+
+fn parse_optional_leading_label(tokens: &[Token]) -> (Option<Label>, usize) {
+    let Some(first) = tokens.first() else {
+        return (None, 0);
+    };
+    let label_name = match &first.kind {
+        TokenKind::Identifier(name) | TokenKind::Register(name) => Some(name.clone()),
+        _ => None,
+    };
+    let Some(name) = label_name else {
+        return (None, 0);
+    };
+    if first.span.col_start != 1 {
+        return (None, 0);
+    }
+    if let Some(colon) = tokens.get(1) {
+        if matches!(colon.kind, TokenKind::Colon) && colon.span.col_start == first.span.col_end {
+            return (
+                Some(Label {
+                    name,
+                    span: first.span,
+                }),
+                2,
+            );
+        }
+        return (
+            Some(Label {
+                name,
+                span: first.span,
+            }),
+            1,
+        );
+    }
+    (
+        Some(Label {
+            name,
+            span: first.span,
+        }),
+        1,
+    )
+}
+
+fn parse_dot_directive_envelope_from_tokens(
+    tokens: &[Token],
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<Option<LineAst>, ParseError> {
+    if tokens.is_empty() {
+        return Ok(None);
+    }
+    let (label, idx) = parse_optional_leading_label(tokens);
+    if !matches!(
+        tokens.get(idx),
+        Some(Token {
+            kind: TokenKind::Dot,
+            ..
+        })
+    ) {
+        return Ok(None);
+    }
+    if match_assignment_op_at(tokens, idx).is_some() {
+        return Ok(None);
+    }
+    parse_dot_directive_line_from_tokens(
+        tokens,
+        idx,
+        label,
+        end_span,
+        end_token_text,
+        expr_parse_ctx,
+    )
+    .map(Some)
 }
 
 fn parse_dot_directive_line_from_tokens(
@@ -1984,6 +2028,110 @@ mod tests {
         )
         .expect_err("retired opcode should fail");
         assert!(err.message.contains("invalid parser VM opcode 0x01"));
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_supports_dot_directive_primitive_opcode() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    .if 1";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let line = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect("parse should succeed");
+        assert!(
+            matches!(line, LineAst::Conditional { .. }),
+            "expected conditional line ast from dot-directive primitive, got {line:?}"
+        );
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_dot_directive_primitive_skips_dot_assignment_ops() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "cat ..= $3456";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let line = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect("parse should succeed");
+        assert!(
+            matches!(
+                line,
+                LineAst::Assignment {
+                    op: AssignOp::Concat,
+                    ..
+                }
+            ),
+            "expected concat assignment to be parsed by statement envelope, got {line:?}"
+        );
     }
 
     #[test]

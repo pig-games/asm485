@@ -211,6 +211,7 @@ pub enum ParserVmOpcode {
     EmitDiag = 0x02,
     Fail = 0x03,
     ParseStatementEnvelope = 0x04,
+    ParseDotDirectiveEnvelope = 0x05,
 }
 
 impl ParserVmOpcode {
@@ -220,6 +221,7 @@ impl ParserVmOpcode {
             0x02 => Some(Self::EmitDiag),
             0x03 => Some(Self::Fail),
             0x04 => Some(Self::ParseStatementEnvelope),
+            0x05 => Some(Self::ParseDotDirectiveEnvelope),
             _ => None,
         }
     }
@@ -2501,6 +2503,7 @@ mod tests {
             owner,
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
+                ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8,
             ],
@@ -2934,6 +2937,7 @@ mod tests {
         assert_eq!(
             decoded.parser_vm_programs[0].program,
             vec![
+                ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8
             ]
