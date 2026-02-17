@@ -3,7 +3,7 @@
 
 use std::sync::OnceLock;
 
-use crate::core::parser::{Expr, Label, LineAst, ParseError, Parser};
+use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError, Parser};
 use crate::core::registry::ModuleRegistry;
 use crate::core::text_utils::is_ident_start;
 use crate::core::tokenizer::{
@@ -207,21 +207,11 @@ fn parse_line_with_parser_vm(
                         ),
                     ));
                 }
-                let envelope = match parse_statement_envelope_from_tokens(
+                let envelope = parse_statement_envelope_from_tokens(
                     &tokens,
                     end_span,
                     end_token_text.clone(),
-                )? {
-                    Some(envelope) => envelope,
-                    None => {
-                        let parsed = Parser::parse_line_from_tokens(
-                            tokens.clone(),
-                            end_span,
-                            end_token_text.clone(),
-                        )?;
-                        PortableLineAst::from_core_line_ast(&parsed)
-                    }
-                };
+                )?;
                 parsed_line = Some(envelope.to_core_line_ast());
             }
             ParserVmOpcode::EmitDiag => {
@@ -281,9 +271,9 @@ fn parse_statement_envelope_from_tokens(
     tokens: &[Token],
     end_span: Span,
     end_token_text: Option<String>,
-) -> Result<Option<PortableLineAst>, ParseError> {
+) -> Result<PortableLineAst, ParseError> {
     if tokens.is_empty() {
-        return Ok(Some(PortableLineAst::Empty));
+        return Ok(PortableLineAst::Empty);
     }
 
     let mut label: Option<Label> = None;
@@ -325,20 +315,51 @@ fn parse_statement_envelope_from_tokens(
     }
 
     if idx >= tokens.len() {
-        return Ok(Some(PortableLineAst::from_core_line_ast(
-            &LineAst::Statement {
-                label,
-                mnemonic: None,
-                operands: Vec::new(),
-            },
-        )));
+        return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
+            label,
+            mnemonic: None,
+            operands: Vec::new(),
+        }));
     }
 
     if label.is_none() && is_star_org_assignment(tokens, idx) {
-        return Ok(None);
+        if idx.saturating_add(2) >= tokens.len() {
+            return Err(ParseError {
+                message: "Expected expression".to_string(),
+                span: end_span,
+            });
+        }
+        let expr = Parser::parse_expr_from_tokens(
+            tokens[idx.saturating_add(2)..].to_vec(),
+            end_span,
+            end_token_text,
+        )?;
+        return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
+            label,
+            mnemonic: Some(".org".to_string()),
+            operands: vec![expr],
+        }));
     }
-    if label.is_some() && is_assignment_at(tokens, idx) {
-        return Ok(None);
+    if let (Some(label), Some((op, span, consumed))) =
+        (label.clone(), match_assignment_op_at(tokens, idx))
+    {
+        let expr = match tokens.get(idx.saturating_add(consumed)) {
+            Some(_) => match Parser::parse_expr_from_tokens(
+                tokens[idx.saturating_add(consumed)..].to_vec(),
+                end_span,
+                end_token_text,
+            ) {
+                Ok(expr) => expr,
+                Err(err) => Expr::Error(err.message, err.span),
+            },
+            None => Expr::Error("Expected expression".to_string(), end_span),
+        };
+        return Ok(PortableLineAst::from_core_line_ast(&LineAst::Assignment {
+            label,
+            op,
+            expr,
+            span,
+        }));
     }
     if matches!(
         tokens.get(idx),
@@ -347,7 +368,8 @@ fn parse_statement_envelope_from_tokens(
             ..
         })
     ) {
-        return Ok(None);
+        let parsed = Parser::parse_line_from_tokens(tokens.to_vec(), end_span, end_token_text)?;
+        return Ok(PortableLineAst::from_core_line_ast(&parsed));
     }
 
     let mnemonic = match tokens.get(idx) {
@@ -355,7 +377,10 @@ fn parse_statement_envelope_from_tokens(
             kind: TokenKind::Identifier(name),
             ..
         }) => name.clone(),
-        _ => return Ok(None),
+        _ => {
+            let parsed = Parser::parse_line_from_tokens(tokens.to_vec(), end_span, end_token_text)?;
+            return Ok(PortableLineAst::from_core_line_ast(&parsed));
+        }
     };
     idx = idx.saturating_add(1);
 
@@ -411,13 +436,11 @@ fn parse_statement_envelope_from_tokens(
         }
     }
 
-    Ok(Some(PortableLineAst::from_core_line_ast(
-        &LineAst::Statement {
-            label,
-            mnemonic: Some(mnemonic),
-            operands,
-        },
-    )))
+    Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
+        label,
+        mnemonic: Some(mnemonic),
+        operands,
+    }))
 }
 
 fn parse_operand_expr_range(
@@ -462,13 +485,15 @@ fn is_star_org_assignment(tokens: &[Token], idx: usize) -> bool {
     )
 }
 
-fn is_assignment_at(tokens: &[Token], idx: usize) -> bool {
+fn match_assignment_op_at(tokens: &[Token], idx: usize) -> Option<(AssignOp, Span, usize)> {
     match tokens.get(idx).map(|token| &token.kind) {
-        Some(TokenKind::Operator(OperatorKind::Eq)) => true,
+        Some(TokenKind::Operator(OperatorKind::Eq)) => tokens
+            .get(idx)
+            .map(|token| (AssignOp::Const, token.span, 1)),
         Some(TokenKind::Colon) => {
             let next = tokens.get(idx.saturating_add(1));
             let next2 = tokens.get(idx.saturating_add(2));
-            (matches!(
+            if matches!(
                 next,
                 Some(Token {
                     kind: TokenKind::Question,
@@ -480,13 +505,21 @@ fn is_assignment_at(tokens: &[Token], idx: usize) -> bool {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
-            )) || matches!(
+            ) {
+                tokens
+                    .get(idx)
+                    .map(|token| (AssignOp::VarIfUndef, token.span, 3))
+            } else if matches!(
                 next,
                 Some(Token {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
-            )
+            ) {
+                tokens.get(idx).map(|token| (AssignOp::Var, token.span, 2))
+            } else {
+                None
+            }
         }
         Some(TokenKind::Operator(
             OperatorKind::Plus
@@ -502,38 +535,114 @@ fn is_assignment_at(tokens: &[Token], idx: usize) -> bool {
             | OperatorKind::LogicAnd
             | OperatorKind::Shl
             | OperatorKind::Shr,
-        )) => matches!(
-            tokens.get(idx.saturating_add(1)),
-            Some(Token {
-                kind: TokenKind::Operator(OperatorKind::Eq),
-                ..
-            })
-        ),
-        Some(TokenKind::Dot) => {
-            matches!(
+        )) => {
+            let op = match tokens.get(idx).map(|token| &token.kind) {
+                Some(TokenKind::Operator(OperatorKind::Plus)) => AssignOp::Add,
+                Some(TokenKind::Operator(OperatorKind::Minus)) => AssignOp::Sub,
+                Some(TokenKind::Operator(OperatorKind::Multiply)) => AssignOp::Mul,
+                Some(TokenKind::Operator(OperatorKind::Divide)) => AssignOp::Div,
+                Some(TokenKind::Operator(OperatorKind::Mod)) => AssignOp::Mod,
+                Some(TokenKind::Operator(OperatorKind::Power)) => AssignOp::Pow,
+                Some(TokenKind::Operator(OperatorKind::BitOr)) => AssignOp::BitOr,
+                Some(TokenKind::Operator(OperatorKind::BitXor)) => AssignOp::BitXor,
+                Some(TokenKind::Operator(OperatorKind::BitAnd)) => AssignOp::BitAnd,
+                Some(TokenKind::Operator(OperatorKind::LogicOr)) => AssignOp::LogicOr,
+                Some(TokenKind::Operator(OperatorKind::LogicAnd)) => AssignOp::LogicAnd,
+                Some(TokenKind::Operator(OperatorKind::Shl)) => AssignOp::Shl,
+                Some(TokenKind::Operator(OperatorKind::Shr)) => AssignOp::Shr,
+                _ => return None,
+            };
+            if matches!(
                 tokens.get(idx.saturating_add(1)),
                 Some(Token {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
-            ) || (matches!(
+            ) {
+                tokens.get(idx).map(|token| (op, token.span, 2))
+            } else {
+                None
+            }
+        }
+        Some(TokenKind::Dot) => {
+            if matches!(
+                tokens.get(idx.saturating_add(1)),
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            ) {
+                return tokens
+                    .get(idx)
+                    .map(|token| (AssignOp::Concat, token.span, 2));
+            }
+            if matches!(
                 tokens.get(idx.saturating_add(1)),
                 Some(Token {
                     kind: TokenKind::Identifier(name),
                     ..
                 }) if name.eq_ignore_ascii_case("min")
-                    || name.eq_ignore_ascii_case("max")
-                    || name.eq_ignore_ascii_case("rep")
-                    || name.eq_ignore_ascii_case("member")
             ) && matches!(
                 tokens.get(idx.saturating_add(2)),
                 Some(Token {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
-            ))
+            ) {
+                return tokens.get(idx).map(|token| (AssignOp::Min, token.span, 3));
+            }
+            if matches!(
+                tokens.get(idx.saturating_add(1)),
+                Some(Token {
+                    kind: TokenKind::Identifier(name),
+                    ..
+                }) if name.eq_ignore_ascii_case("max")
+            ) && matches!(
+                tokens.get(idx.saturating_add(2)),
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            ) {
+                return tokens.get(idx).map(|token| (AssignOp::Max, token.span, 3));
+            }
+            if matches!(
+                tokens.get(idx.saturating_add(1)),
+                Some(Token {
+                    kind: TokenKind::Identifier(name),
+                    ..
+                }) if name.eq_ignore_ascii_case("rep")
+            ) && matches!(
+                tokens.get(idx.saturating_add(2)),
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            ) {
+                return tokens
+                    .get(idx)
+                    .map(|token| (AssignOp::Repeat, token.span, 3));
+            }
+            if matches!(
+                tokens.get(idx.saturating_add(1)),
+                Some(Token {
+                    kind: TokenKind::Identifier(name),
+                    ..
+                }) if name.eq_ignore_ascii_case("member")
+            ) && matches!(
+                tokens.get(idx.saturating_add(2)),
+                Some(Token {
+                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    ..
+                })
+            ) {
+                return tokens
+                    .get(idx)
+                    .map(|token| (AssignOp::Member, token.span, 3));
+            }
+            None
         }
-        _ => false,
+        _ => None,
     }
 }
 
@@ -739,7 +848,6 @@ mod tests {
 
         let parsed = parse_statement_envelope_from_tokens(&tokens, end_span, end_token_text)
             .expect("vm statement envelope parse should succeed")
-            .expect("instruction line should use statement envelope fast path")
             .to_core_line_ast();
         match parsed {
             LineAst::Statement {
@@ -756,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_statement_envelope_from_tokens_returns_none_for_directive_line() {
+    fn parse_statement_envelope_from_tokens_parses_directive_line() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
         let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
@@ -770,10 +878,11 @@ mod tests {
         .expect("tokenization should succeed");
 
         let parsed = parse_statement_envelope_from_tokens(&tokens, end_span, end_token_text)
-            .expect("vm statement envelope parse should succeed");
+            .expect("vm statement envelope parse should succeed")
+            .to_core_line_ast();
         assert!(
-            parsed.is_none(),
-            "directive line should defer to full parser path"
+            matches!(parsed, LineAst::Conditional { .. }),
+            "directive line should parse as conditional, got {parsed:?}"
         );
     }
 
