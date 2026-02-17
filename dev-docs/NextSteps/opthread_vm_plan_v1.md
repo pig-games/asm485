@@ -31,6 +31,7 @@ All items below are true:
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
+- Phase P4 bounded-allocation and determinism suites are still in progress.
 - Retro-native ABI hardening/conformance is not yet finalized.
 
 ## 4. Workstream Phases
@@ -70,7 +71,7 @@ Acceptance:
 - Contract and version mismatch behavior is deterministic and fully test-covered.
 
 ## Phase P4: Retro Profile Enforcement
-- [ ] Define and enforce strict retro runtime budgets for tokenizer/parser/expression.
+- [x] Define and enforce strict retro runtime budgets for tokenizer/parser/expression.
 - [ ] Ensure bounded allocation behavior on hot path.
 - [ ] Add determinism and budget-exhaustion test suites.
 
