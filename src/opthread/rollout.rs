@@ -28,8 +28,8 @@ pub(crate) const FAMILY_RUNTIME_ROLLOUT: &[FamilyRuntimeRollout] = &[
     },
     FamilyRuntimeRollout {
         family_id: "intel8080",
-        runtime_mode: FamilyRuntimeMode::StagedVerification,
-        migration_checklist: "phase6-intel8080-pilot-staged",
+        runtime_mode: FamilyRuntimeMode::Authoritative,
+        migration_checklist: "phase6-intel8080-authoritative",
     },
 ];
 
@@ -68,12 +68,12 @@ mod tests {
     }
 
     #[test]
-    fn rollout_policy_keeps_intel_family_in_staged_verification() {
+    fn rollout_policy_marks_intel_family_as_authoritative() {
         assert_eq!(
             family_runtime_mode("intel8080"),
-            FamilyRuntimeMode::StagedVerification
+            FamilyRuntimeMode::Authoritative
         );
-        assert!(!package_runtime_default_enabled_for_family("intel8080"));
+        assert!(package_runtime_default_enabled_for_family("intel8080"));
     }
 
     #[test]

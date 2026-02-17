@@ -49,6 +49,8 @@ use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChe
 use std::sync::Arc;
 
 use crate::families::intel8080::module::Intel8080FamilyModule;
+use crate::families::intel8080::module::Intel8080FamilyOperands;
+use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
@@ -1971,6 +1973,46 @@ impl<'a> AsmLine<'a> {
             .map_err(|err| err.to_string())
     }
 
+    fn opthread_runtime_expr_operands_from_mapped(
+        family_id: &str,
+        mapped_operands: &dyn crate::core::registry::FamilyOperandSet,
+    ) -> Option<Vec<Expr>> {
+        if !family_id.eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str()) {
+            return None;
+        }
+        let intel_operands = mapped_operands
+            .as_any()
+            .downcast_ref::<Intel8080FamilyOperands>()?;
+        let mut exprs = Vec::with_capacity(intel_operands.0.len());
+        for operand in &intel_operands.0 {
+            let expr = match operand {
+                IntelFamilyOperand::Register(name, span)
+                | IntelFamilyOperand::Condition(name, span) => {
+                    Expr::Identifier(name.clone(), *span)
+                }
+                IntelFamilyOperand::Indirect(name, span) => {
+                    Expr::Indirect(Box::new(Expr::Identifier(name.clone(), *span)), *span)
+                }
+                IntelFamilyOperand::Immediate(expr)
+                | IntelFamilyOperand::RstVector(expr)
+                | IntelFamilyOperand::InterruptMode(expr)
+                | IntelFamilyOperand::BitNumber(expr)
+                | IntelFamilyOperand::Port(expr) => expr.clone(),
+                IntelFamilyOperand::Indexed { base, offset, span } => Expr::Indirect(
+                    Box::new(Expr::Binary {
+                        op: asm_parser::BinaryOp::Add,
+                        left: Box::new(Expr::Identifier(base.clone(), *span)),
+                        right: Box::new(offset.clone()),
+                        span: *span,
+                    }),
+                    *span,
+                ),
+            };
+            exprs.push(expr);
+        }
+        Some(exprs)
+    }
+
     fn cond_last(&self) -> Option<&ConditionalContext> {
         self.cond_stack.last()
     }
@@ -3366,11 +3408,18 @@ impl<'a> AsmLine<'a> {
                     .cpu
                     .as_str()
                     .eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str());
+                let runtime_expr_operands_storage =
+                    Self::opthread_runtime_expr_operands_from_mapped(
+                        pipeline.family_id.as_str(),
+                        mapped_operands.as_ref(),
+                    );
+                let runtime_expr_operands =
+                    runtime_expr_operands_storage.as_deref().unwrap_or(operands);
                 match model.encode_instruction_from_exprs(
                     self.cpu.as_str(),
                     None,
                     &mapped_mnemonic,
-                    operands,
+                    runtime_expr_operands,
                     self,
                 ) {
                     Ok(Some(bytes)) => {
@@ -3424,7 +3473,11 @@ impl<'a> AsmLine<'a> {
                         }
                     }
                     Ok(None) => {
-                        if strict_runtime_parse_resolve {
+                        let defer_to_native_diagnostics =
+                            pipeline.family_id.as_str().eq_ignore_ascii_case(
+                                crate::families::intel8080::module::FAMILY_ID.as_str(),
+                            );
+                        if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
                             return self.failure(
                                 LineStatus::Error,
                                 AsmErrorKind::Instruction,

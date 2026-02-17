@@ -869,6 +869,12 @@ fn z80_cb_rotate_shift_encode() {
     let bytes = assemble_bytes(z80_cpu_id, "    RLC C");
     assert_eq!(bytes, vec![0xCB, 0x01]);
 
+    let bytes = assemble_bytes(z80_cpu_id, "    RLC (HL)");
+    assert_eq!(bytes, vec![0xCB, 0x06]);
+
+    let bytes = assemble_bytes(z80_cpu_id, "    RRC (HL)");
+    assert_eq!(bytes, vec![0xCB, 0x0E]);
+
     let bytes = assemble_bytes(z80_cpu_id, "    SRA (HL)");
     assert_eq!(bytes, vec![0xCB, 0x2E]);
 }
@@ -6701,12 +6707,12 @@ fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist()
 }
 
 #[test]
-fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enabled() {
+fn opthread_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled() {
     assert_eq!(
         family_runtime_mode("intel8080"),
-        FamilyRuntimeMode::StagedVerification
+        FamilyRuntimeMode::Authoritative
     );
-    assert!(!package_runtime_default_enabled_for_family("intel8080"));
+    assert!(package_runtime_default_enabled_for_family("intel8080"));
 
     for (cpu, line) in [
         (i8085_cpu_id, "    MVI A,55h"),
@@ -6716,13 +6722,26 @@ fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enable
         let runtime = assemble_line_with_runtime_mode_no_injection(cpu, line, true);
         assert!(
             runtime.3,
-            "staged family should still initialize opthread model for VM tokenization on {}",
+            "authoritative family should initialize opthread model for VM tokenization on {}",
             cpu.as_str()
         );
         assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
         assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
         assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
     }
+}
+
+#[test]
+fn opthread_runtime_intel_authoritative_preserves_lxi_register_name_diagnostic_shape() {
+    let source = ["    .cpu 8085", "SP: .word 256", "    LXI H,SP"];
+    let (_entries, diagnostics) = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("source assembly should run");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diag| diag.contains("expected 16-bit immediate, got register SP")),
+        "expected legacy LXI/SP diagnostic, got: {diagnostics:?}"
+    );
 }
 
 #[test]

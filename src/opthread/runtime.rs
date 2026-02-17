@@ -798,7 +798,7 @@ impl HierarchyExecutionModel {
             &mut expr_resolvers,
             "intel8080",
             HierarchyExecutionModel::select_candidates_from_exprs_intel8080_scaffold,
-            false,
+            true,
         );
         let mut diag_templates = HashMap::new();
         for entry in diagnostics {
@@ -1765,78 +1765,39 @@ impl HierarchyExecutionModel {
             Err(_) => return Ok(None),
         };
 
-        let resolved_operands = if resolved.cpu_id.eq_ignore_ascii_case("z80") {
-            Z80CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
+        let mut resolved_candidates: Vec<Vec<IntelOperand>> = Vec::new();
+
+        if resolved.cpu_id.eq_ignore_ascii_case("z80") {
+            if let Ok(ops) = Z80CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx) {
+                resolved_candidates.push(ops);
+            }
+            if let Ok(ops) =
+                resolve_intel8080_operands(mnemonic, &parsed, ctx).map_err(|err| err.message)
+            {
+                resolved_candidates.push(ops);
+            }
         } else if resolved.cpu_id.eq_ignore_ascii_case("8085") {
-            I8085CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
-        } else {
+            if let Ok(ops) = I8085CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx) {
+                resolved_candidates.push(ops);
+            }
+        } else if let Ok(ops) =
             resolve_intel8080_operands(mnemonic, &parsed, ctx).map_err(|err| err.message)
-        };
-        let resolved_operands = match resolved_operands {
-            Ok(ops) => ops,
-            Err(_) => return Ok(None),
-        };
-
-        if let Some(candidate) =
-            intel8080_ld_indirect_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
         {
-            return Ok(Some(vec![candidate]));
+            resolved_candidates.push(ops);
         }
 
-        if let Some(candidate) =
-            intel8080_half_index_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
-        {
-            return Ok(Some(vec![candidate]));
+        for resolved_operands in resolved_candidates.iter() {
+            if let Some(candidate) = intel8080_candidate_from_resolved(
+                mnemonic,
+                resolved.cpu_id.as_str(),
+                resolved_operands,
+                ctx,
+            ) {
+                return Ok(Some(vec![candidate]));
+            }
         }
 
-        if let Some(candidate) =
-            intel8080_cb_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
-        {
-            return Ok(Some(vec![candidate]));
-        }
-
-        if let Some(candidate) = intel8080_indexed_memory_candidate(
-            mnemonic,
-            resolved.cpu_id.as_str(),
-            &resolved_operands,
-        ) {
-            return Ok(Some(vec![candidate]));
-        }
-
-        if let Some(candidate) =
-            intel8080_indexed_cb_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
-        {
-            return Ok(Some(vec![candidate]));
-        }
-
-        let Some(entry) = intel8080_lookup_instruction_entry(
-            mnemonic,
-            resolved.cpu_id.as_str(),
-            &resolved_operands,
-        ) else {
-            return Ok(None);
-        };
-        if matches!(entry.arg_type, IntelArgType::Im) {
-            let Some(mode) = intel8080_interrupt_mode_for_entry(entry, &resolved_operands) else {
-                return Ok(None);
-            };
-            let Some(mode_key) = mode_key_for_z80_interrupt_mode(mode) else {
-                return Ok(None);
-            };
-            return Ok(Some(vec![VmEncodeCandidate {
-                mode_key,
-                operand_bytes: Vec::new(),
-            }]));
-        }
-        let Some(operand_bytes) = intel8080_operand_bytes_for_entry(entry, &resolved_operands, ctx)
-        else {
-            return Ok(None);
-        };
-
-        Ok(Some(vec![VmEncodeCandidate {
-            mode_key: mode_key_for_instruction_entry(entry),
-            operand_bytes,
-        }]))
+        Ok(None)
     }
 
     fn mode_exists_for_owner(
@@ -1898,6 +1859,83 @@ fn intel8080_lookup_instruction_entry(
     None
 }
 
+fn intel8080_candidate_from_resolved(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+    ctx: &dyn AssemblerContext,
+) -> Option<VmEncodeCandidate> {
+    let normalized_operands;
+    let operands =
+        if let Some(stripped) = intel8080_strip_redundant_condition_operand(mnemonic, operands) {
+            normalized_operands = stripped;
+            normalized_operands.as_slice()
+        } else {
+            operands
+        };
+
+    if let Some(candidate) = intel8080_ld_indirect_candidate(mnemonic, cpu_id, operands) {
+        return Some(candidate);
+    }
+    if let Some(candidate) = intel8080_half_index_candidate(mnemonic, cpu_id, operands) {
+        return Some(candidate);
+    }
+    if let Some(candidate) = intel8080_cb_candidate(mnemonic, cpu_id, operands) {
+        return Some(candidate);
+    }
+    if let Some(candidate) = intel8080_indexed_memory_candidate(mnemonic, cpu_id, operands) {
+        return Some(candidate);
+    }
+    if let Some(candidate) = intel8080_indexed_cb_candidate(mnemonic, cpu_id, operands) {
+        return Some(candidate);
+    }
+
+    let entry = intel8080_lookup_instruction_entry(mnemonic, cpu_id, operands)?;
+    if matches!(entry.arg_type, IntelArgType::Im) {
+        let mode = intel8080_interrupt_mode_for_entry(entry, operands)?;
+        let mode_key = mode_key_for_z80_interrupt_mode(mode)?;
+        return Some(VmEncodeCandidate {
+            mode_key,
+            operand_bytes: Vec::new(),
+        });
+    }
+    let operand_bytes = intel8080_operand_bytes_for_entry(entry, operands, ctx)?;
+    Some(VmEncodeCandidate {
+        mode_key: mode_key_for_instruction_entry(entry),
+        operand_bytes,
+    })
+}
+
+fn intel8080_strip_redundant_condition_operand(
+    mnemonic: &str,
+    operands: &[IntelOperand],
+) -> Option<Vec<IntelOperand>> {
+    let suffix = intel8080_condition_suffix_for_mnemonic(mnemonic)?;
+    let first = operands.first()?;
+    let condition = match first {
+        IntelOperand::Condition(name, _) | IntelOperand::Register(name, _) => name.as_str(),
+        _ => return None,
+    };
+    if !condition.eq_ignore_ascii_case(suffix) {
+        return None;
+    }
+    Some(operands[1..].to_vec())
+}
+
+fn intel8080_condition_suffix_for_mnemonic(mnemonic: &str) -> Option<&'static str> {
+    match mnemonic.to_ascii_uppercase().as_str() {
+        "JNZ" | "CNZ" | "RNZ" => Some("NZ"),
+        "JZ" | "CZ" | "RZ" => Some("Z"),
+        "JNC" | "CNC" | "RNC" => Some("NC"),
+        "JC" | "CC" | "RC" => Some("C"),
+        "JPO" | "CPO" | "RPO" => Some("PO"),
+        "JPE" | "CPE" | "RPE" => Some("PE"),
+        "JP" | "CP" | "RP" => Some("P"),
+        "JM" | "CM" | "RM" => Some("M"),
+        _ => None,
+    }
+}
+
 fn intel8080_lookup_key(operand: &IntelOperand) -> Option<String> {
     match operand {
         IntelOperand::Register(name, _) => Some(name.to_string()),
@@ -1905,6 +1943,9 @@ fn intel8080_lookup_key(operand: &IntelOperand) -> Option<String> {
         IntelOperand::Indirect(name, _) => Some(name.to_string()),
         IntelOperand::Indexed { base, offset, .. } if *offset == 0 => Some(base.to_string()),
         IntelOperand::Condition(name, _) => Some(name.to_string()),
+        IntelOperand::RstVector(value, _)
+        | IntelOperand::InterruptMode(value, _)
+        | IntelOperand::BitNumber(value, _) => Some(value.to_string()),
         _ => None,
     }
 }
@@ -4960,7 +5001,7 @@ mod tests {
             .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
             .expect("unsupported shape should continue to resolve as None");
         assert!(bytes.is_none());
-        assert!(!model.expr_resolution_is_strict_for_family("intel8080"));
+        assert!(model.expr_resolution_is_strict_for_family("intel8080"));
     }
 
     #[test]
@@ -5263,6 +5304,22 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_intel_expr_candidate_supports_rst_vector_forms() {
+        let span = Span::default();
+        let candidate = intel8080_candidate_from_resolved(
+            "RST",
+            "8085",
+            &[IntelOperand::RstVector(3, span)],
+            &TestAssemblerContext::new(),
+        )
+        .expect("RST 3 should yield a VM candidate");
+        let entry = crate::families::intel8080::table::lookup_instruction("RST", Some("3"), None)
+            .expect("RST 3 table entry should exist");
+        assert_eq!(candidate.mode_key, mode_key_for_instruction_entry(entry));
+        assert!(candidate.operand_bytes.is_empty());
+    }
+
+    #[test]
     fn execution_model_intel_expr_encode_supports_z80_indexed_memory_alu_forms() {
         let registry = parity_registry();
         let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
@@ -5326,11 +5383,11 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_intel_scaffold_is_non_strict() {
+    fn execution_model_intel_scaffold_is_strict() {
         let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
             .expect("execution model build");
         assert!(model.supports_expr_resolution_for_family("intel8080"));
-        assert!(!model.expr_resolution_is_strict_for_family("intel8080"));
+        assert!(model.expr_resolution_is_strict_for_family("intel8080"));
     }
 
     #[test]

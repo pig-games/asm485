@@ -221,6 +221,15 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
     if registered_cpu_ids.contains(Z80_CPU_ID.as_str()) {
+        for mnemonic in [
+            "BIT", "RES", "SET", "RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL",
+        ] {
+            forms.push(ScopedFormDescriptor {
+                owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                mnemonic: mnemonic.to_string(),
+            });
+        }
+
         for register in ["B", "C", "D", "E", "H", "L", "M", "A"] {
             for mnemonic in ["RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"] {
                 let Some(mode_key) = mode_key_for_z80_cb_register(mnemonic, None, register) else {
