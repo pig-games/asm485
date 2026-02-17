@@ -39,7 +39,7 @@ impl Assembler {
             root_metadata: RootMetadata::default(),
             module_macro_names: HashMap::new(),
             #[cfg(feature = "opthread-runtime")]
-            opthread_runtime_enabled: true,
+            opthread_runtime_enabled: false,
         }
     }
 

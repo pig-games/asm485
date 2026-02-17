@@ -97,8 +97,6 @@ impl FamilyExprResolver for FnFamilyExprResolver {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuntimeTokenizerMode {
     Auto,
-    Host,
-    DelegatedCore,
     Vm,
 }
 
@@ -592,18 +590,7 @@ pub trait PortableInstructionAdapter: std::fmt::Debug {
     fn vm_encode_candidates(&self) -> &[VmEncodeCandidate];
 }
 
-/// Minimal host-to-runtime tokenization ABI for portable/native targets.
-///
-/// Host tokenizers can keep ownership of token production while accepting package-driven
-/// token policy hints selected by hierarchy ownership (dialect -> cpu -> family).
-pub trait PortableTokenizerAdapter: std::fmt::Debug {
-    fn tokenize_statement(
-        &self,
-        request: &PortableTokenizeRequest<'_>,
-    ) -> Result<Vec<PortableToken>, RuntimeBridgeError>;
-}
-
-/// Portable tokenization request envelope for host adapter integration.
+/// Portable tokenization request envelope for runtime VM integration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortableTokenizeRequest<'a> {
     pub family_id: &'a str,
@@ -612,32 +599,6 @@ pub struct PortableTokenizeRequest<'a> {
     pub source_line: &'a str,
     pub line_num: u32,
     pub token_policy: RuntimeTokenPolicy,
-}
-
-/// Default tokenizer adapter that uses the core host tokenizer and applies
-/// package-driven case-folding hints to identifier/register tokens.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct CoreTokenizerAdapter;
-
-impl PortableTokenizerAdapter for CoreTokenizerAdapter {
-    fn tokenize_statement(
-        &self,
-        request: &PortableTokenizeRequest<'_>,
-    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-        let mut tokenizer = Tokenizer::new(request.source_line, request.line_num);
-        let mut tokens = Vec::new();
-        loop {
-            let token = tokenizer
-                .next_token()
-                .map_err(|err| RuntimeBridgeError::Resolve(err.message))?;
-            if matches!(token.kind, TokenKind::End) {
-                break;
-            }
-            let portable = PortableToken::from_core_token(token);
-            tokens.push(apply_token_policy_to_token(portable, &request.token_policy));
-        }
-        Ok(tokens)
-    }
 }
 
 /// Default portable request container for host adapter integration.
@@ -941,7 +902,6 @@ impl HierarchyExecutionModel {
 
     pub fn tokenize_portable_statement(
         &self,
-        adapter: &dyn PortableTokenizerAdapter,
         cpu_id: &str,
         dialect_override: Option<&str>,
         source_line: &str,
@@ -956,10 +916,8 @@ impl HierarchyExecutionModel {
             line_num,
             token_policy: self.token_policy_for_resolved(&resolved),
         };
-        match self.effective_tokenizer_mode_for_resolved(&resolved) {
-            RuntimeTokenizerMode::Host => Self::tokenize_with_host_core(&request),
-            RuntimeTokenizerMode::DelegatedCore => adapter.tokenize_statement(&request),
-            RuntimeTokenizerMode::Vm => {
+        match self.effective_tokenizer_mode() {
+            RuntimeTokenizerMode::Auto | RuntimeTokenizerMode::Vm => {
                 let vm_program = self
                     .tokenizer_vm_program_for_resolved(&resolved)
                     .ok_or_else(|| {
@@ -979,28 +937,22 @@ impl HierarchyExecutionModel {
                 }
                 Ok(tokens)
             }
-            RuntimeTokenizerMode::Auto => unreachable!("auto mode is resolved before dispatch"),
         }
     }
 
     pub fn tokenize_portable_statement_for_assembler(
         &self,
-        adapter: &dyn PortableTokenizerAdapter,
         cpu_id: &str,
         dialect_override: Option<&str>,
         source_line: &str,
         line_num: u32,
     ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        if tokenizer_vm_authoritative_for_family(resolved.family_id.as_str()) {
-            return self.tokenize_portable_statement_vm_authoritative(
-                cpu_id,
-                dialect_override,
-                source_line,
-                line_num,
-            );
-        }
-        self.tokenize_portable_statement(adapter, cpu_id, dialect_override, source_line, line_num)
+        self.tokenize_portable_statement_vm_authoritative(
+            cpu_id,
+            dialect_override,
+            source_line,
+            line_num,
+        )
     }
 
     pub fn tokenize_portable_statement_vm_authoritative(
@@ -1236,18 +1188,9 @@ impl HierarchyExecutionModel {
         RuntimeTokenPolicy::default()
     }
 
-    fn effective_tokenizer_mode_for_resolved(
-        &self,
-        resolved: &ResolvedHierarchy,
-    ) -> RuntimeTokenizerMode {
+    fn effective_tokenizer_mode(&self) -> RuntimeTokenizerMode {
         match self.tokenizer_mode {
-            RuntimeTokenizerMode::Auto => {
-                if tokenizer_vm_authoritative_for_family(resolved.family_id.as_str()) {
-                    RuntimeTokenizerMode::Vm
-                } else {
-                    RuntimeTokenizerMode::DelegatedCore
-                }
-            }
+            RuntimeTokenizerMode::Auto => RuntimeTokenizerMode::Vm,
             mode => mode,
         }
     }
@@ -1273,12 +1216,6 @@ impl HierarchyExecutionModel {
             }
         }
         None
-    }
-
-    fn tokenize_with_host_core(
-        request: &PortableTokenizeRequest<'_>,
-    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-        CoreTokenizerAdapter.tokenize_statement(request)
     }
 
     fn tokenize_with_vm_core(
@@ -2147,9 +2084,6 @@ fn tokenizer_vm_certification_for_family(
     TOKENIZER_VM_CERTIFICATIONS
         .iter()
         .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
-}
-fn tokenizer_vm_authoritative_for_family(family_id: &str) -> bool {
-    tokenizer_vm_certification_for_family(family_id).is_some()
 }
 
 fn tokenizer_vm_parity_checklist_for_family(family_id: &str) -> Option<&'static str> {
@@ -3075,17 +3009,33 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    fn tokenize_host_line(line: &str, line_num: u32) -> Vec<PortableToken> {
+    fn tokenize_host_line(line: &str, line_num: u32) -> Result<Vec<PortableToken>, String> {
         let mut tokenizer = Tokenizer::new(line, line_num);
         let mut tokens = Vec::new();
         loop {
-            let token = tokenizer.next_token().expect("tokenize line");
+            let token = tokenizer.next_token().map_err(|err| err.message)?;
             if matches!(token.kind, TokenKind::End) {
                 break;
             }
             tokens.push(PortableToken::from_core_token(token));
         }
-        tokens
+        Ok(tokens)
+    }
+
+    fn tokenize_host_line_with_policy(
+        model: &HierarchyExecutionModel,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        line: &str,
+        line_num: u32,
+    ) -> Result<Vec<PortableToken>, String> {
+        let policy = model
+            .resolve_token_policy(cpu_id, dialect_override)
+            .map_err(|err| err.to_string())?;
+        Ok(tokenize_host_line(line, line_num)?
+            .into_iter()
+            .map(|token| apply_token_policy_to_token(token, &policy))
+            .collect())
     }
 
     fn parity_registry() -> ModuleRegistry {
@@ -3109,7 +3059,7 @@ mod tests {
     ) -> Result<Vec<PortableToken>, String> {
         model.set_tokenizer_mode(mode);
         model
-            .tokenize_portable_statement(&CoreTokenizerAdapter, cpu_id, None, line, line_num)
+            .tokenize_portable_statement(cpu_id, None, line, line_num)
             .map_err(|err| err.to_string())
     }
 
@@ -3249,39 +3199,6 @@ mod tests {
             diagnostics: tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()))
                 .diagnostics,
             program,
-        }
-    }
-
-    #[derive(Debug)]
-    struct FailingTokenizerAdapter;
-
-    impl PortableTokenizerAdapter for FailingTokenizerAdapter {
-        fn tokenize_statement(
-            &self,
-            _request: &PortableTokenizeRequest<'_>,
-        ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-            Err(RuntimeBridgeError::Resolve(
-                "failing delegated adapter".to_string(),
-            ))
-        }
-    }
-
-    #[derive(Debug)]
-    struct FixedTokenizerAdapter;
-
-    impl PortableTokenizerAdapter for FixedTokenizerAdapter {
-        fn tokenize_statement(
-            &self,
-            request: &PortableTokenizeRequest<'_>,
-        ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-            Ok(vec![PortableToken {
-                kind: PortableTokenKind::Identifier("adapter".to_string()),
-                span: PortableSpan {
-                    line: request.line_num,
-                    col_start: 1,
-                    col_end: 8,
-                },
-            }])
         }
     }
 
@@ -3786,9 +3703,9 @@ mod tests {
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         let line = "lda #$42";
-        let host_tokens = tokenize_host_line(line, 12);
+        let host_tokens = tokenize_host_line(line, 12).expect("host tokenization should succeed");
         let vm_tokens = model
-            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, line, 12)
+            .tokenize_portable_statement("m6502", None, line, 12)
             .expect("portable tokenization should succeed");
         assert_eq!(vm_tokens, host_tokens);
     }
@@ -3820,9 +3737,9 @@ mod tests {
         assert_eq!(policy.case_rule, TokenCaseRule::Preserve);
 
         let line = "LDA #$42";
-        let host_tokens = tokenize_host_line(line, 14);
+        let host_tokens = tokenize_host_line(line, 14).expect("host tokenization should succeed");
         let vm_tokens = model
-            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, line, 14)
+            .tokenize_portable_statement("m6502", None, line, 14)
             .expect("portable tokenization should succeed");
         assert_eq!(vm_tokens, host_tokens);
     }
@@ -3838,7 +3755,7 @@ mod tests {
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         let tokens = model
-            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, "LDA #$42", 1)
+            .tokenize_portable_statement("m6502", None, "LDA #$42", 1)
             .expect("portable tokenization should succeed");
         assert!(matches!(
             &tokens[0].kind,
@@ -3908,7 +3825,7 @@ mod tests {
         assert_eq!(policy.case_rule, TokenCaseRule::AsciiUpper);
 
         let tokens = model
-            .tokenize_portable_statement(&CoreTokenizerAdapter, "m6502", None, "lda", 1)
+            .tokenize_portable_statement("m6502", None, "lda", 1)
             .expect("tokenization should succeed");
         assert!(matches!(
             &tokens[0].kind,
@@ -4035,7 +3952,7 @@ mod tests {
         let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
 
         let tokens = model
-            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "A,B", 1)
+            .tokenize_portable_statement("m6502", None, "A,B", 1)
             .expect("auto mode should route MOS6502 family to VM tokenizer");
         assert_eq!(tokens.len(), 1);
         assert!(matches!(
@@ -4050,7 +3967,7 @@ mod tests {
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         let tokens = model
-            .tokenize_portable_statement(&FailingTokenizerAdapter, "z80", None, "LD A,B", 1)
+            .tokenize_portable_statement("z80", None, "LD A,B", 1)
             .expect("intel8080 family should route through VM tokenizer authority");
         assert!(matches!(
             &tokens[0].kind,
@@ -4059,7 +3976,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_mode_host_uses_core_path() {
+    fn execution_model_tokenizer_mode_auto_matches_vm_mode() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(M6502CpuModule));
@@ -4067,35 +3984,16 @@ mod tests {
         registry.register_cpu(Box::new(M65816CpuModule));
         let mut model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
-        model.set_tokenizer_mode(RuntimeTokenizerMode::Host);
-        let tokens = model
-            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "LDA #$42", 1)
-            .expect("host tokenizer mode should not use delegated adapter");
-        assert!(matches!(
-            &tokens[0].kind,
-            PortableTokenKind::Identifier(name) if name == "lda"
-        ));
-    }
 
-    #[test]
-    fn execution_model_tokenizer_mode_delegated_core_uses_adapter() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
-
-        let mut model =
-            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
-        model.set_tokenizer_mode(RuntimeTokenizerMode::DelegatedCore);
-        let tokens = model
-            .tokenize_portable_statement(&FixedTokenizerAdapter, "m6502", None, "LDA #$42", 1)
-            .expect("delegated-core tokenizer mode should use delegated adapter");
-        assert_eq!(tokens.len(), 1);
-        assert!(matches!(
-            &tokens[0].kind,
-            PortableTokenKind::Identifier(name) if name == "adapter"
-        ));
+        model.set_tokenizer_mode(RuntimeTokenizerMode::Auto);
+        let auto_tokens = model
+            .tokenize_portable_statement("m6502", None, "LDA #$42", 1)
+            .expect("auto tokenizer mode should execute VM path");
+        model.set_tokenizer_mode(RuntimeTokenizerMode::Vm);
+        let vm_tokens = model
+            .tokenize_portable_statement("m6502", None, "LDA #$42", 1)
+            .expect("vm tokenizer mode should execute VM path");
+        assert_eq!(auto_tokens, vm_tokens);
     }
 
     #[test]
@@ -4115,7 +4013,7 @@ mod tests {
             HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
         model.set_tokenizer_mode(RuntimeTokenizerMode::Vm);
         let err = model
-            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "LDA #$42", 1)
+            .tokenize_portable_statement("m6502", None, "LDA #$42", 1)
             .expect_err("vm mode should stay strict and reject empty token output");
         assert!(err
             .to_string()
@@ -4215,7 +4113,7 @@ mod tests {
         model.set_tokenizer_mode(RuntimeTokenizerMode::Vm);
 
         let tokens = model
-            .tokenize_portable_statement(&FailingTokenizerAdapter, "m6502", None, "A,B", 1)
+            .tokenize_portable_statement("m6502", None, "A,B", 1)
             .expect("vm mode should execute tokenizer VM program");
         assert_eq!(tokens.len(), 1);
         assert!(matches!(
@@ -4240,13 +4138,7 @@ mod tests {
         let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
 
         let err = model
-            .tokenize_portable_statement_for_assembler(
-                &FailingTokenizerAdapter,
-                "m6502",
-                None,
-                "LDA #$42",
-                1,
-            )
+            .tokenize_portable_statement_for_assembler("m6502", None, "LDA #$42", 1)
             .expect_err("authoritative assembler path should not fall back");
         assert!(err
             .to_string()
@@ -4261,13 +4153,7 @@ mod tests {
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
 
         let tokens = model
-            .tokenize_portable_statement_for_assembler(
-                &FailingTokenizerAdapter,
-                "z80",
-                None,
-                "LD A,B",
-                1,
-            )
+            .tokenize_portable_statement_for_assembler("z80", None, "LD A,B", 1)
             .expect("intel8080 family assembler tokenization should route through VM");
         assert!(matches!(
             &tokens[0].kind,
@@ -4392,7 +4278,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_parity_corpus_examples_and_edge_cases_host_vs_vm() {
+    fn execution_model_tokenizer_parity_corpus_examples_and_edge_cases_core_vs_vm() {
         let mut corpus = tokenizer_example_lines();
         corpus.extend(tokenizer_edge_case_lines());
         assert!(
@@ -4406,13 +4292,7 @@ mod tests {
         for cpu_id in ["m6502", "z80"] {
             for (index, line) in corpus.iter().enumerate() {
                 let line_num = (index + 1) as u32;
-                let host = tokenize_with_mode(
-                    &mut model,
-                    RuntimeTokenizerMode::Host,
-                    cpu_id,
-                    line,
-                    line_num,
-                );
+                let host = tokenize_host_line_with_policy(&model, cpu_id, None, line, line_num);
                 let vm = tokenize_with_mode(
                     &mut model,
                     RuntimeTokenizerMode::Vm,
@@ -4430,20 +4310,14 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_parity_deterministic_fuzz_host_vs_vm() {
+    fn execution_model_tokenizer_parity_deterministic_fuzz_core_vs_vm() {
         let corpus = deterministic_fuzz_lines(0x50_45_45_44, 512, 48);
         let registry = parity_registry();
         let mut model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         for (index, line) in corpus.iter().enumerate() {
             let line_num = (index + 1) as u32;
-            let host = tokenize_with_mode(
-                &mut model,
-                RuntimeTokenizerMode::Host,
-                "m6502",
-                line,
-                line_num,
-            );
+            let host = tokenize_host_line_with_policy(&model, "m6502", None, line, line_num);
             let vm = tokenize_with_mode(
                 &mut model,
                 RuntimeTokenizerMode::Vm,

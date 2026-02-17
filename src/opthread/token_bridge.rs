@@ -13,7 +13,7 @@ use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::opthread::builder::build_hierarchy_package_from_registry;
-use crate::opthread::runtime::{CoreTokenizerAdapter, HierarchyExecutionModel, PortableToken};
+use crate::opthread::runtime::{HierarchyExecutionModel, PortableToken};
 use crate::z80::module::Z80CpuModule;
 
 // Use an authoritative rollout lane so bootstrap/macro token bridge paths
@@ -30,13 +30,7 @@ pub(crate) fn tokenize_parser_tokens_with_model(
 ) -> Result<(Vec<Token>, Span, Option<String>), ParseError> {
     validate_line_column_one(line, line_num)?;
     let portable_tokens = model
-        .tokenize_portable_statement_for_assembler(
-            &CoreTokenizerAdapter,
-            cpu_id,
-            dialect_override,
-            line,
-            line_num,
-        )
+        .tokenize_portable_statement_for_assembler(cpu_id, dialect_override, line, line_num)
         .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
 
     let core_tokens =
@@ -144,6 +138,7 @@ fn validate_line_column_one(line: &str, line_num: u32) -> Result<(), ParseError>
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn runtime_tokens_to_core_tokens(
     tokens: &[PortableToken],
     register_checker: &RegisterChecker,

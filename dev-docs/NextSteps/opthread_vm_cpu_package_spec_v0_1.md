@@ -254,6 +254,7 @@ Chunk ids above are frozen for v0.1 compatibility.
 
 ### 6.3 Optional chunks
 - `TOKS` tokenization/case rules and identifier character class hints (family/CPU scoped)
+- `TKVM` tokenizer VM programs/state tables/limits/diagnostic-code mapping (family/CPU/dialect scoped)
 - `TEST` embedded minimal self-test vectors
 
 Hierarchy compatibility note: package resolution MUST follow Section 3.4 and preserve the
@@ -377,6 +378,49 @@ Compatibility:
 - `TOKS` is optional in v0.1 and MUST default to empty policy when absent.
 - Unknown owner ids in `TOKS` are allowed (forward compatibility) but SHOULD be ignored by hosts that cannot resolve that scope.
 - Legacy `TOKS` payloads without extended lexical fields MUST decode with the defaults above.
+
+### 6.13 Tokenizer VM programs (`TKVM`, optional)
+`TKVM` entries are owner-scoped (`family`, `cpu`, `dialect`) and define the compact
+lexical VM contract for portable tokenizer execution.
+
+Each entry defines:
+- owner scope tag + owner id
+- `opcode_version` (v0.1 uses `1`)
+- `start_state`
+- `state_entry_offsets` (state-id -> bytecode entry offset table)
+- hard limits:
+  - `max_steps_per_line`
+  - `max_tokens_per_line`
+  - `max_lexeme_bytes`
+  - `max_errors_per_line`
+- tokenizer diagnostic code map:
+  - `invalid_char`
+  - `unterminated_string`
+  - `step_limit_exceeded`
+  - `token_limit_exceeded`
+  - `lexeme_limit_exceeded`
+  - `error_limit_exceeded`
+- tokenizer VM bytecode program (must terminate with `End`)
+
+Tokenizer lexical VM opcode set (v0.1 contract):
+- `End`
+- `ReadChar`
+- `Advance`
+- `StartLexeme`
+- `PushChar`
+- `EmitToken`
+- `SetState`
+- `Jump`
+- `JumpIfEol`
+- `JumpIfByteEq`
+- `JumpIfClass`
+- `Fail`
+- `EmitDiag`
+
+Compatibility:
+- `TKVM` is optional in v0.1.
+- When `TKVM` is absent for resolved owner precedence, host/runtime MUST use compatibility tokenizer mode.
+- Unknown `opcode_version` values MUST be rejected deterministically.
 
 ## 7. Host Adapter Interface (normative)
 
