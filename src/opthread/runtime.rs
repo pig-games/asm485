@@ -968,7 +968,7 @@ impl HierarchyExecutionModel {
                             resolved.family_id
                         ))
                     })?;
-                let tokens = self.tokenize_with_vm_core(&request, &vm_program, false)?;
+                let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
                 if tokens.is_empty()
                     && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
                 {
@@ -1027,7 +1027,7 @@ impl HierarchyExecutionModel {
                     resolved.family_id
                 ))
             })?;
-        let tokens = self.tokenize_with_vm_core(&request, &vm_program, false)?;
+        let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
         if tokens.is_empty()
             && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
         {
@@ -1285,7 +1285,6 @@ impl HierarchyExecutionModel {
         &self,
         request: &PortableTokenizeRequest<'_>,
         vm_program: &RuntimeTokenizerVmProgram,
-        allow_delegate_core: bool,
     ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
         if vm_program.opcode_version != TOKENIZER_VM_OPCODE_VERSION_V1 {
             return Err(RuntimeBridgeError::Resolve(format!(
@@ -1552,13 +1551,10 @@ impl HierarchyExecutionModel {
                     )));
                 }
                 TokenizerVmOpcode::DelegateCore => {
-                    if !allow_delegate_core {
-                        return Err(RuntimeBridgeError::Resolve(format!(
-                            "{}: tokenizer VM DelegateCore opcode is forbidden in authoritative mode",
-                            vm_program.diagnostics.invalid_char
-                        )));
-                    }
-                    return Self::tokenize_with_host_core(request);
+                    return Err(RuntimeBridgeError::Resolve(format!(
+                        "{}: tokenizer VM DelegateCore opcode is forbidden in VM tokenizer execution mode",
+                        vm_program.diagnostics.invalid_char
+                    )));
                 }
                 TokenizerVmOpcode::ScanCoreToken => {
                     match vm_scan_next_core_token(request, cursor)? {
@@ -3132,7 +3128,7 @@ mod tests {
             line_num,
             token_policy: model.token_policy_for_resolved(&resolved),
         };
-        model.tokenize_with_vm_core(&request, vm_program, true)
+        model.tokenize_with_vm_core(&request, vm_program)
     }
 
     fn tokenizer_edge_case_lines() -> Vec<String> {
