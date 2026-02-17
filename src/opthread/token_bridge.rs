@@ -16,7 +16,9 @@ use crate::opthread::builder::build_hierarchy_package_from_registry;
 use crate::opthread::runtime::{CoreTokenizerAdapter, HierarchyExecutionModel, PortableToken};
 use crate::z80::module::Z80CpuModule;
 
-const DEFAULT_TOKENIZER_CPU_ID: &str = "8085";
+// Use an authoritative rollout lane so bootstrap/macro token bridge paths
+// exercise strict VM tokenizer entrypoints by default.
+const DEFAULT_TOKENIZER_CPU_ID: &str = "m6502";
 
 pub(crate) fn tokenize_parser_tokens_with_model(
     model: &HierarchyExecutionModel,
@@ -214,4 +216,32 @@ fn first_comment_semicolon_outside_quotes(line: &str) -> Option<usize> {
         idx = idx.saturating_add(1);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_model_resolves_bridge_cpu_to_mos6502_family() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let resolved = model
+            .resolve_pipeline(DEFAULT_TOKENIZER_CPU_ID, None)
+            .expect("default tokenizer cpu should resolve");
+        assert_eq!(resolved.family_id.to_ascii_lowercase(), "mos6502");
+    }
+
+    #[test]
+    fn parse_line_with_default_model_smoke() {
+        let line = parse_line_with_default_model("    LDA #$42", 1).expect("line should parse");
+        match line {
+            LineAst::Statement {
+                mnemonic: Some(mnemonic),
+                ..
+            } => {
+                assert_eq!(mnemonic.to_ascii_lowercase(), "lda");
+            }
+            other => panic!("expected instruction line ast, got {other:?}"),
+        }
+    }
 }
