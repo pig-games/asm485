@@ -27,9 +27,9 @@ test-opthread-runtime-artifact:
 	cargo test --features opthread-runtime-opcpu-artifact opthread_runtime_artifact_
 
 test-opthread-runtime-intel:
-	cargo test --features opthread-runtime-intel8080-scaffold opthread_runtime_intel8080_
-	cargo test --features opthread-runtime-intel8080-scaffold opthread_runtime_intel8085_
-	cargo test --features opthread-runtime-intel8080-scaffold opthread_runtime_z80_
+	cargo test opthread_runtime_intel8080_
+	cargo test opthread_runtime_intel8085_
+	cargo test opthread_runtime_z80_
 
 test-opthread-rollout-criteria:
 	cargo test opthread_rollout_criteria_

@@ -797,7 +797,7 @@ impl HierarchyExecutionModel {
         register_fn_resolver(
             &mut expr_resolvers,
             "intel8080",
-            HierarchyExecutionModel::select_candidates_from_exprs_intel8080_scaffold,
+            HierarchyExecutionModel::select_candidates_from_exprs_intel8080,
             true,
         );
         let mut diag_templates = HashMap::new();
@@ -1752,7 +1752,7 @@ impl HierarchyExecutionModel {
         Ok(None)
     }
 
-    fn select_candidates_from_exprs_intel8080_scaffold(
+    fn select_candidates_from_exprs_intel8080(
         &self,
         resolved: &ResolvedHierarchy,
         mnemonic: &str,
@@ -5005,7 +5005,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_intel_scaffold_encodes_matching_mvi_program() {
+    fn execution_model_intel_expr_resolver_encodes_matching_mvi_program() {
         let mut chunks = intel_only_chunks();
         let mvi_a = crate::families::intel8080::table::lookup_instruction("MVI", Some("A"), None)
             .expect("MVI A should exist");
@@ -5019,7 +5019,7 @@ mod tests {
         let ctx = TestAssemblerContext::new();
         let bytes = model
             .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
-            .expect("intel scaffold should encode MVI");
+            .expect("intel expr resolver should encode MVI");
         assert_eq!(bytes, Some(vec![0x3E, 0x42]));
     }
 
@@ -5383,7 +5383,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_intel_scaffold_is_strict() {
+    fn execution_model_intel_expr_resolver_is_strict() {
         let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
             .expect("execution model build");
         assert!(model.supports_expr_resolution_for_family("intel8080"));

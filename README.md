@@ -48,7 +48,7 @@ Run MOS6502 runtime/package artifact-mode checks (optional feature lane):
 
     make test-opthread-runtime-artifact
 
-Run Intel8080-family runtime/package parity checks (optional feature lane):
+Run Intel8080-family runtime/package parity checks:
 
     make test-opthread-runtime-intel
 
@@ -60,13 +60,13 @@ Run the local MOS6502 CI gate bundle:
 
     make ci-opthread-mos6502
 
-Run the local Intel8080-family pilot CI gate bundle:
+Run the local Intel8080-family CI gate bundle:
 
     make ci-opthread-intel8080
 
 opThread rollout status (VM runtime is default):
 - Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
-- Staged verification family: `intel8080` (native path remains default; package-runtime path is parity/pilot-only).
+- Authoritative package-runtime family: `intel8080` (`8085`, `z80`).
 
 Optional on-disk runtime package artifact mode:
 - Enable feature `opthread-runtime-opcpu-artifact`.

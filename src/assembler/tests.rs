@@ -20,13 +20,8 @@ use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
 use crate::opthread::builder::build_hierarchy_chunks_from_registry;
-#[cfg(any(
-    feature = "opthread-runtime-opcpu-artifact",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 use crate::opthread::hierarchy::ScopedOwner;
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
 use crate::opthread::package::ModeSelectorDescriptor;
 use crate::opthread::package::TokenizerVmOpcode;
@@ -37,7 +32,6 @@ use crate::opthread::rollout::{
 use crate::opthread::runtime::{
     HierarchyExecutionModel, PortableSpan, PortableToken, PortableTokenKind,
 };
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::collections::{HashMap, HashSet};
@@ -172,7 +166,6 @@ fn assemble_line_with_runtime_mode(
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
-    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
     if _enable_opthread_runtime {
         let enable_intel_runtime = registry
             .resolve_pipeline(cpu, None)
@@ -6789,7 +6782,6 @@ fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
     );
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_intel8085_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
@@ -6819,7 +6811,6 @@ fn opthread_runtime_intel8085_path_uses_package_forms() {
     assert_eq!(asm.bytes(), &[0x00, 0x42]);
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_z80_dialect_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
@@ -6850,7 +6841,6 @@ fn opthread_runtime_z80_dialect_path_uses_package_forms() {
     assert_eq!(asm.bytes(), &[0x00]);
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
     let pairs = [
@@ -6906,7 +6896,6 @@ fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
     let corpus = ["    RIM", "    SIM"];
@@ -6920,7 +6909,6 @@ fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
     let corpus = ["    DJNZ $0004", "    RLC B"];

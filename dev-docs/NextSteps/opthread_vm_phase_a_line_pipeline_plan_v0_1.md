@@ -81,7 +81,7 @@ Introduce a parser constructor that accepts pre-tokenized core tokens, then rout
 Status: in progress (refreshed 2026-02-17, post assembler-line VM-only tokenizer gate)
 
 Requested target: all assembler tokenization in opForge runs through VM tokenization paths, with authoritative VM behavior for certified families.
-Current note: tokenizer authority now covers MOS6502 + Intel8080 families; Intel instruction-emission runtime rollout policy remains staged.
+Current note: tokenizer authority now covers MOS6502 + Intel8080 families, and Intel instruction-emission runtime rollout policy is now authoritative.
 Current note 2: default family TKVM programs no longer emit `DelegateCore`; they execute VM scan loops (`ScanCoreToken`) for authoritative tokenizer dispatch.
 Current note 3: authoritative tokenizer entrypoints reject `DelegateCore` opcode execution, preventing silent host-tokenizer fallback through VM bytecode.
 Current note 4: `RuntimeTokenizerMode::Vm` no longer performs implicit host fallback; host/delegated tokenization now requires explicit mode selection.
@@ -89,7 +89,7 @@ Current note 5: `AsmLine::process` no longer uses a runtime-enabled flag as a to
 Current note 6: parser-bridge token mapping restores source lexeme spelling from VM spans to keep symbol casing and listing/reference outputs parity-stable while remaining VM-tokenized.
 Current note 7: tokenizer VM string lexeme budgets now measure payload bytes (not quoted raw width), preserving directive-level diagnostics parity for long string literals.
 Current note 8: assembler/runtime-toggle plumbing has been removed from assembler construction paths (`set_opthread_runtime_enabled`, `with_cpu_runtime_mode`); assembler tests now construct VM-backed `AsmLine`/`Assembler` directly.
-Current note 9: base `opthread-runtime` feature gating has been removed; VM runtime/tokenization paths are default behavior, while optional feature lanes remain only for artifact and Intel scaffold suites.
+Current note 9: base `opthread-runtime` feature gating has been removed; VM runtime/tokenization paths are default behavior, while the remaining optional feature lane is artifact-mode package persistence (`opthread-runtime-opcpu-artifact`).
 
 #### B1) Replace placeholder tokenizer VM programs with real bytecode
 - [x] Replace `TokenizerVmOpcode::End` placeholder programs emitted by builder with bootstrap tokenizer VM bytecode per rollout family (deterministic line-walk, non-emitting).
