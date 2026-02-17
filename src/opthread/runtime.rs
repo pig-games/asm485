@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
-use crate::core::parser::Expr;
+use crate::core::parser::{BinaryOp, Expr, Label, LineAst, UnaryOp};
 use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::core::tokenizer::{
     NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
@@ -430,6 +430,313 @@ impl PortableToken {
         Token {
             kind,
             span: self.span.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableAstLabel {
+    pub name: String,
+    pub span: PortableSpan,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortableAstUnaryOp {
+    Plus,
+    Minus,
+    BitNot,
+    LogicNot,
+    High,
+    Low,
+}
+
+impl From<UnaryOp> for PortableAstUnaryOp {
+    fn from(value: UnaryOp) -> Self {
+        match value {
+            UnaryOp::Plus => Self::Plus,
+            UnaryOp::Minus => Self::Minus,
+            UnaryOp::BitNot => Self::BitNot,
+            UnaryOp::LogicNot => Self::LogicNot,
+            UnaryOp::High => Self::High,
+            UnaryOp::Low => Self::Low,
+        }
+    }
+}
+
+impl From<PortableAstUnaryOp> for UnaryOp {
+    fn from(value: PortableAstUnaryOp) -> Self {
+        match value {
+            PortableAstUnaryOp::Plus => Self::Plus,
+            PortableAstUnaryOp::Minus => Self::Minus,
+            PortableAstUnaryOp::BitNot => Self::BitNot,
+            PortableAstUnaryOp::LogicNot => Self::LogicNot,
+            PortableAstUnaryOp::High => Self::High,
+            PortableAstUnaryOp::Low => Self::Low,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortableAstBinaryOp {
+    Multiply,
+    Divide,
+    Mod,
+    Power,
+    Shl,
+    Shr,
+    Add,
+    Subtract,
+    Eq,
+    Ne,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LogicAnd,
+    LogicOr,
+    LogicXor,
+}
+
+impl From<BinaryOp> for PortableAstBinaryOp {
+    fn from(value: BinaryOp) -> Self {
+        match value {
+            BinaryOp::Multiply => Self::Multiply,
+            BinaryOp::Divide => Self::Divide,
+            BinaryOp::Mod => Self::Mod,
+            BinaryOp::Power => Self::Power,
+            BinaryOp::Shl => Self::Shl,
+            BinaryOp::Shr => Self::Shr,
+            BinaryOp::Add => Self::Add,
+            BinaryOp::Subtract => Self::Subtract,
+            BinaryOp::Eq => Self::Eq,
+            BinaryOp::Ne => Self::Ne,
+            BinaryOp::Ge => Self::Ge,
+            BinaryOp::Gt => Self::Gt,
+            BinaryOp::Le => Self::Le,
+            BinaryOp::Lt => Self::Lt,
+            BinaryOp::BitAnd => Self::BitAnd,
+            BinaryOp::BitOr => Self::BitOr,
+            BinaryOp::BitXor => Self::BitXor,
+            BinaryOp::LogicAnd => Self::LogicAnd,
+            BinaryOp::LogicOr => Self::LogicOr,
+            BinaryOp::LogicXor => Self::LogicXor,
+        }
+    }
+}
+
+impl From<PortableAstBinaryOp> for BinaryOp {
+    fn from(value: PortableAstBinaryOp) -> Self {
+        match value {
+            PortableAstBinaryOp::Multiply => Self::Multiply,
+            PortableAstBinaryOp::Divide => Self::Divide,
+            PortableAstBinaryOp::Mod => Self::Mod,
+            PortableAstBinaryOp::Power => Self::Power,
+            PortableAstBinaryOp::Shl => Self::Shl,
+            PortableAstBinaryOp::Shr => Self::Shr,
+            PortableAstBinaryOp::Add => Self::Add,
+            PortableAstBinaryOp::Subtract => Self::Subtract,
+            PortableAstBinaryOp::Eq => Self::Eq,
+            PortableAstBinaryOp::Ne => Self::Ne,
+            PortableAstBinaryOp::Ge => Self::Ge,
+            PortableAstBinaryOp::Gt => Self::Gt,
+            PortableAstBinaryOp::Le => Self::Le,
+            PortableAstBinaryOp::Lt => Self::Lt,
+            PortableAstBinaryOp::BitAnd => Self::BitAnd,
+            PortableAstBinaryOp::BitOr => Self::BitOr,
+            PortableAstBinaryOp::BitXor => Self::BitXor,
+            PortableAstBinaryOp::LogicAnd => Self::LogicAnd,
+            PortableAstBinaryOp::LogicOr => Self::LogicOr,
+            PortableAstBinaryOp::LogicXor => Self::LogicXor,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PortableAstExpr {
+    Number(String, PortableSpan),
+    Identifier(String, PortableSpan),
+    Register(String, PortableSpan),
+    Indirect(Box<PortableAstExpr>, PortableSpan),
+    Dollar(PortableSpan),
+    String(Vec<u8>, PortableSpan),
+    Immediate(Box<PortableAstExpr>, PortableSpan),
+    IndirectLong(Box<PortableAstExpr>, PortableSpan),
+    Tuple(Vec<PortableAstExpr>, PortableSpan),
+    Error(String, PortableSpan),
+    Ternary {
+        cond: Box<PortableAstExpr>,
+        then_expr: Box<PortableAstExpr>,
+        else_expr: Box<PortableAstExpr>,
+        span: PortableSpan,
+    },
+    Unary {
+        op: PortableAstUnaryOp,
+        expr: Box<PortableAstExpr>,
+        span: PortableSpan,
+    },
+    Binary {
+        op: PortableAstBinaryOp,
+        left: Box<PortableAstExpr>,
+        right: Box<PortableAstExpr>,
+        span: PortableSpan,
+    },
+}
+
+impl PortableAstExpr {
+    fn to_core_expr(&self) -> Expr {
+        match self {
+            Self::Number(text, span) => Expr::Number(text.clone(), (*span).into()),
+            Self::Identifier(name, span) => Expr::Identifier(name.clone(), (*span).into()),
+            Self::Register(name, span) => Expr::Register(name.clone(), (*span).into()),
+            Self::Indirect(inner, span) => {
+                Expr::Indirect(Box::new(inner.to_core_expr()), (*span).into())
+            }
+            Self::Dollar(span) => Expr::Dollar((*span).into()),
+            Self::String(bytes, span) => Expr::String(bytes.clone(), (*span).into()),
+            Self::Immediate(inner, span) => {
+                Expr::Immediate(Box::new(inner.to_core_expr()), (*span).into())
+            }
+            Self::IndirectLong(inner, span) => {
+                Expr::IndirectLong(Box::new(inner.to_core_expr()), (*span).into())
+            }
+            Self::Tuple(items, span) => Expr::Tuple(
+                items.iter().map(PortableAstExpr::to_core_expr).collect(),
+                (*span).into(),
+            ),
+            Self::Error(message, span) => Expr::Error(message.clone(), (*span).into()),
+            Self::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                span,
+            } => Expr::Ternary {
+                cond: Box::new(cond.to_core_expr()),
+                then_expr: Box::new(then_expr.to_core_expr()),
+                else_expr: Box::new(else_expr.to_core_expr()),
+                span: (*span).into(),
+            },
+            Self::Unary { op, expr, span } => Expr::Unary {
+                op: (*op).into(),
+                expr: Box::new(expr.to_core_expr()),
+                span: (*span).into(),
+            },
+            Self::Binary {
+                op,
+                left,
+                right,
+                span,
+            } => Expr::Binary {
+                op: (*op).into(),
+                left: Box::new(left.to_core_expr()),
+                right: Box::new(right.to_core_expr()),
+                span: (*span).into(),
+            },
+        }
+    }
+
+    fn from_core_expr(value: &Expr) -> Self {
+        match value {
+            Expr::Number(text, span) => Self::Number(text.clone(), (*span).into()),
+            Expr::Identifier(name, span) => Self::Identifier(name.clone(), (*span).into()),
+            Expr::Register(name, span) => Self::Register(name.clone(), (*span).into()),
+            Expr::Indirect(inner, span) => {
+                Self::Indirect(Box::new(Self::from_core_expr(inner)), (*span).into())
+            }
+            Expr::Immediate(inner, span) => {
+                Self::Immediate(Box::new(Self::from_core_expr(inner)), (*span).into())
+            }
+            Expr::IndirectLong(inner, span) => {
+                Self::IndirectLong(Box::new(Self::from_core_expr(inner)), (*span).into())
+            }
+            Expr::Tuple(items, span) => Self::Tuple(
+                items.iter().map(Self::from_core_expr).collect(),
+                (*span).into(),
+            ),
+            Expr::Dollar(span) => Self::Dollar((*span).into()),
+            Expr::String(bytes, span) => Self::String(bytes.clone(), (*span).into()),
+            Expr::Error(message, span) => Self::Error(message.clone(), (*span).into()),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                span,
+            } => Self::Ternary {
+                cond: Box::new(Self::from_core_expr(cond)),
+                then_expr: Box::new(Self::from_core_expr(then_expr)),
+                else_expr: Box::new(Self::from_core_expr(else_expr)),
+                span: (*span).into(),
+            },
+            Expr::Unary { op, expr, span } => Self::Unary {
+                op: (*op).into(),
+                expr: Box::new(Self::from_core_expr(expr)),
+                span: (*span).into(),
+            },
+            Expr::Binary {
+                op,
+                left,
+                right,
+                span,
+            } => Self::Binary {
+                op: (*op).into(),
+                left: Box::new(Self::from_core_expr(left)),
+                right: Box::new(Self::from_core_expr(right)),
+                span: (*span).into(),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PortableLineAst {
+    Empty,
+    Statement {
+        label: Option<PortableAstLabel>,
+        mnemonic: Option<String>,
+        operands: Vec<PortableAstExpr>,
+    },
+}
+
+impl PortableLineAst {
+    pub fn from_core_line_ast(value: &LineAst) -> Option<Self> {
+        match value {
+            LineAst::Empty => Some(Self::Empty),
+            LineAst::Statement {
+                label,
+                mnemonic,
+                operands,
+            } => Some(Self::Statement {
+                label: label.as_ref().map(|label| PortableAstLabel {
+                    name: label.name.clone(),
+                    span: label.span.into(),
+                }),
+                mnemonic: mnemonic.clone(),
+                operands: operands
+                    .iter()
+                    .map(PortableAstExpr::from_core_expr)
+                    .collect(),
+            }),
+            _ => None,
+        }
+    }
+
+    pub fn to_core_line_ast(&self) -> LineAst {
+        match self {
+            Self::Empty => LineAst::Empty,
+            Self::Statement {
+                label,
+                mnemonic,
+                operands,
+            } => LineAst::Statement {
+                label: label.as_ref().map(|label| Label {
+                    name: label.name.clone(),
+                    span: label.span.into(),
+                }),
+                mnemonic: mnemonic.clone(),
+                operands: operands.iter().map(PortableAstExpr::to_core_expr).collect(),
+            },
         }
     }
 }
@@ -3893,6 +4200,7 @@ mod tests {
             owner,
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
+                ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8,
             ],
@@ -4709,6 +5017,7 @@ mod tests {
         assert_eq!(
             program.program,
             vec![
+                ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::ParseCoreLine as u8,
                 ParserVmOpcode::End as u8
             ]
