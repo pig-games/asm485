@@ -21,10 +21,11 @@ use crate::opthread::hierarchy::{
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
 use crate::opthread::intel8080_vm::{
-    compile_vm_program_for_instruction_entry, compile_vm_program_for_z80_half_index,
-    compile_vm_program_for_z80_indexed_cb, compile_vm_program_for_z80_indexed_memory,
-    compile_vm_program_for_z80_interrupt_mode, compile_vm_program_for_z80_ld_indirect,
-    mode_key_for_instruction_entry, mode_key_for_z80_half_index, mode_key_for_z80_indexed_cb,
+    compile_vm_program_for_instruction_entry, compile_vm_program_for_z80_cb_register,
+    compile_vm_program_for_z80_half_index, compile_vm_program_for_z80_indexed_cb,
+    compile_vm_program_for_z80_indexed_memory, compile_vm_program_for_z80_interrupt_mode,
+    compile_vm_program_for_z80_ld_indirect, mode_key_for_instruction_entry,
+    mode_key_for_z80_cb_register, mode_key_for_z80_half_index, mode_key_for_z80_indexed_cb,
     mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
 };
 use crate::opthread::package::{
@@ -220,6 +221,46 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
     if registered_cpu_ids.contains(Z80_CPU_ID.as_str()) {
+        for register in ["B", "C", "D", "E", "H", "L", "M", "A"] {
+            for mnemonic in ["RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"] {
+                let Some(mode_key) = mode_key_for_z80_cb_register(mnemonic, None, register) else {
+                    continue;
+                };
+                let Some(program) =
+                    compile_vm_program_for_z80_cb_register(mnemonic, None, register)
+                else {
+                    continue;
+                };
+                tables.push(VmProgramDescriptor {
+                    owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                    mnemonic: mnemonic.to_string(),
+                    mode_key,
+                    program,
+                });
+            }
+
+            for mnemonic in ["BIT", "RES", "SET"] {
+                for bit in 0u8..=7 {
+                    let Some(mode_key) =
+                        mode_key_for_z80_cb_register(mnemonic, Some(bit), register)
+                    else {
+                        continue;
+                    };
+                    let Some(program) =
+                        compile_vm_program_for_z80_cb_register(mnemonic, Some(bit), register)
+                    else {
+                        continue;
+                    };
+                    tables.push(VmProgramDescriptor {
+                        owner: ScopedOwner::Cpu(Z80_CPU_ID.as_str().to_string()),
+                        mnemonic: mnemonic.to_string(),
+                        mode_key,
+                        program,
+                    });
+                }
+            }
+        }
+
         for base in ["IX", "IY"] {
             for mnemonic in ["RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"] {
                 let Some(mode_key) = mode_key_for_z80_indexed_cb(base, mnemonic, None) else {
@@ -1073,9 +1114,9 @@ mod tests {
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::intel8080_vm::{
-        mode_key_for_instruction_entry, mode_key_for_z80_half_index, mode_key_for_z80_indexed_cb,
-        mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode,
-        mode_key_for_z80_ld_indirect,
+        mode_key_for_instruction_entry, mode_key_for_z80_cb_register, mode_key_for_z80_half_index,
+        mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
+        mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
     };
     use crate::opthread::package::{
         load_hierarchy_package, token_identifier_class, TokenizerVmOpcode,
@@ -1186,6 +1227,12 @@ mod tests {
                 && entry.mnemonic == "bit"
                 && entry.mode_key
                     == mode_key_for_z80_indexed_cb("IY", "BIT", Some(2)).expect("valid mode key")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
+                && entry.mnemonic == "bit"
+                && entry.mode_key
+                    == mode_key_for_z80_cb_register("BIT", Some(2), "M").expect("valid mode key")
         }));
         assert!(chunks.tables.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")

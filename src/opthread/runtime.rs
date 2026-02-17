@@ -26,9 +26,9 @@ use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 use crate::opthread::intel8080_vm::{
-    mode_key_for_instruction_entry, mode_key_for_z80_half_index, mode_key_for_z80_indexed_cb,
-    mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
-    prefix_len,
+    mode_key_for_instruction_entry, mode_key_for_z80_cb_register, mode_key_for_z80_half_index,
+    mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode,
+    mode_key_for_z80_ld_indirect, prefix_len,
 };
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
@@ -1789,6 +1789,12 @@ impl HierarchyExecutionModel {
             return Ok(Some(vec![candidate]));
         }
 
+        if let Some(candidate) =
+            intel8080_cb_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
+        {
+            return Ok(Some(vec![candidate]));
+        }
+
         if let Some(candidate) = intel8080_indexed_memory_candidate(
             mnemonic,
             resolved.cpu_id.as_str(),
@@ -2170,6 +2176,47 @@ fn intel8080_half_index_reg_code(prefix: &str, name: &str) -> Option<u8> {
     }
 }
 
+fn intel8080_cb_candidate(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+) -> Option<VmEncodeCandidate> {
+    if !cpu_id.eq_ignore_ascii_case("z80") {
+        return None;
+    }
+
+    let upper = mnemonic.to_ascii_uppercase();
+    if matches!(
+        upper.as_str(),
+        "RLC" | "RRC" | "RL" | "RR" | "SLA" | "SRA" | "SLL" | "SRL"
+    ) {
+        if operands.len() != 1 {
+            return None;
+        }
+        let reg = intel8080_cb_register_name(&operands[0])?;
+        let mode_key = mode_key_for_z80_cb_register(&upper, None, reg)?;
+        return Some(VmEncodeCandidate {
+            mode_key,
+            operand_bytes: Vec::new(),
+        });
+    }
+
+    if matches!(upper.as_str(), "BIT" | "RES" | "SET") {
+        if operands.len() != 2 || intel8080_indexed_base_disp(&operands[1]).is_some() {
+            return None;
+        }
+        let bit = intel8080_bit_value(&operands[0])?;
+        let reg = intel8080_cb_register_name(&operands[1])?;
+        let mode_key = mode_key_for_z80_cb_register(&upper, Some(bit), reg)?;
+        return Some(VmEncodeCandidate {
+            mode_key,
+            operand_bytes: Vec::new(),
+        });
+    }
+
+    None
+}
+
 fn intel8080_indexed_memory_candidate(
     mnemonic: &str,
     cpu_id: &str,
@@ -2352,6 +2399,14 @@ fn intel8080_bit_value(operand: &IntelOperand) -> Option<u8> {
         Some(bit)
     } else {
         None
+    }
+}
+
+fn intel8080_cb_register_name(operand: &IntelOperand) -> Option<&str> {
+    match operand {
+        IntelOperand::Register(name, _) => Some(name.as_str()),
+        IntelOperand::Indirect(name, _) if name.eq_ignore_ascii_case("hl") => Some("M"),
+        _ => None,
     }
 }
 
@@ -5096,6 +5151,55 @@ mod tests {
             .expect("BIT 2,(IY) should resolve");
 
         assert_eq!(bytes, Some(vec![0xFD, 0xCB, 0x00, 0x56]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_nonindexed_cb_bit_forms() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+
+        let bit = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "BIT",
+                &[
+                    Expr::Number("2".to_string(), span),
+                    Expr::Register("A".to_string(), span),
+                ],
+                &ctx,
+            )
+            .expect("BIT 2,A should resolve");
+        let res = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "RES",
+                &[
+                    Expr::Number("6".to_string(), span),
+                    Expr::Indirect(Box::new(Expr::Identifier("HL".to_string(), span)), span),
+                ],
+                &ctx,
+            )
+            .expect("RES 6,(HL) should resolve");
+        let set = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "SET",
+                &[
+                    Expr::Number("4".to_string(), span),
+                    Expr::Register("E".to_string(), span),
+                ],
+                &ctx,
+            )
+            .expect("SET 4,E should resolve");
+
+        assert_eq!(bit, Some(vec![0xCB, 0x57]));
+        assert_eq!(res, Some(vec![0xCB, 0xB6]));
+        assert_eq!(set, Some(vec![0xCB, 0xE3]));
     }
 
     #[test]

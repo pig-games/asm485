@@ -100,7 +100,7 @@ pub(crate) fn compile_vm_program_for_z80_indexed_cb(
     bit: Option<u8>,
 ) -> Option<Vec<u8>> {
     let prefix = indexed_cb_prefix(base)?;
-    let opcode = z80_indexed_cb_opcode(mnemonic, bit)?;
+    let opcode = z80_cb_opcode_with_reg(mnemonic, bit, 0x06)?;
 
     Some(vec![
         OP_EMIT_U8,
@@ -113,6 +113,44 @@ pub(crate) fn compile_vm_program_for_z80_indexed_cb(
         opcode,
         OP_END,
     ])
+}
+
+pub(crate) fn mode_key_for_z80_cb_register(
+    mnemonic: &str,
+    bit: Option<u8>,
+    register: &str,
+) -> Option<String> {
+    let reg = z80_cb_register_key(register)?;
+    let upper = mnemonic.to_ascii_uppercase();
+    let mnemonic_key = upper.to_ascii_lowercase();
+    if matches!(upper.as_str(), "BIT" | "RES" | "SET") {
+        let bit = bit?;
+        if bit > 7 {
+            return None;
+        }
+        Some(format!("cbreg={mnemonic_key}:{bit}:{reg}"))
+    } else {
+        if bit.is_some() {
+            return None;
+        }
+        if !matches!(
+            upper.as_str(),
+            "RLC" | "RRC" | "RL" | "RR" | "SLA" | "SRA" | "SLL" | "SRL"
+        ) {
+            return None;
+        }
+        Some(format!("cbreg={mnemonic_key}:{reg}"))
+    }
+}
+
+pub(crate) fn compile_vm_program_for_z80_cb_register(
+    mnemonic: &str,
+    bit: Option<u8>,
+    register: &str,
+) -> Option<Vec<u8>> {
+    let reg_code = z80_cb_register_code(register)?;
+    let opcode = z80_cb_opcode_with_reg(mnemonic, bit, reg_code)?;
+    Some(vec![OP_EMIT_U8, 0xCB, OP_EMIT_U8, opcode, OP_END])
 }
 
 pub(crate) fn mode_key_for_z80_indexed_memory(base: &str, form: &str) -> Option<String> {
@@ -255,17 +293,20 @@ fn indexed_cb_base_key(base: &str) -> Option<&'static str> {
     }
 }
 
-fn z80_indexed_cb_opcode(mnemonic: &str, bit: Option<u8>) -> Option<u8> {
+fn z80_cb_opcode_with_reg(mnemonic: &str, bit: Option<u8>, reg_code: u8) -> Option<u8> {
+    if reg_code > 7 {
+        return None;
+    }
     let upper = mnemonic.to_ascii_uppercase();
     match upper.as_str() {
-        "RLC" => Some(0x06),
-        "RRC" => Some(0x0E),
-        "RL" => Some(0x16),
-        "RR" => Some(0x1E),
-        "SLA" => Some(0x26),
-        "SRA" => Some(0x2E),
-        "SLL" => Some(0x36),
-        "SRL" => Some(0x3E),
+        "RLC" => Some(reg_code),
+        "RRC" => Some(0x08 | reg_code),
+        "RL" => Some(0x10 | reg_code),
+        "RR" => Some(0x18 | reg_code),
+        "SLA" => Some(0x20 | reg_code),
+        "SRA" => Some(0x28 | reg_code),
+        "SLL" => Some(0x30 | reg_code),
+        "SRL" => Some(0x38 | reg_code),
         "BIT" | "RES" | "SET" => {
             let bit = bit?;
             if bit > 7 {
@@ -277,8 +318,36 @@ fn z80_indexed_cb_opcode(mnemonic: &str, bit: Option<u8>) -> Option<u8> {
                 "SET" => 0xC0,
                 _ => unreachable!(),
             };
-            Some(base | (bit << 3) | 0x06)
+            Some(base | (bit << 3) | reg_code)
         }
+        _ => None,
+    }
+}
+
+fn z80_cb_register_code(register: &str) -> Option<u8> {
+    match register.to_ascii_uppercase().as_str() {
+        "B" => Some(0),
+        "C" => Some(1),
+        "D" => Some(2),
+        "E" => Some(3),
+        "H" => Some(4),
+        "L" => Some(5),
+        "M" => Some(6),
+        "A" => Some(7),
+        _ => None,
+    }
+}
+
+fn z80_cb_register_key(register: &str) -> Option<&'static str> {
+    match register.to_ascii_uppercase().as_str() {
+        "B" => Some("b"),
+        "C" => Some("c"),
+        "D" => Some("d"),
+        "E" => Some("e"),
+        "H" => Some("h"),
+        "L" => Some("l"),
+        "M" => Some("m"),
+        "A" => Some("a"),
         _ => None,
     }
 }
