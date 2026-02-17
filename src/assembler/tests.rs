@@ -19,40 +19,25 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::builder::build_hierarchy_chunks_from_registry;
-#[cfg(all(
-    feature = "opthread-runtime",
-    any(
-        feature = "opthread-runtime-opcpu-artifact",
-        feature = "opthread-runtime-intel8080-scaffold"
-    )
-))]
-use crate::opthread::builder::build_hierarchy_package_from_registry;
-#[cfg(feature = "opthread-runtime")]
-use crate::opthread::hierarchy::ScopedOwner;
-#[cfg(all(
-    feature = "opthread-runtime",
+#[cfg(any(
+    feature = "opthread-runtime-opcpu-artifact",
     feature = "opthread-runtime-intel8080-scaffold"
 ))]
+use crate::opthread::builder::build_hierarchy_package_from_registry;
+use crate::opthread::hierarchy::ScopedOwner;
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::package::ModeSelectorDescriptor;
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::package::TokenizerVmOpcode;
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::rollout::{
     family_runtime_mode, family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
     FamilyRuntimeMode,
 };
-#[cfg(feature = "opthread-runtime")]
 use crate::opthread::runtime::{
     HierarchyExecutionModel, PortableSpan, PortableToken, PortableTokenKind,
 };
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use std::collections::{HashMap, HashSet};
@@ -82,7 +67,6 @@ fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineS
     asm.process(line, 1, addr, pass)
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn runtime_token_bridge_maps_portable_tokens_to_core_tokens() {
     let runtime_tokens = vec![
@@ -131,7 +115,6 @@ fn runtime_token_bridge_maps_portable_tokens_to_core_tokens() {
     ));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn runtime_token_bridge_rejects_invalid_spans() {
     let runtime_tokens = vec![PortableToken {
@@ -181,7 +164,6 @@ fn assemble_line_status(
     (status, message)
 }
 
-#[cfg(feature = "opthread-runtime")]
 fn assemble_line_with_runtime_mode(
     cpu: crate::core::cpu::CpuType,
     line: &str,
@@ -217,7 +199,6 @@ fn assemble_line_with_runtime_mode(
     (status, message, asm.bytes().to_vec())
 }
 
-#[cfg(feature = "opthread-runtime")]
 fn assemble_line_with_runtime_mode_no_injection(
     cpu: crate::core::cpu::CpuType,
     line: &str,
@@ -234,7 +215,6 @@ fn assemble_line_with_runtime_mode_no_injection(
     (status, message, asm.bytes().to_vec(), has_model)
 }
 
-#[cfg(feature = "opthread-runtime")]
 fn assemble_source_entries_with_runtime_mode(
     lines: &[&str],
     _enable_opthread_runtime: bool,
@@ -352,7 +332,6 @@ fn assemble_example_with_base(
     Ok(map_outputs)
 }
 
-#[cfg(feature = "opthread-runtime")]
 fn assemble_example_entries_with_runtime_mode(
     asm_path: &Path,
     _enable_opthread_runtime: bool,
@@ -6584,7 +6563,6 @@ fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
     let bytes = assemble_bytes(m6502_cpu_id, "    LDA #$10");
@@ -6599,7 +6577,6 @@ fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
         .contains("no instruction found"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
     let mut symbols = SymbolTable::new();
@@ -6615,7 +6592,6 @@ fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_model_is_available_for_staged_family_cpus_for_vm_tokenization() {
     let mut symbols = SymbolTable::new();
@@ -6628,10 +6604,7 @@ fn opthread_runtime_model_is_available_for_staged_family_cpus_for_vm_tokenizatio
     assert!(z80_asm.opthread_execution_model.is_some());
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-opcpu-artifact"
-))]
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
 #[test]
 fn opthread_runtime_artifact_path_is_target_relative() {
     let base = create_temp_dir("opthread-artifact-path");
@@ -6644,10 +6617,7 @@ fn opthread_runtime_artifact_path_is_target_relative() {
     );
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-opcpu-artifact"
-))]
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
 #[test]
 fn opthread_runtime_artifact_helpers_round_trip_model_load() {
     let mut symbols = SymbolTable::new();
@@ -6673,10 +6643,7 @@ fn opthread_runtime_artifact_helpers_round_trip_model_load() {
     );
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-opcpu-artifact"
-))]
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
 #[test]
 fn opthread_runtime_artifact_mos6502_parity_and_determinism_gate() {
     let source = [
@@ -6719,7 +6686,6 @@ fn opthread_runtime_artifact_mos6502_parity_and_determinism_gate() {
     );
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist() {
     let registry = default_registry();
@@ -6734,7 +6700,6 @@ fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist()
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enabled() {
     assert_eq!(
@@ -6760,7 +6725,6 @@ fn opthread_rollout_criteria_staged_families_use_native_path_when_runtime_enable
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
     assert_eq!(
@@ -6806,10 +6770,7 @@ fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
     );
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_intel8085_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
@@ -6839,10 +6800,7 @@ fn opthread_runtime_intel8085_path_uses_package_forms() {
     assert_eq!(asm.bytes(), &[0x00, 0x42]);
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_z80_dialect_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
@@ -6873,10 +6831,7 @@ fn opthread_runtime_z80_dialect_path_uses_package_forms() {
     assert_eq!(asm.bytes(), &[0x00]);
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
     let pairs = [
@@ -6932,10 +6887,7 @@ fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
     }
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
     let corpus = ["    RIM", "    SIM"];
@@ -6949,10 +6901,7 @@ fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(all(
-    feature = "opthread-runtime",
-    feature = "opthread-runtime-intel8080-scaffold"
-))]
+#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 #[test]
 fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
     let corpus = ["    DJNZ $0004", "    RLC B"];
@@ -6966,7 +6915,6 @@ fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
@@ -6995,7 +6943,6 @@ fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
         .contains("missing opthread vm program"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7029,7 +6976,6 @@ fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallb
         .contains("produced no tokens for non-empty source line"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7063,7 +7009,6 @@ fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallba
         .contains("unknown tokenizer vm opcode"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7100,7 +7045,6 @@ fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallb
         .contains("delegatecore opcode is forbidden"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7134,7 +7078,6 @@ fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of
         .contains("tokenizer vm state table is empty"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_authoritative() {
     let mut symbols = SymbolTable::new();
@@ -7168,7 +7111,6 @@ fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_author
         .contains("produced no tokens for non-empty source line"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime_flag_is_off() {
     let mut symbols = SymbolTable::new();
@@ -7202,7 +7144,6 @@ fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime
         .contains("produced no tokens for non-empty source line"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7229,7 +7170,6 @@ fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() 
     assert!(message.contains("No instruction found for LDA"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7256,7 +7196,6 @@ fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback()
     assert!(message.contains("No instruction found for LDA"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
@@ -7285,7 +7224,6 @@ fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback()
     assert!(message.contains("No instruction found for LDA"));
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
     let corpus = [
@@ -7311,7 +7249,6 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
     let corpus = [
@@ -7354,7 +7291,6 @@ fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fallback() {
     let line = "    LDA ($10,S),Y";
@@ -7365,7 +7301,6 @@ fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fall
     assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
     let corpus = [
@@ -7382,7 +7317,6 @@ fn opthread_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_pathological_line_corpus_matches_native_mode() {
     let corpus = [
@@ -7403,7 +7337,6 @@ fn opthread_runtime_mos6502_pathological_line_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65816_width_edge_program_matches_native_mode() {
     let source = [
@@ -7422,7 +7355,6 @@ fn opthread_runtime_m65816_width_edge_program_matches_native_mode() {
     assert_eq!(runtime.1, native.1, "diagnostic parity mismatch");
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
     let registry = default_registry();
@@ -7478,7 +7410,6 @@ fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
     assert_eq!(message_a, message_b);
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -7499,7 +7430,6 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
     let source = [
@@ -7528,7 +7458,6 @@ fn opthread_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
     assert_eq!(runtime.1, native.1, "diagnostic parity mismatch");
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65c02_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -7549,7 +7478,6 @@ fn opthread_runtime_m65c02_example_programs_match_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65816_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -7580,7 +7508,6 @@ fn opthread_runtime_m65816_example_programs_match_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() {
     let corpus = [
@@ -7601,7 +7528,6 @@ fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() 
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
     let corpus = [
@@ -7626,7 +7552,6 @@ fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
     let corpus = [
@@ -7657,7 +7582,6 @@ fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65c02_table_modes_match_native_mode() {
     let mut cases: Vec<(String, String)> = Vec::new();
@@ -7700,7 +7624,6 @@ fn opthread_runtime_m65c02_table_modes_match_native_mode() {
     }
 }
 
-#[cfg(feature = "opthread-runtime")]
 #[test]
 fn opthread_runtime_m65816_table_modes_match_native_mode() {
     let mut cases: Vec<(String, String)> = Vec::new();

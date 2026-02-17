@@ -379,7 +379,6 @@ impl PortableToken {
         }
     }
 
-    #[cfg(any(test, feature = "opthread-runtime"))]
     pub(crate) fn to_core_token(&self) -> Token {
         let kind = match &self.kind {
             PortableTokenKind::Identifier(name) => TokenKind::Identifier(name.clone()),

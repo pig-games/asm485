@@ -21,18 +21,18 @@ test:
 	cargo test
 
 test-opthread-runtime:
-	cargo test --features opthread-runtime opthread_runtime_mos6502_
+	cargo test opthread_runtime_mos6502_
 
 test-opthread-runtime-artifact:
-	cargo test --features "opthread-runtime opthread-runtime-opcpu-artifact" opthread_runtime_artifact_
+	cargo test --features opthread-runtime-opcpu-artifact opthread_runtime_artifact_
 
 test-opthread-runtime-intel:
-	cargo test --features "opthread-runtime opthread-runtime-intel8080-scaffold" opthread_runtime_intel8080_
-	cargo test --features "opthread-runtime opthread-runtime-intel8080-scaffold" opthread_runtime_intel8085_
-	cargo test --features "opthread-runtime opthread-runtime-intel8080-scaffold" opthread_runtime_z80_
+	cargo test --features opthread-runtime-intel8080-scaffold opthread_runtime_intel8080_
+	cargo test --features opthread-runtime-intel8080-scaffold opthread_runtime_intel8085_
+	cargo test --features opthread-runtime-intel8080-scaffold opthread_runtime_z80_
 
 test-opthread-rollout-criteria:
-	cargo test --features opthread-runtime opthread_rollout_criteria_
+	cargo test opthread_rollout_criteria_
 
 test-opthread-parity:
 	cargo test --features opthread-parity opthread_parity_smoke_instruction_bytes_and_diagnostics
