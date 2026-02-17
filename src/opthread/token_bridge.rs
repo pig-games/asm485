@@ -39,7 +39,8 @@ pub(crate) fn tokenize_parser_tokens_with_model(
         )
         .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
 
-    let core_tokens = runtime_tokens_to_core_tokens(&portable_tokens, register_checker)?;
+    let core_tokens =
+        runtime_tokens_to_core_tokens_with_source(&portable_tokens, Some(line), register_checker)?;
     let (end_span, end_token_text) = parser_end_metadata(line, line_num, &core_tokens);
     Ok((core_tokens, end_span, end_token_text))
 }
@@ -147,6 +148,14 @@ pub(crate) fn runtime_tokens_to_core_tokens(
     tokens: &[PortableToken],
     register_checker: &RegisterChecker,
 ) -> Result<Vec<Token>, ParseError> {
+    runtime_tokens_to_core_tokens_with_source(tokens, None, register_checker)
+}
+
+fn runtime_tokens_to_core_tokens_with_source(
+    tokens: &[PortableToken],
+    source_line: Option<&str>,
+    register_checker: &RegisterChecker,
+) -> Result<Vec<Token>, ParseError> {
     let mut core_tokens = Vec::with_capacity(tokens.len());
     for token in tokens {
         let span: Span = token.span.into();
@@ -157,15 +166,44 @@ pub(crate) fn runtime_tokens_to_core_tokens(
             });
         }
         let mut core_token = token.to_core_token();
+        if let Some(lexeme_text) = source_line
+            .and_then(|line| source_slice_for_span(line, &span))
+            .filter(|text| !text.is_empty())
+        {
+            match &mut core_token.kind {
+                TokenKind::Identifier(name) | TokenKind::Register(name) => {
+                    *name = lexeme_text.clone();
+                }
+                TokenKind::Number(number) => {
+                    number.text = lexeme_text.clone();
+                }
+                TokenKind::String(string) => {
+                    string.raw = lexeme_text;
+                }
+                _ => {}
+            }
+        }
         if let TokenKind::Identifier(name) = &core_token.kind {
-            let upper = name.to_ascii_uppercase();
-            if register_checker(upper.as_str()) {
+            if register_checker(name.to_ascii_uppercase().as_str()) {
                 core_token.kind = TokenKind::Register(name.clone());
             }
         }
         core_tokens.push(core_token);
     }
     Ok(core_tokens)
+}
+
+fn source_slice_for_span(line: &str, span: &Span) -> Option<String> {
+    let start = span.col_start.checked_sub(1)?;
+    let end = span.col_end.checked_sub(1)?;
+    if start >= end {
+        return None;
+    }
+    let bytes = line.as_bytes();
+    if end > bytes.len() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&bytes[start..end]).to_string())
 }
 
 fn parser_end_metadata(line: &str, line_num: u32, tokens: &[Token]) -> (Span, Option<String>) {

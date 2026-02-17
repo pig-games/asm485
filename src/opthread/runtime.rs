@@ -2270,7 +2270,8 @@ fn vm_token_lexeme_len(token: &PortableToken) -> usize {
     match &token.kind {
         PortableTokenKind::Identifier(name) | PortableTokenKind::Register(name) => name.len(),
         PortableTokenKind::Number { text, .. } => text.len(),
-        PortableTokenKind::String { raw, .. } => raw.len(),
+        // Budget string lexemes by encoded payload bytes; raw includes delimiters.
+        PortableTokenKind::String { bytes, .. } => bytes.len(),
         PortableTokenKind::Comma
         | PortableTokenKind::Colon
         | PortableTokenKind::Dollar

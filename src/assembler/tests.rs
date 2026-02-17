@@ -7175,6 +7175,40 @@ fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_author
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime_flag_is_off() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, false);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("z80".to_string());
+    cpu_override.program = vec![TokenizerVmOpcode::End as u8];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LD A,B", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("produced no tokens for non-empty source line"));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

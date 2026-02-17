@@ -2431,35 +2431,27 @@ impl<'a> AsmLine<'a> {
     }
     #[cfg(feature = "opthread-runtime")]
     fn process_with_runtime_tokenizer(&mut self, line: &str, line_num: u32) -> Option<LineStatus> {
-        if !self.opthread_runtime_enabled {
-            return None;
-        }
         let model = match self.opthread_execution_model.as_ref() {
             Some(model) => model,
             None => {
-                if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
-                    if crate::opthread::rollout::package_runtime_default_enabled_for_family(
-                        pipeline.family_id.as_str(),
-                    ) {
-                        let err = ParseError {
-                            message: format!(
-                                "opThread runtime model unavailable for authoritative family '{}'",
-                                pipeline.family_id.as_str()
-                            ),
-                            span: Span {
-                                line: line_num,
-                                col_start: 1,
-                                col_end: 1,
-                            },
-                        };
-                        self.last_error =
-                            Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                        self.last_error_column = Some(err.span.col_start);
-                        self.last_parser_error = Some(err);
-                        return Some(LineStatus::Error);
-                    }
-                }
-                return None;
+                let family_id = Self::resolve_pipeline_for_cpu(self.registry, self.cpu)
+                    .map(|pipeline| pipeline.family_id.as_str().to_string())
+                    .unwrap_or_else(|_| self.cpu.as_str().to_string());
+                let err = ParseError {
+                    message: format!(
+                        "opThread runtime tokenizer model unavailable for family '{}'",
+                        family_id
+                    ),
+                    span: Span {
+                        line: line_num,
+                        col_start: 1,
+                        col_end: 1,
+                    },
+                };
+                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.last_error_column = Some(err.span.col_start);
+                self.last_parser_error = Some(err);
+                return Some(LineStatus::Error);
             }
         };
 
