@@ -23,10 +23,12 @@ use crate::opthread::intel8080_vm::{
 };
 use crate::opthread::package::{
     canonicalize_hierarchy_metadata, canonicalize_token_policies,
-    default_runtime_diagnostic_catalog, default_token_policy_lexical_defaults,
-    encode_hierarchy_chunks_from_chunks, token_identifier_class, HierarchyChunks,
-    ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenPolicyDescriptor,
-    VmProgramDescriptor,
+    canonicalize_tokenizer_vm_programs, default_runtime_diagnostic_catalog,
+    default_token_policy_lexical_defaults, encode_hierarchy_chunks_from_chunks,
+    token_identifier_class, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
+    TokenCaseRule, TokenPolicyDescriptor, TokenizerVmDiagnosticMap, TokenizerVmLimits,
+    TokenizerVmOpcode, TokenizerVmProgramDescriptor, VmProgramDescriptor,
+    TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
@@ -120,6 +122,10 @@ pub fn build_hierarchy_chunks_from_registry(
     let mut token_policies = family_ids
         .iter()
         .map(|family| default_family_token_policy(family.as_str()))
+        .collect();
+    let mut tokenizer_vm_programs = family_ids
+        .iter()
+        .map(|family| default_family_tokenizer_vm_program(family.as_str()))
         .collect();
 
     let mut registers = Vec::new();
@@ -305,6 +311,7 @@ pub fn build_hierarchy_chunks_from_registry(
         &mut selectors,
     );
     canonicalize_token_policies(&mut token_policies);
+    canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
@@ -314,6 +321,7 @@ pub fn build_hierarchy_chunks_from_registry(
         strings: Vec::new(),
         diagnostics: default_runtime_diagnostic_catalog(),
         token_policies,
+        tokenizer_vm_programs,
         families,
         cpus,
         dialects,
@@ -349,6 +357,32 @@ fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
         number_suffix_hex: defaults.number_suffix_hex,
         operator_chars: defaults.operator_chars,
         multi_char_operators: defaults.multi_char_operators,
+    }
+}
+
+fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDescriptor {
+    TokenizerVmProgramDescriptor {
+        owner: ScopedOwner::Family(family_id.to_string()),
+        opcode_version: TOKENIZER_VM_OPCODE_VERSION_V1,
+        start_state: 0,
+        state_entry_offsets: vec![0],
+        limits: TokenizerVmLimits {
+            max_steps_per_line: 2048,
+            max_tokens_per_line: 256,
+            max_lexeme_bytes: 256,
+            max_errors_per_line: 16,
+        },
+        diagnostics: TokenizerVmDiagnosticMap {
+            invalid_char: "ott001".to_string(),
+            unterminated_string: "ott002".to_string(),
+            step_limit_exceeded: "ott003".to_string(),
+            token_limit_exceeded: "ott004".to_string(),
+            lexeme_limit_exceeded: "ott005".to_string(),
+            error_limit_exceeded: "ott006".to_string(),
+        },
+        // Empty-token VM program: runtime auto-mode falls back to host tokenizer
+        // until tokenizer VM programs are fully productionized.
+        program: vec![TokenizerVmOpcode::End as u8],
     }
 }
 

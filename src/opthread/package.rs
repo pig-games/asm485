@@ -14,6 +14,7 @@
 //! - `REGS` (scoped register descriptors)
 //! - `FORM` (scoped form descriptors)
 //! - `TABL` (scoped VM instruction program descriptors)
+//! - `TKVM` (scoped tokenizer VM program descriptors)
 
 use std::collections::HashMap;
 
@@ -40,11 +41,13 @@ const CHUNK_REGS: [u8; 4] = *b"REGS";
 const CHUNK_FORM: [u8; 4] = *b"FORM";
 const CHUNK_TABL: [u8; 4] = *b"TABL";
 const CHUNK_MSEL: [u8; 4] = *b"MSEL";
+const CHUNK_TKVM: [u8; 4] = *b"TKVM";
 
 pub const DIAG_OPTHREAD_MISSING_VM_PROGRAM: &str = "OTR001";
 pub const DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE: &str = "OTR002";
 pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02: &str = "OTR003";
 pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502: &str = "OTR004";
+pub const TOKENIZER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 
 /// Package metadata descriptor (`META` chunk).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,6 +94,85 @@ pub struct ModeSelectorDescriptor {
     pub priority: u16,
     pub unstable_widen: bool,
     pub width_rank: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TokenizerVmLimits {
+    pub max_steps_per_line: u32,
+    pub max_tokens_per_line: u32,
+    pub max_lexeme_bytes: u32,
+    pub max_errors_per_line: u32,
+}
+
+impl Default for TokenizerVmLimits {
+    fn default() -> Self {
+        Self {
+            max_steps_per_line: 2048,
+            max_tokens_per_line: 256,
+            max_lexeme_bytes: 256,
+            max_errors_per_line: 16,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TokenizerVmDiagnosticMap {
+    pub invalid_char: String,
+    pub unterminated_string: String,
+    pub step_limit_exceeded: String,
+    pub token_limit_exceeded: String,
+    pub lexeme_limit_exceeded: String,
+    pub error_limit_exceeded: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TokenizerVmOpcode {
+    End = 0x00,
+    ReadChar = 0x01,
+    Advance = 0x02,
+    StartLexeme = 0x03,
+    PushChar = 0x04,
+    EmitToken = 0x05,
+    SetState = 0x06,
+    Jump = 0x07,
+    JumpIfEol = 0x08,
+    JumpIfByteEq = 0x09,
+    JumpIfClass = 0x0A,
+    Fail = 0x0B,
+    EmitDiag = 0x0C,
+}
+
+impl TokenizerVmOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0x00 => Some(Self::End),
+            0x01 => Some(Self::ReadChar),
+            0x02 => Some(Self::Advance),
+            0x03 => Some(Self::StartLexeme),
+            0x04 => Some(Self::PushChar),
+            0x05 => Some(Self::EmitToken),
+            0x06 => Some(Self::SetState),
+            0x07 => Some(Self::Jump),
+            0x08 => Some(Self::JumpIfEol),
+            0x09 => Some(Self::JumpIfByteEq),
+            0x0A => Some(Self::JumpIfClass),
+            0x0B => Some(Self::Fail),
+            0x0C => Some(Self::EmitDiag),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenizerVmProgramDescriptor {
+    pub owner: ScopedOwner,
+    pub opcode_version: u16,
+    pub start_state: u16,
+    pub state_entry_offsets: Vec<u32>,
+    pub limits: TokenizerVmLimits,
+    pub diagnostics: TokenizerVmDiagnosticMap,
+    pub program: Vec<u8>,
 }
 
 /// Case-folding behavior for tokenizer/literal matching policy.
@@ -197,6 +279,7 @@ pub struct HierarchyChunks {
     pub strings: Vec<String>,
     pub diagnostics: Vec<DiagnosticDescriptor>,
     pub token_policies: Vec<TokenPolicyDescriptor>,
+    pub tokenizer_vm_programs: Vec<TokenizerVmProgramDescriptor>,
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
@@ -367,6 +450,7 @@ pub fn encode_hierarchy_chunks_full(
         strings: Vec::new(),
         diagnostics: Vec::new(),
         token_policies: Vec::new(),
+        tokenizer_vm_programs: Vec::new(),
         families: families.to_vec(),
         cpus: cpus.to_vec(),
         dialects: dialects.to_vec(),
@@ -392,6 +476,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     let mut strings = chunks.strings.to_vec();
     let mut diagnostics = chunks.diagnostics.to_vec();
     let mut token_policies = chunks.token_policies.to_vec();
+    let mut tokenizer_vm_programs = chunks.tokenizer_vm_programs.to_vec();
     let mut fams = chunks.families.to_vec();
     let mut cpus = chunks.cpus.to_vec();
     let mut dials = chunks.dialects.to_vec();
@@ -409,6 +494,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
         &mut selectors,
     );
     canonicalize_token_policies(&mut token_policies);
+    canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
     canonicalize_package_support_chunks(&mut strings, &mut diagnostics);
 
     let mut chunks = vec![
@@ -425,6 +511,9 @@ pub fn encode_hierarchy_chunks_from_chunks(
     ];
     if !token_policies.is_empty() {
         chunks.insert(3, (CHUNK_TOKS, encode_toks_chunk(&token_policies)?));
+    }
+    if !tokenizer_vm_programs.is_empty() {
+        chunks.insert(4, (CHUNK_TKVM, encode_tkvm_chunk(&tokenizer_vm_programs)?));
     }
 
     encode_container(&chunks)
@@ -734,12 +823,118 @@ pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDe
     });
 }
 
+pub(crate) fn canonicalize_tokenizer_vm_programs(
+    tokenizer_vm_programs: &mut Vec<TokenizerVmProgramDescriptor>,
+) {
+    for entry in tokenizer_vm_programs.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+    }
+    tokenizer_vm_programs.sort_by(|left, right| {
+        let left_owner_kind = match left.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let right_owner_kind = match right.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let left_owner_id = match &left.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        let right_owner_id = match &right.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        left_owner_kind
+            .cmp(&right_owner_kind)
+            .then_with(|| left_owner_id.cmp(&right_owner_id))
+            .then_with(|| left.opcode_version.cmp(&right.opcode_version))
+            .then_with(|| left.start_state.cmp(&right.start_state))
+            .then_with(|| left.state_entry_offsets.cmp(&right.state_entry_offsets))
+            .then_with(|| {
+                left.limits
+                    .max_steps_per_line
+                    .cmp(&right.limits.max_steps_per_line)
+            })
+            .then_with(|| {
+                left.limits
+                    .max_tokens_per_line
+                    .cmp(&right.limits.max_tokens_per_line)
+            })
+            .then_with(|| {
+                left.limits
+                    .max_lexeme_bytes
+                    .cmp(&right.limits.max_lexeme_bytes)
+            })
+            .then_with(|| {
+                left.limits
+                    .max_errors_per_line
+                    .cmp(&right.limits.max_errors_per_line)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .invalid_char
+                    .cmp(&right.diagnostics.invalid_char)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .unterminated_string
+                    .cmp(&right.diagnostics.unterminated_string)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .step_limit_exceeded
+                    .cmp(&right.diagnostics.step_limit_exceeded)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .token_limit_exceeded
+                    .cmp(&right.diagnostics.token_limit_exceeded)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .lexeme_limit_exceeded
+                    .cmp(&right.diagnostics.lexeme_limit_exceeded)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .error_limit_exceeded
+                    .cmp(&right.diagnostics.error_limit_exceeded)
+            })
+            .then_with(|| left.program.cmp(&right.program))
+    });
+    tokenizer_vm_programs.dedup_by(|left, right| {
+        left.opcode_version == right.opcode_version
+            && left.start_state == right.start_state
+            && left.state_entry_offsets == right.state_entry_offsets
+            && left.limits == right.limits
+            && left.diagnostics == right.diagnostics
+            && left.program == right.program
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+}
+
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
     let toc = parse_toc(bytes)?;
     let meta_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_META)?;
     let strs_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_STRS)?;
     let diag_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_DIAG)?;
     let toks_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TOKS)?;
+    let tkvm_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TKVM)?;
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
@@ -763,6 +958,10 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         },
         token_policies: match toks_bytes {
             Some(payload) => decode_toks_chunk(payload)?,
+            None => Vec::new(),
+        },
+        tokenizer_vm_programs: match tkvm_bytes {
+            Some(payload) => decode_tkvm_chunk(payload)?,
             None => Vec::new(),
         },
         families: decode_fams_chunk(fams_bytes)?,
@@ -1558,7 +1757,112 @@ fn decode_msel_chunk(bytes: &[u8]) -> Result<Vec<ModeSelectorDescriptor>, OpcpuC
     Ok(entries)
 }
 
+fn encode_tkvm_chunk(
+    programs: &[TokenizerVmProgramDescriptor],
+) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(programs.len(), "TKVM count")?);
+    for entry in programs {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "TKVM", owner_id)?;
+        write_u16(&mut out, entry.opcode_version);
+        write_u16(&mut out, entry.start_state);
+        write_u32(
+            &mut out,
+            u32_count(
+                entry.state_entry_offsets.len(),
+                "TKVM state_entry_offsets count",
+            )?,
+        );
+        for offset in &entry.state_entry_offsets {
+            write_u32(&mut out, *offset);
+        }
+        write_u32(&mut out, entry.limits.max_steps_per_line);
+        write_u32(&mut out, entry.limits.max_tokens_per_line);
+        write_u32(&mut out, entry.limits.max_lexeme_bytes);
+        write_u32(&mut out, entry.limits.max_errors_per_line);
+        write_string(&mut out, "TKVM", &entry.diagnostics.invalid_char)?;
+        write_string(&mut out, "TKVM", &entry.diagnostics.unterminated_string)?;
+        write_string(&mut out, "TKVM", &entry.diagnostics.step_limit_exceeded)?;
+        write_string(&mut out, "TKVM", &entry.diagnostics.token_limit_exceeded)?;
+        write_string(&mut out, "TKVM", &entry.diagnostics.lexeme_limit_exceeded)?;
+        write_string(&mut out, "TKVM", &entry.diagnostics.error_limit_exceeded)?;
+        write_u32(
+            &mut out,
+            u32_count(entry.program.len(), "TKVM program byte length")?,
+        );
+        out.extend_from_slice(&entry.program);
+    }
+    Ok(out)
+}
+
+fn decode_tkvm_chunk(bytes: &[u8]) -> Result<Vec<TokenizerVmProgramDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "TKVM");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "TKVM".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        let opcode_version = cur.read_u16()?;
+        let start_state = cur.read_u16()?;
+        let state_count = cur.read_u32()? as usize;
+        let mut state_entry_offsets = Vec::with_capacity(state_count);
+        for _ in 0..state_count {
+            state_entry_offsets.push(cur.read_u32()?);
+        }
+        let limits = TokenizerVmLimits {
+            max_steps_per_line: cur.read_u32()?,
+            max_tokens_per_line: cur.read_u32()?,
+            max_lexeme_bytes: cur.read_u32()?,
+            max_errors_per_line: cur.read_u32()?,
+        };
+        let diagnostics = TokenizerVmDiagnosticMap {
+            invalid_char: cur.read_string()?,
+            unterminated_string: cur.read_string()?,
+            step_limit_exceeded: cur.read_string()?,
+            token_limit_exceeded: cur.read_string()?,
+            lexeme_limit_exceeded: cur.read_string()?,
+            error_limit_exceeded: cur.read_string()?,
+        };
+        let program_len = cur.read_u32()? as usize;
+        let program = cur
+            .read_exact(program_len, "tokenizer vm program")?
+            .to_vec();
+        entries.push(TokenizerVmProgramDescriptor {
+            owner,
+            opcode_version,
+            start_state,
+            state_entry_offsets,
+            limits,
+            diagnostics,
+            program,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_u16(out: &mut Vec<u8>, value: u16) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
@@ -1626,6 +1930,11 @@ impl<'a> Decoder<'a> {
     fn read_u32(&mut self) -> Result<u32, OpcpuCodecError> {
         let slice = self.read_exact(4, "u32")?;
         Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+    }
+
+    fn read_u16(&mut self) -> Result<u16, OpcpuCodecError> {
+        let slice = self.read_exact(2, "u16")?;
+        Ok(u16::from_le_bytes([slice[0], slice[1]]))
     }
 
     fn read_string(&mut self) -> Result<String, OpcpuCodecError> {
@@ -2129,6 +2438,7 @@ mod tests {
             strings: Vec::new(),
             diagnostics: Vec::new(),
             token_policies: sample_token_policies(),
+            tokenizer_vm_programs: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
