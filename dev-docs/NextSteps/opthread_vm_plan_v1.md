@@ -30,7 +30,7 @@ All items below are true:
 - Default parser VM sequencing now uses primitive envelopes plus deterministic terminal parser diagnostics (no default statement-envelope fallback dependency).
 
 ### 3.2 In progress / pending
-- Final diagnostics mapping/package-scope hardening is still pending.
+- Phase P3 contract freeze/validation hardening is complete.
 - Retro-native ABI hardening/conformance is not yet finalized.
 
 ## 4. Workstream Phases
@@ -64,7 +64,7 @@ Acceptance:
 ## Phase P3: Contract Freeze and Validation Hardening
 - [x] Freeze tokenizer/parser/expression contract payloads and version checks.
 - [x] Add explicit compatibility/error behavior for version mismatches.
-- [ ] Ensure diagnostics mappings are stable and package-scoped.
+- [x] Ensure diagnostics mappings are stable and package-scoped.
 
 Acceptance:
 - Contract and version mismatch behavior is deterministic and fully test-covered.
