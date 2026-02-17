@@ -2,7 +2,7 @@
 
 This directory contains a basic opForge-format host harness scaffold that assembles into a C64 PRG:
 
-- `/Users/erik/Code/Retro/opForge/worktrees/opthread-vm-family-impl/examples/opthread/c64/native6502_harness.asm`
+- `examples/opthread/c64/native6502_harness.asm`
 
 ## What it does
 
@@ -16,25 +16,26 @@ This directory contains a basic opForge-format host harness scaffold that assemb
 5. `parse_line`
 6. `encode_instruction`
 7. `last_error`
-- Runs a tiny in-program self-test:
-1. Calls `init` and checks status `0`.
-2. Calls `set_pipeline` and expects stubbed runtime error `3`.
-3. Calls `last_error` and checks output length mirrors stored error length.
+- Runs a tiny in-program scaffold flow:
+1. Calls `init`.
+2. Calls `set_pipeline` (currently stubbed to runtime error `3`).
+3. Calls `last_error`.
 
 Visual result:
-- Border `green` means self-test passed.
-- Border `red` means self-test failed.
+- Border color is mapped from the most recent snapshotted status code.
+- With current stubs, you should expect `STATUS_RUNTIME_ERROR` (`3`) signaling.
 
 ## Build
 
 From repo root:
 
 ```bash
-cargo run -- examples/opthread/c64/native6502_harness.asm
+cargo run -- -i examples/opthread/c64/native6502_harness.asm -x build/opthread-native6502-harness.hex
 ```
 
 Outputs:
 
+- `build/opthread-native6502-harness.hex`
 - `build/opthread-native6502-harness.prg`
 - `build/opthread-native6502-harness.map`
 

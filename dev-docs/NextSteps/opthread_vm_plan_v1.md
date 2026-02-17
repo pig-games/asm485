@@ -32,7 +32,7 @@ All items below are true:
 - Native 6502 host harness v1 envelope is implemented with ordinal-driven entrypoints and control-block status/length reporting.
 - Native harness shakeout fixtures now cover deterministic success flow and `OPC`/`OTR`/`ott`/`otp` failure namespaces through the harness boundary.
 - Native harness now exposes byte-payload wire entrypoints for process-boundary driving of `set_pipeline`, `tokenize_line`, `parse_line`, `encode_instruction`, and `last_error`.
-- Basic C64/VICE opForge-format host harness scaffold now assembles to PRG with self-test and visual pass/fail signaling.
+- Basic C64/VICE opForge-format host harness scaffold now assembles to PRG with control-block/status signaling visible in-program.
 
 ### 3.2 In progress / pending
 - Phase P3 contract freeze/validation hardening is complete.
