@@ -12,6 +12,7 @@ use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::core::tokenizer::{
     NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
 };
+use crate::families::intel8080::handler::resolve_operands as resolve_intel8080_operands;
 use crate::families::intel8080::table::{
     lookup_instruction, ArgType as IntelArgType, InstructionEntry as IntelInstructionEntry,
 };
@@ -1765,7 +1766,7 @@ impl HierarchyExecutionModel {
         } else if resolved.cpu_id.eq_ignore_ascii_case("8085") {
             I8085CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
         } else {
-            return Ok(None);
+            resolve_intel8080_operands(mnemonic, &parsed, ctx).map_err(|err| err.message)
         };
         let resolved_operands = match resolved_operands {
             Ok(ops) => ops,
@@ -1854,6 +1855,7 @@ fn intel8080_lookup_key(operand: &IntelOperand) -> Option<String> {
         IntelOperand::Register(name, _) => Some(name.to_string()),
         IntelOperand::Indirect(name, _) if name.eq_ignore_ascii_case("hl") => Some("M".to_string()),
         IntelOperand::Indirect(name, _) => Some(name.to_string()),
+        IntelOperand::Indexed { base, offset, .. } if *offset == 0 => Some(base.to_string()),
         IntelOperand::Condition(name, _) => Some(name.to_string()),
         _ => None,
     }
@@ -4477,6 +4479,32 @@ mod tests {
             .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
             .expect("intel scaffold should encode MVI");
         assert_eq!(bytes, Some(vec![0x3E, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_jp_ix_iy() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ix_operands = vec![Expr::Indirect(
+            Box::new(Expr::Identifier("IX".to_string(), span)),
+            span,
+        )];
+        let iy_operands = vec![Expr::Indirect(
+            Box::new(Expr::Identifier("IY".to_string(), span)),
+            span,
+        )];
+        let ctx = TestAssemblerContext::new();
+
+        let ix_bytes = model
+            .encode_instruction_from_exprs("z80", None, "JP", &ix_operands, &ctx)
+            .expect("JP (IX) should resolve via intel expr resolver");
+        let iy_bytes = model
+            .encode_instruction_from_exprs("z80", None, "JP", &iy_operands, &ctx)
+            .expect("JP (IY) should resolve via intel expr resolver");
+
+        assert_eq!(ix_bytes, Some(vec![0xDD, 0xE9]));
+        assert_eq!(iy_bytes, Some(vec![0xFD, 0xE9]));
     }
 
     #[test]
