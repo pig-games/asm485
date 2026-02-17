@@ -57,7 +57,7 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 use crate::opthread::runtime::HierarchyExecutionModel;
-use crate::opthread::token_bridge::tokenize_parser_tokens_with_model;
+use crate::opthread::token_bridge::parse_line_with_model;
 use crate::z80::module::Z80CpuModule;
 
 use cli::{
@@ -2455,7 +2455,7 @@ impl<'a> AsmLine<'a> {
             }
         };
 
-        let (core_tokens, end_span, end_token_text) = match tokenize_parser_tokens_with_model(
+        let (ast, end_span, end_token_text) = match parse_line_with_model(
             model,
             self.cpu.as_str(),
             None,
@@ -2473,18 +2473,9 @@ impl<'a> AsmLine<'a> {
             }
         };
 
-        let mut parser = asm_parser::Parser::from_tokens(core_tokens, end_span, end_token_text);
-        self.line_end_span = Some(parser.end_span());
-        self.line_end_token = parser.end_token_text().map(|s| s.to_string());
-        match parser.parse_line() {
-            Ok(ast) => self.process_ast(ast),
-            Err(err) => {
-                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                self.last_error_column = Some(err.span.col_start);
-                self.last_parser_error = Some(err);
-                LineStatus::Error
-            }
-        }
+        self.line_end_span = Some(end_span);
+        self.line_end_token = end_token_text;
+        self.process_ast(ast)
     }
 
     fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {

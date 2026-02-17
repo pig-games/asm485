@@ -3,11 +3,14 @@
 
 use std::sync::OnceLock;
 
-use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError, Parser};
+use crate::core::parser::{
+    AssignOp, Expr, Label, LineAst, ParseError, Parser, SignatureAtom, StatementSignature, UseItem,
+    UseParam,
+};
 use crate::core::registry::ModuleRegistry;
 use crate::core::text_utils::is_ident_start;
 use crate::core::tokenizer::{
-    register_checker_none, OperatorKind, RegisterChecker, Span, Token, TokenKind,
+    register_checker_none, ConditionalKind, OperatorKind, RegisterChecker, Span, Token, TokenKind,
 };
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
@@ -58,7 +61,7 @@ pub(crate) fn parse_line_with_default_model(
         },
     })?;
     let register_checker = register_checker_none();
-    let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+    let (line_ast, _, _) = parse_line_with_model(
         model,
         DEFAULT_TOKENIZER_CPU_ID,
         None,
@@ -66,11 +69,30 @@ pub(crate) fn parse_line_with_default_model(
         line_num,
         &register_checker,
     )?;
+    Ok(line_ast)
+}
+
+pub(crate) fn parse_line_with_model(
+    model: &HierarchyExecutionModel,
+    cpu_id: &str,
+    dialect_override: Option<&str>,
+    line: &str,
+    line_num: u32,
+    register_checker: &RegisterChecker,
+) -> Result<(LineAst, Span, Option<String>), ParseError> {
+    let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+        model,
+        cpu_id,
+        dialect_override,
+        line,
+        line_num,
+        register_checker,
+    )?;
     let parser_contract = model
-        .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+        .validate_parser_contract_for_assembler(cpu_id, dialect_override, tokens.len())
         .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
     let parser_vm_program = model
-        .resolve_parser_vm_program(DEFAULT_TOKENIZER_CPU_ID, None)
+        .resolve_parser_vm_program(cpu_id, dialect_override)
         .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?
         .ok_or_else(|| {
             parse_error_at_end(
@@ -82,15 +104,16 @@ pub(crate) fn parse_line_with_default_model(
                 ),
             )
         })?;
-    parse_line_with_parser_vm(
+    let line_ast = parse_line_with_parser_vm(
         tokens,
         end_span,
-        end_token_text,
+        end_token_text.clone(),
         &parser_contract,
         &parser_vm_program,
         line,
         line_num,
-    )
+    )?;
+    Ok((line_ast, end_span, end_token_text))
 }
 
 pub(crate) fn tokenize_line_with_default_model(
@@ -368,8 +391,8 @@ fn parse_statement_envelope_from_tokens(
             ..
         })
     ) {
-        let parsed = Parser::parse_line_from_tokens(tokens.to_vec(), end_span, end_token_text)?;
-        return Ok(PortableLineAst::from_core_line_ast(&parsed));
+        return parse_dot_directive_line_from_tokens(tokens, idx, label, end_span, end_token_text)
+            .map(|line| PortableLineAst::from_core_line_ast(&line));
     }
 
     let mnemonic = match tokens.get(idx) {
@@ -377,9 +400,18 @@ fn parse_statement_envelope_from_tokens(
             kind: TokenKind::Identifier(name),
             ..
         }) => name.clone(),
-        _ => {
-            let parsed = Parser::parse_line_from_tokens(tokens.to_vec(), end_span, end_token_text)?;
-            return Ok(PortableLineAst::from_core_line_ast(&parsed));
+        Some(token) => {
+            return Err(ParseError {
+                message: "Expected mnemonic identifier".to_string(),
+                span: token.span,
+            });
+        }
+        None => {
+            return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
+                label,
+                mnemonic: None,
+                operands: Vec::new(),
+            }))
         }
     };
     idx = idx.saturating_add(1);
@@ -443,6 +475,785 @@ fn parse_statement_envelope_from_tokens(
     }))
 }
 
+fn parse_dot_directive_line_from_tokens(
+    tokens: &[Token],
+    dot_index: usize,
+    label: Option<Label>,
+    end_span: Span,
+    end_token_text: Option<String>,
+) -> Result<LineAst, ParseError> {
+    let mut cursor = dot_index.saturating_add(1);
+    let (name, name_span) = parse_ident_like_at(
+        tokens,
+        &mut cursor,
+        "Expected conditional after '.'",
+        end_span,
+    )?;
+    let upper = name.to_ascii_uppercase();
+
+    if upper.as_str() == "STATEMENT" {
+        let keyword = match tokens.get(cursor) {
+            Some(Token {
+                kind: TokenKind::Identifier(keyword),
+                ..
+            }) => {
+                cursor = cursor.saturating_add(1);
+                keyword.clone()
+            }
+            Some(Token {
+                kind: TokenKind::Register(keyword),
+                ..
+            }) => {
+                cursor = cursor.saturating_add(1);
+                keyword.clone()
+            }
+            Some(token) => {
+                return Err(ParseError {
+                    message: "Expected statement keyword".to_string(),
+                    span: token.span,
+                })
+            }
+            None => {
+                return Err(ParseError {
+                    message: "Expected statement keyword".to_string(),
+                    span: end_span,
+                })
+            }
+        };
+        let signature =
+            parse_statement_signature_from_tokens(tokens, &mut cursor, false, end_span)?;
+        let tail_span = prev_span_at(tokens, cursor, end_span);
+        return Ok(LineAst::StatementDef {
+            keyword,
+            signature,
+            span: Span {
+                line: name_span.line,
+                col_start: name_span.col_start,
+                col_end: tail_span.col_end,
+            },
+        });
+    }
+
+    if upper.as_str() == "ENDSTATEMENT" {
+        if cursor < tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected tokens after .endstatement".to_string(),
+                span: tokens[cursor].span,
+            });
+        }
+        return Ok(LineAst::StatementEnd { span: name_span });
+    }
+
+    if upper.as_str() == "USE" {
+        return parse_use_directive_from_tokens(
+            tokens,
+            &mut cursor,
+            name_span,
+            end_span,
+            end_token_text,
+        );
+    }
+    if upper.as_str() == "PLACE" {
+        return parse_place_directive_from_tokens(
+            tokens,
+            &mut cursor,
+            name_span,
+            end_span,
+            end_token_text,
+        );
+    }
+    if upper.as_str() == "PACK" {
+        return parse_pack_directive_from_tokens(tokens, &mut cursor, name_span, end_span);
+    }
+
+    if matches!(
+        upper.as_str(),
+        "MACRO" | "SEGMENT" | "ENDMACRO" | "ENDSEGMENT" | "ENDM" | "ENDS"
+    ) {
+        return Ok(LineAst::Statement {
+            label,
+            mnemonic: Some(format!(".{name}")),
+            operands: Vec::new(),
+        });
+    }
+
+    if let Some((kind, needs_expr, list_exprs)) = dot_conditional_kind(&upper) {
+        let mut exprs: Vec<Expr> = Vec::new();
+        if needs_expr {
+            if list_exprs {
+                let mut start = cursor;
+                let mut depth_paren = 0i32;
+                let mut depth_bracket = 0i32;
+                let mut depth_brace = 0i32;
+                while cursor < tokens.len() {
+                    let token = &tokens[cursor];
+                    match token.kind {
+                        TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
+                        TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
+                        TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
+                        TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
+                        TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
+                        TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
+                        _ => {}
+                    }
+                    if matches!(token.kind, TokenKind::Comma)
+                        && depth_paren == 0
+                        && depth_bracket == 0
+                        && depth_brace == 0
+                    {
+                        parse_operand_expr_range(
+                            tokens,
+                            start,
+                            cursor,
+                            cursor,
+                            end_span,
+                            end_token_text.clone(),
+                            &mut exprs,
+                        )?;
+                        if matches!(exprs.last(), Some(Expr::Error(_, _))) {
+                            break;
+                        }
+                        start = cursor.saturating_add(1);
+                    }
+                    cursor = cursor.saturating_add(1);
+                }
+                if !matches!(exprs.last(), Some(Expr::Error(_, _))) {
+                    parse_operand_expr_range(
+                        tokens,
+                        start,
+                        tokens.len(),
+                        tokens.len(),
+                        end_span,
+                        end_token_text,
+                        &mut exprs,
+                    )?;
+                }
+            } else {
+                let expr = match Parser::parse_expr_from_tokens(
+                    tokens[cursor..].to_vec(),
+                    end_span,
+                    end_token_text,
+                ) {
+                    Ok(expr) => expr,
+                    Err(err) => Expr::Error(err.message, err.span),
+                };
+                exprs.push(expr);
+            }
+        }
+        return Ok(LineAst::Conditional {
+            kind,
+            exprs,
+            span: name_span,
+        });
+    }
+
+    let mut operands: Vec<Expr> = Vec::new();
+    if cursor < tokens.len() {
+        let mut depth_paren = 0i32;
+        let mut depth_bracket = 0i32;
+        let mut depth_brace = 0i32;
+        let mut start = cursor;
+        while cursor < tokens.len() {
+            let token = &tokens[cursor];
+            match token.kind {
+                TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
+                TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
+                TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
+                TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
+                TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
+                _ => {}
+            }
+            if matches!(token.kind, TokenKind::Comma)
+                && depth_paren == 0
+                && depth_bracket == 0
+                && depth_brace == 0
+            {
+                parse_operand_expr_range(
+                    tokens,
+                    start,
+                    cursor,
+                    cursor,
+                    end_span,
+                    end_token_text.clone(),
+                    &mut operands,
+                )?;
+                if matches!(operands.last(), Some(Expr::Error(_, _))) {
+                    break;
+                }
+                start = cursor.saturating_add(1);
+            }
+            cursor = cursor.saturating_add(1);
+        }
+        if !matches!(operands.last(), Some(Expr::Error(_, _))) {
+            parse_operand_expr_range(
+                tokens,
+                start,
+                tokens.len(),
+                tokens.len(),
+                end_span,
+                end_token_text,
+                &mut operands,
+            )?;
+        }
+    }
+
+    Ok(LineAst::Statement {
+        label,
+        mnemonic: Some(format!(".{name}")),
+        operands,
+    })
+}
+
+fn parse_place_directive_from_tokens(
+    tokens: &[Token],
+    cursor: &mut usize,
+    start_span: Span,
+    end_span: Span,
+    end_token_text: Option<String>,
+) -> Result<LineAst, ParseError> {
+    let (section, section_span) =
+        parse_ident_like_at(tokens, cursor, "Expected section name for .place", end_span)?;
+    let (in_kw, in_span) = parse_ident_like_at(
+        tokens,
+        cursor,
+        "Expected 'in' in .place directive",
+        end_span,
+    )?;
+    if !in_kw.eq_ignore_ascii_case("in") {
+        return Err(ParseError {
+            message: "Expected 'in' in .place directive".to_string(),
+            span: in_span,
+        });
+    }
+    let (region, _) =
+        parse_ident_like_at(tokens, cursor, "Expected region name for .place", end_span)?;
+
+    let mut align = None;
+    if consume_kind_at(tokens, cursor, TokenKind::Comma) {
+        let (key, key_span) = parse_ident_like_at(
+            tokens,
+            cursor,
+            "Expected option key after ',' in .place directive",
+            end_span,
+        )?;
+        if !key.eq_ignore_ascii_case("align") {
+            return Err(ParseError {
+                message: "Unknown .place option key".to_string(),
+                span: key_span,
+            });
+        }
+        if !match_operator_at(tokens, cursor, OperatorKind::Eq) {
+            return Err(ParseError {
+                message: "Expected '=' after align in .place directive".to_string(),
+                span: current_span_at(tokens, *cursor, end_span),
+            });
+        }
+        align = Some(Parser::parse_expr_from_tokens(
+            tokens[*cursor..].to_vec(),
+            end_span,
+            end_token_text,
+        )?);
+        *cursor = tokens.len();
+    }
+
+    if *cursor < tokens.len() {
+        return Err(ParseError {
+            message: "Unexpected trailing tokens".to_string(),
+            span: tokens[*cursor].span,
+        });
+    }
+
+    let tail_span = if *cursor == 0 {
+        section_span
+    } else {
+        prev_span_at(tokens, *cursor, end_span)
+    };
+    Ok(LineAst::Place {
+        section,
+        region,
+        align,
+        span: Span {
+            line: start_span.line,
+            col_start: start_span.col_start,
+            col_end: tail_span.col_end,
+        },
+    })
+}
+
+fn parse_pack_directive_from_tokens(
+    tokens: &[Token],
+    cursor: &mut usize,
+    start_span: Span,
+    end_span: Span,
+) -> Result<LineAst, ParseError> {
+    let (in_kw, in_span) =
+        parse_ident_like_at(tokens, cursor, "Expected 'in' in .pack directive", end_span)?;
+    if !in_kw.eq_ignore_ascii_case("in") {
+        return Err(ParseError {
+            message: "Expected 'in' in .pack directive".to_string(),
+            span: in_span,
+        });
+    }
+    let (region, _) =
+        parse_ident_like_at(tokens, cursor, "Expected region name for .pack", end_span)?;
+    if !consume_kind_at(tokens, cursor, TokenKind::Colon) {
+        return Err(ParseError {
+            message: "Expected ':' in .pack directive".to_string(),
+            span: current_span_at(tokens, *cursor, end_span),
+        });
+    }
+
+    let mut sections = Vec::new();
+    let (first_section, _) = parse_ident_like_at(
+        tokens,
+        cursor,
+        "Expected at least one section in .pack directive",
+        end_span,
+    )?;
+    sections.push(first_section);
+    while consume_kind_at(tokens, cursor, TokenKind::Comma) {
+        let (name, _) = parse_ident_like_at(
+            tokens,
+            cursor,
+            "Expected section name after ',' in .pack directive",
+            end_span,
+        )?;
+        sections.push(name);
+    }
+
+    if *cursor < tokens.len() {
+        return Err(ParseError {
+            message: "Unexpected trailing tokens".to_string(),
+            span: tokens[*cursor].span,
+        });
+    }
+    let tail_span = prev_span_at(tokens, *cursor, start_span);
+    Ok(LineAst::Pack {
+        region,
+        sections,
+        span: Span {
+            line: start_span.line,
+            col_start: start_span.col_start,
+            col_end: tail_span.col_end,
+        },
+    })
+}
+
+fn parse_use_directive_from_tokens(
+    tokens: &[Token],
+    cursor: &mut usize,
+    start_span: Span,
+    end_span: Span,
+    end_token_text: Option<String>,
+) -> Result<LineAst, ParseError> {
+    let (module_id, _) =
+        parse_ident_like_at(tokens, cursor, "Expected module id after .use", end_span)?;
+    let mut alias = None;
+    let mut items = Vec::new();
+    let mut params = Vec::new();
+
+    if match_keyword_at(tokens, cursor, "as") {
+        let (name, _) = parse_ident_like_at(
+            tokens,
+            cursor,
+            "Expected alias identifier after 'as'",
+            end_span,
+        )?;
+        alias = Some(name);
+    }
+
+    if consume_kind_at(tokens, cursor, TokenKind::OpenParen) {
+        if consume_kind_at(tokens, cursor, TokenKind::CloseParen) {
+            return Err(ParseError {
+                message: "Selective import list cannot be empty".to_string(),
+                span: prev_span_at(tokens, *cursor, end_span),
+            });
+        }
+        if match_operator_at(tokens, cursor, OperatorKind::Multiply) {
+            let star_span = prev_span_at(tokens, *cursor, end_span);
+            if match_keyword_at(tokens, cursor, "as") {
+                return Err(ParseError {
+                    message: "Wildcard import cannot have an alias".to_string(),
+                    span: current_span_at(tokens, *cursor, end_span),
+                });
+            }
+            if !consume_kind_at(tokens, cursor, TokenKind::CloseParen) {
+                return Err(ParseError {
+                    message: "Wildcard import must be the only selective item".to_string(),
+                    span: current_span_at(tokens, *cursor, end_span),
+                });
+            }
+            items.push(UseItem {
+                name: "*".to_string(),
+                alias: None,
+                span: star_span,
+            });
+        } else {
+            loop {
+                let (name, span) = parse_ident_like_at(
+                    tokens,
+                    cursor,
+                    "Expected identifier in selective import list",
+                    end_span,
+                )?;
+                let mut item_alias = None;
+                if match_keyword_at(tokens, cursor, "as") {
+                    let (alias_name, _) = parse_ident_like_at(
+                        tokens,
+                        cursor,
+                        "Expected alias in selective import list",
+                        end_span,
+                    )?;
+                    item_alias = Some(alias_name);
+                }
+                items.push(UseItem {
+                    name,
+                    alias: item_alias,
+                    span,
+                });
+                if consume_kind_at(tokens, cursor, TokenKind::CloseParen) {
+                    break;
+                }
+                if !consume_kind_at(tokens, cursor, TokenKind::Comma) {
+                    return Err(ParseError {
+                        message: "Expected ',' or ')' in selective import list".to_string(),
+                        span: current_span_at(tokens, *cursor, end_span),
+                    });
+                }
+            }
+        }
+    }
+
+    if match_keyword_at(tokens, cursor, "with") {
+        if !consume_kind_at(tokens, cursor, TokenKind::OpenParen) {
+            return Err(ParseError {
+                message: "Expected '(' after 'with'".to_string(),
+                span: current_span_at(tokens, *cursor, end_span),
+            });
+        }
+        if consume_kind_at(tokens, cursor, TokenKind::CloseParen) {
+            return Err(ParseError {
+                message: "Parameter list cannot be empty".to_string(),
+                span: prev_span_at(tokens, *cursor, end_span),
+            });
+        }
+        loop {
+            let (name, span) = parse_ident_like_at(
+                tokens,
+                cursor,
+                "Expected parameter name in 'with' list",
+                end_span,
+            )?;
+            if !match_operator_at(tokens, cursor, OperatorKind::Eq) {
+                return Err(ParseError {
+                    message: "Expected '=' in 'with' parameter".to_string(),
+                    span: current_span_at(tokens, *cursor, end_span),
+                });
+            }
+            let value_start = *cursor;
+            let mut depth_paren = 0i32;
+            let mut depth_bracket = 0i32;
+            let mut depth_brace = 0i32;
+            while *cursor < tokens.len() {
+                let token = &tokens[*cursor];
+                match token.kind {
+                    TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
+                    TokenKind::CloseParen => {
+                        if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+                            break;
+                        }
+                        depth_paren = depth_paren.saturating_sub(1);
+                    }
+                    TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
+                    TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
+                    TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
+                    TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
+                    TokenKind::Comma
+                        if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 =>
+                    {
+                        break;
+                    }
+                    _ => {}
+                }
+                *cursor = cursor.saturating_add(1);
+            }
+            let expr_end_span = tokens
+                .get(*cursor)
+                .map(|token| token.span)
+                .unwrap_or(end_span);
+            let value = Parser::parse_expr_from_tokens(
+                tokens[value_start..*cursor].to_vec(),
+                expr_end_span,
+                end_token_text.clone(),
+            )?;
+            params.push(UseParam { name, value, span });
+            if consume_kind_at(tokens, cursor, TokenKind::CloseParen) {
+                break;
+            }
+            if !consume_kind_at(tokens, cursor, TokenKind::Comma) {
+                return Err(ParseError {
+                    message: "Expected ',' or ')' in 'with' parameter list".to_string(),
+                    span: current_span_at(tokens, *cursor, end_span),
+                });
+            }
+        }
+    }
+
+    if *cursor < tokens.len() {
+        return Err(ParseError {
+            message: "Unexpected trailing tokens after .use".to_string(),
+            span: tokens[*cursor].span,
+        });
+    }
+    let tail_span = if *cursor == 0 {
+        end_span
+    } else {
+        prev_span_at(tokens, *cursor, end_span)
+    };
+    Ok(LineAst::Use {
+        module_id,
+        alias,
+        items,
+        params,
+        span: Span {
+            line: start_span.line,
+            col_start: start_span.col_start,
+            col_end: tail_span.col_end,
+        },
+    })
+}
+
+fn parse_statement_signature_from_tokens(
+    tokens: &[Token],
+    cursor: &mut usize,
+    in_boundary: bool,
+    end_span: Span,
+) -> Result<StatementSignature, ParseError> {
+    let mut atoms = Vec::new();
+    let mut closed = !in_boundary;
+    while *cursor < tokens.len() {
+        if in_boundary
+            && peek_kind_at(tokens, *cursor, TokenKind::CloseBrace)
+            && peek_kind_at(tokens, cursor.saturating_add(1), TokenKind::CloseBracket)
+        {
+            *cursor = cursor.saturating_add(2);
+            closed = true;
+            break;
+        }
+
+        if in_boundary && peek_kind_at(tokens, *cursor, TokenKind::CloseBrace) {
+            return Err(ParseError {
+                message: "Missing closing }]".to_string(),
+                span: tokens[*cursor].span,
+            });
+        }
+
+        if peek_kind_at(tokens, *cursor, TokenKind::OpenBracket)
+            && peek_kind_at(tokens, cursor.saturating_add(1), TokenKind::OpenBrace)
+        {
+            let open_span = tokens[*cursor].span;
+            *cursor = cursor.saturating_add(2);
+            let inner = parse_statement_signature_from_tokens(tokens, cursor, true, end_span)?;
+            let close_span = prev_span_at(tokens, *cursor, end_span);
+            let span = Span {
+                line: open_span.line,
+                col_start: open_span.col_start,
+                col_end: close_span.col_end,
+            };
+            atoms.push(SignatureAtom::Boundary {
+                atoms: inner.atoms,
+                span,
+            });
+            continue;
+        }
+
+        let token = tokens.get(*cursor).ok_or_else(|| ParseError {
+            message: "Unexpected end of statement signature".to_string(),
+            span: end_span,
+        })?;
+        *cursor = cursor.saturating_add(1);
+        match &token.kind {
+            TokenKind::String(lit) => {
+                atoms.push(SignatureAtom::Literal(lit.bytes.clone(), token.span));
+            }
+            TokenKind::Dot => atoms.push(SignatureAtom::Literal(vec![b'.'], token.span)),
+            TokenKind::Comma => {
+                return Err(ParseError {
+                    message: "Commas must be quoted in statement signatures".to_string(),
+                    span: token.span,
+                });
+            }
+            TokenKind::Identifier(type_name) | TokenKind::Register(type_name) => {
+                if !is_valid_capture_type_name(type_name) {
+                    return Err(ParseError {
+                        message: format!("Unknown statement capture type: {type_name}"),
+                        span: token.span,
+                    });
+                }
+                let colon = tokens.get(*cursor).ok_or_else(|| ParseError {
+                    message: "Expected ':' after capture type".to_string(),
+                    span: end_span,
+                })?;
+                if !matches!(colon.kind, TokenKind::Colon) {
+                    return Err(ParseError {
+                        message: "Expected ':' after capture type".to_string(),
+                        span: colon.span,
+                    });
+                }
+                *cursor = cursor.saturating_add(1);
+                let name_token = tokens.get(*cursor).ok_or_else(|| ParseError {
+                    message: "Expected capture name after type".to_string(),
+                    span: end_span,
+                })?;
+                let name = match &name_token.kind {
+                    TokenKind::Identifier(name) | TokenKind::Register(name) => name.clone(),
+                    _ => {
+                        return Err(ParseError {
+                            message: "Expected capture name after type".to_string(),
+                            span: name_token.span,
+                        });
+                    }
+                };
+                *cursor = cursor.saturating_add(1);
+                atoms.push(SignatureAtom::Capture {
+                    type_name: type_name.clone(),
+                    name,
+                    span: Span {
+                        line: token.span.line,
+                        col_start: token.span.col_start,
+                        col_end: name_token.span.col_end,
+                    },
+                });
+            }
+            _ => {
+                return Err(ParseError {
+                    message: "Unexpected token in statement signature".to_string(),
+                    span: token.span,
+                });
+            }
+        }
+    }
+
+    if !closed {
+        return Err(ParseError {
+            message: "Missing closing }]".to_string(),
+            span: end_span,
+        });
+    }
+    Ok(StatementSignature { atoms })
+}
+
+fn dot_conditional_kind(name_upper: &str) -> Option<(ConditionalKind, bool, bool)> {
+    match name_upper {
+        "IF" => Some((ConditionalKind::If, true, false)),
+        "ELSEIF" => Some((ConditionalKind::ElseIf, true, false)),
+        "ELSE" => Some((ConditionalKind::Else, false, false)),
+        "ENDIF" => Some((ConditionalKind::EndIf, false, false)),
+        "MATCH" => Some((ConditionalKind::Switch, true, false)),
+        "CASE" => Some((ConditionalKind::Case, true, true)),
+        "DEFAULT" => Some((ConditionalKind::Default, false, false)),
+        "ENDMATCH" => Some((ConditionalKind::EndSwitch, false, false)),
+        _ => None,
+    }
+}
+
+fn is_valid_capture_type_name(type_name: &str) -> bool {
+    matches!(
+        type_name.to_ascii_lowercase().as_str(),
+        "byte" | "word" | "char" | "str"
+    )
+}
+
+fn parse_ident_like_at(
+    tokens: &[Token],
+    cursor: &mut usize,
+    message: &str,
+    end_span: Span,
+) -> Result<(String, Span), ParseError> {
+    match tokens.get(*cursor) {
+        Some(Token {
+            kind: TokenKind::Identifier(name),
+            span,
+        }) => {
+            *cursor = cursor.saturating_add(1);
+            Ok((name.clone(), *span))
+        }
+        Some(Token {
+            kind: TokenKind::Register(name),
+            span,
+        }) => {
+            *cursor = cursor.saturating_add(1);
+            Ok((name.clone(), *span))
+        }
+        Some(token) => Err(ParseError {
+            message: message.to_string(),
+            span: token.span,
+        }),
+        None => Err(ParseError {
+            message: message.to_string(),
+            span: end_span,
+        }),
+    }
+}
+
+fn match_keyword_at(tokens: &[Token], cursor: &mut usize, keyword: &str) -> bool {
+    match tokens.get(*cursor) {
+        Some(Token {
+            kind: TokenKind::Identifier(name),
+            ..
+        }) if name.eq_ignore_ascii_case(keyword) => {
+            *cursor = cursor.saturating_add(1);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn consume_kind_at(tokens: &[Token], cursor: &mut usize, kind: TokenKind) -> bool {
+    if matches!(tokens.get(*cursor), Some(Token { kind: value, .. }) if *value == kind) {
+        *cursor = cursor.saturating_add(1);
+        return true;
+    }
+    false
+}
+
+fn match_operator_at(tokens: &[Token], cursor: &mut usize, op: OperatorKind) -> bool {
+    if matches!(
+        tokens.get(*cursor),
+        Some(Token {
+            kind: TokenKind::Operator(value),
+            ..
+        }) if *value == op
+    ) {
+        *cursor = cursor.saturating_add(1);
+        return true;
+    }
+    false
+}
+
+fn peek_kind_at(tokens: &[Token], index: usize, kind: TokenKind) -> bool {
+    matches!(tokens.get(index), Some(Token { kind: value, .. }) if *value == kind)
+}
+
+fn prev_span_at(tokens: &[Token], cursor: usize, fallback: Span) -> Span {
+    if cursor == 0 {
+        fallback
+    } else {
+        tokens
+            .get(cursor.saturating_sub(1))
+            .map(|token| token.span)
+            .unwrap_or(fallback)
+    }
+}
+
+fn current_span_at(tokens: &[Token], cursor: usize, fallback: Span) -> Span {
+    tokens
+        .get(cursor)
+        .map(|token| token.span)
+        .unwrap_or(fallback)
+}
+
 fn parse_operand_expr_range(
     tokens: &[Token],
     start: usize,
@@ -486,13 +1297,12 @@ fn is_star_org_assignment(tokens: &[Token], idx: usize) -> bool {
 }
 
 fn match_assignment_op_at(tokens: &[Token], idx: usize) -> Option<(AssignOp, Span, usize)> {
-    match tokens.get(idx).map(|token| &token.kind) {
-        Some(TokenKind::Operator(OperatorKind::Eq)) => tokens
-            .get(idx)
-            .map(|token| (AssignOp::Const, token.span, 1)),
-        Some(TokenKind::Colon) => {
-            let next = tokens.get(idx.saturating_add(1));
-            let next2 = tokens.get(idx.saturating_add(2));
+    let token = tokens.get(idx)?;
+    let next = tokens.get(idx.saturating_add(1));
+    let next2 = tokens.get(idx.saturating_add(2));
+    match &token.kind {
+        TokenKind::Operator(OperatorKind::Eq) => Some((AssignOp::Const, token.span, 1)),
+        TokenKind::Colon => {
             if matches!(
                 next,
                 Some(Token {
@@ -506,9 +1316,7 @@ fn match_assignment_op_at(tokens: &[Token], idx: usize) -> Option<(AssignOp, Spa
                     ..
                 })
             ) {
-                tokens
-                    .get(idx)
-                    .map(|token| (AssignOp::VarIfUndef, token.span, 3))
+                Some((AssignOp::VarIfUndef, token.span, 3))
             } else if matches!(
                 next,
                 Some(Token {
@@ -516,131 +1324,117 @@ fn match_assignment_op_at(tokens: &[Token], idx: usize) -> Option<(AssignOp, Spa
                     ..
                 })
             ) {
-                tokens.get(idx).map(|token| (AssignOp::Var, token.span, 2))
+                Some((AssignOp::Var, token.span, 2))
             } else {
                 None
             }
         }
-        Some(TokenKind::Operator(
-            OperatorKind::Plus
-            | OperatorKind::Minus
-            | OperatorKind::Multiply
-            | OperatorKind::Divide
-            | OperatorKind::Mod
-            | OperatorKind::Power
-            | OperatorKind::BitOr
-            | OperatorKind::BitXor
-            | OperatorKind::BitAnd
-            | OperatorKind::LogicOr
-            | OperatorKind::LogicAnd
-            | OperatorKind::Shl
-            | OperatorKind::Shr,
-        )) => {
-            let op = match tokens.get(idx).map(|token| &token.kind) {
-                Some(TokenKind::Operator(OperatorKind::Plus)) => AssignOp::Add,
-                Some(TokenKind::Operator(OperatorKind::Minus)) => AssignOp::Sub,
-                Some(TokenKind::Operator(OperatorKind::Multiply)) => AssignOp::Mul,
-                Some(TokenKind::Operator(OperatorKind::Divide)) => AssignOp::Div,
-                Some(TokenKind::Operator(OperatorKind::Mod)) => AssignOp::Mod,
-                Some(TokenKind::Operator(OperatorKind::Power)) => AssignOp::Pow,
-                Some(TokenKind::Operator(OperatorKind::BitOr)) => AssignOp::BitOr,
-                Some(TokenKind::Operator(OperatorKind::BitXor)) => AssignOp::BitXor,
-                Some(TokenKind::Operator(OperatorKind::BitAnd)) => AssignOp::BitAnd,
-                Some(TokenKind::Operator(OperatorKind::LogicOr)) => AssignOp::LogicOr,
-                Some(TokenKind::Operator(OperatorKind::LogicAnd)) => AssignOp::LogicAnd,
-                Some(TokenKind::Operator(OperatorKind::Shl)) => AssignOp::Shl,
-                Some(TokenKind::Operator(OperatorKind::Shr)) => AssignOp::Shr,
+        TokenKind::Operator(kind) => {
+            let op = match kind {
+                OperatorKind::Plus => AssignOp::Add,
+                OperatorKind::Minus => AssignOp::Sub,
+                OperatorKind::Multiply => AssignOp::Mul,
+                OperatorKind::Divide => AssignOp::Div,
+                OperatorKind::Mod => AssignOp::Mod,
+                OperatorKind::Power => AssignOp::Pow,
+                OperatorKind::BitOr => AssignOp::BitOr,
+                OperatorKind::BitXor => AssignOp::BitXor,
+                OperatorKind::BitAnd => AssignOp::BitAnd,
+                OperatorKind::LogicOr => AssignOp::LogicOr,
+                OperatorKind::LogicAnd => AssignOp::LogicAnd,
+                OperatorKind::Shl => AssignOp::Shl,
+                OperatorKind::Shr => AssignOp::Shr,
+                OperatorKind::Lt => {
+                    if matches!(
+                        next,
+                        Some(Token {
+                            kind: TokenKind::Question,
+                            ..
+                        })
+                    ) && matches!(
+                        next2,
+                        Some(Token {
+                            kind: TokenKind::Operator(OperatorKind::Eq),
+                            ..
+                        })
+                    ) {
+                        return Some((AssignOp::Min, token.span, 3));
+                    }
+                    return None;
+                }
+                OperatorKind::Gt => {
+                    if matches!(
+                        next,
+                        Some(Token {
+                            kind: TokenKind::Question,
+                            ..
+                        })
+                    ) && matches!(
+                        next2,
+                        Some(Token {
+                            kind: TokenKind::Operator(OperatorKind::Eq),
+                            ..
+                        })
+                    ) {
+                        return Some((AssignOp::Max, token.span, 3));
+                    }
+                    return None;
+                }
                 _ => return None,
             };
             if matches!(
-                tokens.get(idx.saturating_add(1)),
+                next,
                 Some(Token {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
             ) {
-                tokens.get(idx).map(|token| (op, token.span, 2))
+                Some((op, token.span, 2))
             } else {
                 None
             }
         }
-        Some(TokenKind::Dot) => {
+        TokenKind::Dot => {
             if matches!(
-                tokens.get(idx.saturating_add(1)),
+                next,
                 Some(Token {
-                    kind: TokenKind::Operator(OperatorKind::Eq),
+                    kind: TokenKind::Dot,
                     ..
                 })
-            ) {
-                return tokens
-                    .get(idx)
-                    .map(|token| (AssignOp::Concat, token.span, 2));
-            }
-            if matches!(
-                tokens.get(idx.saturating_add(1)),
-                Some(Token {
-                    kind: TokenKind::Identifier(name),
-                    ..
-                }) if name.eq_ignore_ascii_case("min")
             ) && matches!(
-                tokens.get(idx.saturating_add(2)),
+                next2,
                 Some(Token {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
             ) {
-                return tokens.get(idx).map(|token| (AssignOp::Min, token.span, 3));
-            }
-            if matches!(
-                tokens.get(idx.saturating_add(1)),
-                Some(Token {
-                    kind: TokenKind::Identifier(name),
-                    ..
-                }) if name.eq_ignore_ascii_case("max")
-            ) && matches!(
-                tokens.get(idx.saturating_add(2)),
+                Some((AssignOp::Concat, token.span, 3))
+            } else if matches!(
+                next,
                 Some(Token {
                     kind: TokenKind::Operator(OperatorKind::Eq),
                     ..
                 })
             ) {
-                return tokens.get(idx).map(|token| (AssignOp::Max, token.span, 3));
+                Some((AssignOp::Member, token.span, 2))
+            } else {
+                None
             }
-            if matches!(
-                tokens.get(idx.saturating_add(1)),
-                Some(Token {
-                    kind: TokenKind::Identifier(name),
-                    ..
-                }) if name.eq_ignore_ascii_case("rep")
-            ) && matches!(
-                tokens.get(idx.saturating_add(2)),
-                Some(Token {
-                    kind: TokenKind::Operator(OperatorKind::Eq),
-                    ..
-                })
-            ) {
-                return tokens
-                    .get(idx)
-                    .map(|token| (AssignOp::Repeat, token.span, 3));
+        }
+        TokenKind::Identifier(name) => {
+            if name.eq_ignore_ascii_case("x")
+                && matches!(
+                    next,
+                    Some(Token {
+                        kind: TokenKind::Operator(OperatorKind::Eq),
+                        ..
+                    })
+                )
+            {
+                Some((AssignOp::Repeat, token.span, 2))
+            } else {
+                None
             }
-            if matches!(
-                tokens.get(idx.saturating_add(1)),
-                Some(Token {
-                    kind: TokenKind::Identifier(name),
-                    ..
-                }) if name.eq_ignore_ascii_case("member")
-            ) && matches!(
-                tokens.get(idx.saturating_add(2)),
-                Some(Token {
-                    kind: TokenKind::Operator(OperatorKind::Eq),
-                    ..
-                })
-            ) {
-                return tokens
-                    .get(idx)
-                    .map(|token| (AssignOp::Member, token.span, 3));
-            }
-            None
         }
         _ => None,
     }

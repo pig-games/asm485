@@ -117,6 +117,7 @@ Current note 9: base `opthread-runtime` feature gating has been removed; VM runt
 - [ ] Migrate assembler, macro, and bootstrap parse call sites to VM parser path with compatibility gates.
 
 Phase C progress note:
+- `AsmLine::process` no longer calls host `Parser::parse_line()` in the runtime path; it now parses through the parser VM bridge (`parse_line_with_model` -> `ParseStatementEnvelope`) with CPU/family contract/program resolution.
 - `PARS` optional package chunk is now implemented with owner-scoped parser/AST contract descriptors (`grammar_id`, `ast_schema_id`, parser opcode version, bounded AST node limit, and parser diagnostic code map).
 - Runtime now loads/resolves parser contracts with the same precedence model as token policy and tokenizer VM programs (`dialect -> cpu -> family`).
 - Builder emits default family parser contracts so assembler-owned VM token bridge paths can assert parser-contract availability before host parser fallback removal work.
