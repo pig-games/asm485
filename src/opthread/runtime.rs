@@ -962,7 +962,7 @@ impl HierarchyExecutionModel {
             RuntimeTokenizerMode::Vm => {
                 let vm_result = self
                     .tokenizer_vm_program_for_resolved(&resolved)
-                    .map(|program| self.tokenize_with_vm_core(&request, &program))
+                    .map(|program| self.tokenize_with_vm_core(&request, &program, true))
                     .transpose();
                 match vm_result {
                     Ok(Some(tokens))
@@ -1025,7 +1025,7 @@ impl HierarchyExecutionModel {
                     resolved.family_id
                 ))
             })?;
-        let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
+        let tokens = self.tokenize_with_vm_core(&request, &vm_program, false)?;
         if tokens.is_empty()
             && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
         {
@@ -1283,6 +1283,7 @@ impl HierarchyExecutionModel {
         &self,
         request: &PortableTokenizeRequest<'_>,
         vm_program: &RuntimeTokenizerVmProgram,
+        allow_delegate_core: bool,
     ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
         if vm_program.opcode_version != TOKENIZER_VM_OPCODE_VERSION_V1 {
             return Err(RuntimeBridgeError::Resolve(format!(
@@ -1549,6 +1550,12 @@ impl HierarchyExecutionModel {
                     )));
                 }
                 TokenizerVmOpcode::DelegateCore => {
+                    if !allow_delegate_core {
+                        return Err(RuntimeBridgeError::Resolve(format!(
+                            "{}: tokenizer VM DelegateCore opcode is forbidden in authoritative mode",
+                            vm_program.diagnostics.invalid_char
+                        )));
+                    }
                     return Self::tokenize_with_host_core(request);
                 }
                 TokenizerVmOpcode::ScanCoreToken => {
@@ -3123,7 +3130,7 @@ mod tests {
             line_num,
             token_policy: model.token_policy_for_resolved(&resolved),
         };
-        model.tokenize_with_vm_core(&request, vm_program)
+        model.tokenize_with_vm_core(&request, vm_program, true)
     }
 
     fn tokenizer_edge_case_lines() -> Vec<String> {
@@ -4152,6 +4159,31 @@ mod tests {
             .to_string()
             .to_ascii_lowercase()
             .contains("produced no tokens"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_authoritative_mode_rejects_delegate_opcode() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.program = vec![
+            TokenizerVmOpcode::DelegateCore as u8,
+            TokenizerVmOpcode::End as u8,
+        ];
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect_err("authoritative vm tokenization should reject DelegateCore");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("delegatecore opcode is forbidden"));
     }
 
     #[test]
