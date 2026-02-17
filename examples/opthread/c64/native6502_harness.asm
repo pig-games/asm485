@@ -246,130 +246,79 @@ handle_load_package:
     lda control_block + CB_INPUT_LEN_HI
     sta loaded_pkg_len_hi
 
+    lda #0
+    sta package_is_loaded
+    sta pipeline_is_set
+
     ; bad request if input pointer is null.
     lda ZP_INPUT_PTR_LO
     ora ZP_INPUT_PTR_HI
-    cmp #1
-    lda #0
-    adc #0
-    eor #1
-    sta load_pkg_ptr_zero_flag
+    beq load_package_bad_request
 
     ; bad request if input length is shorter than required header size.
+    lda loaded_pkg_len_hi
+    bne load_package_check_header
     lda loaded_pkg_len_lo
     cmp #OPCPU_HEADER_LEN
-    lda #0
-    adc #0
-    sta load_pkg_len_lo_ge_header_flag
+    bcc load_package_bad_request
 
-    lda loaded_pkg_len_hi
-    cmp #1
-    lda #0
-    adc #0
-    sta load_pkg_len_hi_nonzero_flag
-
-    lda load_pkg_len_lo_ge_header_flag
-    ora load_pkg_len_hi_nonzero_flag
-    eor #1
-    sta load_pkg_len_short_flag
-
-    lda load_pkg_ptr_zero_flag
-    ora load_pkg_len_short_flag
-    cmp #1
-    lda #0
-    adc #0
-    sta load_pkg_bad_request_flag
-
-    ; accumulate OPCP magic mismatch.
+load_package_check_header:
+    ; header must be:
+    ; 0..3  "OPCP"
+    ; 4..5  version 0x0001 (little-endian)
+    ; 6..7  endian marker 0x1234 (little-endian)
     ldy #0
     lda (ZP_INPUT_PTR_LO), y
-    eor #$4f ; O
-    sta load_pkg_magic_mismatch_accum
+    cmp #$4f ; O
+    bne load_package_bad_header
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$50 ; P
-    ora load_pkg_magic_mismatch_accum
-    sta load_pkg_magic_mismatch_accum
+    cmp #$50 ; P
+    bne load_package_bad_header
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$43 ; C
-    ora load_pkg_magic_mismatch_accum
-    sta load_pkg_magic_mismatch_accum
+    cmp #$43 ; C
+    bne load_package_bad_header
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$50 ; P
-    ora load_pkg_magic_mismatch_accum
-    sta load_pkg_magic_mismatch_accum
-    lda load_pkg_magic_mismatch_accum
-    cmp #1
-    lda #0
-    adc #0
-    sta load_pkg_magic_mismatch_flag
+    cmp #$50 ; P
+    bne load_package_bad_header
 
-    ; accumulate package version mismatch (expect 0x0001 little-endian).
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$01
-    sta load_pkg_version_mismatch_accum
+    cmp #$01
+    bne load_package_bad_header
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$00
-    ora load_pkg_version_mismatch_accum
-    sta load_pkg_version_mismatch_accum
-    lda load_pkg_version_mismatch_accum
-    cmp #1
-    lda #0
-    adc #0
-    sta load_pkg_version_mismatch_flag
+    cmp #$00
+    bne load_package_bad_header
 
-    ; accumulate package endian marker mismatch (expect 0x1234 little-endian).
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$34
-    sta load_pkg_endian_mismatch_accum
+    cmp #$34
+    bne load_package_bad_header
     iny
     lda (ZP_INPUT_PTR_LO), y
-    eor #$12
-    ora load_pkg_endian_mismatch_accum
-    sta load_pkg_endian_mismatch_accum
-    lda load_pkg_endian_mismatch_accum
-    cmp #1
-    lda #0
-    adc #0
-    sta load_pkg_endian_mismatch_flag
+    cmp #$12
+    bne load_package_bad_header
 
-    lda load_pkg_magic_mismatch_flag
-    ora load_pkg_version_mismatch_flag
-    ora load_pkg_endian_mismatch_flag
-    cmp #1
-    lda #0
-    adc #0
-    sta load_pkg_header_mismatch_flag
-
-    ; status selector index:
-    ; 0 -> ok
-    ; 1 -> bad request
-    ; 2 -> runtime OPC error
-    ; 3 -> bad request (bad request has priority)
-    lda load_pkg_header_mismatch_flag
-    asl a
-    clc
-    adc load_pkg_bad_request_flag
-    tax
-
-    lda load_pkg_loaded_flag_table, x
+    lda #1
     sta package_is_loaded
-    lda #0
-    sta pipeline_is_set
-
-    lda load_pkg_status_table, x
+    lda #STATUS_OK
     ldy #0
     jsr set_status
     jsr clear_output_len
-    lda load_pkg_error_len_table, x
-    sta control_block + CB_LAST_ERROR_LEN_LO
-    lda #0
-    sta control_block + CB_LAST_ERROR_LEN_HI
+    jsr clear_last_error_len
+    rts
+
+load_package_bad_request:
+    lda #OTR_BAD_REQ_ERROR_LEN
+    jsr set_bad_request_len
+    rts
+
+load_package_bad_header:
+    lda #OPC_BAD_HEADER_LEN
+    jsr set_runtime_error_len
     rts
 
 handle_set_pipeline:
@@ -575,30 +524,6 @@ loaded_pkg_len_lo:
     .byte 0
 loaded_pkg_len_hi:
     .byte 0
-load_pkg_ptr_zero_flag:
-    .byte 0
-load_pkg_len_lo_ge_header_flag:
-    .byte 0
-load_pkg_len_hi_nonzero_flag:
-    .byte 0
-load_pkg_len_short_flag:
-    .byte 0
-load_pkg_bad_request_flag:
-    .byte 0
-load_pkg_magic_mismatch_accum:
-    .byte 0
-load_pkg_magic_mismatch_flag:
-    .byte 0
-load_pkg_version_mismatch_accum:
-    .byte 0
-load_pkg_version_mismatch_flag:
-    .byte 0
-load_pkg_endian_mismatch_accum:
-    .byte 0
-load_pkg_endian_mismatch_flag:
-    .byte 0
-load_pkg_header_mismatch_flag:
-    .byte 0
 
 set_pipeline_payload:
     .byte $6d, $36, $35, $30, $32, $00
@@ -622,16 +547,6 @@ opc_bad_header_error:
 unimpl_error_ascii:
     ; "NOT_IMPL_OTR"
     .byte $4e, $4f, $54, $5f, $49, $4d, $50, $4c, $5f, $4f, $54, $52
-
-load_pkg_status_table:
-    ; index 0..3: ok, bad-req, runtime-opc, bad-req
-    .byte STATUS_OK, STATUS_BAD_REQUEST, STATUS_RUNTIME_ERROR, STATUS_BAD_REQUEST
-load_pkg_error_len_table:
-    ; index 0..3: ok, OTR, OPC, OTR
-    .byte 0, OTR_BAD_REQ_ERROR_LEN, OPC_BAD_HEADER_LEN, OTR_BAD_REQ_ERROR_LEN
-load_pkg_loaded_flag_table:
-    ; index 0..3: loaded-on-success only
-    .byte 1, 0, 0, 0
 
 status_color_table:
     ; STATUS_OK / STATUS_BAD_CONTROL_BLOCK / STATUS_BAD_REQUEST / STATUS_RUNTIME_ERROR
