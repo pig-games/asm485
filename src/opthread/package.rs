@@ -141,6 +141,7 @@ pub enum TokenizerVmOpcode {
     JumpIfClass = 0x0A,
     Fail = 0x0B,
     EmitDiag = 0x0C,
+    DelegateCore = 0x0D,
 }
 
 impl TokenizerVmOpcode {
@@ -159,6 +160,7 @@ impl TokenizerVmOpcode {
             0x0A => Some(Self::JumpIfClass),
             0x0B => Some(Self::Fail),
             0x0C => Some(Self::EmitDiag),
+            0x0D => Some(Self::DelegateCore),
             _ => None,
         }
     }

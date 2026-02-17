@@ -367,18 +367,7 @@ fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
 
 fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDescriptor {
     let program = vec![
-        TokenizerVmOpcode::ReadChar as u8,
-        TokenizerVmOpcode::JumpIfEol as u8,
-        12,
-        0,
-        0,
-        0,
-        TokenizerVmOpcode::Advance as u8,
-        TokenizerVmOpcode::Jump as u8,
-        0,
-        0,
-        0,
-        0,
+        TokenizerVmOpcode::DelegateCore as u8,
         TokenizerVmOpcode::End as u8,
     ];
     TokenizerVmProgramDescriptor {
@@ -400,8 +389,8 @@ fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDes
             lexeme_limit_exceeded: "ott005".to_string(),
             error_limit_exceeded: "ott006".to_string(),
         },
-        // Bootstrap VM scanner: consume the line deterministically and terminate
-        // without emitting tokens so staged paths still fall back to host.
+        // Bootstrap VM tokenizer: delegate token production through VM opcode
+        // dispatch so assembler-owned tokenization can enforce strict VM entrypoints.
         program,
     }
 }

@@ -965,7 +965,13 @@ impl HierarchyExecutionModel {
                     .map(|program| self.tokenize_with_vm_core(&request, &program))
                     .transpose();
                 match vm_result {
-                    Ok(Some(tokens)) if !tokens.is_empty() || source_line.trim().is_empty() => {
+                    Ok(Some(tokens))
+                        if !tokens.is_empty()
+                            || source_line_can_tokenize_to_empty(
+                                source_line,
+                                &request.token_policy,
+                            ) =>
+                    {
                         Ok(tokens)
                     }
                     _ => Self::tokenize_with_host_core(&request),
@@ -973,6 +979,26 @@ impl HierarchyExecutionModel {
             }
             RuntimeTokenizerMode::Auto => unreachable!("auto mode is resolved before dispatch"),
         }
+    }
+
+    pub fn tokenize_portable_statement_for_assembler(
+        &self,
+        adapter: &dyn PortableTokenizerAdapter,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        source_line: &str,
+        line_num: u32,
+    ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        if tokenizer_vm_authoritative_for_family(resolved.family_id.as_str()) {
+            return self.tokenize_portable_statement_vm_authoritative(
+                cpu_id,
+                dialect_override,
+                source_line,
+                line_num,
+            );
+        }
+        self.tokenize_portable_statement(adapter, cpu_id, dialect_override, source_line, line_num)
     }
 
     pub fn tokenize_portable_statement_vm_authoritative(
@@ -1000,7 +1026,9 @@ impl HierarchyExecutionModel {
                 ))
             })?;
         let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
-        if tokens.is_empty() && !source_line.trim().is_empty() {
+        if tokens.is_empty()
+            && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
+        {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: tokenizer VM produced no tokens for non-empty source line",
                 vm_program.diagnostics.invalid_char
@@ -1519,6 +1547,9 @@ impl HierarchyExecutionModel {
                         "{}: tokenizer VM emitted diagnostic slot {}",
                         code, slot
                     )));
+                }
+                TokenizerVmOpcode::DelegateCore => {
+                    return Self::tokenize_with_host_core(request);
                 }
             }
         }
@@ -2173,6 +2204,13 @@ fn vm_diag_code_for_slot(diagnostics: &TokenizerVmDiagnosticMap, slot: u8) -> &s
         5 => diagnostics.error_limit_exceeded.as_str(),
         _ => diagnostics.invalid_char.as_str(),
     }
+}
+
+fn source_line_can_tokenize_to_empty(source_line: &str, policy: &RuntimeTokenPolicy) -> bool {
+    let trimmed = source_line.trim_start();
+    trimmed.is_empty()
+        || (!policy.comment_prefix.is_empty()
+            && trimmed.starts_with(policy.comment_prefix.as_str()))
 }
 
 fn vm_char_class_matches(byte: Option<u8>, class: u8, policy: &RuntimeTokenPolicy) -> bool {
@@ -4067,6 +4105,57 @@ mod tests {
             &tokens[0].kind,
             PortableTokenKind::Identifier(name) if name == "a"
         ));
+    }
+
+    #[test]
+    fn execution_model_assembler_tokenization_path_is_strict_for_authoritative_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.program = vec![TokenizerVmOpcode::End as u8];
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+
+        let err = model
+            .tokenize_portable_statement_for_assembler(
+                &FailingTokenizerAdapter,
+                "m6502",
+                None,
+                "LDA #$42",
+                1,
+            )
+            .expect_err("authoritative assembler path should not fall back");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("produced no tokens"));
+    }
+
+    #[test]
+    fn execution_model_assembler_tokenization_path_keeps_staged_family_non_authoritative() {
+        let registry = parity_registry();
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+        let err = model
+            .tokenize_portable_statement_for_assembler(
+                &FailingTokenizerAdapter,
+                "z80",
+                None,
+                "LD A,B",
+                1,
+            )
+            .expect_err("staged family should continue delegated path");
+        assert!(err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("failing delegated adapter"));
     }
 
     #[test]
