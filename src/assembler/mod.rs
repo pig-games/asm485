@@ -2501,38 +2501,7 @@ impl<'a> AsmLine<'a> {
         self.label = None;
         self.mnemonic = None;
 
-        #[cfg(feature = "opthread-runtime")]
-        {
-            return self.process_with_runtime_tokenizer(line, line_num);
-        }
-
-        #[cfg(not(feature = "opthread-runtime"))]
-        // Use the cached register checker
-        let is_register_fn = self.register_checker.clone();
-
-        #[cfg(not(feature = "opthread-runtime"))]
-        match asm_parser::Parser::from_line_with_registers(line, line_num, is_register_fn) {
-            Ok(mut parser) => {
-                self.line_end_span = Some(parser.end_span());
-                self.line_end_token = parser.end_token_text().map(|s| s.to_string());
-                match parser.parse_line() {
-                    Ok(ast) => self.process_ast(ast),
-                    Err(err) => {
-                        self.last_error =
-                            Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                        self.last_error_column = Some(err.span.col_start);
-                        self.last_parser_error = Some(err);
-                        LineStatus::Error
-                    }
-                }
-            }
-            Err(err) => {
-                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                self.last_error_column = Some(err.span.col_start);
-                self.last_parser_error = Some(err);
-                LineStatus::Error
-            }
-        }
+        self.process_with_runtime_tokenizer(line, line_num)
     }
     fn process_ast(&mut self, ast: LineAst) -> LineStatus {
         if self.statement_depth > 0 {

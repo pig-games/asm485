@@ -10,7 +10,7 @@ repository = "https://github.com/pig-games/opForge"
 clap = { version = "4", features = ["derive"] }
 
 [features]
-default = []
+default = ["opthread-runtime"]
 opthread-runtime = []
 opthread-runtime-opcpu-artifact = ["opthread-runtime"]
 opthread-runtime-intel8080-scaffold = []

@@ -3,14 +3,10 @@
 
 // Assembler macro processor implementing 64tass-style .macro/.endmacro expansion.
 
-#[cfg(not(feature = "opthread-runtime"))]
-use crate::core::parser::Parser;
 use crate::core::parser::{
     match_statement_signature, select_statement_signature, LineAst, StatementSignature,
 };
 use crate::core::text_utils::{is_ident_char, is_ident_start, is_space, to_upper, Cursor};
-#[cfg(not(feature = "opthread-runtime"))]
-use crate::core::tokenizer::Tokenizer;
 use crate::core::tokenizer::{Span, Token, TokenKind};
 use std::collections::{HashMap, HashSet};
 
@@ -554,15 +550,7 @@ fn parse_statement_def_line(
     code: &str,
     line_num: u32,
 ) -> Result<(String, StatementSignature), MacroError> {
-    #[cfg(feature = "opthread-runtime")]
     let line_ast = crate::opthread::token_bridge::parse_line_with_default_model(code, line_num)
-        .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))?;
-    #[cfg(not(feature = "opthread-runtime"))]
-    let mut parser = Parser::from_line(code, line_num)
-        .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))?;
-    #[cfg(not(feature = "opthread-runtime"))]
-    let line_ast = parser
-        .parse_line()
         .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))?;
     match line_ast {
         LineAst::StatementDef {
@@ -665,27 +653,8 @@ fn expand_statement_invocation(
 }
 
 fn tokenize_line(line: &str, line_num: u32) -> Result<Vec<Token>, MacroError> {
-    #[cfg(feature = "opthread-runtime")]
-    {
-        return crate::opthread::token_bridge::tokenize_line_with_default_model(line, line_num)
-            .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)));
-    }
-    #[cfg(not(feature = "opthread-runtime"))]
-    let mut tokenizer = Tokenizer::new(line, line_num);
-    #[cfg(not(feature = "opthread-runtime"))]
-    let mut tokens = Vec::new();
-    #[cfg(not(feature = "opthread-runtime"))]
-    loop {
-        let token = tokenizer.next_token().map_err(|err| {
-            MacroError::new(err.message, Some(line_num), Some(err.span.col_start))
-        })?;
-        if matches!(token.kind, TokenKind::End) {
-            break;
-        }
-        tokens.push(token);
-    }
-    #[cfg(not(feature = "opthread-runtime"))]
-    Ok(tokens)
+    crate::opthread::token_bridge::tokenize_line_with_default_model(line, line_num)
+        .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))
 }
 
 fn split_single_letter_digit_tokens(tokens: &[Token]) -> Vec<Token> {

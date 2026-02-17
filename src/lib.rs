@@ -13,6 +13,9 @@
 //! - [`assembler`] - Main assembler entry point
 //! - [`opthread`] - opThread VM/package model (in progress)
 
+#[cfg(not(feature = "opthread-runtime"))]
+compile_error!("opthread-runtime is required: VM tokenizer/runtime path is mandatory.");
+
 pub mod assembler;
 pub mod core;
 pub mod families;
