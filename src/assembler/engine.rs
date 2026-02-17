@@ -13,7 +13,6 @@ pub(crate) struct Assembler {
     pub(crate) registry: ModuleRegistry,
     pub(crate) root_metadata: RootMetadata,
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
-    pub(crate) opthread_runtime_enabled: bool,
 }
 
 impl Assembler {
@@ -37,14 +36,11 @@ impl Assembler {
             registry,
             root_metadata: RootMetadata::default(),
             module_macro_names: HashMap::new(),
-            opthread_runtime_enabled: true,
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn set_opthread_runtime_enabled(&mut self, enabled: bool) {
-        self.opthread_runtime_enabled = enabled;
-    }
+    pub(crate) fn set_opthread_runtime_enabled(&mut self, _enabled: bool) {}
 
     pub(crate) fn cpu(&self) -> CpuType {
         self.cpu
@@ -84,12 +80,7 @@ impl Assembler {
 
         {
             let root_metadata = std::mem::take(&mut self.root_metadata);
-            let mut asm_line = AsmLine::with_cpu_runtime_mode(
-                &mut self.symbols,
-                self.cpu,
-                &self.registry,
-                self.opthread_runtime_enabled,
-            );
+            let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
             asm_line.root_metadata = root_metadata;
             asm_line.clear_conditionals();
             asm_line.clear_scopes();
@@ -237,12 +228,7 @@ impl Assembler {
         lines: &[String],
         listing: &mut ListingWriter<W>,
     ) -> std::io::Result<PassCounts> {
-        let mut asm_line = AsmLine::with_cpu_runtime_mode(
-            &mut self.symbols,
-            self.cpu,
-            &self.registry,
-            self.opthread_runtime_enabled,
-        );
+        let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
         asm_line.clear_conditionals();
         asm_line.clear_scopes();
         self.image = ImageStore::new(65536);

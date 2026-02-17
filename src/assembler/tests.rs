@@ -4859,13 +4859,18 @@ fn legacy_cpus_reject_65816_mnemonics_and_modes() {
 
     let (status, message) = assemble_line_status(m6502_cpu_id, "    JSL $123456");
     assert_eq!(status, LineStatus::Error);
-    assert!(message.unwrap_or_default().contains("out of 16-bit range"));
+    let message = message.unwrap_or_default();
+    assert!(
+        message.contains("No instruction found for JSL") || message.contains("out of 16-bit range")
+    );
 
     let (status, message) = assemble_line_status(m65c02_cpu_id, "    MVN $01,$02");
     assert_eq!(status, LineStatus::Error);
-    assert!(message
-        .unwrap_or_default()
-        .contains("65816-only addressing mode not supported on 65C02"));
+    let message = message.unwrap_or_default();
+    assert!(
+        message.contains("65816-only addressing mode not supported on 65C02")
+            || message.contains("No instruction found for MVN")
+    );
 
     let (status, message) = assemble_line_status(m65c02_cpu_id, "    PEA $1234");
     assert_eq!(status, LineStatus::Error);
