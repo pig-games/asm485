@@ -2010,10 +2010,18 @@ impl HierarchyExecutionModel {
     fn ensure_parser_contract_compatible_for_assembler(
         contract: &RuntimeParserContract,
     ) -> Result<(), RuntimeBridgeError> {
+        Self::ensure_parser_diagnostic_map_compatible_for_assembler(contract)?;
+        let error_code = parser_contract_error_code(contract);
+        if contract.max_ast_nodes_per_line == 0 {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: parser contract max_ast_nodes_per_line must be > 0",
+                error_code
+            )));
+        }
         if contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: unsupported parser contract opcode version {}",
-                contract.diagnostics.invalid_statement, contract.opcode_version
+                error_code, contract.opcode_version
             )));
         }
         if !contract
@@ -2022,7 +2030,7 @@ impl HierarchyExecutionModel {
         {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: unsupported parser grammar id '{}'",
-                contract.diagnostics.invalid_statement, contract.grammar_id
+                error_code, contract.grammar_id
             )));
         }
         if !contract
@@ -2031,8 +2039,83 @@ impl HierarchyExecutionModel {
         {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: unsupported parser AST schema id '{}'",
-                contract.diagnostics.invalid_statement, contract.ast_schema_id
+                error_code, contract.ast_schema_id
             )));
+        }
+        Ok(())
+    }
+
+    fn ensure_parser_diagnostic_map_compatible_for_assembler(
+        contract: &RuntimeParserContract,
+    ) -> Result<(), RuntimeBridgeError> {
+        let error_code = parser_contract_error_code(contract);
+        for (field_name, value) in [
+            (
+                "unexpected_token",
+                contract.diagnostics.unexpected_token.as_str(),
+            ),
+            (
+                "expected_expression",
+                contract.diagnostics.expected_expression.as_str(),
+            ),
+            (
+                "expected_operand",
+                contract.diagnostics.expected_operand.as_str(),
+            ),
+            (
+                "invalid_statement",
+                contract.diagnostics.invalid_statement.as_str(),
+            ),
+        ] {
+            if value.trim().is_empty() {
+                return Err(RuntimeBridgeError::Resolve(format!(
+                    "{}: missing parser contract diagnostic mapping for '{}'",
+                    error_code, field_name
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_tokenizer_vm_program_compatible_for_assembler(
+        vm_program: &RuntimeTokenizerVmProgram,
+    ) -> Result<(), RuntimeBridgeError> {
+        let error_code = tokenizer_vm_error_code(vm_program);
+        if vm_program.opcode_version != TOKENIZER_VM_OPCODE_VERSION_V1 {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: unsupported tokenizer VM opcode version {}",
+                error_code, vm_program.opcode_version
+            )));
+        }
+        for (field_name, value) in [
+            ("invalid_char", vm_program.diagnostics.invalid_char.as_str()),
+            (
+                "unterminated_string",
+                vm_program.diagnostics.unterminated_string.as_str(),
+            ),
+            (
+                "step_limit_exceeded",
+                vm_program.diagnostics.step_limit_exceeded.as_str(),
+            ),
+            (
+                "token_limit_exceeded",
+                vm_program.diagnostics.token_limit_exceeded.as_str(),
+            ),
+            (
+                "lexeme_limit_exceeded",
+                vm_program.diagnostics.lexeme_limit_exceeded.as_str(),
+            ),
+            (
+                "error_limit_exceeded",
+                vm_program.diagnostics.error_limit_exceeded.as_str(),
+            ),
+        ] {
+            if value.trim().is_empty() {
+                return Err(RuntimeBridgeError::Resolve(format!(
+                    "{}: missing tokenizer VM diagnostic mapping for '{}'",
+                    error_code, field_name
+                )));
+            }
         }
         Ok(())
     }
@@ -2042,12 +2125,7 @@ impl HierarchyExecutionModel {
         request: &PortableTokenizeRequest<'_>,
         vm_program: &RuntimeTokenizerVmProgram,
     ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-        if vm_program.opcode_version != TOKENIZER_VM_OPCODE_VERSION_V1 {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: unsupported tokenizer VM opcode version {}",
-                vm_program.diagnostics.invalid_char, vm_program.opcode_version
-            )));
-        }
+        Self::ensure_tokenizer_vm_program_compatible_for_assembler(vm_program)?;
         if vm_program.state_entry_offsets.is_empty() {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: tokenizer VM state table is empty",
@@ -3506,6 +3584,24 @@ fn vm_offset_to_pc(
         )));
     }
     Ok(offset)
+}
+
+fn parser_contract_error_code(contract: &RuntimeParserContract) -> &str {
+    let code = contract.diagnostics.invalid_statement.trim();
+    if code.is_empty() {
+        "opthread-runtime"
+    } else {
+        code
+    }
+}
+
+fn tokenizer_vm_error_code(program: &RuntimeTokenizerVmProgram) -> &str {
+    let code = program.diagnostics.invalid_char.trim();
+    if code.is_empty() {
+        "opthread-runtime"
+    } else {
+        code
+    }
 }
 
 fn vm_diag_code_for_slot(diagnostics: &TokenizerVmDiagnosticMap, slot: u8) -> &str {
@@ -5541,6 +5637,52 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_validate_parser_contract_for_assembler_rejects_zero_ast_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.max_ast_nodes_per_line = 0;
+        chunks.parser_contracts.push(cpu_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("zero parser AST node budget should fail");
+        assert!(err
+            .to_string()
+            .contains("parser contract max_ast_nodes_per_line must be > 0"));
+    }
+
+    #[test]
+    fn execution_model_validate_parser_contract_for_assembler_rejects_missing_diag_mapping() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.diagnostics.expected_expression.clear();
+        chunks.parser_contracts.push(cpu_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("missing parser diagnostic mapping should fail");
+        assert!(err
+            .to_string()
+            .contains("missing parser contract diagnostic mapping for 'expected_expression'"));
+    }
+
+    #[test]
     fn execution_model_validate_parser_contract_for_assembler_errors_when_missing() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -5858,6 +6000,27 @@ mod tests {
                 .contains("unsupported tokenizer vm opcode version"),
             "expected tokenizer opcode version error, got: {err}"
         );
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_authoritative_mode_rejects_missing_diag_mapping() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.diagnostics.lexeme_limit_exceeded.clear();
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect_err("authoritative vm tokenization should reject missing diag mapping");
+        assert!(err
+            .to_string()
+            .contains("missing tokenizer VM diagnostic mapping for 'lexeme_limit_exceeded'"));
     }
 
     #[test]
