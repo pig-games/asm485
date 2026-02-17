@@ -1058,6 +1058,31 @@ impl HierarchyExecutionModel {
         Ok(self.parser_contract_for_resolved(&resolved))
     }
 
+    pub fn validate_parser_contract_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        estimated_ast_nodes: usize,
+    ) -> Result<RuntimeParserContract, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        let contract = self
+            .parser_contract_for_resolved(&resolved)
+            .ok_or_else(|| {
+                RuntimeBridgeError::Resolve(format!(
+                    "missing opThread parser contract for family '{}'",
+                    resolved.family_id
+                ))
+            })?;
+        let max_nodes = contract.max_ast_nodes_per_line as usize;
+        if estimated_ast_nodes > max_nodes {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: parser AST node budget exceeded ({} > {})",
+                contract.diagnostics.invalid_statement, estimated_ast_nodes, max_nodes
+            )));
+        }
+        Ok(contract)
+    }
+
     pub fn resolve_tokenizer_vm_parity_checklist(
         &self,
         cpu_id: &str,
@@ -4559,6 +4584,53 @@ mod tests {
         assert_eq!(contract.grammar_id, "opforge.line.v1");
         assert_eq!(contract.ast_schema_id, "opforge.ast.line.v1");
         assert_eq!(contract.opcode_version, 1);
+    }
+
+    #[test]
+    fn execution_model_validate_parser_contract_for_assembler_enforces_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.max_ast_nodes_per_line = 1;
+        chunks.parser_contracts.push(cpu_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 2)
+            .expect_err("parser budget should be enforced");
+        assert!(
+            err.to_string().to_ascii_lowercase().contains("otp004"),
+            "expected diagnostic code in error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn execution_model_validate_parser_contract_for_assembler_errors_when_missing() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.parser_contracts.clear();
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("missing parser contract should fail");
+        assert!(
+            err.to_string()
+                .to_ascii_lowercase()
+                .contains("missing opthread parser contract"),
+            "expected missing contract error, got: {err}"
+        );
     }
 
     #[test]

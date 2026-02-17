@@ -51,16 +51,6 @@ pub(crate) fn parse_line_with_default_model(
             col_end: 1,
         },
     })?;
-    let parser_contract = model
-        .resolve_parser_contract(DEFAULT_TOKENIZER_CPU_ID, None)
-        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
-    if parser_contract.is_none() {
-        return Err(parse_error_at_end(
-            line,
-            line_num,
-            "opThread parser contract is unavailable for the active CPU pipeline",
-        ));
-    }
     let register_checker = register_checker_none();
     let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
         model,
@@ -70,6 +60,9 @@ pub(crate) fn parse_line_with_default_model(
         line_num,
         &register_checker,
     )?;
+    model
+        .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
     let mut parser = Parser::from_tokens(tokens, end_span, end_token_text);
     parser.parse_line()
 }
