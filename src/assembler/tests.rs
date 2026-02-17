@@ -6593,7 +6593,7 @@ fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
 }
 
 #[test]
-fn opthread_runtime_model_is_available_for_staged_family_cpus_for_vm_tokenization() {
+fn opthread_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokenization() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
 

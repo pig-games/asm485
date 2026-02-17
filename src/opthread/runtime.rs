@@ -5,7 +5,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
 use crate::core::parser::Expr;
@@ -13,23 +12,18 @@ use crate::core::registry::{ModuleRegistry, OperandSet, VmEncodeCandidate};
 use crate::core::tokenizer::{
     NumberLiteral, OperatorKind, Span, StringLiteral, Token, TokenKind, Tokenizer,
 };
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::families::intel8080::table::{
     lookup_instruction, ArgType as IntelArgType, InstructionEntry as IntelInstructionEntry,
 };
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::families::intel8080::{Intel8080FamilyHandler, Operand as IntelOperand};
 use crate::families::mos6502::{AddressMode, FamilyOperand, MOS6502FamilyHandler, OperandForce};
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::i8085::handler::I8085CpuHandler;
 use crate::m65816::state;
 use crate::opthread::builder::{build_hierarchy_package_from_registry, HierarchyBuildError};
 use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, prefix_len};
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
@@ -39,9 +33,7 @@ use crate::opthread::package::{
     DIAG_OPTHREAD_MISSING_VM_PROGRAM, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{execute_program, VmError};
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 use crate::z80::handler::Z80CpuHandler;
 
 /// Family-keyed operand parse/resolve adapter used by expr-based runtime encode.
@@ -797,7 +789,6 @@ impl HierarchyExecutionModel {
             HierarchyExecutionModel::select_candidates_from_exprs_mos6502,
             true,
         );
-        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
         register_fn_resolver(
             &mut expr_resolvers,
             "intel8080",
@@ -1756,7 +1747,6 @@ impl HierarchyExecutionModel {
         Ok(None)
     }
 
-    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
     fn select_candidates_from_exprs_intel8080_scaffold(
         &self,
         resolved: &ResolvedHierarchy,
@@ -1839,7 +1829,6 @@ impl HierarchyExecutionModel {
     }
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 fn intel8080_lookup_instruction_entry(
     mnemonic: &str,
     cpu_id: &str,
@@ -1860,7 +1849,6 @@ fn intel8080_lookup_instruction_entry(
     None
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 fn intel8080_lookup_key(operand: &IntelOperand) -> Option<String> {
     match operand {
         IntelOperand::Register(name, _) => Some(name.to_string()),
@@ -1871,7 +1859,6 @@ fn intel8080_lookup_key(operand: &IntelOperand) -> Option<String> {
     }
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 fn intel8080_operand_bytes_for_entry(
     entry: &IntelInstructionEntry,
     operands: &[IntelOperand],
@@ -4455,14 +4442,11 @@ mod tests {
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
         assert!(model.supports_expr_resolution_for_family("mos6502"));
         assert!(model.supports_expr_resolution_for_family("MOS6502"));
-        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
         assert!(model.supports_expr_resolution_for_family("intel8080"));
-        #[cfg(not(feature = "opthread-runtime-intel8080-scaffold"))]
-        assert!(!model.supports_expr_resolution_for_family("intel8080"));
     }
 
     #[test]
-    fn execution_model_expr_encode_returns_none_for_unimplemented_intel_resolver() {
+    fn execution_model_expr_encode_returns_none_for_unsupported_intel_shape() {
         let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
             .expect("execution model build");
         let span = Span::default();
@@ -4471,12 +4455,11 @@ mod tests {
 
         let bytes = model
             .encode_instruction_from_exprs("8085", None, "MVI", &operands, &ctx)
-            .expect("expr encode should not error when family resolver is absent");
+            .expect("unsupported shape should continue to resolve as None");
         assert!(bytes.is_none());
         assert!(!model.expr_resolution_is_strict_for_family("intel8080"));
     }
 
-    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
     #[test]
     fn execution_model_intel_scaffold_encodes_matching_mvi_program() {
         let mut chunks = intel_only_chunks();
@@ -4502,10 +4485,7 @@ mod tests {
             .expect("execution model build");
         let replaced =
             model.register_expr_resolver_for_family("intel8080", intel_test_expr_resolver);
-        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
         assert!(replaced.is_some());
-        #[cfg(not(feature = "opthread-runtime-intel8080-scaffold"))]
-        assert!(replaced.is_none());
         assert!(model.supports_expr_resolution_for_family("intel8080"));
         assert!(model.expr_resolution_is_strict_for_family("intel8080"));
 
@@ -4523,10 +4503,7 @@ mod tests {
         let mut model = HierarchyExecutionModel::from_chunks(intel_only_chunks())
             .expect("execution model build");
         let replaced = model.register_family_expr_resolver(Box::new(IntelDynResolver));
-        #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
         assert!(replaced.is_some());
-        #[cfg(not(feature = "opthread-runtime-intel8080-scaffold"))]
-        assert!(replaced.is_none());
         assert!(model.supports_expr_resolution_for_family("intel8080"));
         assert!(model.expr_resolution_is_strict_for_family("intel8080"));
 
@@ -4539,7 +4516,6 @@ mod tests {
         assert_eq!(bytes, Some(vec![0x3E, 0x42]));
     }
 
-    #[cfg(feature = "opthread-runtime-intel8080-scaffold")]
     #[test]
     fn execution_model_intel_scaffold_is_non_strict() {
         let model = HierarchyExecutionModel::from_chunks(intel_only_chunks())

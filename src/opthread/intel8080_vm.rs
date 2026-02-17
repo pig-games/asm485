@@ -48,7 +48,6 @@ pub(crate) fn compile_vm_program_for_instruction_entry(
     Some(program)
 }
 
-#[cfg(feature = "opthread-runtime-intel8080-scaffold")]
 pub(crate) fn prefix_len(prefix: Prefix) -> usize {
     prefix_bytes(prefix).len()
 }
