@@ -51,6 +51,16 @@ pub const DIAG_OPTHREAD_MISSING_VM_PROGRAM: &str = "OTR001";
 pub const DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE: &str = "OTR002";
 pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02: &str = "OTR003";
 pub const DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502: &str = "OTR004";
+pub const DIAG_TOKENIZER_INVALID_CHAR: &str = "ott001";
+pub const DIAG_TOKENIZER_UNTERMINATED_STRING: &str = "ott002";
+pub const DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED: &str = "ott003";
+pub const DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED: &str = "ott004";
+pub const DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED: &str = "ott005";
+pub const DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED: &str = "ott006";
+pub const DIAG_PARSER_UNEXPECTED_TOKEN: &str = "otp001";
+pub const DIAG_PARSER_EXPECTED_EXPRESSION: &str = "otp002";
+pub const DIAG_PARSER_EXPECTED_OPERAND: &str = "otp003";
+pub const DIAG_PARSER_INVALID_STATEMENT: &str = "otp004";
 pub const TOKENIZER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_GRAMMAR_ID_LINE_V1: &str = "opforge.line.v1";
@@ -620,6 +630,46 @@ pub fn default_runtime_diagnostic_catalog() -> Vec<DiagnosticDescriptor> {
         DiagnosticDescriptor {
             code: DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502.to_string(),
             message_template: "65816-only addressing mode not supported on base 6502".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_TOKENIZER_INVALID_CHAR.to_string(),
+            message_template: "invalid tokenizer character".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_TOKENIZER_UNTERMINATED_STRING.to_string(),
+            message_template: "unterminated string literal".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED.to_string(),
+            message_template: "tokenizer step budget exceeded".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED.to_string(),
+            message_template: "tokenizer token budget exceeded".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED.to_string(),
+            message_template: "tokenizer lexeme budget exceeded".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED.to_string(),
+            message_template: "tokenizer diagnostic budget exceeded".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_PARSER_UNEXPECTED_TOKEN.to_string(),
+            message_template: "unexpected token".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_PARSER_EXPECTED_EXPRESSION.to_string(),
+            message_template: "expected expression".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_PARSER_EXPECTED_OPERAND.to_string(),
+            message_template: "expected operand".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_PARSER_INVALID_STATEMENT.to_string(),
+            message_template: "invalid statement".to_string(),
         },
     ]
 }

@@ -1718,14 +1718,16 @@ impl HierarchyExecutionModel {
                     resolved.family_id
                 ))
             })?;
+        self.ensure_parser_contract_compatible_for_assembler(&contract)?;
         let max_nodes = contract.max_ast_nodes_per_line as usize;
         if estimated_ast_nodes > max_nodes {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: parser AST node budget exceeded ({} > {})",
-                contract.diagnostics.invalid_statement, estimated_ast_nodes, max_nodes
+                parser_contract_error_code(&contract),
+                estimated_ast_nodes,
+                max_nodes
             )));
         }
-        Self::ensure_parser_contract_compatible_for_assembler(&contract)?;
         Ok(contract)
     }
 
@@ -2008,9 +2010,10 @@ impl HierarchyExecutionModel {
     }
 
     fn ensure_parser_contract_compatible_for_assembler(
+        &self,
         contract: &RuntimeParserContract,
     ) -> Result<(), RuntimeBridgeError> {
-        Self::ensure_parser_diagnostic_map_compatible_for_assembler(contract)?;
+        self.ensure_parser_diagnostic_map_compatible_for_assembler(contract)?;
         let error_code = parser_contract_error_code(contract);
         if contract.max_ast_nodes_per_line == 0 {
             return Err(RuntimeBridgeError::Resolve(format!(
@@ -2046,6 +2049,7 @@ impl HierarchyExecutionModel {
     }
 
     fn ensure_parser_diagnostic_map_compatible_for_assembler(
+        &self,
         contract: &RuntimeParserContract,
     ) -> Result<(), RuntimeBridgeError> {
         let error_code = parser_contract_error_code(contract);
@@ -2073,11 +2077,17 @@ impl HierarchyExecutionModel {
                     error_code, field_name
                 )));
             }
+            self.ensure_diag_code_declared_in_package_catalog(
+                error_code,
+                "parser contract",
+                value,
+            )?;
         }
         Ok(())
     }
 
     fn ensure_tokenizer_vm_program_compatible_for_assembler(
+        &self,
         vm_program: &RuntimeTokenizerVmProgram,
     ) -> Result<(), RuntimeBridgeError> {
         let error_code = tokenizer_vm_error_code(vm_program);
@@ -2116,8 +2126,24 @@ impl HierarchyExecutionModel {
                     error_code, field_name
                 )));
             }
+            self.ensure_diag_code_declared_in_package_catalog(error_code, "tokenizer VM", value)?;
         }
         Ok(())
+    }
+
+    fn ensure_diag_code_declared_in_package_catalog(
+        &self,
+        error_code: &str,
+        context: &str,
+        code: &str,
+    ) -> Result<(), RuntimeBridgeError> {
+        if self.diag_templates.contains_key(&code.to_ascii_lowercase()) {
+            return Ok(());
+        }
+        Err(RuntimeBridgeError::Resolve(format!(
+            "{}: {} diagnostic code '{}' is not declared in package DIAG catalog",
+            error_code, context, code
+        )))
     }
 
     fn tokenize_with_vm_core(
@@ -2125,7 +2151,7 @@ impl HierarchyExecutionModel {
         request: &PortableTokenizeRequest<'_>,
         vm_program: &RuntimeTokenizerVmProgram,
     ) -> Result<Vec<PortableToken>, RuntimeBridgeError> {
-        Self::ensure_tokenizer_vm_program_compatible_for_assembler(vm_program)?;
+        self.ensure_tokenizer_vm_program_compatible_for_assembler(vm_program)?;
         if vm_program.state_entry_offsets.is_empty() {
             return Err(RuntimeBridgeError::Resolve(format!(
                 "{}: tokenizer VM state table is empty",
@@ -5683,6 +5709,29 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_validate_parser_contract_for_assembler_rejects_unknown_diag_code() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut cpu_contract = parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.diagnostics.expected_operand = "otp999".to_string();
+        chunks.parser_contracts.push(cpu_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .validate_parser_contract_for_assembler("m6502", None, 0)
+            .expect_err("unknown parser diagnostic code should fail");
+        assert!(err.to_string().contains(
+            "parser contract diagnostic code 'otp999' is not declared in package DIAG catalog"
+        ));
+    }
+
+    #[test]
     fn execution_model_validate_parser_contract_for_assembler_errors_when_missing() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -6021,6 +6070,27 @@ mod tests {
         assert!(err
             .to_string()
             .contains("missing tokenizer VM diagnostic mapping for 'lexeme_limit_exceeded'"));
+    }
+
+    #[test]
+    fn execution_model_tokenizer_vm_authoritative_mode_rejects_unknown_diag_code() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        let mut program = tokenizer_vm_program_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        program.diagnostics.token_limit_exceeded = "ott999".to_string();
+        chunks.tokenizer_vm_programs.push(program);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let err = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect_err("authoritative vm tokenization should reject unknown diag mapping");
+        assert!(err.to_string().contains(
+            "tokenizer VM diagnostic code 'ott999' is not declared in package DIAG catalog"
+        ));
     }
 
     #[test]

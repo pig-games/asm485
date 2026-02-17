@@ -37,6 +37,10 @@ use crate::opthread::package::{
     ParserContractDescriptor, ParserDiagnosticMap, ParserVmOpcode, ParserVmProgramDescriptor,
     TokenCaseRule, TokenPolicyDescriptor, TokenizerVmDiagnosticMap, TokenizerVmLimits,
     TokenizerVmOpcode, TokenizerVmProgramDescriptor, VmProgramDescriptor,
+    DIAG_PARSER_EXPECTED_EXPRESSION, DIAG_PARSER_EXPECTED_OPERAND, DIAG_PARSER_INVALID_STATEMENT,
+    DIAG_PARSER_UNEXPECTED_TOKEN, DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED, DIAG_TOKENIZER_INVALID_CHAR,
+    DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED, DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED,
+    DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED, DIAG_TOKENIZER_UNTERMINATED_STRING,
     PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1,
     TOKENIZER_VM_OPCODE_VERSION_V1,
 };
@@ -730,12 +734,12 @@ fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDes
             max_errors_per_line: 16,
         },
         diagnostics: TokenizerVmDiagnosticMap {
-            invalid_char: "ott001".to_string(),
-            unterminated_string: "ott002".to_string(),
-            step_limit_exceeded: "ott003".to_string(),
-            token_limit_exceeded: "ott004".to_string(),
-            lexeme_limit_exceeded: "ott005".to_string(),
-            error_limit_exceeded: "ott006".to_string(),
+            invalid_char: DIAG_TOKENIZER_INVALID_CHAR.to_string(),
+            unterminated_string: DIAG_TOKENIZER_UNTERMINATED_STRING.to_string(),
+            step_limit_exceeded: DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED.to_string(),
+            token_limit_exceeded: DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED.to_string(),
+            lexeme_limit_exceeded: DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED.to_string(),
+            error_limit_exceeded: DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED.to_string(),
         },
         // Default tokenizer VM loop:
         // - scan exactly one core token from the current cursor
@@ -756,10 +760,10 @@ fn default_family_parser_contract(family_id: &str) -> ParserContractDescriptor {
         opcode_version: PARSER_VM_OPCODE_VERSION_V1,
         max_ast_nodes_per_line: 1024,
         diagnostics: ParserDiagnosticMap {
-            unexpected_token: "otp001".to_string(),
-            expected_expression: "otp002".to_string(),
-            expected_operand: "otp003".to_string(),
-            invalid_statement: "otp004".to_string(),
+            unexpected_token: DIAG_PARSER_UNEXPECTED_TOKEN.to_string(),
+            expected_expression: DIAG_PARSER_EXPECTED_EXPRESSION.to_string(),
+            expected_operand: DIAG_PARSER_EXPECTED_OPERAND.to_string(),
+            invalid_statement: DIAG_PARSER_INVALID_STATEMENT.to_string(),
         },
     }
 }
@@ -1180,7 +1184,8 @@ mod tests {
     };
     use crate::opthread::package::{
         load_hierarchy_package, token_identifier_class, ParserVmOpcode, TokenizerVmOpcode,
-        DIAG_OPTHREAD_MISSING_VM_PROGRAM, PARSER_GRAMMAR_ID_LINE_V1,
+        DIAG_OPTHREAD_MISSING_VM_PROGRAM, DIAG_PARSER_INVALID_STATEMENT,
+        DIAG_TOKENIZER_INVALID_CHAR, PARSER_GRAMMAR_ID_LINE_V1,
     };
     use crate::opthread::runtime::HierarchyExecutionModel;
     use crate::z80::extensions::lookup_extension as lookup_z80_extension;
@@ -1211,6 +1216,14 @@ mod tests {
             .diagnostics
             .iter()
             .any(|entry| entry.code == DIAG_OPTHREAD_MISSING_VM_PROGRAM));
+        assert!(chunks
+            .diagnostics
+            .iter()
+            .any(|entry| entry.code == DIAG_TOKENIZER_INVALID_CHAR));
+        assert!(chunks
+            .diagnostics
+            .iter()
+            .any(|entry| entry.code == DIAG_PARSER_INVALID_STATEMENT));
         assert!(!chunks.token_policies.is_empty());
         assert!(chunks.token_policies.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
