@@ -4583,6 +4583,7 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8,
             ],
@@ -5506,6 +5507,7 @@ mod tests {
             program.program,
             vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8
             ]
