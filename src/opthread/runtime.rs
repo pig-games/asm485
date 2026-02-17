@@ -2113,17 +2113,7 @@ fn tokenizer_vm_certification_for_family(
         .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
 }
 fn tokenizer_vm_authoritative_for_family(family_id: &str) -> bool {
-    if tokenizer_vm_certification_for_family(family_id).is_none() {
-        return false;
-    }
-    #[cfg(feature = "opthread-runtime")]
-    {
-        return crate::opthread::rollout::package_runtime_default_enabled_for_family(family_id);
-    }
-    #[cfg(not(feature = "opthread-runtime"))]
-    {
-        family_id.eq_ignore_ascii_case("mos6502")
-    }
+    tokenizer_vm_certification_for_family(family_id).is_some()
 }
 
 fn tokenizer_vm_parity_checklist_for_family(family_id: &str) -> Option<&'static str> {
@@ -3958,17 +3948,17 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_tokenizer_auto_mode_keeps_intel8080_family_staged() {
+    fn execution_model_tokenizer_auto_mode_uses_vm_for_intel8080_family() {
         let registry = parity_registry();
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
-        let err = model
+        let tokens = model
             .tokenize_portable_statement(&FailingTokenizerAdapter, "z80", None, "LD A,B", 1)
-            .expect_err("intel8080 family remains staged and should route via delegated adapter");
-        assert!(err
-            .to_string()
-            .to_ascii_lowercase()
-            .contains("failing delegated adapter"));
+            .expect("intel8080 family should route through VM tokenizer authority");
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "ld"
+        ));
     }
 
     #[test]
@@ -4138,12 +4128,12 @@ mod tests {
     }
 
     #[test]
-    fn execution_model_assembler_tokenization_path_keeps_staged_family_non_authoritative() {
+    fn execution_model_assembler_tokenization_path_uses_vm_for_intel8080_family() {
         let registry = parity_registry();
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
 
-        let err = model
+        let tokens = model
             .tokenize_portable_statement_for_assembler(
                 &FailingTokenizerAdapter,
                 "z80",
@@ -4151,11 +4141,11 @@ mod tests {
                 "LD A,B",
                 1,
             )
-            .expect_err("staged family should continue delegated path");
-        assert!(err
-            .to_string()
-            .to_ascii_lowercase()
-            .contains("failing delegated adapter"));
+            .expect("intel8080 family assembler tokenization should route through VM");
+        assert!(matches!(
+            &tokens[0].kind,
+            PortableTokenKind::Identifier(name) if name == "ld"
+        ));
     }
 
     #[test]

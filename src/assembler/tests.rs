@@ -7104,7 +7104,7 @@ fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
-fn opthread_runtime_staged_family_tokenization_does_not_require_vm_tokens() {
+fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_authoritative() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, z80_cpu_id, &registry, true);
@@ -7129,8 +7129,11 @@ fn opthread_runtime_staged_family_tokenization_does_not_require_vm_tokens() {
     asm.clear_scopes();
 
     let status = asm.process("    LD A,B", 1, 0, 2);
-    assert_eq!(status, LineStatus::Ok);
-    assert_eq!(asm.bytes(), &[0x78]);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("produced no tokens for non-empty source line"));
 }
 
 #[cfg(feature = "opthread-runtime")]
