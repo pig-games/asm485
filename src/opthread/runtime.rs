@@ -1551,6 +1551,37 @@ impl HierarchyExecutionModel {
                 TokenizerVmOpcode::DelegateCore => {
                     return Self::tokenize_with_host_core(request);
                 }
+                TokenizerVmOpcode::ScanCoreToken => {
+                    match vm_scan_next_core_token(request, cursor)? {
+                        Some((portable, next_cursor)) => {
+                            if tokens.len() >= max_tokens_per_line_usize {
+                                return Err(RuntimeBridgeError::Resolve(format!(
+                                    "{}: tokenizer VM token budget exceeded ({}/{})",
+                                    vm_program.diagnostics.token_limit_exceeded,
+                                    tokens.len().saturating_add(1),
+                                    max_tokens_per_line
+                                )));
+                            }
+                            let lexeme_len = vm_token_lexeme_len(&portable);
+                            if lexeme_len > max_lexeme_bytes_usize {
+                                return Err(RuntimeBridgeError::Resolve(format!(
+                                    "{}: tokenizer VM lexeme budget exceeded ({}/{})",
+                                    vm_program.diagnostics.lexeme_limit_exceeded,
+                                    lexeme_len,
+                                    max_lexeme_bytes
+                                )));
+                            }
+                            tokens
+                                .push(apply_token_policy_to_token(portable, &request.token_policy));
+                            cursor = next_cursor;
+                            current_byte = bytes.get(cursor).copied();
+                        }
+                        None => {
+                            cursor = bytes.len();
+                            current_byte = None;
+                        }
+                    }
+                }
             }
         }
 
@@ -2201,6 +2232,66 @@ fn source_line_can_tokenize_to_empty(source_line: &str, policy: &RuntimeTokenPol
     trimmed.is_empty()
         || (!policy.comment_prefix.is_empty()
             && trimmed.starts_with(policy.comment_prefix.as_str()))
+}
+
+fn vm_scan_next_core_token(
+    request: &PortableTokenizeRequest<'_>,
+    cursor: usize,
+) -> Result<Option<(PortableToken, usize)>, RuntimeBridgeError> {
+    if cursor >= request.source_line.len() {
+        return Ok(None);
+    }
+
+    let mut tokenizer = Tokenizer::new(request.source_line, request.line_num);
+    loop {
+        let token = tokenizer
+            .next_token()
+            .map_err(|err| RuntimeBridgeError::Resolve(err.message))?;
+        let token_end = token.span.col_end.saturating_sub(1);
+        if token_end <= cursor {
+            if matches!(token.kind, TokenKind::End) {
+                return Ok(None);
+            }
+            continue;
+        }
+        if matches!(token.kind, TokenKind::End) {
+            return Ok(None);
+        }
+        return Ok(Some((PortableToken::from_core_token(token), token_end)));
+    }
+}
+
+fn vm_token_lexeme_len(token: &PortableToken) -> usize {
+    match &token.kind {
+        PortableTokenKind::Identifier(name) | PortableTokenKind::Register(name) => name.len(),
+        PortableTokenKind::Number { text, .. } => text.len(),
+        PortableTokenKind::String { raw, .. } => raw.len(),
+        PortableTokenKind::Comma
+        | PortableTokenKind::Colon
+        | PortableTokenKind::Dollar
+        | PortableTokenKind::Dot
+        | PortableTokenKind::Hash
+        | PortableTokenKind::Question
+        | PortableTokenKind::OpenBracket
+        | PortableTokenKind::CloseBracket
+        | PortableTokenKind::OpenBrace
+        | PortableTokenKind::CloseBrace
+        | PortableTokenKind::OpenParen
+        | PortableTokenKind::CloseParen => 1,
+        PortableTokenKind::Operator(op) => match op {
+            PortableOperatorKind::Power
+            | PortableOperatorKind::Shl
+            | PortableOperatorKind::Shr
+            | PortableOperatorKind::LogicAnd
+            | PortableOperatorKind::LogicOr
+            | PortableOperatorKind::LogicXor
+            | PortableOperatorKind::Eq
+            | PortableOperatorKind::Ne
+            | PortableOperatorKind::Ge
+            | PortableOperatorKind::Le => 2,
+            _ => 1,
+        },
+    }
 }
 
 fn vm_char_class_matches(byte: Option<u8>, class: u8, policy: &RuntimeTokenPolicy) -> bool {

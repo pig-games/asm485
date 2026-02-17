@@ -366,10 +366,7 @@ fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
 }
 
 fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDescriptor {
-    let program = vec![
-        TokenizerVmOpcode::DelegateCore as u8,
-        TokenizerVmOpcode::End as u8,
-    ];
+    let program = default_family_tokenizer_vm_program_bytes();
     TokenizerVmProgramDescriptor {
         owner: ScopedOwner::Family(family_id.to_string()),
         opcode_version: TOKENIZER_VM_OPCODE_VERSION_V1,
@@ -389,10 +386,36 @@ fn default_family_tokenizer_vm_program(family_id: &str) -> TokenizerVmProgramDes
             lexeme_limit_exceeded: "ott005".to_string(),
             error_limit_exceeded: "ott006".to_string(),
         },
-        // Bootstrap VM tokenizer: delegate token production through VM opcode
-        // dispatch so assembler-owned tokenization can enforce strict VM entrypoints.
+        // Default tokenizer VM loop:
+        // - scan exactly one core token from the current cursor
+        // - detect EOL/comment termination
+        // - loop until done
+        //
+        // This keeps assembler tokenization VM-authoritative while preserving
+        // parity with core token semantics for now.
         program,
     }
+}
+
+fn default_family_tokenizer_vm_program_bytes() -> Vec<u8> {
+    let loop_offset = 0u32;
+    let mut program = Vec::new();
+
+    // Scan one token from current cursor (or advance to done at EOL/comment).
+    program.push(TokenizerVmOpcode::ScanCoreToken as u8);
+    // Read current cursor byte after scan; if at EOL, finish.
+    program.push(TokenizerVmOpcode::ReadChar as u8);
+    program.push(TokenizerVmOpcode::JumpIfEol as u8);
+    let eol_target_patch = program.len();
+    program.extend_from_slice(&0u32.to_le_bytes());
+    // Continue scanning until EOL.
+    program.push(TokenizerVmOpcode::Jump as u8);
+    program.extend_from_slice(&loop_offset.to_le_bytes());
+    let end_offset = program.len() as u32;
+    program[eol_target_patch..eol_target_patch + 4].copy_from_slice(&end_offset.to_le_bytes());
+    program.push(TokenizerVmOpcode::End as u8);
+
+    program
 }
 
 fn compile_opcode_program(opcode: u8, operand_count: usize) -> Vec<u8> {
@@ -765,7 +788,8 @@ mod tests {
     use crate::m65c02::module::M65C02CpuModule;
     use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
     use crate::opthread::package::{
-        load_hierarchy_package, token_identifier_class, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        load_hierarchy_package, token_identifier_class, TokenizerVmOpcode,
+        DIAG_OPTHREAD_MISSING_VM_PROGRAM,
     };
     use crate::opthread::runtime::HierarchyExecutionModel;
     use crate::z80::extensions::lookup_extension as lookup_z80_extension;
@@ -871,6 +895,30 @@ mod tests {
             .families
             .iter()
             .any(|fam| fam.id == "mos6502" && fam.canonical_dialect == "transparent"));
+    }
+
+    #[test]
+    fn builder_emits_non_delegate_default_tokenizer_vm_programs() {
+        let registry = test_registry();
+        let chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("builder should succeed");
+
+        for program in &chunks.tokenizer_vm_programs {
+            assert!(
+                program
+                    .program
+                    .contains(&(TokenizerVmOpcode::ScanCoreToken as u8)),
+                "default tokenizer VM program for {:?} must include ScanCoreToken",
+                program.owner
+            );
+            assert!(
+                !program
+                    .program
+                    .contains(&(TokenizerVmOpcode::DelegateCore as u8)),
+                "default tokenizer VM program for {:?} must not depend on DelegateCore",
+                program.owner
+            );
+        }
     }
 
     #[test]

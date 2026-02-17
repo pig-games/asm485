@@ -142,6 +142,7 @@ pub enum TokenizerVmOpcode {
     Fail = 0x0B,
     EmitDiag = 0x0C,
     DelegateCore = 0x0D,
+    ScanCoreToken = 0x0E,
 }
 
 impl TokenizerVmOpcode {
@@ -161,6 +162,7 @@ impl TokenizerVmOpcode {
             0x0B => Some(Self::Fail),
             0x0C => Some(Self::EmitDiag),
             0x0D => Some(Self::DelegateCore),
+            0x0E => Some(Self::ScanCoreToken),
             _ => None,
         }
     }
