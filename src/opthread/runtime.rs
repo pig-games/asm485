@@ -27,7 +27,7 @@ use crate::opthread::hierarchy::{
 };
 use crate::opthread::intel8080_vm::{
     mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
-    mode_key_for_z80_interrupt_mode, prefix_len,
+    mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect, prefix_len,
 };
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
@@ -1776,6 +1776,12 @@ impl HierarchyExecutionModel {
             Err(_) => return Ok(None),
         };
 
+        if let Some(candidate) =
+            intel8080_ld_indirect_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
+        {
+            return Ok(Some(vec![candidate]));
+        }
+
         if let Some(candidate) = intel8080_indexed_memory_candidate(
             mnemonic,
             resolved.cpu_id.as_str(),
@@ -1956,6 +1962,34 @@ fn intel8080_interrupt_mode_for_entry(
     } else {
         None
     }
+}
+
+fn intel8080_ld_indirect_candidate(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+) -> Option<VmEncodeCandidate> {
+    if !cpu_id.eq_ignore_ascii_case("z80")
+        || !mnemonic.eq_ignore_ascii_case("ld")
+        || operands.len() != 2
+    {
+        return None;
+    }
+
+    let (mode_key, addr) = match (&operands[0], &operands[1]) {
+        (IntelOperand::Register(dst, _), IntelOperand::IndirectAddress16(addr, _)) => {
+            (mode_key_for_z80_ld_indirect(dst.as_str(), false)?, *addr)
+        }
+        (IntelOperand::IndirectAddress16(addr, _), IntelOperand::Register(src, _)) => {
+            (mode_key_for_z80_ld_indirect(src.as_str(), true)?, *addr)
+        }
+        _ => return None,
+    };
+
+    Some(VmEncodeCandidate {
+        mode_key,
+        operand_bytes: vec![vec![addr as u8, (addr >> 8) as u8]],
+    })
 }
 
 fn intel8080_indexed_memory_candidate(
@@ -4841,6 +4875,40 @@ mod tests {
 
         assert_eq!(load_bytes, Some(vec![0xDD, 0x7E, 0x00]));
         assert_eq!(store_bytes, Some(vec![0xFD, 0x36, 0x00, 0x42]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_candidate_supports_z80_ld_indirect_forms() {
+        let span = Span::default();
+        let load_candidate = intel8080_ld_indirect_candidate(
+            "LD",
+            "z80",
+            &[
+                IntelOperand::Register("BC".to_string(), span),
+                IntelOperand::IndirectAddress16(0x4000, span),
+            ],
+        )
+        .expect("LD BC,(nn) should yield a VM candidate");
+        let store_candidate = intel8080_ld_indirect_candidate(
+            "LD",
+            "z80",
+            &[
+                IntelOperand::IndirectAddress16(0x5000, span),
+                IntelOperand::Register("IY".to_string(), span),
+            ],
+        )
+        .expect("LD (nn),IY should yield a VM candidate");
+
+        assert_eq!(
+            load_candidate.mode_key,
+            mode_key_for_z80_ld_indirect("BC", false).expect("valid mode key")
+        );
+        assert_eq!(load_candidate.operand_bytes, vec![vec![0x00, 0x40]]);
+        assert_eq!(
+            store_candidate.mode_key,
+            mode_key_for_z80_ld_indirect("IY", true).expect("valid mode key")
+        );
+        assert_eq!(store_candidate.operand_bytes, vec![vec![0x00, 0x50]]);
     }
 
     #[test]

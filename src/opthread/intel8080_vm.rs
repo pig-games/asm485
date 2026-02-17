@@ -138,6 +138,30 @@ pub(crate) fn compile_vm_program_for_z80_indexed_memory(
     Some(program)
 }
 
+pub(crate) fn mode_key_for_z80_ld_indirect(register: &str, store: bool) -> Option<String> {
+    let reg = z80_ld_indirect_register_key(register)?;
+    let dir = if store { "store" } else { "load" };
+    Some(format!("ldind={dir}:{reg}"))
+}
+
+pub(crate) fn compile_vm_program_for_z80_ld_indirect(
+    register: &str,
+    store: bool,
+) -> Option<Vec<u8>> {
+    let (prefix, opcode) = z80_ld_indirect_prefix_opcode(register, store)?;
+    let mut program = Vec::new();
+    if let Some(prefix) = prefix {
+        program.push(OP_EMIT_U8);
+        program.push(prefix);
+    }
+    program.push(OP_EMIT_U8);
+    program.push(opcode);
+    program.push(OP_EMIT_OPERAND);
+    program.push(0);
+    program.push(OP_END);
+    Some(program)
+}
+
 pub(crate) fn prefix_len(prefix: Prefix) -> usize {
     prefix_bytes(prefix).len()
 }
@@ -224,6 +248,39 @@ fn z80_indexed_cb_opcode(mnemonic: &str, bit: Option<u8>) -> Option<u8> {
             };
             Some(base | (bit << 3) | 0x06)
         }
+        _ => None,
+    }
+}
+
+fn z80_ld_indirect_register_key(register: &str) -> Option<&'static str> {
+    match register.to_ascii_uppercase().as_str() {
+        "A" => Some("a"),
+        "HL" => Some("hl"),
+        "BC" => Some("bc"),
+        "DE" => Some("de"),
+        "SP" => Some("sp"),
+        "IX" => Some("ix"),
+        "IY" => Some("iy"),
+        _ => None,
+    }
+}
+
+fn z80_ld_indirect_prefix_opcode(register: &str, store: bool) -> Option<(Option<u8>, u8)> {
+    match (register.to_ascii_uppercase().as_str(), store) {
+        ("A", false) => Some((None, 0x3A)),
+        ("A", true) => Some((None, 0x32)),
+        ("HL", false) => Some((None, 0x2A)),
+        ("HL", true) => Some((None, 0x22)),
+        ("BC", false) => Some((Some(0xED), 0x4B)),
+        ("BC", true) => Some((Some(0xED), 0x43)),
+        ("DE", false) => Some((Some(0xED), 0x5B)),
+        ("DE", true) => Some((Some(0xED), 0x53)),
+        ("SP", false) => Some((Some(0xED), 0x7B)),
+        ("SP", true) => Some((Some(0xED), 0x73)),
+        ("IX", false) => Some((Some(0xDD), 0x2A)),
+        ("IX", true) => Some((Some(0xDD), 0x22)),
+        ("IY", false) => Some((Some(0xFD), 0x2A)),
+        ("IY", true) => Some((Some(0xFD), 0x22)),
         _ => None,
     }
 }
