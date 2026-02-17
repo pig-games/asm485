@@ -16,6 +16,7 @@
 //! - `TABL` (scoped VM instruction program descriptors)
 //! - `TKVM` (scoped tokenizer VM program descriptors)
 //! - `PARS` (scoped parser/AST contract descriptors)
+//! - `PRVM` (scoped parser VM program descriptors)
 
 use std::collections::HashMap;
 
@@ -44,6 +45,7 @@ const CHUNK_TABL: [u8; 4] = *b"TABL";
 const CHUNK_MSEL: [u8; 4] = *b"MSEL";
 const CHUNK_TKVM: [u8; 4] = *b"TKVM";
 const CHUNK_PARS: [u8; 4] = *b"PARS";
+const CHUNK_PRVM: [u8; 4] = *b"PRVM";
 
 pub const DIAG_OPTHREAD_MISSING_VM_PROGRAM: &str = "OTR001";
 pub const DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE: &str = "OTR002";
@@ -202,6 +204,34 @@ pub struct ParserContractDescriptor {
     pub diagnostics: ParserDiagnosticMap,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ParserVmOpcode {
+    End = 0x00,
+    ParseCoreLine = 0x01,
+    EmitDiag = 0x02,
+    Fail = 0x03,
+}
+
+impl ParserVmOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0x00 => Some(Self::End),
+            0x01 => Some(Self::ParseCoreLine),
+            0x02 => Some(Self::EmitDiag),
+            0x03 => Some(Self::Fail),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParserVmProgramDescriptor {
+    pub owner: ScopedOwner,
+    pub opcode_version: u16,
+    pub program: Vec<u8>,
+}
+
 /// Case-folding behavior for tokenizer/literal matching policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenCaseRule {
@@ -308,6 +338,7 @@ pub struct HierarchyChunks {
     pub token_policies: Vec<TokenPolicyDescriptor>,
     pub tokenizer_vm_programs: Vec<TokenizerVmProgramDescriptor>,
     pub parser_contracts: Vec<ParserContractDescriptor>,
+    pub parser_vm_programs: Vec<ParserVmProgramDescriptor>,
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
@@ -480,6 +511,7 @@ pub fn encode_hierarchy_chunks_full(
         token_policies: Vec::new(),
         tokenizer_vm_programs: Vec::new(),
         parser_contracts: Vec::new(),
+        parser_vm_programs: Vec::new(),
         families: families.to_vec(),
         cpus: cpus.to_vec(),
         dialects: dialects.to_vec(),
@@ -507,6 +539,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     let mut token_policies = chunks.token_policies.to_vec();
     let mut tokenizer_vm_programs = chunks.tokenizer_vm_programs.to_vec();
     let mut parser_contracts = chunks.parser_contracts.to_vec();
+    let mut parser_vm_programs = chunks.parser_vm_programs.to_vec();
     let mut fams = chunks.families.to_vec();
     let mut cpus = chunks.cpus.to_vec();
     let mut dials = chunks.dialects.to_vec();
@@ -526,6 +559,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     canonicalize_token_policies(&mut token_policies);
     canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
     canonicalize_parser_contracts(&mut parser_contracts);
+    canonicalize_parser_vm_programs(&mut parser_vm_programs);
     canonicalize_package_support_chunks(&mut strings, &mut diagnostics);
 
     let mut chunks = vec![
@@ -541,6 +575,9 @@ pub fn encode_hierarchy_chunks_from_chunks(
     }
     if !parser_contracts.is_empty() {
         chunks.push((CHUNK_PARS, encode_pars_chunk(&parser_contracts)?));
+    }
+    if !parser_vm_programs.is_empty() {
+        chunks.push((CHUNK_PRVM, encode_prvm_chunk(&parser_vm_programs)?));
     }
     chunks.extend_from_slice(&[
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
@@ -1041,6 +1078,55 @@ pub(crate) fn canonicalize_parser_contracts(parser_contracts: &mut Vec<ParserCon
     });
 }
 
+pub(crate) fn canonicalize_parser_vm_programs(
+    parser_vm_programs: &mut Vec<ParserVmProgramDescriptor>,
+) {
+    for entry in parser_vm_programs.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+    }
+    parser_vm_programs.sort_by(|left, right| {
+        let left_owner_kind = match left.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let right_owner_kind = match right.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let left_owner_id = match &left.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        let right_owner_id = match &right.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        left_owner_kind
+            .cmp(&right_owner_kind)
+            .then_with(|| left_owner_id.cmp(&right_owner_id))
+            .then_with(|| left.opcode_version.cmp(&right.opcode_version))
+            .then_with(|| left.program.cmp(&right.program))
+    });
+    parser_vm_programs.dedup_by(|left, right| {
+        left.opcode_version == right.opcode_version
+            && left.program == right.program
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+}
+
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
     let toc = parse_toc(bytes)?;
     let meta_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_META)?;
@@ -1049,6 +1135,7 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let toks_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TOKS)?;
     let tkvm_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TKVM)?;
     let pars_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_PARS)?;
+    let prvm_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_PRVM)?;
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
@@ -1080,6 +1167,10 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         },
         parser_contracts: match pars_bytes {
             Some(payload) => decode_pars_chunk(payload)?,
+            None => Vec::new(),
+        },
+        parser_vm_programs: match prvm_bytes {
+            Some(payload) => decode_prvm_chunk(payload)?,
             None => Vec::new(),
         },
         families: decode_fams_chunk(fams_bytes)?,
@@ -2040,6 +2131,58 @@ fn decode_pars_chunk(bytes: &[u8]) -> Result<Vec<ParserContractDescriptor>, Opcp
     Ok(entries)
 }
 
+fn encode_prvm_chunk(programs: &[ParserVmProgramDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(programs.len(), "PRVM count")?);
+    for entry in programs {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "PRVM", owner_id)?;
+        write_u16(&mut out, entry.opcode_version);
+        write_u32(
+            &mut out,
+            u32_count(entry.program.len(), "PRVM program byte length")?,
+        );
+        out.extend_from_slice(&entry.program);
+    }
+    Ok(out)
+}
+
+fn decode_prvm_chunk(bytes: &[u8]) -> Result<Vec<ParserVmProgramDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "PRVM");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "PRVM".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        let opcode_version = cur.read_u16()?;
+        let program_len = cur.read_u32()? as usize;
+        let program = cur.read_exact(program_len, "parser vm program")?.to_vec();
+        entries.push(ParserVmProgramDescriptor {
+            owner,
+            opcode_version,
+            program,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -2353,6 +2496,25 @@ mod tests {
         ]
     }
 
+    fn parser_vm_program_for_test(owner: ScopedOwner) -> ParserVmProgramDescriptor {
+        ParserVmProgramDescriptor {
+            owner,
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseCoreLine as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        }
+    }
+
+    fn sample_parser_vm_programs() -> Vec<ParserVmProgramDescriptor> {
+        vec![
+            parser_vm_program_for_test(ScopedOwner::Family("MOS6502".to_string())),
+            parser_vm_program_for_test(ScopedOwner::Family("mos6502".to_string())),
+            parser_vm_program_for_test(ScopedOwner::Cpu("z80".to_string())),
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
         let bytes = encode_hierarchy_chunks(
@@ -2449,6 +2611,7 @@ mod tests {
         assert!(decoded.diagnostics.is_empty());
         assert!(decoded.token_policies.is_empty());
         assert!(decoded.parser_contracts.is_empty());
+        assert!(decoded.parser_vm_programs.is_empty());
 
         let family_snapshot: Vec<String> = decoded
             .families
@@ -2637,6 +2800,7 @@ mod tests {
         assert!(decoded.diagnostics.is_empty());
         assert!(decoded.token_policies.is_empty());
         assert!(decoded.parser_contracts.is_empty());
+        assert!(decoded.parser_vm_programs.is_empty());
     }
 
     #[test]
@@ -2648,6 +2812,7 @@ mod tests {
             token_policies: sample_token_policies(),
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: Vec::new(),
+            parser_vm_programs: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -2695,6 +2860,7 @@ mod tests {
             token_policies: Vec::new(),
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: sample_parser_contracts(),
+            parser_vm_programs: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -2731,6 +2897,49 @@ mod tests {
 
         assert!(matches!(
             &decoded.parser_contracts[1].owner,
+            ScopedOwner::Cpu(owner) if owner == "z80"
+        ));
+    }
+
+    #[test]
+    fn encode_decode_round_trip_preserves_parser_vm_programs() {
+        let chunks = HierarchyChunks {
+            metadata: PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: Vec::new(),
+            token_policies: Vec::new(),
+            tokenizer_vm_programs: Vec::new(),
+            parser_contracts: Vec::new(),
+            parser_vm_programs: sample_parser_vm_programs(),
+            families: sample_families(),
+            cpus: sample_cpus(),
+            dialects: sample_dialects(),
+            registers: sample_registers(),
+            forms: sample_forms(),
+            tables: sample_tables(),
+            selectors: Vec::new(),
+        };
+        let bytes = encode_hierarchy_chunks_from_chunks(&chunks).expect("encode should succeed");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+
+        assert_eq!(decoded.parser_vm_programs.len(), 2);
+        assert!(matches!(
+            &decoded.parser_vm_programs[0].owner,
+            ScopedOwner::Family(owner) if owner == "mos6502"
+        ));
+        assert_eq!(
+            decoded.parser_vm_programs[0].opcode_version,
+            PARSER_VM_OPCODE_VERSION_V1
+        );
+        assert_eq!(
+            decoded.parser_vm_programs[0].program,
+            vec![
+                ParserVmOpcode::ParseCoreLine as u8,
+                ParserVmOpcode::End as u8
+            ]
+        );
+        assert!(matches!(
+            &decoded.parser_vm_programs[1].owner,
             ScopedOwner::Cpu(owner) if owner == "z80"
         ));
     }

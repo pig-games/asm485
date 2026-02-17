@@ -13,7 +13,10 @@ use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::opthread::builder::build_hierarchy_package_from_registry;
-use crate::opthread::runtime::{HierarchyExecutionModel, PortableToken};
+use crate::opthread::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
+use crate::opthread::runtime::{
+    HierarchyExecutionModel, PortableToken, RuntimeParserContract, RuntimeParserVmProgram,
+};
 use crate::z80::module::Z80CpuModule;
 
 // Use an authoritative rollout lane so bootstrap/macro token bridge paths
@@ -60,11 +63,31 @@ pub(crate) fn parse_line_with_default_model(
         line_num,
         &register_checker,
     )?;
-    model
+    let parser_contract = model
         .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
         .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
-    let mut parser = Parser::from_tokens(tokens, end_span, end_token_text);
-    parser.parse_line()
+    let parser_vm_program = model
+        .resolve_parser_vm_program(DEFAULT_TOKENIZER_CPU_ID, None)
+        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?
+        .ok_or_else(|| {
+            parse_error_at_end(
+                line,
+                line_num,
+                format!(
+                    "{}: missing opThread parser VM program for active CPU pipeline",
+                    parser_contract.diagnostics.invalid_statement
+                ),
+            )
+        })?;
+    parse_line_with_parser_vm(
+        tokens,
+        end_span,
+        end_token_text,
+        &parser_contract,
+        &parser_vm_program,
+        line,
+        line_num,
+    )
 }
 
 pub(crate) fn tokenize_line_with_default_model(
@@ -96,6 +119,146 @@ fn parse_error_at_end(line: &str, line_num: u32, message: impl Into<String>) -> 
     ParseError {
         message: message.into(),
         span: end_span,
+    }
+}
+
+fn parse_line_with_parser_vm(
+    tokens: Vec<Token>,
+    end_span: Span,
+    end_token_text: Option<String>,
+    parser_contract: &RuntimeParserContract,
+    parser_vm_program: &RuntimeParserVmProgram,
+    line: &str,
+    line_num: u32,
+) -> Result<LineAst, ParseError> {
+    if parser_contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
+        return Err(parse_error_at_end(
+            line,
+            line_num,
+            format!(
+                "{}: unsupported parser contract opcode version {}",
+                parser_contract.diagnostics.invalid_statement, parser_contract.opcode_version
+            ),
+        ));
+    }
+    if parser_vm_program.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
+        return Err(parse_error_at_end(
+            line,
+            line_num,
+            format!(
+                "{}: unsupported parser VM opcode version {}",
+                parser_contract.diagnostics.invalid_statement, parser_vm_program.opcode_version
+            ),
+        ));
+    }
+    if parser_contract.opcode_version != parser_vm_program.opcode_version {
+        return Err(parse_error_at_end(
+            line,
+            line_num,
+            format!(
+                "{}: parser contract/program opcode version mismatch ({} != {})",
+                parser_contract.diagnostics.invalid_statement,
+                parser_contract.opcode_version,
+                parser_vm_program.opcode_version
+            ),
+        ));
+    }
+
+    let mut pc = 0usize;
+    let mut parsed_line: Option<LineAst> = None;
+    let mut token_buffer = Some(tokens);
+
+    while pc < parser_vm_program.program.len() {
+        let opcode_byte = parser_vm_program.program[pc];
+        pc = pc.saturating_add(1);
+        let Some(opcode) = ParserVmOpcode::from_u8(opcode_byte) else {
+            return Err(parse_error_at_end(
+                line,
+                line_num,
+                format!(
+                    "{}: invalid parser VM opcode 0x{opcode_byte:02X}",
+                    parser_contract.diagnostics.invalid_statement
+                ),
+            ));
+        };
+        match opcode {
+            ParserVmOpcode::End => {
+                return parsed_line.ok_or_else(|| {
+                    parse_error_at_end(
+                        line,
+                        line_num,
+                        format!(
+                            "{}: parser VM ended without producing an AST",
+                            parser_contract.diagnostics.invalid_statement
+                        ),
+                    )
+                });
+            }
+            ParserVmOpcode::ParseCoreLine => {
+                let Some(core_tokens) = token_buffer.take() else {
+                    return Err(parse_error_at_end(
+                        line,
+                        line_num,
+                        format!(
+                            "{}: parser VM attempted duplicate ParseCoreLine execution",
+                            parser_contract.diagnostics.invalid_statement
+                        ),
+                    ));
+                };
+                let mut parser = Parser::from_tokens(core_tokens, end_span, end_token_text.clone());
+                let parsed = parser.parse_line()?;
+                parsed_line = Some(parsed);
+            }
+            ParserVmOpcode::EmitDiag => {
+                let Some(slot) = parser_vm_program.program.get(pc).copied() else {
+                    return Err(parse_error_at_end(
+                        line,
+                        line_num,
+                        format!(
+                            "{}: parser VM EmitDiag missing slot operand",
+                            parser_contract.diagnostics.invalid_statement
+                        ),
+                    ));
+                };
+                let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
+                return Err(parse_error_at_end(
+                    line,
+                    line_num,
+                    format!("{code}: parser VM emitted diagnostic slot {slot}"),
+                ));
+            }
+            ParserVmOpcode::Fail => {
+                return Err(parse_error_at_end(
+                    line,
+                    line_num,
+                    format!(
+                        "{}: parser VM requested failure",
+                        parser_contract.diagnostics.invalid_statement
+                    ),
+                ));
+            }
+        }
+    }
+
+    Err(parse_error_at_end(
+        line,
+        line_num,
+        format!(
+            "{}: parser VM program terminated without End opcode",
+            parser_contract.diagnostics.invalid_statement
+        ),
+    ))
+}
+
+fn parser_diag_code_for_slot(
+    diagnostics: &crate::opthread::runtime::RuntimeParserDiagnosticMap,
+    slot: u8,
+) -> &str {
+    match slot {
+        0 => diagnostics.unexpected_token.as_str(),
+        1 => diagnostics.expected_expression.as_str(),
+        2 => diagnostics.expected_operand.as_str(),
+        _ => diagnostics.invalid_statement.as_str(),
     }
 }
 

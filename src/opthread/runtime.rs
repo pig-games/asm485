@@ -156,6 +156,7 @@ type VmProgramKey = (u8, u32, u32, u32);
 type ModeSelectorKey = (u8, u32, u32, u32);
 type TokenPolicyKey = (u8, u32);
 type ParserContractKey = (u8, u32);
+type ParserVmProgramKey = (u8, u32);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeTokenizerVmProgram {
@@ -182,6 +183,12 @@ pub struct RuntimeParserContract {
     pub opcode_version: u16,
     pub max_ast_nodes_per_line: u32,
     pub diagnostics: RuntimeParserDiagnosticMap,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeParserVmProgram {
+    pub opcode_version: u16,
+    pub program: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -680,6 +687,7 @@ pub struct HierarchyExecutionModel {
     token_policies: HashMap<TokenPolicyKey, RuntimeTokenPolicy>,
     tokenizer_vm_programs: HashMap<TokenPolicyKey, RuntimeTokenizerVmProgram>,
     parser_contracts: HashMap<ParserContractKey, RuntimeParserContract>,
+    parser_vm_programs: HashMap<ParserVmProgramKey, RuntimeParserVmProgram>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
@@ -707,6 +715,7 @@ impl HierarchyExecutionModel {
             token_policies,
             tokenizer_vm_programs,
             parser_contracts,
+            parser_vm_programs,
             families,
             cpus,
             dialects,
@@ -802,6 +811,19 @@ impl HierarchyExecutionModel {
                 },
             );
         }
+        let mut scoped_parser_vm_programs: HashMap<ParserVmProgramKey, RuntimeParserVmProgram> =
+            HashMap::new();
+        for entry in parser_vm_programs {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            scoped_parser_vm_programs.insert(
+                (owner_tag, owner_id),
+                RuntimeParserVmProgram {
+                    opcode_version: entry.opcode_version,
+                    program: entry.program,
+                },
+            );
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -859,6 +881,7 @@ impl HierarchyExecutionModel {
             token_policies: scoped_token_policies,
             tokenizer_vm_programs: scoped_tokenizer_vm_programs,
             parser_contracts: scoped_parser_contracts,
+            parser_vm_programs: scoped_parser_vm_programs,
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
@@ -1081,6 +1104,15 @@ impl HierarchyExecutionModel {
             )));
         }
         Ok(contract)
+    }
+
+    pub fn resolve_parser_vm_program(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<RuntimeParserVmProgram>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self.parser_vm_program_for_resolved(&resolved))
     }
 
     pub fn resolve_tokenizer_vm_parity_checklist(
@@ -1307,6 +1339,29 @@ impl HierarchyExecutionModel {
             };
             if let Some(contract) = self.parser_contracts.get(&(owner_tag, owner_id)) {
                 return Some(contract.clone());
+            }
+        }
+        None
+    }
+
+    fn parser_vm_program_for_resolved(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> Option<RuntimeParserVmProgram> {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, self.interned_id(dialect_id.as_str())),
+            (1u8, self.interned_id(cpu_id.as_str())),
+            (0u8, self.interned_id(family_id.as_str())),
+        ];
+        for (owner_tag, owner_id) in owner_order {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(program) = self.parser_vm_programs.get(&(owner_tag, owner_id)) {
+                return Some(program.clone());
             }
         }
         None
@@ -3628,9 +3683,10 @@ mod tests {
     };
     use crate::opthread::package::{
         default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
-        HierarchyChunks, ParserContractDescriptor, ParserDiagnosticMap, TokenCaseRule,
-        TokenPolicyDescriptor, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
-        VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM, TOKENIZER_VM_OPCODE_VERSION_V1,
+        HierarchyChunks, ParserContractDescriptor, ParserDiagnosticMap, ParserVmOpcode,
+        ParserVmProgramDescriptor, TokenCaseRule, TokenPolicyDescriptor, TokenizerVmOpcode,
+        TokenizerVmProgramDescriptor, VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use crate::z80::module::Z80CpuModule;
@@ -3832,6 +3888,17 @@ mod tests {
         }
     }
 
+    fn parser_vm_program_for_test(owner: ScopedOwner) -> ParserVmProgramDescriptor {
+        ParserVmProgramDescriptor {
+            owner,
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseCoreLine as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        }
+    }
+
     fn runtime_vm_program_for_test(
         program: Vec<u8>,
         limits: TokenizerVmLimits,
@@ -3970,6 +4037,7 @@ mod tests {
             token_policies: Vec::new(),
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: Vec::new(),
+            parser_vm_programs: Vec::new(),
             families: vec![FamilyDescriptor {
                 id: "intel8080".to_string(),
                 canonical_dialect: "intel".to_string(),
@@ -4584,6 +4652,67 @@ mod tests {
         assert_eq!(contract.grammar_id, "opforge.line.v1");
         assert_eq!(contract.ast_schema_id, "opforge.ast.line.v1");
         assert_eq!(contract.opcode_version, 1);
+    }
+
+    #[test]
+    fn execution_model_parser_vm_program_resolution_prefers_dialect_then_cpu_then_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.parser_vm_programs.clear();
+        chunks
+            .parser_vm_programs
+            .push(parser_vm_program_for_test(ScopedOwner::Family(
+                "mos6502".to_string(),
+            )));
+        chunks
+            .parser_vm_programs
+            .push(parser_vm_program_for_test(ScopedOwner::Cpu(
+                "m6502".to_string(),
+            )));
+        let mut dialect_program =
+            parser_vm_program_for_test(ScopedOwner::Dialect("transparent".to_string()));
+        dialect_program.program = vec![ParserVmOpcode::Fail as u8, ParserVmOpcode::End as u8];
+        chunks.parser_vm_programs.push(dialect_program);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let program = model
+            .resolve_parser_vm_program("m6502", None)
+            .expect("parser vm program resolution")
+            .expect("parser vm program should resolve");
+        assert_eq!(
+            program.program,
+            vec![ParserVmOpcode::Fail as u8, ParserVmOpcode::End as u8]
+        );
+    }
+
+    #[test]
+    fn execution_model_from_registry_exposes_default_family_parser_vm_program() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let program = model
+            .resolve_parser_vm_program("m6502", None)
+            .expect("parser vm program resolution")
+            .expect("parser vm program should resolve");
+        assert_eq!(program.opcode_version, PARSER_VM_OPCODE_VERSION_V1);
+        assert_eq!(
+            program.program,
+            vec![
+                ParserVmOpcode::ParseCoreLine as u8,
+                ParserVmOpcode::End as u8
+            ]
+        );
     }
 
     #[test]

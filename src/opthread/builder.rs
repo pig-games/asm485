@@ -29,14 +29,16 @@ use crate::opthread::intel8080_vm::{
     mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
 };
 use crate::opthread::package::{
-    canonicalize_hierarchy_metadata, canonicalize_parser_contracts, canonicalize_token_policies,
+    canonicalize_hierarchy_metadata, canonicalize_parser_contracts,
+    canonicalize_parser_vm_programs, canonicalize_token_policies,
     canonicalize_tokenizer_vm_programs, default_runtime_diagnostic_catalog,
     default_token_policy_lexical_defaults, encode_hierarchy_chunks_from_chunks,
     token_identifier_class, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
-    ParserContractDescriptor, ParserDiagnosticMap, TokenCaseRule, TokenPolicyDescriptor,
-    TokenizerVmDiagnosticMap, TokenizerVmLimits, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
-    VmProgramDescriptor, PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1,
-    PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
+    ParserContractDescriptor, ParserDiagnosticMap, ParserVmOpcode, ParserVmProgramDescriptor,
+    TokenCaseRule, TokenPolicyDescriptor, TokenizerVmDiagnosticMap, TokenizerVmLimits,
+    TokenizerVmOpcode, TokenizerVmProgramDescriptor, VmProgramDescriptor,
+    PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1,
+    TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
@@ -80,7 +82,7 @@ impl From<OpcpuCodecError> for HierarchyBuildError {
     }
 }
 
-/// Build `TOKS`/`TKVM`/`PARS` + hierarchy chunks from registry metadata.
+/// Build `TOKS`/`TKVM`/`PARS`/`PRVM` + hierarchy chunks from registry metadata.
 pub fn build_hierarchy_chunks_from_registry(
     registry: &ModuleRegistry,
 ) -> Result<HierarchyChunks, HierarchyBuildError> {
@@ -138,6 +140,10 @@ pub fn build_hierarchy_chunks_from_registry(
     let mut parser_contracts = family_ids
         .iter()
         .map(|family| default_family_parser_contract(family.as_str()))
+        .collect();
+    let mut parser_vm_programs = family_ids
+        .iter()
+        .map(|family| default_family_parser_vm_program(family.as_str()))
         .collect();
 
     let mut registers = Vec::new();
@@ -659,6 +665,7 @@ pub fn build_hierarchy_chunks_from_registry(
     canonicalize_token_policies(&mut token_policies);
     canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
     canonicalize_parser_contracts(&mut parser_contracts);
+    canonicalize_parser_vm_programs(&mut parser_vm_programs);
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
@@ -670,6 +677,7 @@ pub fn build_hierarchy_chunks_from_registry(
         token_policies,
         tokenizer_vm_programs,
         parser_contracts,
+        parser_vm_programs,
         families,
         cpus,
         dialects,
@@ -754,6 +762,21 @@ fn default_family_parser_contract(family_id: &str) -> ParserContractDescriptor {
             invalid_statement: "otp004".to_string(),
         },
     }
+}
+
+fn default_family_parser_vm_program(family_id: &str) -> ParserVmProgramDescriptor {
+    ParserVmProgramDescriptor {
+        owner: ScopedOwner::Family(family_id.to_string()),
+        opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+        program: default_family_parser_vm_program_bytes(),
+    }
+}
+
+fn default_family_parser_vm_program_bytes() -> Vec<u8> {
+    vec![
+        ParserVmOpcode::ParseCoreLine as u8,
+        ParserVmOpcode::End as u8,
+    ]
 }
 
 fn default_family_tokenizer_vm_program_bytes() -> Vec<u8> {
@@ -1151,7 +1174,7 @@ mod tests {
         mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
     };
     use crate::opthread::package::{
-        load_hierarchy_package, token_identifier_class, TokenizerVmOpcode,
+        load_hierarchy_package, token_identifier_class, ParserVmOpcode, TokenizerVmOpcode,
         DIAG_OPTHREAD_MISSING_VM_PROGRAM, PARSER_GRAMMAR_ID_LINE_V1,
     };
     use crate::opthread::runtime::HierarchyExecutionModel;
@@ -1194,6 +1217,13 @@ mod tests {
         assert!(chunks.parser_contracts.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
                 && entry.grammar_id == PARSER_GRAMMAR_ID_LINE_V1
+        }));
+        assert!(!chunks.parser_vm_programs.is_empty());
+        assert!(chunks.parser_vm_programs.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
+                && entry
+                    .program
+                    .contains(&(ParserVmOpcode::ParseCoreLine as u8))
         }));
         assert!(!chunks.selectors.is_empty());
         assert!(chunks.registers.iter().any(|entry| {
@@ -1354,6 +1384,20 @@ mod tests {
                     .program
                     .contains(&(TokenizerVmOpcode::DelegateCore as u8)),
                 "default tokenizer VM program for {:?} must not depend on DelegateCore",
+                program.owner
+            );
+        }
+        for program in &chunks.parser_vm_programs {
+            assert!(
+                program
+                    .program
+                    .contains(&(ParserVmOpcode::ParseCoreLine as u8)),
+                "default parser VM program for {:?} must include ParseCoreLine",
+                program.owner
+            );
+            assert!(
+                program.program.ends_with(&[ParserVmOpcode::End as u8]),
+                "default parser VM program for {:?} must terminate with End",
                 program.owner
             );
         }
