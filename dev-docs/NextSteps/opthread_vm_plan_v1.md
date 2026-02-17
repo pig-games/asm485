@@ -24,10 +24,12 @@ All items below are true:
 - Parser VM contract/program resolution in bridge path is active.
 - Assembler runtime parsing now routes through parser VM bridge path (not direct host `Parser::parse_line()` in runtime lane).
 - Strict tokenization gates for authoritative families are in place and tested.
+- VM-authoritative expression parse contract path is active in bridge hot paths.
+- Expression diagnostic shape/span parity corpus is covered by regression tests.
+- Parser VM envelope now includes dedicated staged primitives for dot-directive, star-org, assignment, and instruction forms.
 
 ### 3.2 In progress / pending
-- Expression parse/eval path in bridge still uses host parser expression parsing in several call sites.
-- Parser VM envelope logic is still partially host-implemented in bridge helpers.
+- Remaining statement-envelope behavior is still partially centralized in fallback envelope helpers.
 - Retro-native ABI hardening/conformance is not yet finalized.
 
 ## 4. Workstream Phases
@@ -41,10 +43,10 @@ Acceptance:
 - Only this plan and the unified spec are canonical references for opThread VM work.
 
 ## Phase P1: Expression Path Off Host Parser (highest priority)
-- [ ] Introduce/enable VM-authoritative expression parse contract entrypoint for bridge usage.
-- [ ] Replace all `Parser::parse_expr_from_tokens(...)` usages in `src/opthread/token_bridge.rs`.
-- [ ] Preserve diagnostic code shape/span parity for representative corpus.
-- [ ] Add regression tests proving no silent host expression parser fallback in assembler hot paths.
+- [x] Introduce/enable VM-authoritative expression parse contract entrypoint for bridge usage.
+- [x] Replace all `Parser::parse_expr_from_tokens(...)` usages in `src/opthread/token_bridge.rs`.
+- [x] Preserve diagnostic code shape/span parity for representative corpus.
+- [x] Add regression tests proving no silent host expression parser fallback in assembler hot paths.
 
 Acceptance:
 - No host expression parser calls remain in assembler hot path bridge code.
@@ -104,5 +106,4 @@ Acceptance:
 
 ## 8. Immediate Next Step
 
-Phase P1: remove host expression parsing from `src/opthread/token_bridge.rs` via VM-authoritative expression contract path, with strict regression tests.
-
+Phase P2: continue moving remaining fallback statement-envelope behavior into explicit parser-VM primitives while preserving assembler AST compatibility.
