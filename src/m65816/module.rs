@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::core::cpu::{CpuFamily, CpuType};
-use crate::core::family::AssemblerContext;
+use crate::core::family::{AssemblerContext, CpuHandler};
 use crate::core::parser::Expr;
 use crate::core::registry::{CpuHandlerDyn, CpuModule, FamilyOperandSet, OperandSet};
 use crate::families::mos6502::module::{
@@ -26,6 +26,16 @@ fn cpu_form_mnemonics() -> Vec<String> {
         .iter()
         .map(|entry| entry.mnemonic.to_ascii_lowercase())
         .collect();
+    let handler = M65816CpuHandler::new();
+    mnemonics.extend(
+        crate::m65c02::instructions::CPU_INSTRUCTION_TABLE
+            .iter()
+            .map(|entry| entry.mnemonic)
+            .filter(|mnemonic| {
+                <M65816CpuHandler as CpuHandler>::supports_mnemonic(&handler, mnemonic)
+            })
+            .map(|mnemonic| mnemonic.to_ascii_lowercase()),
+    );
     mnemonics.sort();
     mnemonics.dedup();
     mnemonics

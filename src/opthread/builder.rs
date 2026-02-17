@@ -3,6 +3,7 @@
 
 //! Build opThread hierarchy chunks from the live opForge module registry.
 
+use crate::core::family::CpuHandler;
 use crate::core::registry::ModuleRegistry;
 use crate::families::intel8080::module::FAMILY_ID as INTEL8080_FAMILY_ID;
 use crate::families::intel8080::table::FAMILY_INSTRUCTION_TABLE as INTEL8080_FAMILY_INSTRUCTION_TABLE;
@@ -12,6 +13,7 @@ use crate::i8085::extensions::I8085_EXTENSION_TABLE;
 use crate::i8085::module::CPU_ID as I8085_CPU_ID;
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_CPU_INSTRUCTION_TABLE;
 use crate::m65816::module::CPU_ID as M65816_CPU_ID;
+use crate::m65816::M65816CpuHandler;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_CPU_INSTRUCTION_TABLE;
 use crate::m65c02::module::CPU_ID as M65C02_CPU_ID;
 use crate::opthread::hierarchy::{
@@ -280,7 +282,36 @@ pub fn build_hierarchy_chunks_from_registry(
         selectors.extend(compile_m65c02_bit_branch_selectors());
     }
     if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
+        let m65816_handler = M65816CpuHandler::new();
         for entry in M65816_CPU_INSTRUCTION_TABLE {
+            tables.push(VmProgramDescriptor {
+                owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+                mnemonic: entry.mnemonic.to_string(),
+                mode_key: format!("{:?}", entry.mode),
+                program: compile_opcode_program(
+                    entry.opcode,
+                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
+                ),
+            });
+            if let Some(selector) = compile_mode_selector(
+                ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
+                entry.mnemonic,
+                entry.mode,
+                true,
+            ) {
+                selectors.push(selector);
+            }
+            selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
+            selectors.extend(compile_m65816_long_mode_selectors(
+                entry.mnemonic,
+                entry.mode,
+            ));
+        }
+        for entry in M65C02_CPU_INSTRUCTION_TABLE {
+            if !<M65816CpuHandler as CpuHandler>::supports_mnemonic(&m65816_handler, entry.mnemonic)
+            {
+                continue;
+            }
             tables.push(VmProgramDescriptor {
                 owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
                 mnemonic: entry.mnemonic.to_string(),
@@ -964,6 +995,12 @@ mod tests {
         assert!(model
             .supports_mnemonic("8085", None, "mvi")
             .expect("8085 mvi support query"));
+        assert!(model
+            .supports_mnemonic("65816", None, "phx")
+            .expect("65816 phx support query"));
+        assert!(model
+            .supports_mnemonic("65816", None, "phy")
+            .expect("65816 phy support query"));
     }
 
     #[test]
