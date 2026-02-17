@@ -7036,6 +7036,74 @@ fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallb
 
 #[cfg(feature = "opthread-runtime")]
 #[test]
+fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.program = vec![0xFE];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("unknown tokenizer vm opcode"));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
+fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu_runtime_mode(&mut symbols, m6502_cpu_id, &registry, true);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.state_entry_offsets = Vec::new();
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("tokenizer vm state table is empty"));
+}
+
+#[cfg(feature = "opthread-runtime")]
+#[test]
 fn opthread_runtime_staged_family_tokenization_does_not_require_vm_tokens() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
