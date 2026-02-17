@@ -162,6 +162,37 @@ pub(crate) fn compile_vm_program_for_z80_ld_indirect(
     Some(program)
 }
 
+pub(crate) fn mode_key_for_z80_half_index(
+    prefix: &str,
+    mnemonic: &str,
+    form: &str,
+) -> Option<String> {
+    let prefix_key = z80_half_index_prefix_key(prefix)?;
+    Some(format!(
+        "halfidx={prefix_key}:{}:{}",
+        mnemonic.to_ascii_lowercase(),
+        form.to_ascii_lowercase()
+    ))
+}
+
+pub(crate) fn compile_vm_program_for_z80_half_index(
+    prefix: &str,
+    opcode: u8,
+    operand_count: u8,
+) -> Option<Vec<u8>> {
+    if operand_count > 1 {
+        return None;
+    }
+    let prefix = z80_half_index_prefix_byte(prefix)?;
+    let mut program = vec![OP_EMIT_U8, prefix, OP_EMIT_U8, opcode];
+    if operand_count == 1 {
+        program.push(OP_EMIT_OPERAND);
+        program.push(0);
+    }
+    program.push(OP_END);
+    Some(program)
+}
+
 pub(crate) fn prefix_len(prefix: Prefix) -> usize {
     prefix_bytes(prefix).len()
 }
@@ -281,6 +312,22 @@ fn z80_ld_indirect_prefix_opcode(register: &str, store: bool) -> Option<(Option<
         ("IX", true) => Some((Some(0xDD), 0x22)),
         ("IY", false) => Some((Some(0xFD), 0x2A)),
         ("IY", true) => Some((Some(0xFD), 0x22)),
+        _ => None,
+    }
+}
+
+fn z80_half_index_prefix_byte(prefix: &str) -> Option<u8> {
+    match prefix.to_ascii_uppercase().as_str() {
+        "IX" => Some(0xDD),
+        "IY" => Some(0xFD),
+        _ => None,
+    }
+}
+
+fn z80_half_index_prefix_key(prefix: &str) -> Option<&'static str> {
+    match prefix.to_ascii_uppercase().as_str() {
+        "IX" => Some("ix"),
+        "IY" => Some("iy"),
         _ => None,
     }
 }

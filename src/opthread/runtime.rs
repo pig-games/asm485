@@ -26,8 +26,9 @@ use crate::opthread::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
 use crate::opthread::intel8080_vm::{
-    mode_key_for_instruction_entry, mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
-    mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect, prefix_len,
+    mode_key_for_instruction_entry, mode_key_for_z80_half_index, mode_key_for_z80_indexed_cb,
+    mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
+    prefix_len,
 };
 use crate::opthread::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
@@ -1782,6 +1783,12 @@ impl HierarchyExecutionModel {
             return Ok(Some(vec![candidate]));
         }
 
+        if let Some(candidate) =
+            intel8080_half_index_candidate(mnemonic, resolved.cpu_id.as_str(), &resolved_operands)
+        {
+            return Ok(Some(vec![candidate]));
+        }
+
         if let Some(candidate) = intel8080_indexed_memory_candidate(
             mnemonic,
             resolved.cpu_id.as_str(),
@@ -1990,6 +1997,177 @@ fn intel8080_ld_indirect_candidate(
         mode_key,
         operand_bytes: vec![vec![addr as u8, (addr >> 8) as u8]],
     })
+}
+
+fn intel8080_half_index_candidate(
+    mnemonic: &str,
+    cpu_id: &str,
+    operands: &[IntelOperand],
+) -> Option<VmEncodeCandidate> {
+    if !cpu_id.eq_ignore_ascii_case("z80") {
+        return None;
+    }
+
+    let mut prefix: Option<&str> = None;
+    for operand in operands {
+        let IntelOperand::Register(name, _) = operand else {
+            continue;
+        };
+        let Some((current_prefix, _)) = intel8080_half_index_parts(name) else {
+            continue;
+        };
+        match prefix {
+            None => prefix = Some(current_prefix),
+            Some(existing) if existing.eq_ignore_ascii_case(current_prefix) => {}
+            Some(_) => return None,
+        }
+    }
+    let prefix = prefix?;
+    let upper = mnemonic.to_ascii_uppercase();
+
+    let (_opcode, operand_bytes, form) = match upper.as_str() {
+        "LD" => {
+            if operands.len() != 2 {
+                return None;
+            }
+            match (&operands[0], &operands[1]) {
+                (IntelOperand::Register(dst, _), IntelOperand::Register(src, _)) => {
+                    let dst_code = intel8080_half_index_reg_code(prefix, dst)?;
+                    let src_code = intel8080_half_index_reg_code(prefix, src)?;
+                    (
+                        0x40 | (dst_code << 3) | src_code,
+                        Vec::new(),
+                        format!("rr:{dst_code}:{src_code}"),
+                    )
+                }
+                (IntelOperand::Register(dst, _), IntelOperand::Immediate8(value, _)) => {
+                    let (dst_prefix, dst_code) = intel8080_half_index_parts(dst)?;
+                    if !dst_prefix.eq_ignore_ascii_case(prefix) {
+                        return None;
+                    }
+                    (
+                        0x06 | (dst_code << 3),
+                        vec![vec![*value]],
+                        format!("ri:{dst_code}"),
+                    )
+                }
+                (IntelOperand::Register(dst, _), IntelOperand::Immediate16(value, _))
+                    if *value <= 0xFF =>
+                {
+                    let (dst_prefix, dst_code) = intel8080_half_index_parts(dst)?;
+                    if !dst_prefix.eq_ignore_ascii_case(prefix) {
+                        return None;
+                    }
+                    (
+                        0x06 | (dst_code << 3),
+                        vec![vec![*value as u8]],
+                        format!("ri:{dst_code}"),
+                    )
+                }
+                _ => return None,
+            }
+        }
+        "INC" | "DEC" => {
+            if operands.len() != 1 {
+                return None;
+            }
+            let code = match &operands[0] {
+                IntelOperand::Register(name, _) => {
+                    let (reg_prefix, reg_code) = intel8080_half_index_parts(name)?;
+                    if !reg_prefix.eq_ignore_ascii_case(prefix) {
+                        return None;
+                    }
+                    reg_code
+                }
+                _ => return None,
+            };
+            let base = if upper == "INC" { 0x04 } else { 0x05 };
+            (base | (code << 3), Vec::new(), format!("r:{code}"))
+        }
+        "ADD" | "ADC" | "SBC" => {
+            if operands.len() != 2 || !intel8080_is_register_a(&operands[0]) {
+                return None;
+            }
+            let code = match &operands[1] {
+                IntelOperand::Register(name, _) => {
+                    let (reg_prefix, reg_code) = intel8080_half_index_parts(name)?;
+                    if !reg_prefix.eq_ignore_ascii_case(prefix) {
+                        return None;
+                    }
+                    reg_code
+                }
+                _ => return None,
+            };
+            let base = match upper.as_str() {
+                "ADD" => 0x80,
+                "ADC" => 0x88,
+                "SBC" => 0x98,
+                _ => unreachable!(),
+            };
+            (base | code, Vec::new(), format!("r:{code}"))
+        }
+        "SUB" | "AND" | "XOR" | "OR" | "CP" => {
+            let src = match operands {
+                [src] => src,
+                [dst, src] if intel8080_is_register_a(dst) => src,
+                _ => return None,
+            };
+            let code = match src {
+                IntelOperand::Register(name, _) => {
+                    let (reg_prefix, reg_code) = intel8080_half_index_parts(name)?;
+                    if !reg_prefix.eq_ignore_ascii_case(prefix) {
+                        return None;
+                    }
+                    reg_code
+                }
+                _ => return None,
+            };
+            let base = match upper.as_str() {
+                "SUB" => 0x90,
+                "AND" => 0xA0,
+                "XOR" => 0xA8,
+                "OR" => 0xB0,
+                "CP" => 0xB8,
+                _ => unreachable!(),
+            };
+            (base | code, Vec::new(), format!("r:{code}"))
+        }
+        _ => return None,
+    };
+
+    let mode_key = mode_key_for_z80_half_index(prefix, mnemonic, form.as_str())?;
+    Some(VmEncodeCandidate {
+        mode_key,
+        operand_bytes,
+    })
+}
+
+fn intel8080_half_index_parts(name: &str) -> Option<(&'static str, u8)> {
+    match name.to_ascii_uppercase().as_str() {
+        "IXH" => Some(("IX", 4)),
+        "IXL" => Some(("IX", 5)),
+        "IYH" => Some(("IY", 4)),
+        "IYL" => Some(("IY", 5)),
+        _ => None,
+    }
+}
+
+fn intel8080_half_index_reg_code(prefix: &str, name: &str) -> Option<u8> {
+    match name.to_ascii_uppercase().as_str() {
+        "B" => Some(0),
+        "C" => Some(1),
+        "D" => Some(2),
+        "E" => Some(3),
+        "A" => Some(7),
+        _ => {
+            let (reg_prefix, reg_code) = intel8080_half_index_parts(name)?;
+            if reg_prefix.eq_ignore_ascii_case(prefix) {
+                Some(reg_code)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 fn intel8080_indexed_memory_candidate(
@@ -4813,6 +4991,75 @@ mod tests {
         assert_eq!(im0, Some(vec![0xED, 0x46]));
         assert_eq!(im1, Some(vec![0xED, 0x56]));
         assert_eq!(im2, Some(vec![0xED, 0x5E]));
+    }
+
+    #[test]
+    fn execution_model_intel_expr_encode_supports_z80_half_index_forms() {
+        let registry = parity_registry();
+        let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model");
+        let span = Span::default();
+        let ctx = TestAssemblerContext::new();
+
+        let ld_rr = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "LD",
+                &[
+                    Expr::Register("IXH".to_string(), span),
+                    Expr::Register("B".to_string(), span),
+                ],
+                &ctx,
+            )
+            .expect("LD IXH,B should resolve");
+        let ld_imm = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "LD",
+                &[
+                    Expr::Register("IYL".to_string(), span),
+                    Expr::Number("18".to_string(), span),
+                ],
+                &ctx,
+            )
+            .expect("LD IYL,18 should resolve");
+        let inc = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "INC",
+                &[Expr::Register("IYH".to_string(), span)],
+                &ctx,
+            )
+            .expect("INC IYH should resolve");
+        let sub = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "SUB",
+                &[Expr::Register("IXL".to_string(), span)],
+                &ctx,
+            )
+            .expect("SUB IXL should resolve");
+        let xor = model
+            .encode_instruction_from_exprs(
+                "z80",
+                None,
+                "XOR",
+                &[
+                    Expr::Register("A".to_string(), span),
+                    Expr::Register("IYH".to_string(), span),
+                ],
+                &ctx,
+            )
+            .expect("XOR A,IYH should resolve");
+
+        assert_eq!(ld_rr, Some(vec![0xDD, 0x60]));
+        assert_eq!(ld_imm, Some(vec![0xFD, 0x2E, 0x12]));
+        assert_eq!(inc, Some(vec![0xFD, 0x24]));
+        assert_eq!(sub, Some(vec![0xDD, 0x95]));
+        assert_eq!(xor, Some(vec![0xFD, 0xAC]));
     }
 
     #[test]
