@@ -213,6 +213,7 @@ pub enum ParserVmOpcode {
     ParseStatementEnvelope = 0x04,
     ParseDotDirectiveEnvelope = 0x05,
     ParseAssignmentEnvelope = 0x06,
+    ParseInstructionEnvelope = 0x07,
 }
 
 impl ParserVmOpcode {
@@ -224,6 +225,7 @@ impl ParserVmOpcode {
             0x04 => Some(Self::ParseStatementEnvelope),
             0x05 => Some(Self::ParseDotDirectiveEnvelope),
             0x06 => Some(Self::ParseAssignmentEnvelope),
+            0x07 => Some(Self::ParseInstructionEnvelope),
             _ => None,
         }
     }
@@ -2507,6 +2509,7 @@ mod tests {
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8,
             ],
@@ -2942,6 +2945,7 @@ mod tests {
             vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8
             ]

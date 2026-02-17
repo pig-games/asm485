@@ -4584,6 +4584,7 @@ mod tests {
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8,
             ],
@@ -5508,6 +5509,7 @@ mod tests {
             vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8
             ]

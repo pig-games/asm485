@@ -265,6 +265,19 @@ fn parse_line_with_parser_vm(
                     parsed_line = Some(line);
                 }
             }
+            ParserVmOpcode::ParseInstructionEnvelope => {
+                if parsed_line.is_some() {
+                    continue;
+                }
+                if let Some(line) = parse_instruction_envelope_from_tokens(
+                    &tokens,
+                    end_span,
+                    end_token_text.clone(),
+                    &exec_ctx.expr_parse_ctx,
+                )? {
+                    parsed_line = Some(line);
+                }
+            }
             ParserVmOpcode::ParseStatementEnvelope => {
                 if parsed_line.is_some() {
                     continue;
@@ -340,7 +353,7 @@ fn parse_statement_envelope_from_tokens(
         return Ok(PortableLineAst::Empty);
     }
 
-    let (label, mut idx) = parse_optional_leading_label(tokens);
+    let (label, idx) = parse_optional_leading_label(tokens);
 
     if idx >= tokens.len() {
         return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
@@ -396,85 +409,16 @@ fn parse_statement_envelope_from_tokens(
         )
         .map(|line| PortableLineAst::from_core_line_ast(&line));
     }
-
-    let mnemonic = match tokens.get(idx) {
-        Some(Token {
-            kind: TokenKind::Identifier(name),
-            ..
-        }) => name.clone(),
-        Some(token) => {
-            return Err(ParseError {
-                message: "Expected mnemonic identifier".to_string(),
-                span: token.span,
-            });
-        }
-        None => {
-            return Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
-                label,
-                mnemonic: None,
-                operands: Vec::new(),
-            }))
-        }
-    };
-    idx = idx.saturating_add(1);
-
-    let mut operands: Vec<Expr> = Vec::new();
-    if idx < tokens.len() {
-        let mut depth_paren = 0i32;
-        let mut depth_bracket = 0i32;
-        let mut depth_brace = 0i32;
-        let mut start = idx;
-        let mut cursor = idx;
-        while cursor < tokens.len() {
-            let token = &tokens[cursor];
-            match token.kind {
-                TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
-                TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
-                TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
-                TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
-                TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
-                TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
-                _ => {}
-            }
-            if matches!(token.kind, TokenKind::Comma)
-                && depth_paren == 0
-                && depth_bracket == 0
-                && depth_brace == 0
-            {
-                parse_operand_expr_range(
-                    tokens,
-                    start,
-                    cursor,
-                    end_span,
-                    end_token_text.clone(),
-                    expr_parse_ctx,
-                    &mut operands,
-                )?;
-                if matches!(operands.last(), Some(Expr::Error(_, _))) {
-                    break;
-                }
-                start = cursor.saturating_add(1);
-            }
-            cursor = cursor.saturating_add(1);
-        }
-        if !matches!(operands.last(), Some(Expr::Error(_, _))) {
-            parse_operand_expr_range(
-                tokens,
-                start,
-                tokens.len(),
-                end_span,
-                end_token_text,
-                expr_parse_ctx,
-                &mut operands,
-            )?;
-        }
+    if let Some(line) =
+        parse_instruction_at(tokens, idx, label, end_span, end_token_text, expr_parse_ctx)?
+    {
+        return Ok(PortableLineAst::from_core_line_ast(&line));
     }
-
-    Ok(PortableLineAst::from_core_line_ast(&LineAst::Statement {
-        label,
-        mnemonic: Some(mnemonic),
-        operands,
-    }))
+    let span = tokens.get(idx).map(|token| token.span).unwrap_or(end_span);
+    Err(ParseError {
+        message: "Expected mnemonic identifier".to_string(),
+        span,
+    })
 }
 
 fn parse_optional_leading_label(tokens: &[Token]) -> (Option<Label>, usize) {
@@ -595,6 +539,118 @@ fn parse_assignment_at(
         op,
         expr,
         span,
+    }))
+}
+
+fn parse_instruction_envelope_from_tokens(
+    tokens: &[Token],
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<Option<LineAst>, ParseError> {
+    if tokens.is_empty() {
+        return Ok(None);
+    }
+    let (label, idx) = parse_optional_leading_label(tokens);
+    if label.is_none() && is_star_org_assignment(tokens, idx) {
+        return Ok(None);
+    }
+    if match_assignment_op_at(tokens, idx).is_some() {
+        return Ok(None);
+    }
+    if matches!(
+        tokens.get(idx),
+        Some(Token {
+            kind: TokenKind::Dot,
+            ..
+        })
+    ) {
+        return Ok(None);
+    }
+    parse_instruction_at(tokens, idx, label, end_span, end_token_text, expr_parse_ctx)
+}
+
+fn parse_instruction_at(
+    tokens: &[Token],
+    idx: usize,
+    label: Option<Label>,
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<Option<LineAst>, ParseError> {
+    if idx >= tokens.len() {
+        return Ok(Some(LineAst::Statement {
+            label,
+            mnemonic: None,
+            operands: Vec::new(),
+        }));
+    }
+
+    let mnemonic = match tokens.get(idx) {
+        Some(Token {
+            kind: TokenKind::Identifier(name),
+            ..
+        }) => name.clone(),
+        _ => return Ok(None),
+    };
+    let idx = idx.saturating_add(1);
+
+    let mut operands: Vec<Expr> = Vec::new();
+    if idx < tokens.len() {
+        let mut depth_paren = 0i32;
+        let mut depth_bracket = 0i32;
+        let mut depth_brace = 0i32;
+        let mut start = idx;
+        let mut cursor = idx;
+        while cursor < tokens.len() {
+            let token = &tokens[cursor];
+            match token.kind {
+                TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
+                TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
+                TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
+                TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
+                TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
+                TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
+                _ => {}
+            }
+            if matches!(token.kind, TokenKind::Comma)
+                && depth_paren == 0
+                && depth_bracket == 0
+                && depth_brace == 0
+            {
+                parse_operand_expr_range(
+                    tokens,
+                    start,
+                    cursor,
+                    end_span,
+                    end_token_text.clone(),
+                    expr_parse_ctx,
+                    &mut operands,
+                )?;
+                if matches!(operands.last(), Some(Expr::Error(_, _))) {
+                    break;
+                }
+                start = cursor.saturating_add(1);
+            }
+            cursor = cursor.saturating_add(1);
+        }
+        if !matches!(operands.last(), Some(Expr::Error(_, _))) {
+            parse_operand_expr_range(
+                tokens,
+                start,
+                tokens.len(),
+                end_span,
+                end_token_text,
+                expr_parse_ctx,
+                &mut operands,
+            )?;
+        }
+    }
+
+    Ok(Some(LineAst::Statement {
+        label,
+        mnemonic: Some(mnemonic),
+        operands,
     }))
 }
 
@@ -2100,6 +2156,7 @@ mod tests {
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8,
             ],
@@ -2184,6 +2241,61 @@ mod tests {
     }
 
     #[test]
+    fn parse_line_with_parser_vm_supports_instruction_envelope_opcode() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "LBL LDA #$42";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
+                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let line = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect("parse should succeed");
+        assert!(
+            matches!(
+                line,
+                LineAst::Statement {
+                    mnemonic: Some(_),
+                    ..
+                }
+            ),
+            "expected instruction statement from instruction primitive, got {line:?}"
+        );
+    }
+
+    #[test]
     fn parse_line_with_parser_vm_dot_directive_primitive_skips_dot_assignment_ops() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
@@ -2205,6 +2317,7 @@ mod tests {
             program: vec![
                 ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
                 ParserVmOpcode::ParseStatementEnvelope as u8,
                 ParserVmOpcode::End as u8,
             ],
