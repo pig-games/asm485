@@ -211,7 +211,11 @@ fn parse_line_with_parser_vm(
     }
 
     let mut pc = 0usize;
-    let mut parsed_line: Option<LineAst> = None;
+    let mut parsed_line: Option<LineAst> = if tokens.is_empty() {
+        Some(LineAst::Empty)
+    } else {
+        None
+    };
 
     while pc < parser_vm_program.program.len() {
         let opcode_byte = parser_vm_program.program[pc];
@@ -314,6 +318,28 @@ fn parse_line_with_parser_vm(
                         ),
                     ));
                 };
+                let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
+                return Err(parse_error_at_end(
+                    exec_ctx.source_line,
+                    exec_ctx.line_num,
+                    format!("{code}: parser VM emitted diagnostic slot {slot}"),
+                ));
+            }
+            ParserVmOpcode::EmitDiagIfNoAst => {
+                let Some(slot) = parser_vm_program.program.get(pc).copied() else {
+                    return Err(parse_error_at_end(
+                        exec_ctx.source_line,
+                        exec_ctx.line_num,
+                        format!(
+                            "{}: parser VM EmitDiagIfNoAst missing slot operand",
+                            parser_contract.diagnostics.invalid_statement
+                        ),
+                    ));
+                };
+                pc = pc.saturating_add(1);
+                if parsed_line.is_some() {
+                    continue;
+                }
                 let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
                 return Err(parse_error_at_end(
                     exec_ctx.source_line,
@@ -2205,7 +2231,8 @@ mod tests {
                 ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
-                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
                 ParserVmOpcode::End as u8,
             ],
         };
@@ -2422,7 +2449,8 @@ mod tests {
                 ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
-                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
                 ParserVmOpcode::End as u8,
             ],
         };
@@ -2454,6 +2482,102 @@ mod tests {
             ),
             "expected concat assignment to be parsed by assignment primitive, got {line:?}"
         );
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_emit_diag_if_no_ast_reports_unexpected_token_slot() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    ?";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![
+                ParserVmOpcode::ParseDotDirectiveEnvelope as u8,
+                ParserVmOpcode::ParseStarOrgEnvelope as u8,
+                ParserVmOpcode::ParseAssignmentEnvelope as u8,
+                ParserVmOpcode::ParseInstructionEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
+                ParserVmOpcode::End as u8,
+            ],
+        };
+
+        let err = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect_err("unmatched line should emit terminal parser VM diagnostic");
+        assert!(
+            err.message
+                .contains(parser_contract.diagnostics.unexpected_token.as_str()),
+            "expected parser VM unexpected-token diagnostic code, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_emit_diag_if_no_ast_requires_slot_operand() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    NOP";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![ParserVmOpcode::EmitDiagIfNoAst as u8],
+        };
+
+        let err = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect_err("missing EmitDiagIfNoAst slot must fail");
+        assert!(err.message.contains("EmitDiagIfNoAst missing slot operand"));
     }
 
     #[test]

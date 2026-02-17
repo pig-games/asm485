@@ -215,6 +215,7 @@ pub enum ParserVmOpcode {
     ParseAssignmentEnvelope = 0x06,
     ParseInstructionEnvelope = 0x07,
     ParseStarOrgEnvelope = 0x08,
+    EmitDiagIfNoAst = 0x09,
 }
 
 impl ParserVmOpcode {
@@ -228,6 +229,7 @@ impl ParserVmOpcode {
             0x06 => Some(Self::ParseAssignmentEnvelope),
             0x07 => Some(Self::ParseInstructionEnvelope),
             0x08 => Some(Self::ParseStarOrgEnvelope),
+            0x09 => Some(Self::EmitDiagIfNoAst),
             _ => None,
         }
     }
@@ -2513,7 +2515,8 @@ mod tests {
                 ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
-                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
                 ParserVmOpcode::End as u8,
             ],
         }
@@ -2950,7 +2953,8 @@ mod tests {
                 ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
-                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
                 ParserVmOpcode::End as u8
             ]
         );

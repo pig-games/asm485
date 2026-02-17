@@ -4586,7 +4586,8 @@ mod tests {
                 ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
-                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
                 ParserVmOpcode::End as u8,
             ],
         }
@@ -5512,7 +5513,8 @@ mod tests {
                 ParserVmOpcode::ParseStarOrgEnvelope as u8,
                 ParserVmOpcode::ParseAssignmentEnvelope as u8,
                 ParserVmOpcode::ParseInstructionEnvelope as u8,
-                ParserVmOpcode::ParseStatementEnvelope as u8,
+                ParserVmOpcode::EmitDiagIfNoAst as u8,
+                0,
                 ParserVmOpcode::End as u8
             ]
         );

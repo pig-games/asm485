@@ -778,7 +778,8 @@ fn default_family_parser_vm_program_bytes() -> Vec<u8> {
         ParserVmOpcode::ParseStarOrgEnvelope as u8,
         ParserVmOpcode::ParseAssignmentEnvelope as u8,
         ParserVmOpcode::ParseInstructionEnvelope as u8,
-        ParserVmOpcode::ParseStatementEnvelope as u8,
+        ParserVmOpcode::EmitDiagIfNoAst as u8,
+        0,
         ParserVmOpcode::End as u8,
     ]
 }
@@ -1227,7 +1228,7 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "mos6502")
                 && entry
                     .program
-                    .contains(&(ParserVmOpcode::ParseStatementEnvelope as u8))
+                    .contains(&(ParserVmOpcode::ParseInstructionEnvelope as u8))
         }));
         assert!(!chunks.selectors.is_empty());
         assert!(chunks.registers.iter().any(|entry| {
@@ -1395,13 +1396,27 @@ mod tests {
             assert!(
                 program
                     .program
-                    .contains(&(ParserVmOpcode::ParseStatementEnvelope as u8)),
-                "default parser VM program for {:?} must include ParseStatementEnvelope",
+                    .contains(&(ParserVmOpcode::ParseInstructionEnvelope as u8)),
+                "default parser VM program for {:?} must include ParseInstructionEnvelope",
+                program.owner
+            );
+            assert!(
+                program
+                    .program
+                    .contains(&(ParserVmOpcode::EmitDiagIfNoAst as u8)),
+                "default parser VM program for {:?} must include EmitDiagIfNoAst",
                 program.owner
             );
             assert!(
                 !program.program.contains(&0x01),
                 "default parser VM program for {:?} must not require ParseCoreLine",
+                program.owner
+            );
+            assert!(
+                !program
+                    .program
+                    .contains(&(ParserVmOpcode::ParseStatementEnvelope as u8)),
+                "default parser VM program for {:?} must not rely on ParseStatementEnvelope fallback",
                 program.owner
             );
             assert!(
