@@ -550,7 +550,7 @@ fn parse_star_org_at(
     }
     let expr = parse_expr_with_vm_contract(
         expr_parse_ctx,
-        tokens[idx.saturating_add(2)..].to_vec(),
+        &tokens[idx.saturating_add(2)..],
         end_span,
         end_token_text,
     )?;
@@ -591,7 +591,7 @@ fn parse_assignment_at(
     let expr = match tokens.get(idx.saturating_add(consumed)) {
         Some(_) => match parse_expr_with_vm_contract(
             expr_parse_ctx,
-            tokens[idx.saturating_add(consumed)..].to_vec(),
+            &tokens[idx.saturating_add(consumed)..],
             end_span,
             end_token_text,
         ) {
@@ -879,7 +879,7 @@ fn parse_dot_directive_line_from_tokens(
             } else {
                 let expr = match parse_expr_with_vm_contract(
                     expr_parse_ctx,
-                    tokens[cursor..].to_vec(),
+                    &tokens[cursor..],
                     end_span,
                     end_token_text,
                 ) {
@@ -1001,7 +1001,7 @@ fn parse_place_directive_from_tokens(
         }
         align = Some(parse_expr_with_vm_contract(
             expr_parse_ctx,
-            tokens[*cursor..].to_vec(),
+            &tokens[*cursor..],
             end_span,
             end_token_text,
         )?);
@@ -1236,7 +1236,7 @@ fn parse_use_directive_from_tokens(
                 .unwrap_or(end_span);
             let value = parse_expr_with_vm_contract_and_boundary(
                 expr_parse_ctx,
-                tokens[value_start..*cursor].to_vec(),
+                &tokens[value_start..*cursor],
                 expr_end_span,
                 end_token_text.clone(),
                 tokens.get(*cursor),
@@ -1510,14 +1510,45 @@ fn current_span_at(tokens: &[Token], cursor: usize, fallback: Span) -> Span {
 
 fn parse_expr_with_vm_contract(
     expr_parse_ctx: &VmExprParseContext<'_>,
-    tokens: Vec<Token>,
+    tokens: &[Token],
     end_span: Span,
     end_token_text: Option<String>,
 ) -> Result<Expr, ParseError> {
+    let token_budget = expr_parse_ctx
+        .model
+        .runtime_budget_limits()
+        .max_parser_tokens_per_line;
+    if tokens.len() > token_budget {
+        let fallback = format!(
+            "parser token budget exceeded ({} > {})",
+            tokens.len(),
+            token_budget
+        );
+        let message = expr_parse_ctx
+            .model
+            .resolve_parser_contract(expr_parse_ctx.cpu_id, expr_parse_ctx.dialect_override)
+            .ok()
+            .flatten()
+            .map(|contract| {
+                format!(
+                    "{}: parser token budget exceeded ({} > {})",
+                    contract.diagnostics.invalid_statement,
+                    tokens.len(),
+                    token_budget
+                )
+            })
+            .unwrap_or(fallback);
+        return Err(ParseError {
+            message,
+            span: end_span,
+        });
+    }
+    let mut owned_tokens = Vec::with_capacity(tokens.len());
+    owned_tokens.extend_from_slice(tokens);
     expr_parse_ctx.model.parse_expression_for_assembler(
         expr_parse_ctx.cpu_id,
         expr_parse_ctx.dialect_override,
-        tokens,
+        owned_tokens,
         end_span,
         end_token_text,
     )
@@ -1525,7 +1556,7 @@ fn parse_expr_with_vm_contract(
 
 fn parse_expr_with_vm_contract_and_boundary(
     expr_parse_ctx: &VmExprParseContext<'_>,
-    tokens: Vec<Token>,
+    tokens: &[Token],
     end_span: Span,
     end_token_text: Option<String>,
     boundary_token: Option<&Token>,
@@ -1564,7 +1595,7 @@ fn parse_operand_expr_range(
     let expr_end_span = boundary_token.map(|token| token.span).unwrap_or(end_span);
     match parse_expr_with_vm_contract_and_boundary(
         expr_parse_ctx,
-        tokens[start..end].to_vec(),
+        &tokens[start..end],
         expr_end_span,
         end_token_text,
         boundary_token,
@@ -2883,5 +2914,55 @@ mod tests {
         .expect_err("oversized parser VM program should fail in retro profile");
         assert_eq!(first.message, second.message);
         assert_eq!(first.span, second.span);
+    }
+
+    #[test]
+    fn parse_expr_with_vm_contract_rejects_slice_above_parser_token_budget() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut model = HierarchyExecutionModel::from_chunks(
+            crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+                .expect("hierarchy chunks build"),
+        )
+        .expect("execution model should build");
+        model.set_runtime_budget_profile(
+            crate::opthread::runtime::RuntimeBudgetProfile::RetroConstrained,
+        );
+        let token_budget = model.runtime_budget_limits().max_parser_tokens_per_line;
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 2,
+        };
+        let tokens = vec![
+            Token {
+                kind: TokenKind::Identifier("A".to_string()),
+                span,
+            };
+            token_budget.saturating_add(1)
+        ];
+        let err = parse_expr_with_vm_contract(
+            &VmExprParseContext {
+                model: &model,
+                cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                dialect_override: None,
+            },
+            tokens.as_slice(),
+            span,
+            None,
+        )
+        .expect_err("expression slice above parser token budget should fail");
+        assert!(err.message.contains("parser token budget exceeded"));
+        assert!(
+            err.message.to_ascii_lowercase().contains("otp004"),
+            "expected parser diagnostic code in budget error, got: {}",
+            err.message
+        );
     }
 }

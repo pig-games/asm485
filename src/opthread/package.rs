@@ -2532,6 +2532,38 @@ mod tests {
         ]
     }
 
+    fn tokenizer_vm_program_for_test(owner: ScopedOwner) -> TokenizerVmProgramDescriptor {
+        TokenizerVmProgramDescriptor {
+            owner,
+            opcode_version: TOKENIZER_VM_OPCODE_VERSION_V1,
+            start_state: 0,
+            state_entry_offsets: vec![0],
+            limits: TokenizerVmLimits {
+                max_steps_per_line: 2048,
+                max_tokens_per_line: 256,
+                max_lexeme_bytes: 256,
+                max_errors_per_line: 16,
+            },
+            diagnostics: TokenizerVmDiagnosticMap {
+                invalid_char: DIAG_TOKENIZER_INVALID_CHAR.to_string(),
+                unterminated_string: DIAG_TOKENIZER_UNTERMINATED_STRING.to_string(),
+                step_limit_exceeded: DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED.to_string(),
+                token_limit_exceeded: DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED.to_string(),
+                lexeme_limit_exceeded: DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED.to_string(),
+                error_limit_exceeded: DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED.to_string(),
+            },
+            program: vec![TokenizerVmOpcode::End as u8],
+        }
+    }
+
+    fn sample_tokenizer_vm_programs() -> Vec<TokenizerVmProgramDescriptor> {
+        vec![
+            tokenizer_vm_program_for_test(ScopedOwner::Family("MOS6502".to_string())),
+            tokenizer_vm_program_for_test(ScopedOwner::Family("mos6502".to_string())),
+            tokenizer_vm_program_for_test(ScopedOwner::Cpu("z80".to_string())),
+        ]
+    }
+
     fn parser_contract_for_test(owner: ScopedOwner) -> ParserContractDescriptor {
         ParserContractDescriptor {
             owner,
@@ -2540,10 +2572,10 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             max_ast_nodes_per_line: 256,
             diagnostics: ParserDiagnosticMap {
-                unexpected_token: "otp001".to_string(),
-                expected_expression: "otp002".to_string(),
-                expected_operand: "otp003".to_string(),
-                invalid_statement: "otp004".to_string(),
+                unexpected_token: DIAG_PARSER_UNEXPECTED_TOKEN.to_string(),
+                expected_expression: DIAG_PARSER_EXPECTED_EXPRESSION.to_string(),
+                expected_operand: DIAG_PARSER_EXPECTED_OPERAND.to_string(),
+                invalid_statement: DIAG_PARSER_INVALID_STATEMENT.to_string(),
             },
         }
     }
@@ -2764,6 +2796,109 @@ mod tests {
                 "MSEL@547+4"
             ]
         );
+    }
+
+    #[test]
+    fn ultimate64_abi_header_is_little_endian_v1() {
+        let chunks = HierarchyChunks {
+            metadata: PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: default_runtime_diagnostic_catalog(),
+            token_policies: sample_token_policies(),
+            tokenizer_vm_programs: sample_tokenizer_vm_programs(),
+            parser_contracts: sample_parser_contracts(),
+            parser_vm_programs: sample_parser_vm_programs(),
+            families: sample_families(),
+            cpus: sample_cpus(),
+            dialects: sample_dialects(),
+            registers: sample_registers(),
+            forms: sample_forms(),
+            tables: sample_tables(),
+            selectors: Vec::new(),
+        };
+        let bytes = encode_hierarchy_chunks_from_chunks(&chunks).expect("encode should succeed");
+
+        assert_eq!(&bytes[0..4], OPCPU_MAGIC.as_slice());
+        assert_eq!(&bytes[4..6], OPCPU_VERSION_V1.to_le_bytes().as_slice());
+        assert_eq!(&bytes[6..8], OPCPU_ENDIAN_MARKER.to_le_bytes().as_slice());
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), OPCPU_VERSION_V1);
+        assert_eq!(
+            u16::from_le_bytes([bytes[6], bytes[7]]),
+            OPCPU_ENDIAN_MARKER
+        );
+    }
+
+    #[test]
+    fn ultimate64_abi_toc_payload_layout_is_contiguous() {
+        let chunks = HierarchyChunks {
+            metadata: PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: default_runtime_diagnostic_catalog(),
+            token_policies: sample_token_policies(),
+            tokenizer_vm_programs: sample_tokenizer_vm_programs(),
+            parser_contracts: sample_parser_contracts(),
+            parser_vm_programs: sample_parser_vm_programs(),
+            families: sample_families(),
+            cpus: sample_cpus(),
+            dialects: sample_dialects(),
+            registers: sample_registers(),
+            forms: sample_forms(),
+            tables: sample_tables(),
+            selectors: Vec::new(),
+        };
+        let bytes = encode_hierarchy_chunks_from_chunks(&chunks).expect("encode should succeed");
+        let toc = parse_toc(&bytes).expect("TOC parse should succeed");
+        let mut entries: Vec<TocEntry> = toc.values().copied().collect();
+        entries.sort_by_key(|entry| entry.offset);
+        assert!(!entries.is_empty(), "expected non-empty TOC entries");
+        for idx in 1..entries.len() {
+            let prev = entries[idx - 1];
+            let current = entries[idx];
+            assert_eq!(
+                prev.offset.saturating_add(prev.length),
+                current.offset,
+                "expected contiguous payload layout for TOC entries"
+            );
+        }
+        let last = entries.last().expect("entries not empty");
+        let end = usize::try_from(last.offset.saturating_add(last.length))
+            .expect("payload end must fit usize");
+        assert_eq!(end, bytes.len());
+    }
+
+    #[test]
+    fn ultimate64_abi_default_diag_catalog_covers_parser_and_tokenizer_codes() {
+        let diagnostics = default_runtime_diagnostic_catalog();
+        let mut codes: Vec<String> = diagnostics.iter().map(|entry| entry.code.clone()).collect();
+        codes.sort();
+        assert!(codes.iter().any(|code| code == DIAG_TOKENIZER_INVALID_CHAR));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_TOKENIZER_UNTERMINATED_STRING));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_PARSER_UNEXPECTED_TOKEN));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_PARSER_EXPECTED_EXPRESSION));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_PARSER_EXPECTED_OPERAND));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_PARSER_INVALID_STATEMENT));
     }
 
     #[test]

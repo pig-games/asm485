@@ -137,6 +137,9 @@ For constrained native targets (including Ultimate64-class environments):
 - explicit ABI-safe payloads with fixed semantics
 - no hidden host parser/tokenizer dependencies in VM-authoritative paths
 
+ABI-facing contract details for this target class are captured in:
+- `documentation/opthread-ultimate64-abi-contract-v1.md`
+
 ## 11. Compliance Criteria
 
 Implementation is compliant with this spec when:
@@ -149,4 +152,3 @@ Implementation is compliant with this spec when:
 ## 12. Supersession
 
 This document supersedes prior fragmented opThread spec documents in `dev-docs/NextSteps`.
-

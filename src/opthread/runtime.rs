@@ -7401,6 +7401,29 @@ mod tests {
     }
 
     #[test]
+    fn ultimate64_abi_runtime_model_owns_package_bytes_after_load() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut package_bytes =
+            build_hierarchy_package_from_registry(&registry).expect("package bytes build");
+        let model = HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+            .expect("execution model build from package bytes");
+        package_bytes.fill(0);
+
+        let tokens = model
+            .tokenize_portable_statement_vm_authoritative("m6502", None, "LDA #$42", 1)
+            .expect("runtime model should not borrow package buffer after load");
+        assert!(
+            !tokens.is_empty(),
+            "expected tokens after package buffer reuse"
+        );
+    }
+
+    #[test]
     fn execution_model_rejects_invalid_package_bytes() {
         let err = HierarchyExecutionModel::from_package_bytes(b"not-an-opcpu")
             .expect_err("invalid package bytes should be rejected");
