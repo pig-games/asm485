@@ -167,7 +167,6 @@ fn parse_line_with_parser_vm(
 
     let mut pc = 0usize;
     let mut parsed_line: Option<LineAst> = None;
-    let mut token_buffer = Some(tokens);
 
     while pc < parser_vm_program.program.len() {
         let opcode_byte = parser_vm_program.program[pc];
@@ -196,39 +195,21 @@ fn parse_line_with_parser_vm(
                 });
             }
             ParserVmOpcode::ParseStatementEnvelope => {
-                let Some(core_tokens) = token_buffer.as_ref() else {
+                if parsed_line.is_some() {
                     return Err(parse_error_at_end(
                         line,
                         line_num,
                         format!(
-                            "{}: parser VM attempted ParseStatementEnvelope after tokens were consumed",
+                            "{}: parser VM attempted duplicate ParseStatementEnvelope execution",
                             parser_contract.diagnostics.invalid_statement
                         ),
                     ));
-                };
+                }
                 let mut parser =
-                    Parser::from_tokens(core_tokens.clone(), end_span, end_token_text.clone());
+                    Parser::from_tokens(tokens.clone(), end_span, end_token_text.clone());
                 let parsed = parser.parse_line()?;
                 let envelope = PortableLineAst::from_core_line_ast(&parsed);
                 parsed_line = Some(envelope.to_core_line_ast());
-            }
-            ParserVmOpcode::ParseCoreLine => {
-                if parsed_line.is_some() {
-                    continue;
-                }
-                let Some(core_tokens) = token_buffer.take() else {
-                    return Err(parse_error_at_end(
-                        line,
-                        line_num,
-                        format!(
-                            "{}: parser VM attempted duplicate ParseCoreLine execution",
-                            parser_contract.diagnostics.invalid_statement
-                        ),
-                    ));
-                };
-                let mut parser = Parser::from_tokens(core_tokens, end_span, end_token_text.clone());
-                let parsed = parser.parse_line()?;
-                parsed_line = Some(parsed);
             }
             ParserVmOpcode::EmitDiag => {
                 let Some(slot) = parser_vm_program.program.get(pc).copied() else {
@@ -554,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_line_with_parser_vm_keeps_legacy_parse_core_line_compatibility() {
+    fn parse_line_with_parser_vm_rejects_retired_parse_core_line_opcode() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
         let source = "    LDA #$42";
@@ -574,12 +555,12 @@ mod tests {
             opcode_version: PARSER_VM_OPCODE_VERSION_V1,
             program: vec![
                 ParserVmOpcode::ParseStatementEnvelope as u8,
-                ParserVmOpcode::ParseCoreLine as u8,
+                0x01,
                 ParserVmOpcode::End as u8,
             ],
         };
 
-        let line = parse_line_with_parser_vm(
+        let err = parse_line_with_parser_vm(
             tokens,
             end_span,
             end_token_text,
@@ -588,10 +569,7 @@ mod tests {
             source,
             1,
         )
-        .expect("parse should succeed");
-        assert!(
-            matches!(line, LineAst::Statement { .. }),
-            "expected statement line ast for legacy program, got {line:?}"
-        );
+        .expect_err("retired opcode should fail");
+        assert!(err.message.contains("invalid parser VM opcode 0x01"));
     }
 }

@@ -208,7 +208,6 @@ pub struct ParserContractDescriptor {
 #[repr(u8)]
 pub enum ParserVmOpcode {
     End = 0x00,
-    ParseCoreLine = 0x01,
     EmitDiag = 0x02,
     Fail = 0x03,
     ParseStatementEnvelope = 0x04,
@@ -218,7 +217,6 @@ impl ParserVmOpcode {
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0x00 => Some(Self::End),
-            0x01 => Some(Self::ParseCoreLine),
             0x02 => Some(Self::EmitDiag),
             0x03 => Some(Self::Fail),
             0x04 => Some(Self::ParseStatementEnvelope),

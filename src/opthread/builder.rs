@@ -1396,9 +1396,7 @@ mod tests {
                 program.owner
             );
             assert!(
-                !program
-                    .program
-                    .contains(&(ParserVmOpcode::ParseCoreLine as u8)),
+                !program.program.contains(&0x01),
                 "default parser VM program for {:?} must not require ParseCoreLine",
                 program.owner
             );
