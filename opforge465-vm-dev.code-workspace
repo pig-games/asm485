@@ -1,0 +1,147 @@
+{
+  "folders": [
+    {
+      "name": "opForge-opthread-prototype",
+      "path": "/Users/erik/Code/Retro/opForge/worktrees/opthread-vm-family-impl"
+    },
+    {
+      "name": "opForge465",
+      "path": "/Users/erik/Code/Retro/opForge465"
+    },
+    {
+      "name": "opFoundryCore",
+      "path": "/Users/erik/Code/Retro/opFoundryCore"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.git": true,
+      "**/target": true,
+      "**/build": true
+    },
+    "search.exclude": {
+      "**/target": true,
+      "**/build": true
+    },
+    "rust-analyzer.checkOnSave.command": "clippy"
+  },
+  "extensions": {
+    "recommendations": [
+      "rust-lang.rust-analyzer",
+      "ms-vscode.makefile-tools"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "opForge: Build Latest (release)",
+        "type": "shell",
+        "command": "cargo",
+        "args": [
+          "build",
+          "--release",
+          "--manifest-path",
+          "${workspaceFolder:opForge-opthread-prototype}/Cargo.toml"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder:opForge-opthread-prototype}"
+        },
+        "problemMatcher": [
+          "$rustc"
+        ]
+      },
+      {
+        "label": "opFoundryCore: Runner Cross465 (fixtures)",
+        "type": "shell",
+        "dependsOn": [
+          "opForge: Build Latest (release)"
+        ],
+        "command": "cargo",
+        "args": [
+          "run",
+          "-p",
+          "opfoundry-runner",
+          "--bin",
+          "opfoundry-test-runner",
+          "--",
+          "--workspace",
+          "${workspaceFolder:opFoundryCore}",
+          "--catalog",
+          "tests/catalog.toml",
+          "--mode",
+          "run",
+          "--target",
+          "cross465",
+          "--fixtures",
+          "--opforge",
+          "${workspaceFolder:opForge-opthread-prototype}/target/release/opforge",
+          "--format",
+          "text"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder:opFoundryCore}"
+        },
+        "problemMatcher": [
+          "$rustc"
+        ]
+      },
+      {
+        "label": "opFoundryCore: Update Cross465 Fixtures",
+        "type": "shell",
+        "dependsOn": [
+          "opForge: Build Latest (release)"
+        ],
+        "command": "cargo",
+        "args": [
+          "run",
+          "-p",
+          "opfoundry-runner",
+          "--bin",
+          "opfoundry-test-runner",
+          "--",
+          "--workspace",
+          "${workspaceFolder:opFoundryCore}",
+          "--catalog",
+          "tests/catalog.toml",
+          "--mode",
+          "run",
+          "--target",
+          "cross465",
+          "--fixtures",
+          "--update-fixtures",
+          "--opforge",
+          "${workspaceFolder:opForge-opthread-prototype}/target/release/opforge",
+          "--format",
+          "text"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder:opFoundryCore}"
+        },
+        "problemMatcher": [
+          "$rustc"
+        ]
+      },
+      {
+        "label": "opFoundryCore: Cargo Test (workspace opforge)",
+        "type": "shell",
+        "dependsOn": [
+          "opForge: Build Latest (release)"
+        ],
+        "command": "cargo",
+        "args": [
+          "test"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder:opFoundryCore}",
+          "env": {
+            "PATH": "${workspaceFolder:opForge-opthread-prototype}/target/release:${env:PATH}"
+          }
+        },
+        "problemMatcher": [
+          "$rustc"
+        ]
+      }
+    ]
+  }
+}
