@@ -242,6 +242,12 @@ pub struct RuntimeExprParserContract {
     pub diagnostics: RuntimeExprParserDiagnosticMap,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeParserCertificationChecklists {
+    pub expression_parser_checklist: Option<&'static str>,
+    pub instruction_parse_encode_checklist: Option<&'static str>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeTokenPolicy {
     pub case_rule: TokenCaseRule,
@@ -2199,6 +2205,21 @@ impl HierarchyExecutionModel {
         Ok(expr_parser_vm_parity_checklist_for_family(
             resolved.family_id.as_str(),
         ))
+    }
+
+    pub fn resolve_parser_certification_checklists(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<RuntimeParserCertificationChecklists, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        let checklists = crate::opthread::rollout::parser_certification_checklists_for_family(
+            resolved.family_id.as_str(),
+        );
+        Ok(RuntimeParserCertificationChecklists {
+            expression_parser_checklist: checklists.expression_parser_checklist,
+            instruction_parse_encode_checklist: checklists.instruction_parse_encode_checklist,
+        })
     }
 
     pub fn encode_instruction(
@@ -7089,6 +7110,24 @@ mod tests {
             );
         }
         assert!(expr_parser_vm_parity_checklist_for_family("nonexistent").is_none());
+    }
+
+    #[test]
+    fn execution_model_parser_certification_checklists_return_expr_and_instruction_tracks() {
+        let registry = parity_registry();
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let checklists = model
+            .resolve_parser_certification_checklists("m6502", None)
+            .expect("checklist resolution");
+        assert_eq!(
+            checklists.expression_parser_checklist,
+            Some("phase8-mos6502-expr-parser-vm-authoritative")
+        );
+        assert_eq!(
+            checklists.instruction_parse_encode_checklist,
+            Some("phase6-mos6502-rollout-criteria")
+        );
     }
 
     #[test]

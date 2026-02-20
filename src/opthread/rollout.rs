@@ -186,6 +186,23 @@ pub(crate) fn portable_expr_parser_runtime_enabled_for_family(
             .any(|opt_in| opt_in.eq_ignore_ascii_case(family_id))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParserCertificationChecklists {
+    pub expression_parser_checklist: Option<&'static str>,
+    pub instruction_parse_encode_checklist: Option<&'static str>,
+}
+
+pub(crate) fn parser_certification_checklists_for_family(
+    family_id: &str,
+) -> ParserCertificationChecklists {
+    ParserCertificationChecklists {
+        expression_parser_checklist: family_expr_parser_rollout_policy(family_id)
+            .map(|entry| entry.migration_checklist),
+        instruction_parse_encode_checklist: family_runtime_rollout_policy(family_id)
+            .map(|entry| entry.migration_checklist),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +375,25 @@ mod tests {
             &[],
             &force_host
         ));
+    }
+
+    #[test]
+    fn parser_certification_checklists_include_expr_and_instruction_tracks() {
+        let checklists = parser_certification_checklists_for_family("mos6502");
+        assert_eq!(
+            checklists.expression_parser_checklist,
+            Some("phase8-mos6502-expr-parser-vm-authoritative")
+        );
+        assert_eq!(
+            checklists.instruction_parse_encode_checklist,
+            Some("phase6-mos6502-rollout-criteria")
+        );
+    }
+
+    #[test]
+    fn parser_certification_checklists_default_to_none_for_unknown_family() {
+        let checklists = parser_certification_checklists_for_family("unknown");
+        assert_eq!(checklists.expression_parser_checklist, None);
+        assert_eq!(checklists.instruction_parse_encode_checklist, None);
     }
 }
