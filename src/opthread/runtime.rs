@@ -7667,7 +7667,7 @@ mod tests {
     #[test]
     fn tokenizer_vm_certification_entries_require_parity_checklist_text() {
         assert!(
-            !TOKENIZER_VM_CERTIFICATIONS.is_empty(),
+            TOKENIZER_VM_CERTIFICATIONS.iter().next().is_some(),
             "certified family list must be explicit"
         );
         for certification in TOKENIZER_VM_CERTIFICATIONS {
@@ -7710,7 +7710,7 @@ mod tests {
     #[test]
     fn expr_parser_vm_certification_entries_require_parity_checklist_text() {
         assert!(
-            !EXPR_PARSER_VM_CERTIFICATIONS.is_empty(),
+            EXPR_PARSER_VM_CERTIFICATIONS.iter().next().is_some(),
             "certified family list must be explicit"
         );
         for certification in EXPR_PARSER_VM_CERTIFICATIONS {

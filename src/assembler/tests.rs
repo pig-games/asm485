@@ -246,10 +246,12 @@ fn assemble_i8085_line_with_expr_vm_opt_in(
     (status, message, asm.bytes().to_vec())
 }
 
+type AssembleEntriesResult = Result<(Vec<(u32, u8)>, Vec<String>), String>;
+
 fn assemble_source_entries_with_runtime_mode(
     lines: &[&str],
     _enable_opthread_runtime: bool,
-) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
+) -> AssembleEntriesResult {
     let mut assembler = Assembler::new();
     assembler.clear_diagnostics();
 
@@ -366,7 +368,7 @@ fn assemble_example_with_base(
 fn assemble_example_entries_with_runtime_mode(
     asm_path: &Path,
     _enable_opthread_runtime: bool,
-) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
+) -> AssembleEntriesResult {
     let root_lines =
         expand_source_file(asm_path, &[], 64).map_err(|err| format!("Preprocess failed: {err}"))?;
     let graph = load_module_graph(asm_path, root_lines.clone(), &[], 64)
@@ -5643,9 +5645,11 @@ fn linker_output_image_mode_rejects_section_address_overflow() {
         loadaddr: None,
     };
     let mut sections = HashMap::new();
-    let mut section = SectionState::default();
-    section.base_addr = Some(u32::MAX);
-    section.bytes = vec![0xaa, 0xbb];
+    let section = SectionState {
+        base_addr: Some(u32::MAX),
+        bytes: vec![0xaa, 0xbb],
+        ..Default::default()
+    };
     sections.insert("a".to_string(), section);
 
     let err = build_linker_output_payload(&output, &sections)
@@ -5669,9 +5673,11 @@ fn linker_output_contiguous_mode_rejects_section_address_overflow() {
         loadaddr: None,
     };
     let mut sections = HashMap::new();
-    let mut section = SectionState::default();
-    section.base_addr = Some(u32::MAX);
-    section.bytes = vec![0xaa, 0xbb];
+    let section = SectionState {
+        base_addr: Some(u32::MAX),
+        bytes: vec![0xaa, 0xbb],
+        ..Default::default()
+    };
     sections.insert("a".to_string(), section);
 
     let err = build_linker_output_payload(&output, &sections)
@@ -8828,10 +8834,7 @@ fn collect_mos6502_native_baseline_snapshot() -> String {
         } else {
             String::new()
         };
-        let diag = message
-            .unwrap_or_default()
-            .replace('\t', " ")
-            .replace('\n', " ");
+        let diag = message.unwrap_or_default().replace(['\t', '\n'], " ");
         rows.push(format!("{case_id}\t{line}\t{status_name}\t{bytes}\t{diag}"));
     }
 
