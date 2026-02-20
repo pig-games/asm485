@@ -17,6 +17,7 @@
 //! - `TKVM` (scoped tokenizer VM program descriptors)
 //! - `PARS` (scoped parser/AST contract descriptors)
 //! - `PRVM` (scoped parser VM program descriptors)
+//! - `EXPR` (scoped expression VM contract descriptors)
 
 use std::collections::HashMap;
 
@@ -46,6 +47,7 @@ const CHUNK_MSEL: [u8; 4] = *b"MSEL";
 const CHUNK_TKVM: [u8; 4] = *b"TKVM";
 const CHUNK_PARS: [u8; 4] = *b"PARS";
 const CHUNK_PRVM: [u8; 4] = *b"PRVM";
+const CHUNK_EXPR: [u8; 4] = *b"EXPR";
 
 pub const DIAG_OPTHREAD_MISSING_VM_PROGRAM: &str = "OTR001";
 pub const DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE: &str = "OTR002";
@@ -65,6 +67,16 @@ pub const TOKENIZER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_GRAMMAR_ID_LINE_V1: &str = "opforge.line.v1";
 pub const PARSER_AST_SCHEMA_ID_LINE_V1: &str = "opforge.ast.line.v1";
+pub const EXPR_VM_OPCODE_VERSION_V1: u16 = crate::core::expr_vm::EXPR_VM_OPCODE_VERSION_V1;
+pub const DIAG_EXPR_INVALID_OPCODE: &str = crate::core::expr_vm::DIAG_EXPR_INVALID_OPCODE;
+pub const DIAG_EXPR_STACK_UNDERFLOW: &str = crate::core::expr_vm::DIAG_EXPR_STACK_UNDERFLOW;
+pub const DIAG_EXPR_STACK_DEPTH_EXCEEDED: &str =
+    crate::core::expr_vm::DIAG_EXPR_STACK_DEPTH_EXCEEDED;
+pub const DIAG_EXPR_UNKNOWN_SYMBOL: &str = crate::core::expr_vm::DIAG_EXPR_UNKNOWN_SYMBOL;
+pub const DIAG_EXPR_EVAL_FAILURE: &str = crate::core::expr_vm::DIAG_EXPR_EVAL_FAILURE;
+pub const DIAG_EXPR_UNSUPPORTED_FEATURE: &str = crate::core::expr_vm::DIAG_EXPR_UNSUPPORTED_FEATURE;
+pub const DIAG_EXPR_BUDGET_EXCEEDED: &str = crate::core::expr_vm::DIAG_EXPR_BUDGET_EXCEEDED;
+pub const DIAG_EXPR_INVALID_PROGRAM: &str = crate::core::expr_vm::DIAG_EXPR_INVALID_PROGRAM;
 
 /// Package metadata descriptor (`META` chunk).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -252,6 +264,29 @@ pub struct ParserVmProgramDescriptor {
     pub program: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExprDiagnosticMap {
+    pub invalid_opcode: String,
+    pub stack_underflow: String,
+    pub stack_depth_exceeded: String,
+    pub unknown_symbol: String,
+    pub eval_failure: String,
+    pub unsupported_feature: String,
+    pub budget_exceeded: String,
+    pub invalid_program: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExprContractDescriptor {
+    pub owner: ScopedOwner,
+    pub opcode_version: u16,
+    pub max_program_bytes: u32,
+    pub max_stack_depth: u32,
+    pub max_symbol_refs: u32,
+    pub max_eval_steps: u32,
+    pub diagnostics: ExprDiagnosticMap,
+}
+
 /// Case-folding behavior for tokenizer/literal matching policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenCaseRule {
@@ -359,6 +394,7 @@ pub struct HierarchyChunks {
     pub tokenizer_vm_programs: Vec<TokenizerVmProgramDescriptor>,
     pub parser_contracts: Vec<ParserContractDescriptor>,
     pub parser_vm_programs: Vec<ParserVmProgramDescriptor>,
+    pub expr_contracts: Vec<ExprContractDescriptor>,
     pub families: Vec<FamilyDescriptor>,
     pub cpus: Vec<CpuDescriptor>,
     pub dialects: Vec<DialectDescriptor>,
@@ -532,6 +568,7 @@ pub fn encode_hierarchy_chunks_full(
         tokenizer_vm_programs: Vec::new(),
         parser_contracts: Vec::new(),
         parser_vm_programs: Vec::new(),
+        expr_contracts: Vec::new(),
         families: families.to_vec(),
         cpus: cpus.to_vec(),
         dialects: dialects.to_vec(),
@@ -560,6 +597,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     let mut tokenizer_vm_programs = chunks.tokenizer_vm_programs.to_vec();
     let mut parser_contracts = chunks.parser_contracts.to_vec();
     let mut parser_vm_programs = chunks.parser_vm_programs.to_vec();
+    let mut expr_contracts = chunks.expr_contracts.to_vec();
     let mut fams = chunks.families.to_vec();
     let mut cpus = chunks.cpus.to_vec();
     let mut dials = chunks.dialects.to_vec();
@@ -580,6 +618,7 @@ pub fn encode_hierarchy_chunks_from_chunks(
     canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
     canonicalize_parser_contracts(&mut parser_contracts);
     canonicalize_parser_vm_programs(&mut parser_vm_programs);
+    canonicalize_expr_contracts(&mut expr_contracts);
     canonicalize_package_support_chunks(&mut strings, &mut diagnostics);
 
     let mut chunks = vec![
@@ -598,6 +637,9 @@ pub fn encode_hierarchy_chunks_from_chunks(
     }
     if !parser_vm_programs.is_empty() {
         chunks.push((CHUNK_PRVM, encode_prvm_chunk(&parser_vm_programs)?));
+    }
+    if !expr_contracts.is_empty() {
+        chunks.push((CHUNK_EXPR, encode_expr_chunk(&expr_contracts)?));
     }
     chunks.extend_from_slice(&[
         (CHUNK_FAMS, encode_fams_chunk(&fams)?),
@@ -670,6 +712,38 @@ pub fn default_runtime_diagnostic_catalog() -> Vec<DiagnosticDescriptor> {
         DiagnosticDescriptor {
             code: DIAG_PARSER_INVALID_STATEMENT.to_string(),
             message_template: "invalid statement".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_INVALID_OPCODE.to_string(),
+            message_template: "invalid expression VM opcode".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_STACK_UNDERFLOW.to_string(),
+            message_template: "expression VM stack underflow".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_STACK_DEPTH_EXCEEDED.to_string(),
+            message_template: "expression VM stack depth exceeded".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_UNKNOWN_SYMBOL.to_string(),
+            message_template: "undefined expression symbol".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_EVAL_FAILURE.to_string(),
+            message_template: "expression VM evaluation failure".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_UNSUPPORTED_FEATURE.to_string(),
+            message_template: "expression VM unsupported feature".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_BUDGET_EXCEEDED.to_string(),
+            message_template: "expression VM budget exceeded".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_EXPR_INVALID_PROGRAM.to_string(),
+            message_template: "expression VM program is invalid".to_string(),
         },
     ]
 }
@@ -1187,6 +1261,100 @@ pub(crate) fn canonicalize_parser_vm_programs(
     });
 }
 
+pub(crate) fn canonicalize_expr_contracts(expr_contracts: &mut Vec<ExprContractDescriptor>) {
+    for entry in expr_contracts.iter_mut() {
+        match &mut entry.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                *id = id.to_ascii_lowercase();
+            }
+        }
+    }
+    expr_contracts.sort_by(|left, right| {
+        let left_owner_kind = match left.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let right_owner_kind = match right.owner {
+            ScopedOwner::Family(_) => 0u8,
+            ScopedOwner::Cpu(_) => 1u8,
+            ScopedOwner::Dialect(_) => 2u8,
+        };
+        let left_owner_id = match &left.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        let right_owner_id = match &right.owner {
+            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
+                id.to_ascii_lowercase()
+            }
+        };
+        left_owner_kind
+            .cmp(&right_owner_kind)
+            .then_with(|| left_owner_id.cmp(&right_owner_id))
+            .then_with(|| left.opcode_version.cmp(&right.opcode_version))
+            .then_with(|| left.max_program_bytes.cmp(&right.max_program_bytes))
+            .then_with(|| left.max_stack_depth.cmp(&right.max_stack_depth))
+            .then_with(|| left.max_symbol_refs.cmp(&right.max_symbol_refs))
+            .then_with(|| left.max_eval_steps.cmp(&right.max_eval_steps))
+            .then_with(|| {
+                left.diagnostics
+                    .invalid_opcode
+                    .cmp(&right.diagnostics.invalid_opcode)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .stack_underflow
+                    .cmp(&right.diagnostics.stack_underflow)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .stack_depth_exceeded
+                    .cmp(&right.diagnostics.stack_depth_exceeded)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .unknown_symbol
+                    .cmp(&right.diagnostics.unknown_symbol)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .eval_failure
+                    .cmp(&right.diagnostics.eval_failure)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .unsupported_feature
+                    .cmp(&right.diagnostics.unsupported_feature)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .budget_exceeded
+                    .cmp(&right.diagnostics.budget_exceeded)
+            })
+            .then_with(|| {
+                left.diagnostics
+                    .invalid_program
+                    .cmp(&right.diagnostics.invalid_program)
+            })
+    });
+    expr_contracts.dedup_by(|left, right| {
+        left.opcode_version == right.opcode_version
+            && left.max_program_bytes == right.max_program_bytes
+            && left.max_stack_depth == right.max_stack_depth
+            && left.max_symbol_refs == right.max_symbol_refs
+            && left.max_eval_steps == right.max_eval_steps
+            && left.diagnostics == right.diagnostics
+            && match (&left.owner, &right.owner) {
+                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
+                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
+                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
+                _ => false,
+            }
+    });
+}
+
 pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCodecError> {
     let toc = parse_toc(bytes)?;
     let meta_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_META)?;
@@ -1196,6 +1364,7 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
     let tkvm_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_TKVM)?;
     let pars_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_PARS)?;
     let prvm_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_PRVM)?;
+    let expr_bytes = slice_for_chunk_optional(bytes, &toc, CHUNK_EXPR)?;
     let fams_bytes = slice_for_chunk(bytes, &toc, CHUNK_FAMS)?;
     let cpus_bytes = slice_for_chunk(bytes, &toc, CHUNK_CPUS)?;
     let dial_bytes = slice_for_chunk(bytes, &toc, CHUNK_DIAL)?;
@@ -1231,6 +1400,10 @@ pub fn decode_hierarchy_chunks(bytes: &[u8]) -> Result<HierarchyChunks, OpcpuCod
         },
         parser_vm_programs: match prvm_bytes {
             Some(payload) => decode_prvm_chunk(payload)?,
+            None => Vec::new(),
+        },
+        expr_contracts: match expr_bytes {
+            Some(payload) => decode_expr_chunk(payload)?,
             None => Vec::new(),
         },
         families: decode_fams_chunk(fams_bytes)?,
@@ -2243,6 +2416,81 @@ fn decode_prvm_chunk(bytes: &[u8]) -> Result<Vec<ParserVmProgramDescriptor>, Opc
     Ok(entries)
 }
 
+fn encode_expr_chunk(contracts: &[ExprContractDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, u32_count(contracts.len(), "EXPR count")?);
+    for entry in contracts {
+        let (owner_tag, owner_id) = match &entry.owner {
+            ScopedOwner::Family(id) => (0u8, id.as_str()),
+            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
+            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
+        };
+        out.push(owner_tag);
+        write_string(&mut out, "EXPR", owner_id)?;
+        write_u16(&mut out, entry.opcode_version);
+        write_u32(&mut out, entry.max_program_bytes);
+        write_u32(&mut out, entry.max_stack_depth);
+        write_u32(&mut out, entry.max_symbol_refs);
+        write_u32(&mut out, entry.max_eval_steps);
+        write_string(&mut out, "EXPR", &entry.diagnostics.invalid_opcode)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.stack_underflow)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.stack_depth_exceeded)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.unknown_symbol)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.eval_failure)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.unsupported_feature)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.budget_exceeded)?;
+        write_string(&mut out, "EXPR", &entry.diagnostics.invalid_program)?;
+    }
+    Ok(out)
+}
+
+fn decode_expr_chunk(bytes: &[u8]) -> Result<Vec<ExprContractDescriptor>, OpcpuCodecError> {
+    let mut cur = Decoder::new(bytes, "EXPR");
+    let count = cur.read_u32()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let owner_tag = cur.read_u8()?;
+        let owner_id = cur.read_string()?;
+        let owner = match owner_tag {
+            0 => ScopedOwner::Family(owner_id),
+            1 => ScopedOwner::Cpu(owner_id),
+            2 => ScopedOwner::Dialect(owner_id),
+            other => {
+                return Err(OpcpuCodecError::InvalidChunkFormat {
+                    chunk: "EXPR".to_string(),
+                    detail: format!("invalid owner tag: {}", other),
+                });
+            }
+        };
+        let opcode_version = cur.read_u16()?;
+        let max_program_bytes = cur.read_u32()?;
+        let max_stack_depth = cur.read_u32()?;
+        let max_symbol_refs = cur.read_u32()?;
+        let max_eval_steps = cur.read_u32()?;
+        let diagnostics = ExprDiagnosticMap {
+            invalid_opcode: cur.read_string()?,
+            stack_underflow: cur.read_string()?,
+            stack_depth_exceeded: cur.read_string()?,
+            unknown_symbol: cur.read_string()?,
+            eval_failure: cur.read_string()?,
+            unsupported_feature: cur.read_string()?,
+            budget_exceeded: cur.read_string()?,
+            invalid_program: cur.read_string()?,
+        };
+        entries.push(ExprContractDescriptor {
+            owner,
+            opcode_version,
+            max_program_bytes,
+            max_stack_depth,
+            max_symbol_refs,
+            max_eval_steps,
+            diagnostics,
+        });
+    }
+    cur.finish()?;
+    Ok(entries)
+}
+
 fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -2612,6 +2860,35 @@ mod tests {
         ]
     }
 
+    fn expr_contract_for_test(owner: ScopedOwner) -> ExprContractDescriptor {
+        ExprContractDescriptor {
+            owner,
+            opcode_version: EXPR_VM_OPCODE_VERSION_V1,
+            max_program_bytes: 2048,
+            max_stack_depth: 64,
+            max_symbol_refs: 128,
+            max_eval_steps: 2048,
+            diagnostics: ExprDiagnosticMap {
+                invalid_opcode: DIAG_EXPR_INVALID_OPCODE.to_string(),
+                stack_underflow: DIAG_EXPR_STACK_UNDERFLOW.to_string(),
+                stack_depth_exceeded: DIAG_EXPR_STACK_DEPTH_EXCEEDED.to_string(),
+                unknown_symbol: DIAG_EXPR_UNKNOWN_SYMBOL.to_string(),
+                eval_failure: DIAG_EXPR_EVAL_FAILURE.to_string(),
+                unsupported_feature: DIAG_EXPR_UNSUPPORTED_FEATURE.to_string(),
+                budget_exceeded: DIAG_EXPR_BUDGET_EXCEEDED.to_string(),
+                invalid_program: DIAG_EXPR_INVALID_PROGRAM.to_string(),
+            },
+        }
+    }
+
+    fn sample_expr_contracts() -> Vec<ExprContractDescriptor> {
+        vec![
+            expr_contract_for_test(ScopedOwner::Family("MOS6502".to_string())),
+            expr_contract_for_test(ScopedOwner::Family("mos6502".to_string())),
+            expr_contract_for_test(ScopedOwner::Cpu("z80".to_string())),
+        ]
+    }
+
     #[test]
     fn encode_decode_round_trip_is_deterministic() {
         let bytes = encode_hierarchy_chunks(
@@ -2709,6 +2986,7 @@ mod tests {
         assert!(decoded.token_policies.is_empty());
         assert!(decoded.parser_contracts.is_empty());
         assert!(decoded.parser_vm_programs.is_empty());
+        assert!(decoded.expr_contracts.is_empty());
 
         let family_snapshot: Vec<String> = decoded
             .families
@@ -2808,6 +3086,7 @@ mod tests {
             tokenizer_vm_programs: sample_tokenizer_vm_programs(),
             parser_contracts: sample_parser_contracts(),
             parser_vm_programs: sample_parser_vm_programs(),
+            expr_contracts: sample_expr_contracts(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -2838,6 +3117,7 @@ mod tests {
             tokenizer_vm_programs: sample_tokenizer_vm_programs(),
             parser_contracts: sample_parser_contracts(),
             parser_vm_programs: sample_parser_vm_programs(),
+            expr_contracts: sample_expr_contracts(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -2899,6 +3179,18 @@ mod tests {
         assert!(codes
             .iter()
             .any(|code| code == DIAG_PARSER_INVALID_STATEMENT));
+        assert!(codes.iter().any(|code| code == DIAG_EXPR_INVALID_OPCODE));
+        assert!(codes.iter().any(|code| code == DIAG_EXPR_STACK_UNDERFLOW));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_EXPR_STACK_DEPTH_EXCEEDED));
+        assert!(codes.iter().any(|code| code == DIAG_EXPR_UNKNOWN_SYMBOL));
+        assert!(codes.iter().any(|code| code == DIAG_EXPR_EVAL_FAILURE));
+        assert!(codes
+            .iter()
+            .any(|code| code == DIAG_EXPR_UNSUPPORTED_FEATURE));
+        assert!(codes.iter().any(|code| code == DIAG_EXPR_BUDGET_EXCEEDED));
+        assert!(codes.iter().any(|code| code == DIAG_EXPR_INVALID_PROGRAM));
     }
 
     #[test]
@@ -3001,6 +3293,7 @@ mod tests {
         assert!(decoded.token_policies.is_empty());
         assert!(decoded.parser_contracts.is_empty());
         assert!(decoded.parser_vm_programs.is_empty());
+        assert!(decoded.expr_contracts.is_empty());
     }
 
     #[test]
@@ -3013,6 +3306,7 @@ mod tests {
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: Vec::new(),
             parser_vm_programs: Vec::new(),
+            expr_contracts: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -3061,6 +3355,7 @@ mod tests {
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: sample_parser_contracts(),
             parser_vm_programs: Vec::new(),
+            expr_contracts: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -3111,6 +3406,7 @@ mod tests {
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: Vec::new(),
             parser_vm_programs: sample_parser_vm_programs(),
+            expr_contracts: Vec::new(),
             families: sample_families(),
             cpus: sample_cpus(),
             dialects: sample_dialects(),
@@ -3145,6 +3441,48 @@ mod tests {
         );
         assert!(matches!(
             &decoded.parser_vm_programs[1].owner,
+            ScopedOwner::Cpu(owner) if owner == "z80"
+        ));
+    }
+
+    #[test]
+    fn encode_decode_round_trip_preserves_expr_contracts() {
+        let chunks = HierarchyChunks {
+            metadata: PackageMetaDescriptor::default(),
+            strings: Vec::new(),
+            diagnostics: Vec::new(),
+            token_policies: Vec::new(),
+            tokenizer_vm_programs: Vec::new(),
+            parser_contracts: Vec::new(),
+            parser_vm_programs: Vec::new(),
+            expr_contracts: sample_expr_contracts(),
+            families: sample_families(),
+            cpus: sample_cpus(),
+            dialects: sample_dialects(),
+            registers: sample_registers(),
+            forms: sample_forms(),
+            tables: sample_tables(),
+            selectors: Vec::new(),
+        };
+        let bytes = encode_hierarchy_chunks_from_chunks(&chunks).expect("encode should succeed");
+        let decoded = decode_hierarchy_chunks(&bytes).expect("decode should succeed");
+
+        assert_eq!(decoded.expr_contracts.len(), 2);
+        assert!(matches!(
+            &decoded.expr_contracts[0].owner,
+            ScopedOwner::Family(owner) if owner == "mos6502"
+        ));
+        assert_eq!(
+            decoded.expr_contracts[0].opcode_version,
+            EXPR_VM_OPCODE_VERSION_V1
+        );
+        assert_eq!(decoded.expr_contracts[0].max_program_bytes, 2048);
+        assert_eq!(
+            decoded.expr_contracts[0].diagnostics.invalid_opcode,
+            "ope001"
+        );
+        assert!(matches!(
+            &decoded.expr_contracts[1].owner,
             ScopedOwner::Cpu(owner) if owner == "z80"
         ));
     }

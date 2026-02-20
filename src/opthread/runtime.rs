@@ -44,8 +44,8 @@ use crate::opthread::package::{
     ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenizerVmDiagnosticMap,
     TokenizerVmLimits, TokenizerVmOpcode, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
     DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
-    DIAG_OPTHREAD_MISSING_VM_PROGRAM, PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1,
-    PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
+    DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_VM_OPCODE_VERSION_V1, PARSER_AST_SCHEMA_ID_LINE_V1,
+    PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{execute_program, VmError};
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
@@ -170,6 +170,7 @@ type ModeSelectorKey = (u8, u32, u32, u32);
 type TokenPolicyKey = (u8, u32);
 type ParserContractKey = (u8, u32);
 type ParserVmProgramKey = (u8, u32);
+type ExprContractKey = (u8, u32);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeTokenizerVmProgram {
@@ -202,6 +203,28 @@ pub struct RuntimeParserContract {
 pub struct RuntimeParserVmProgram {
     pub opcode_version: u16,
     pub program: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RuntimeExprDiagnosticMap {
+    pub invalid_opcode: String,
+    pub stack_underflow: String,
+    pub stack_depth_exceeded: String,
+    pub unknown_symbol: String,
+    pub eval_failure: String,
+    pub unsupported_feature: String,
+    pub budget_exceeded: String,
+    pub invalid_program: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeExprContract {
+    pub opcode_version: u16,
+    pub max_program_bytes: u32,
+    pub max_stack_depth: u32,
+    pub max_symbol_refs: u32,
+    pub max_eval_steps: u32,
+    pub diagnostics: RuntimeExprDiagnosticMap,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1388,6 +1411,7 @@ pub struct HierarchyExecutionModel {
     tokenizer_vm_programs: HashMap<TokenPolicyKey, RuntimeTokenizerVmProgram>,
     parser_contracts: HashMap<ParserContractKey, RuntimeParserContract>,
     parser_vm_programs: HashMap<ParserVmProgramKey, RuntimeParserVmProgram>,
+    expr_contracts: HashMap<ExprContractKey, RuntimeExprContract>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
@@ -1416,6 +1440,7 @@ impl HierarchyExecutionModel {
             tokenizer_vm_programs,
             parser_contracts,
             parser_vm_programs,
+            expr_contracts,
             families,
             cpus,
             dialects,
@@ -1524,6 +1549,32 @@ impl HierarchyExecutionModel {
                 },
             );
         }
+        let mut scoped_expr_contracts: HashMap<ExprContractKey, RuntimeExprContract> =
+            HashMap::new();
+        for entry in expr_contracts {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            scoped_expr_contracts.insert(
+                (owner_tag, owner_id),
+                RuntimeExprContract {
+                    opcode_version: entry.opcode_version,
+                    max_program_bytes: entry.max_program_bytes,
+                    max_stack_depth: entry.max_stack_depth,
+                    max_symbol_refs: entry.max_symbol_refs,
+                    max_eval_steps: entry.max_eval_steps,
+                    diagnostics: RuntimeExprDiagnosticMap {
+                        invalid_opcode: entry.diagnostics.invalid_opcode,
+                        stack_underflow: entry.diagnostics.stack_underflow,
+                        stack_depth_exceeded: entry.diagnostics.stack_depth_exceeded,
+                        unknown_symbol: entry.diagnostics.unknown_symbol,
+                        eval_failure: entry.diagnostics.eval_failure,
+                        unsupported_feature: entry.diagnostics.unsupported_feature,
+                        budget_exceeded: entry.diagnostics.budget_exceeded,
+                        invalid_program: entry.diagnostics.invalid_program,
+                    },
+                },
+            );
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -1582,6 +1633,7 @@ impl HierarchyExecutionModel {
             tokenizer_vm_programs: scoped_tokenizer_vm_programs,
             parser_contracts: scoped_parser_contracts,
             parser_vm_programs: scoped_parser_vm_programs,
+            expr_contracts: scoped_expr_contracts,
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
@@ -1823,6 +1875,38 @@ impl HierarchyExecutionModel {
     ) -> Result<Option<RuntimeParserVmProgram>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
         Ok(self.parser_vm_program_for_resolved(&resolved))
+    }
+
+    pub fn resolve_expr_contract(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<RuntimeExprContract>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self.expr_contract_for_resolved(&resolved))
+    }
+
+    pub fn resolve_expr_budgets(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<PortableExprBudgets, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        let Some(contract) = self.expr_contract_for_resolved(&resolved) else {
+            return Ok(PortableExprBudgets::default());
+        };
+        if contract.opcode_version != EXPR_VM_OPCODE_VERSION_V1 {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "unsupported opThread expression contract opcode version {}",
+                contract.opcode_version
+            )));
+        }
+        Ok(PortableExprBudgets {
+            max_program_bytes: contract.max_program_bytes as usize,
+            max_stack_depth: contract.max_stack_depth as usize,
+            max_symbol_refs: contract.max_symbol_refs as usize,
+            max_eval_steps: contract.max_eval_steps as usize,
+        })
     }
 
     pub fn enforce_parser_vm_program_budget_for_assembler(
@@ -2169,6 +2253,29 @@ impl HierarchyExecutionModel {
             };
             if let Some(program) = self.parser_vm_programs.get(&(owner_tag, owner_id)) {
                 return Some(program.clone());
+            }
+        }
+        None
+    }
+
+    fn expr_contract_for_resolved(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> Option<RuntimeExprContract> {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, self.interned_id(dialect_id.as_str())),
+            (1u8, self.interned_id(cpu_id.as_str())),
+            (0u8, self.interned_id(family_id.as_str())),
+        ];
+        for (owner_tag, owner_id) in owner_order {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(contract) = self.expr_contracts.get(&(owner_tag, owner_id)) {
+                return Some(contract.clone());
             }
         }
         None
@@ -4642,10 +4749,14 @@ mod tests {
     };
     use crate::opthread::package::{
         default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
-        HierarchyChunks, ParserContractDescriptor, ParserDiagnosticMap, ParserVmOpcode,
-        ParserVmProgramDescriptor, TokenCaseRule, TokenPolicyDescriptor, TokenizerVmOpcode,
-        TokenizerVmProgramDescriptor, VmProgramDescriptor, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
-        PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
+        ExprContractDescriptor, ExprDiagnosticMap, HierarchyChunks, ParserContractDescriptor,
+        ParserDiagnosticMap, ParserVmOpcode, ParserVmProgramDescriptor, TokenCaseRule,
+        TokenPolicyDescriptor, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
+        VmProgramDescriptor, DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE,
+        DIAG_EXPR_INVALID_OPCODE, DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED,
+        DIAG_EXPR_STACK_UNDERFLOW, DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE,
+        DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_VM_OPCODE_VERSION_V1, PARSER_VM_OPCODE_VERSION_V1,
+        TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use crate::z80::module::Z80CpuModule;
@@ -4876,6 +4987,27 @@ mod tests {
         }
     }
 
+    fn expr_contract_for_test(owner: ScopedOwner) -> ExprContractDescriptor {
+        ExprContractDescriptor {
+            owner,
+            opcode_version: EXPR_VM_OPCODE_VERSION_V1,
+            max_program_bytes: 2048,
+            max_stack_depth: 64,
+            max_symbol_refs: 128,
+            max_eval_steps: 2048,
+            diagnostics: ExprDiagnosticMap {
+                invalid_opcode: DIAG_EXPR_INVALID_OPCODE.to_string(),
+                stack_underflow: DIAG_EXPR_STACK_UNDERFLOW.to_string(),
+                stack_depth_exceeded: DIAG_EXPR_STACK_DEPTH_EXCEEDED.to_string(),
+                unknown_symbol: DIAG_EXPR_UNKNOWN_SYMBOL.to_string(),
+                eval_failure: DIAG_EXPR_EVAL_FAILURE.to_string(),
+                unsupported_feature: DIAG_EXPR_UNSUPPORTED_FEATURE.to_string(),
+                budget_exceeded: DIAG_EXPR_BUDGET_EXCEEDED.to_string(),
+                invalid_program: DIAG_EXPR_INVALID_PROGRAM.to_string(),
+            },
+        }
+    }
+
     fn runtime_vm_program_for_test(
         program: Vec<u8>,
         limits: TokenizerVmLimits,
@@ -5015,6 +5147,7 @@ mod tests {
             tokenizer_vm_programs: Vec::new(),
             parser_contracts: Vec::new(),
             parser_vm_programs: Vec::new(),
+            expr_contracts: Vec::new(),
             families: vec![FamilyDescriptor {
                 id: "intel8080".to_string(),
                 canonical_dialect: "intel".to_string(),
@@ -5832,6 +5965,63 @@ mod tests {
         assert_eq!(contract.grammar_id, "opforge.line.v1");
         assert_eq!(contract.ast_schema_id, "opforge.ast.line.v1");
         assert_eq!(contract.opcode_version, 1);
+    }
+
+    #[test]
+    fn execution_model_expr_contract_resolution_prefers_dialect_then_cpu_then_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.expr_contracts.clear();
+        chunks
+            .expr_contracts
+            .push(expr_contract_for_test(ScopedOwner::Family(
+                "mos6502".to_string(),
+            )));
+        let mut cpu_contract = expr_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.max_program_bytes = 111;
+        chunks.expr_contracts.push(cpu_contract);
+        let mut dialect_contract =
+            expr_contract_for_test(ScopedOwner::Dialect("transparent".to_string()));
+        dialect_contract.max_program_bytes = 42;
+        chunks.expr_contracts.push(dialect_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let contract = model
+            .resolve_expr_contract("m6502", None)
+            .expect("expr contract resolution")
+            .expect("expr contract should resolve");
+        assert_eq!(contract.max_program_bytes, 42);
+        assert_eq!(contract.diagnostics.invalid_opcode, "ope001");
+    }
+
+    #[test]
+    fn execution_model_from_registry_exposes_default_family_expr_contract() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let contract = model
+            .resolve_expr_contract("m6502", None)
+            .expect("expr contract resolution")
+            .expect("expr contract should resolve");
+        assert_eq!(contract.opcode_version, EXPR_VM_OPCODE_VERSION_V1);
+        assert_eq!(contract.max_program_bytes, 2048);
+
+        let budgets = model
+            .resolve_expr_budgets("m6502", None)
+            .expect("expr budgets should resolve");
+        assert_eq!(budgets.max_program_bytes, 2048);
+        assert_eq!(budgets.max_stack_depth, 64);
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 //! Build opThread hierarchy chunks from the live opForge module registry.
 
+use crate::core::expr_vm::PortableExprBudgets;
 use crate::core::family::CpuHandler;
 use crate::core::registry::ModuleRegistry;
 use crate::families::intel8080::module::FAMILY_ID as INTEL8080_FAMILY_ID;
@@ -33,16 +34,19 @@ use crate::opthread::package::{
     canonicalize_parser_vm_programs, canonicalize_token_policies,
     canonicalize_tokenizer_vm_programs, default_runtime_diagnostic_catalog,
     default_token_policy_lexical_defaults, encode_hierarchy_chunks_from_chunks,
-    token_identifier_class, HierarchyChunks, ModeSelectorDescriptor, OpcpuCodecError,
-    ParserContractDescriptor, ParserDiagnosticMap, ParserVmOpcode, ParserVmProgramDescriptor,
-    TokenCaseRule, TokenPolicyDescriptor, TokenizerVmDiagnosticMap, TokenizerVmLimits,
-    TokenizerVmOpcode, TokenizerVmProgramDescriptor, VmProgramDescriptor,
+    token_identifier_class, ExprContractDescriptor, ExprDiagnosticMap, HierarchyChunks,
+    ModeSelectorDescriptor, OpcpuCodecError, ParserContractDescriptor, ParserDiagnosticMap,
+    ParserVmOpcode, ParserVmProgramDescriptor, TokenCaseRule, TokenPolicyDescriptor,
+    TokenizerVmDiagnosticMap, TokenizerVmLimits, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
+    VmProgramDescriptor, DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE,
+    DIAG_EXPR_INVALID_OPCODE, DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED,
+    DIAG_EXPR_STACK_UNDERFLOW, DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE,
     DIAG_PARSER_EXPECTED_EXPRESSION, DIAG_PARSER_EXPECTED_OPERAND, DIAG_PARSER_INVALID_STATEMENT,
     DIAG_PARSER_UNEXPECTED_TOKEN, DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED, DIAG_TOKENIZER_INVALID_CHAR,
     DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED, DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED,
     DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED, DIAG_TOKENIZER_UNTERMINATED_STRING,
-    PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1,
-    TOKENIZER_VM_OPCODE_VERSION_V1,
+    EXPR_VM_OPCODE_VERSION_V1, PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1,
+    PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
@@ -148,6 +152,17 @@ pub fn build_hierarchy_chunks_from_registry(
     let mut parser_vm_programs = family_ids
         .iter()
         .map(|family| default_family_parser_vm_program(family.as_str()))
+        .collect();
+    let expr_budget_defaults = PortableExprBudgets::default();
+    let expr_budget_defaults = (
+        expr_budget_defaults.max_program_bytes,
+        expr_budget_defaults.max_stack_depth,
+        expr_budget_defaults.max_symbol_refs,
+        expr_budget_defaults.max_eval_steps,
+    );
+    let mut expr_contracts = family_ids
+        .iter()
+        .map(|family| default_family_expr_contract(family.as_str(), expr_budget_defaults))
         .collect();
 
     let mut registers = Vec::new();
@@ -670,6 +685,7 @@ pub fn build_hierarchy_chunks_from_registry(
     canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
     canonicalize_parser_contracts(&mut parser_contracts);
     canonicalize_parser_vm_programs(&mut parser_vm_programs);
+    crate::opthread::package::canonicalize_expr_contracts(&mut expr_contracts);
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
@@ -682,6 +698,7 @@ pub fn build_hierarchy_chunks_from_registry(
         tokenizer_vm_programs,
         parser_contracts,
         parser_vm_programs,
+        expr_contracts,
         families,
         cpus,
         dialects,
@@ -690,6 +707,30 @@ pub fn build_hierarchy_chunks_from_registry(
         tables,
         selectors,
     })
+}
+
+fn default_family_expr_contract(
+    family_id: &str,
+    budget_defaults: (usize, usize, usize, usize),
+) -> ExprContractDescriptor {
+    ExprContractDescriptor {
+        owner: ScopedOwner::Family(family_id.to_string()),
+        opcode_version: EXPR_VM_OPCODE_VERSION_V1,
+        max_program_bytes: budget_defaults.0 as u32,
+        max_stack_depth: budget_defaults.1 as u32,
+        max_symbol_refs: budget_defaults.2 as u32,
+        max_eval_steps: budget_defaults.3 as u32,
+        diagnostics: ExprDiagnosticMap {
+            invalid_opcode: DIAG_EXPR_INVALID_OPCODE.to_string(),
+            stack_underflow: DIAG_EXPR_STACK_UNDERFLOW.to_string(),
+            stack_depth_exceeded: DIAG_EXPR_STACK_DEPTH_EXCEEDED.to_string(),
+            unknown_symbol: DIAG_EXPR_UNKNOWN_SYMBOL.to_string(),
+            eval_failure: DIAG_EXPR_EVAL_FAILURE.to_string(),
+            unsupported_feature: DIAG_EXPR_UNSUPPORTED_FEATURE.to_string(),
+            budget_exceeded: DIAG_EXPR_BUDGET_EXCEEDED.to_string(),
+            invalid_program: DIAG_EXPR_INVALID_PROGRAM.to_string(),
+        },
+    }
 }
 
 fn default_family_token_policy(family_id: &str) -> TokenPolicyDescriptor {
