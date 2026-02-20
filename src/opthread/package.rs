@@ -1163,36 +1163,19 @@ pub(crate) fn canonicalize_parser_vm_programs(
 
 pub(crate) fn canonicalize_expr_contracts(expr_contracts: &mut Vec<ExprContractDescriptor>) {
     for entry in expr_contracts.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
     }
     expr_contracts.sort_by(|left, right| {
-        let left_owner_kind = match left.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let right_owner_kind = match right.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let left_owner_id = match &left.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        let right_owner_id = match &right.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        left_owner_kind
-            .cmp(&right_owner_kind)
-            .then_with(|| left_owner_id.cmp(&right_owner_id))
+        left.owner
+            .owner_tag()
+            .cmp(&right.owner.owner_tag())
+            .then_with(|| {
+                left.owner
+                    .owner_id()
+                    .to_ascii_lowercase()
+                    .cmp(&right.owner.owner_id().to_ascii_lowercase())
+            })
             .then_with(|| left.opcode_version.cmp(&right.opcode_version))
             .then_with(|| left.max_program_bytes.cmp(&right.max_program_bytes))
             .then_with(|| left.max_stack_depth.cmp(&right.max_stack_depth))
@@ -1246,12 +1229,7 @@ pub(crate) fn canonicalize_expr_contracts(expr_contracts: &mut Vec<ExprContractD
             && left.max_symbol_refs == right.max_symbol_refs
             && left.max_eval_steps == right.max_eval_steps
             && left.diagnostics == right.diagnostics
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 
@@ -1259,11 +1237,8 @@ pub(crate) fn canonicalize_expr_parser_contracts(
     expr_parser_contracts: &mut Vec<ExprParserContractDescriptor>,
 ) {
     for entry in expr_parser_contracts.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.diagnostics.invalid_expression_program = entry
             .diagnostics
             .invalid_expression_program
@@ -1271,29 +1246,10 @@ pub(crate) fn canonicalize_expr_parser_contracts(
     }
 
     expr_parser_contracts.sort_by(|left, right| {
-        let left_owner_kind = match left.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let right_owner_kind = match right.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let left_owner_id = match &left.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.as_str()
-            }
-        };
-        let right_owner_id = match &right.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.as_str()
-            }
-        };
-        left_owner_kind
-            .cmp(&right_owner_kind)
-            .then_with(|| left_owner_id.cmp(right_owner_id))
+        left.owner
+            .owner_tag()
+            .cmp(&right.owner.owner_tag())
+            .then_with(|| left.owner.owner_id().cmp(right.owner.owner_id()))
             .then_with(|| left.opcode_version.cmp(&right.opcode_version))
             .then_with(|| {
                 left.diagnostics
@@ -1305,12 +1261,7 @@ pub(crate) fn canonicalize_expr_parser_contracts(
     expr_parser_contracts.dedup_by(|left, right| {
         left.opcode_version == right.opcode_version
             && left.diagnostics == right.diagnostics
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 
@@ -1715,17 +1666,37 @@ fn decode_diag_chunk(bytes: &[u8]) -> Result<Vec<DiagnosticDescriptor>, OpcpuCod
     Ok(entries)
 }
 
+fn encode_scoped_owner(
+    out: &mut Vec<u8>,
+    chunk: &str,
+    owner: &ScopedOwner,
+) -> Result<(), OpcpuCodecError> {
+    out.push(owner.owner_tag());
+    write_string(out, chunk, owner.owner_id())
+}
+
+fn decode_scoped_owner(
+    cur: &mut Decoder<'_>,
+    chunk: &'static str,
+) -> Result<ScopedOwner, OpcpuCodecError> {
+    let owner_tag = cur.read_u8()?;
+    let owner_id = cur.read_string()?;
+    match owner_tag {
+        0 => Ok(ScopedOwner::Family(owner_id)),
+        1 => Ok(ScopedOwner::Cpu(owner_id)),
+        2 => Ok(ScopedOwner::Dialect(owner_id)),
+        other => Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: chunk.to_string(),
+            detail: format!("invalid owner tag: {}", other),
+        }),
+    }
+}
+
 fn encode_toks_chunk(policies: &[TokenPolicyDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(policies.len(), "TOKS count")?);
     for entry in policies {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "TOKS", owner_id)?;
+        encode_scoped_owner(&mut out, "TOKS", &entry.owner)?;
         out.push(entry.case_rule as u8);
         write_u32(&mut out, entry.identifier_start_class);
         write_u32(&mut out, entry.identifier_continue_class);
@@ -1771,8 +1742,7 @@ fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCo
     let count = read_bounded_count(&mut cur, 1, "token policy entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
+        let owner = decode_scoped_owner(&mut cur, "TOKS")?;
         let case_rule = TokenCaseRule::from_u8(cur.read_u8()?, "TOKS")?;
         let identifier_start_class = cur.read_u32()?;
         let identifier_continue_class = cur.read_u32()?;
@@ -1818,17 +1788,6 @@ fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCo
                 multi_char_operators = operators;
             }
         }
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "TOKS".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
         entries.push(TokenPolicyDescriptor {
             owner,
             case_rule,
@@ -1958,13 +1917,7 @@ fn encode_regs_chunk(registers: &[ScopedRegisterDescriptor]) -> Result<Vec<u8>, 
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(registers.len(), "REGS count")?);
     for register in registers {
-        let (owner_tag, owner_id) = match &register.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "REGS", owner_id)?;
+        encode_scoped_owner(&mut out, "REGS", &register.owner)?;
         write_string(&mut out, "REGS", &register.id)?;
     }
     Ok(out)
@@ -1975,20 +1928,8 @@ fn decode_regs_chunk(bytes: &[u8]) -> Result<Vec<ScopedRegisterDescriptor>, Opcp
     let count = read_bounded_count(&mut cur, 1, "register entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
+        let owner = decode_scoped_owner(&mut cur, "REGS")?;
         let id = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "REGS".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
         entries.push(ScopedRegisterDescriptor { owner, id });
     }
     cur.finish()?;
@@ -1999,13 +1940,7 @@ fn encode_form_chunk(forms: &[ScopedFormDescriptor]) -> Result<Vec<u8>, OpcpuCod
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(forms.len(), "FORM count")?);
     for form in forms {
-        let (owner_tag, owner_id) = match &form.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "FORM", owner_id)?;
+        encode_scoped_owner(&mut out, "FORM", &form.owner)?;
         write_string(&mut out, "FORM", &form.mnemonic)?;
     }
     Ok(out)
@@ -2016,20 +1951,8 @@ fn decode_form_chunk(bytes: &[u8]) -> Result<Vec<ScopedFormDescriptor>, OpcpuCod
     let count = read_bounded_count(&mut cur, 1, "form entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
+        let owner = decode_scoped_owner(&mut cur, "FORM")?;
         let mnemonic = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "FORM".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
         entries.push(ScopedFormDescriptor { owner, mnemonic });
     }
     cur.finish()?;
@@ -2040,13 +1963,7 @@ fn encode_tabl_chunk(tables: &[VmProgramDescriptor]) -> Result<Vec<u8>, OpcpuCod
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(tables.len(), "TABL count")?);
     for entry in tables {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "TABL", owner_id)?;
+        encode_scoped_owner(&mut out, "TABL", &entry.owner)?;
         write_string(&mut out, "TABL", &entry.mnemonic)?;
         write_string(&mut out, "TABL", &entry.mode_key)?;
         write_u32(
@@ -2063,23 +1980,11 @@ fn decode_tabl_chunk(bytes: &[u8]) -> Result<Vec<VmProgramDescriptor>, OpcpuCode
     let count = read_bounded_count(&mut cur, 1, "table entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
+        let owner = decode_scoped_owner(&mut cur, "TABL")?;
         let mnemonic = cur.read_string()?;
         let mode_key = cur.read_string()?;
         let byte_count = cur.read_u32()? as usize;
         let program = cur.read_exact(byte_count, "program bytes")?.to_vec();
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "TABL".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
         entries.push(VmProgramDescriptor {
             owner,
             mnemonic,
@@ -2095,13 +2000,7 @@ fn encode_msel_chunk(selectors: &[ModeSelectorDescriptor]) -> Result<Vec<u8>, Op
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(selectors.len(), "MSEL count")?);
     for entry in selectors {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "MSEL", owner_id)?;
+        encode_scoped_owner(&mut out, "MSEL", &entry.owner)?;
         write_string(&mut out, "MSEL", &entry.mnemonic)?;
         write_string(&mut out, "MSEL", &entry.shape_key)?;
         write_string(&mut out, "MSEL", &entry.mode_key)?;
@@ -2118,8 +2017,7 @@ fn decode_msel_chunk(bytes: &[u8]) -> Result<Vec<ModeSelectorDescriptor>, OpcpuC
     let count = read_bounded_count(&mut cur, 1, "mode selector entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
+        let owner = decode_scoped_owner(&mut cur, "MSEL")?;
         let mnemonic = cur.read_string()?;
         let shape_key = cur.read_string()?;
         let mode_key = cur.read_string()?;
@@ -2137,17 +2035,6 @@ fn decode_msel_chunk(bytes: &[u8]) -> Result<Vec<ModeSelectorDescriptor>, OpcpuC
             }
         };
         let width_rank = cur.read_u8()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "MSEL".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
         entries.push(ModeSelectorDescriptor {
             owner,
             mnemonic,
@@ -2169,13 +2056,7 @@ fn encode_tkvm_chunk(
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(programs.len(), "TKVM count")?);
     for entry in programs {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "TKVM", owner_id)?;
+        encode_scoped_owner(&mut out, "TKVM", &entry.owner)?;
         write_u16(&mut out, entry.opcode_version);
         write_u16(&mut out, entry.start_state);
         write_u32(
@@ -2212,19 +2093,7 @@ fn decode_tkvm_chunk(bytes: &[u8]) -> Result<Vec<TokenizerVmProgramDescriptor>, 
     let count = read_bounded_count(&mut cur, 1, "tokenizer VM entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "TKVM".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
+        let owner = decode_scoped_owner(&mut cur, "TKVM")?;
         let opcode_version = cur.read_u16()?;
         let start_state = cur.read_u16()?;
         let state_count = read_bounded_count(&mut cur, 4, "state-entry offset")?;
@@ -2268,13 +2137,7 @@ fn encode_pars_chunk(contracts: &[ParserContractDescriptor]) -> Result<Vec<u8>, 
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(contracts.len(), "PARS count")?);
     for entry in contracts {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "PARS", owner_id)?;
+        encode_scoped_owner(&mut out, "PARS", &entry.owner)?;
         write_string(&mut out, "PARS", &entry.grammar_id)?;
         write_string(&mut out, "PARS", &entry.ast_schema_id)?;
         write_u16(&mut out, entry.opcode_version);
@@ -2292,19 +2155,7 @@ fn decode_pars_chunk(bytes: &[u8]) -> Result<Vec<ParserContractDescriptor>, Opcp
     let count = read_bounded_count(&mut cur, 1, "parser contract entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "PARS".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
+        let owner = decode_scoped_owner(&mut cur, "PARS")?;
         let grammar_id = cur.read_string()?;
         let ast_schema_id = cur.read_string()?;
         let opcode_version = cur.read_u16()?;
@@ -2332,13 +2183,7 @@ fn encode_prvm_chunk(programs: &[ParserVmProgramDescriptor]) -> Result<Vec<u8>, 
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(programs.len(), "PRVM count")?);
     for entry in programs {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "PRVM", owner_id)?;
+        encode_scoped_owner(&mut out, "PRVM", &entry.owner)?;
         write_u16(&mut out, entry.opcode_version);
         write_u32(
             &mut out,
@@ -2354,19 +2199,7 @@ fn decode_prvm_chunk(bytes: &[u8]) -> Result<Vec<ParserVmProgramDescriptor>, Opc
     let count = read_bounded_count(&mut cur, 1, "parser VM entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "PRVM".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
+        let owner = decode_scoped_owner(&mut cur, "PRVM")?;
         let opcode_version = cur.read_u16()?;
         let program_len = cur.read_u32()? as usize;
         let program = cur.read_exact(program_len, "parser vm program")?.to_vec();
@@ -2384,13 +2217,7 @@ fn encode_expr_chunk(contracts: &[ExprContractDescriptor]) -> Result<Vec<u8>, Op
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(contracts.len(), "EXPR count")?);
     for entry in contracts {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "EXPR", owner_id)?;
+        encode_scoped_owner(&mut out, "EXPR", &entry.owner)?;
         write_u16(&mut out, entry.opcode_version);
         write_u32(&mut out, entry.max_program_bytes);
         write_u32(&mut out, entry.max_stack_depth);
@@ -2413,19 +2240,7 @@ fn decode_expr_chunk(bytes: &[u8]) -> Result<Vec<ExprContractDescriptor>, OpcpuC
     let count = read_bounded_count(&mut cur, 1, "expression contract entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "EXPR".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
+        let owner = decode_scoped_owner(&mut cur, "EXPR")?;
         let opcode_version = cur.read_u16()?;
         let max_program_bytes = cur.read_u32()?;
         let max_stack_depth = cur.read_u32()?;
@@ -2464,13 +2279,7 @@ fn encode_expp_chunk(
     let mut out = Vec::new();
     write_u32(&mut out, u32_count(contracts.len(), "EXPP count")?);
     for entry in contracts {
-        let (owner_tag, owner_id) = match &entry.owner {
-            ScopedOwner::Family(id) => (0u8, id.as_str()),
-            ScopedOwner::Cpu(id) => (1u8, id.as_str()),
-            ScopedOwner::Dialect(id) => (2u8, id.as_str()),
-        };
-        out.push(owner_tag);
-        write_string(&mut out, "EXPP", owner_id)?;
+        encode_scoped_owner(&mut out, "EXPP", &entry.owner)?;
         write_u16(&mut out, entry.opcode_version);
         write_string(
             &mut out,
@@ -2486,19 +2295,7 @@ fn decode_expp_chunk(bytes: &[u8]) -> Result<Vec<ExprParserContractDescriptor>, 
     let count = read_bounded_count(&mut cur, 1, "expression parser contract entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let owner_tag = cur.read_u8()?;
-        let owner_id = cur.read_string()?;
-        let owner = match owner_tag {
-            0 => ScopedOwner::Family(owner_id),
-            1 => ScopedOwner::Cpu(owner_id),
-            2 => ScopedOwner::Dialect(owner_id),
-            other => {
-                return Err(OpcpuCodecError::InvalidChunkFormat {
-                    chunk: "EXPP".to_string(),
-                    detail: format!("invalid owner tag: {}", other),
-                });
-            }
-        };
+        let owner = decode_scoped_owner(&mut cur, "EXPP")?;
         let opcode_version = cur.read_u16()?;
         let diagnostics = ExprParserDiagnosticMap {
             invalid_expression_program: cur.read_string()?,
