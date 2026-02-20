@@ -6883,6 +6883,83 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_compile_expression_program_parser_vm_opt_in_matches_host_semantics_corpus() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let corpus = [
+            "1+2*3",
+            "$+1",
+            "1 ? $2A : $55",
+            "(<$1234) + (>$1234)",
+            "target-1",
+            "((1 << 3) | 2) & $ff",
+        ];
+
+        let mut ctx = TestAssemblerContext::new();
+        ctx.addr = 0x2000;
+        ctx.values.insert("target".to_string(), 7);
+
+        for (index, expr) in corpus.iter().enumerate() {
+            let line_num = (index as u32).saturating_add(1);
+            let (host_tokens, host_end_span) = tokenize_core_expr_tokens(expr, line_num);
+            let (opt_in_tokens, opt_in_end_span) = tokenize_core_expr_tokens(expr, line_num);
+
+            let host_program = model
+                .compile_expression_program_for_assembler(
+                    "m6502",
+                    None,
+                    host_tokens,
+                    host_end_span,
+                    None,
+                )
+                .expect("host compile should succeed");
+            let opt_in_program = model
+                .compile_expression_program_with_parser_vm_opt_in_for_assembler(
+                    "m6502",
+                    None,
+                    opt_in_tokens,
+                    opt_in_end_span,
+                    None,
+                    Some(EXPR_PARSER_VM_OPCODE_VERSION_V1),
+                )
+                .expect("opt-in compile should succeed");
+
+            assert_eq!(
+                opt_in_program, host_program,
+                "program mismatch for expression {expr:?}"
+            );
+
+            let host_eval = model
+                .evaluate_portable_expression_program_with_contract_for_assembler(
+                    "m6502",
+                    None,
+                    &host_program,
+                    &ctx,
+                )
+                .expect("host eval should succeed");
+            let opt_in_eval = model
+                .evaluate_portable_expression_program_with_contract_for_assembler(
+                    "m6502",
+                    None,
+                    &opt_in_program,
+                    &ctx,
+                )
+                .expect("opt-in eval should succeed");
+
+            assert_eq!(
+                opt_in_eval, host_eval,
+                "evaluation mismatch for expression {expr:?}"
+            );
+        }
+    }
+
+    #[test]
     fn execution_model_compile_expression_program_parser_vm_opt_in_rejects_unknown_opcode_version()
     {
         let mut registry = ModuleRegistry::new();
