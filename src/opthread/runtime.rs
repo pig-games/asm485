@@ -2393,6 +2393,14 @@ impl HierarchyExecutionModel {
             .unwrap_or(false)
     }
 
+    pub fn defer_native_diagnostics_on_expr_none(&self, family_id: &str) -> bool {
+        family_id.eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str())
+    }
+
+    pub fn selector_gate_only_expr_runtime_for_cpu(&self, cpu_id: &str) -> bool {
+        cpu_id.eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str())
+    }
+
     /// Registers or replaces an expr parse/resolve adapter for a family id.
     ///
     /// This is the extension seam used to onboard non-MOS family adapters without

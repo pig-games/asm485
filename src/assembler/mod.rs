@@ -2036,12 +2036,8 @@ impl<'a> AsmLine<'a> {
     }
 
     fn opthread_runtime_expr_operands_from_mapped(
-        family_id: &str,
         mapped_operands: &dyn crate::core::registry::FamilyOperandSet,
     ) -> Option<Vec<Expr>> {
-        if !family_id.eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str()) {
-            return None;
-        }
         let intel_operands = mapped_operands
             .as_any()
             .downcast_ref::<Intel8080FamilyOperands>()?;
@@ -3488,16 +3484,11 @@ impl<'a> AsmLine<'a> {
                     && !runtime_expr_force_host;
                 let runtime_expr_vm_path_enabled = runtime_expr_bytes_authoritative;
                 let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
-                    && self
-                        .cpu
-                        .as_str()
-                        .eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str());
+                    && model
+                        .selector_gate_only_expr_runtime_for_cpu(self.cpu.as_str());
                 if runtime_expr_vm_path_enabled {
                     let runtime_expr_operands_storage =
-                        Self::opthread_runtime_expr_operands_from_mapped(
-                            pipeline.family_id.as_str(),
-                            mapped_operands.as_ref(),
-                        );
+                        Self::opthread_runtime_expr_operands_from_mapped(mapped_operands.as_ref());
                     let runtime_expr_operands =
                         runtime_expr_operands_storage.as_deref().unwrap_or(operands);
                     match model.encode_instruction_from_exprs(
@@ -3558,10 +3549,8 @@ impl<'a> AsmLine<'a> {
                             }
                         }
                         Ok(None) => {
-                            let defer_to_native_diagnostics =
-                                pipeline.family_id.as_str().eq_ignore_ascii_case(
-                                    crate::families::intel8080::module::FAMILY_ID.as_str(),
-                                );
+                            let defer_to_native_diagnostics = model
+                                .defer_native_diagnostics_on_expr_none(pipeline.family_id.as_str());
                             if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
                                 return self.failure(
                                     LineStatus::Error,
