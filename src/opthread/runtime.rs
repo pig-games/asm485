@@ -3071,6 +3071,18 @@ impl<'a> SelectorExprContext<'a> {
         trimmed == "ope004" || trimmed.starts_with("ope004:")
     }
 
+    /// Compatibility fallback allowlist for selector expression resolution.
+    ///
+    /// Host-eval fallback is intentionally restricted to the unresolved-symbol
+    /// diagnostic (`ope004`) so legacy pass-sensitive sizing/selection behavior
+    /// remains stable while expression VM rollout completes.
+    ///
+    /// Any other VM evaluation error must remain a hard runtime error and must
+    /// not silently fall back to host evaluation.
+    fn allows_host_eval_compat_fallback(message: &str) -> bool {
+        Self::is_unknown_symbol_error(message)
+    }
+
     fn new(
         model: &'a HierarchyExecutionModel,
         resolved: &'a ResolvedHierarchy,
@@ -3104,7 +3116,7 @@ impl<'a> SelectorExprContext<'a> {
             Ok(evaluation) => Ok(evaluation.value),
             Err(err) => {
                 let message = err.to_string();
-                if Self::is_unknown_symbol_error(message.as_str()) {
+                if Self::allows_host_eval_compat_fallback(message.as_str()) {
                     return self.assembler_ctx.eval_expr(expr);
                 }
                 Err(message)
@@ -3128,7 +3140,7 @@ impl<'a> SelectorExprContext<'a> {
             Ok(value) => Ok(value),
             Err(err) => {
                 let message = err.to_string();
-                if Self::is_unknown_symbol_error(message.as_str()) {
+                if Self::allows_host_eval_compat_fallback(message.as_str()) {
                     return Ok(expr_has_unstable_symbols(expr, self.assembler_ctx));
                 }
                 Err(message)
