@@ -347,11 +347,58 @@ The match expression is evaluated once; the first matching `.case` wins, and
 
 ### 4.6 Scopes
 
-Scopes are introduced by `.block`/`.namespace` and closed by matching scope
-closers:
+Scopes provide symbol namespacing and are introduced by `.block` or `.namespace`.
+Both create hierarchical namespaces where symbols are qualified by their
+enclosing scope names, but they differ in naming requirements.
 
-- `.block` -> `.endblock` (or `.bend` alias)
-- `.namespace <name>` -> `.endn` or `.endnamespace`
+#### `.block` — Named or anonymous scopes
+
+`.block` creates a scope that can be either named (via a label) or anonymous:
+
+```
+; Named block (label becomes the scope name)
+OUTER .block
+VAL   .const 5
+.endblock
+
+; Anonymous block (internal name like __scope1)
+      .block
+LOCAL .const 3
+      .endblock
+```
+
+Closed with `.endblock` or `.bend` (alias).
+
+Use `.block` when you want local symbols that don't pollute the outer namespace,
+or when you need a named container for organizing related symbols.
+
+#### `.namespace` — Always-named scopes
+
+`.namespace` creates a named scope and always requires a name, specified either
+as an operand or via a label:
+
+```
+; Name as operand
+        .namespace outer
+        .namespace inner
+VAL     .const 9
+        .endn           ; or .endnamespace
+        .endnamespace
+
+; Name via label
+utils   .namespace
+helper  .const 1
+        .endn
+```
+
+Closed with `.endn` or `.endnamespace`.
+
+Use `.namespace` when you specifically want to organize symbols into a named
+hierarchy, similar to namespaces in other languages.
+
+#### Nesting and qualified access
+
+Both `.block` and `.namespace` can be nested and mixed:
 
 ```
 OUTER .block
@@ -360,10 +407,46 @@ VAL   .const 5
 .endblock
 .endblock
 
-.word OUTER.INNER.VAL
+        .word OUTER.INNER.VAL   ; qualified access from outside
 ```
 
-Symbol lookup searches the current scope first, then parent scopes, then global.
+#### Symbol resolution
+
+Symbol lookup searches in this order:
+1. Current scope
+2. Parent scopes (innermost to outermost)
+3. Global scope
+
+Inner scope symbols shadow outer symbols with the same name:
+
+```
+VAL    .const 1         ; global
+
+SCOPE  .block
+VAL    .const 2         ; shadows global VAL
+       .word VAL        ; resolves to 2 (SCOPE.VAL)
+       .endblock
+
+       .word VAL        ; resolves to 1 (global)
+       .word SCOPE.VAL  ; explicitly access inner (2)
+```
+
+#### Scope type matching
+
+Scope closers must match their openers:
+- `.endblock`/`.bend` must close a `.block`
+- `.endn`/`.endnamespace` must close a `.namespace`
+
+Mismatched closers produce an error:
+
+```
+SCOPE .block
+      .endnamespace     ; ERROR: opened by .block
+```
+
+Examples in the repo:
+- [examples/scopes.asm](../examples/scopes.asm)
+- [examples/scopes_namespace.asm](../examples/scopes_namespace.asm)
 
 ### 4.7 Target CPU
 
