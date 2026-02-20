@@ -1431,6 +1431,11 @@ impl PortableExprEvalContext for RuntimePortableExprEvalContext<'_> {
     fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
         self.assembler_ctx.symbol_is_finalized(name)
     }
+
+    fn eval_string_literal(&self, bytes: &[u8]) -> Result<i64, String> {
+        self.assembler_ctx
+            .eval_expr(&Expr::String(bytes.to_vec(), Span::default()))
+    }
 }
 
 /// Runtime view with resolved hierarchy bridge and scoped FORM ownership sets.

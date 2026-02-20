@@ -13,35 +13,23 @@ ADDR    BYTES                    LINE  SOURCE
 0002    0A                         10      .byte %1010
 0003    FF                         11      .byte 0ffh
 0004    05                         12      .byte $05
-----                               13      .byte 'b'
-   13 |     .byte [31m'[0mb'
-ERROR: ope006: string expression is not supported by portable expression VM
-----                               14      .byte 'd', 0
-   14 |     .byte [31m'[0md', 0
-ERROR: ope006: string expression is not supported by portable expression VM
-----                               15      .byte 'd', 2
-   15 |     .byte [31m'[0md', 2
-ERROR: ope006: string expression is not supported by portable expression VM
-----                               16      .byte 'l'
-   16 |     .byte [31m'[0ml'
-ERROR: ope006: string expression is not supported by portable expression VM
-----                               17      .byte 'd', 0
-   17 |     .byte [31m'[0md', 0
-ERROR: ope006: string expression is not supported by portable expression VM
-----                               18      .byte 'd', 2
-   18 |     .byte [31m'[0md', 2
-ERROR: ope006: string expression is not supported by portable expression VM
+0005    62                         13      .byte 'b'
+0006    64 00                      14      .byte 'd', 0
+0008    64 02                      15      .byte 'd', 2
+000A    6C                         16      .byte 'l'
+000B    64 00                      17      .byte 'd', 0
+000D    64 02                      18      .byte 'd', 2
 
-Lines: 18  Errors: 6  Warnings: 0
+Lines: 18  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 0000 (0)
 
-Total memory is 5 bytes
+Total memory is 15 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-0000    07 FF 0A FF 05
+0000    07 FF 0A FF 05 62 64 00 64 02 6C 64 00 64 02

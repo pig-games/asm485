@@ -19,6 +19,7 @@ pub const EXPR_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 /// - `0x04`: `ApplyUnary`
 /// - `0x05`: `ApplyBinary`
 /// - `0x06`: `SelectTernary`
+/// - `0x07`: `PushStringLiteral`
 ///
 /// Compatibility matrix:
 /// - Runtime evaluator supports: `v1`.
@@ -34,6 +35,7 @@ pub enum ExprVmOpcode {
     ApplyUnary = 0x04,
     ApplyBinary = 0x05,
     SelectTernary = 0x06,
+    PushStringLiteral = 0x07,
 }
 
 impl ExprVmOpcode {
@@ -46,6 +48,7 @@ impl ExprVmOpcode {
             0x04 => Some(Self::ApplyUnary),
             0x05 => Some(Self::ApplyBinary),
             0x06 => Some(Self::SelectTernary),
+            0x07 => Some(Self::PushStringLiteral),
             _ => None,
         }
     }
@@ -238,6 +241,10 @@ pub trait PortableExprEvalContext {
     fn current_address(&self) -> Option<i64>;
     fn pass(&self) -> u8;
     fn symbol_is_finalized(&self, name: &str) -> Option<bool>;
+
+    fn eval_string_literal(&self, _bytes: &[u8]) -> Result<i64, String> {
+        Err("string expression is not supported by portable expression VM context".to_string())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -372,6 +379,15 @@ pub fn eval_portable_expr_program(
                 stack.push(value);
                 enforce_stack_budget(&stack, budgets)?;
             }
+            ExprVmOpcode::PushStringLiteral => {
+                let len = read_u16_le(&program.code, &mut ip)? as usize;
+                let bytes = read_bytes(&program.code, &mut ip, len)?;
+                let value = ctx
+                    .eval_string_literal(bytes)
+                    .map_err(|message| PortableExprError::new(DIAG_EXPR_EVAL_FAILURE, message))?;
+                stack.push(value);
+                enforce_stack_budget(&stack, budgets)?;
+            }
             ExprVmOpcode::ApplyUnary => {
                 let unary =
                     ExprVmUnary::from_u8(read_u8(&program.code, &mut ip)?).ok_or_else(|| {
@@ -453,6 +469,10 @@ pub fn expr_program_has_unstable_symbols(
                 {
                     return Ok(true);
                 }
+            }
+            ExprVmOpcode::PushStringLiteral => {
+                let len = read_u16_le(&program.code, &mut ip)? as usize;
+                read_bytes(&program.code, &mut ip, len)?;
             }
             ExprVmOpcode::ApplyUnary => {
                 read_u8(&program.code, &mut ip)?;
@@ -582,6 +602,22 @@ fn read_i64_le(code: &[u8], ip: &mut usize) -> Result<i64, PortableExprError> {
     Ok(i64::from_le_bytes(bytes))
 }
 
+fn read_bytes<'a>(
+    code: &'a [u8],
+    ip: &mut usize,
+    len: usize,
+) -> Result<&'a [u8], PortableExprError> {
+    if code.len().saturating_sub(*ip) < len {
+        return Err(PortableExprError::new(
+            DIAG_EXPR_INVALID_PROGRAM,
+            "unexpected end of expression VM program (bytes)",
+        ));
+    }
+    let start = *ip;
+    *ip += len;
+    Ok(&code[start..start + len])
+}
+
 #[derive(Default)]
 struct ExprCompiler {
     code: Vec<u8>,
@@ -660,11 +696,19 @@ impl ExprCompiler {
                 "tuple expression is not supported by portable expression VM",
                 *span,
             )),
-            Expr::String(_, span) => Err(PortableExprError::with_span(
-                DIAG_EXPR_UNSUPPORTED_FEATURE,
-                "string expression is not supported by portable expression VM",
-                *span,
-            )),
+            Expr::String(bytes, _) => {
+                let len = u16::try_from(bytes.len()).map_err(|_| {
+                    PortableExprError::new(
+                        DIAG_EXPR_BUDGET_EXCEEDED,
+                        "string expression literal exceeds u16 VM payload capacity",
+                    )
+                })?;
+                self.emit_u8(ExprVmOpcode::PushStringLiteral as u8);
+                self.emit_u16(len);
+                self.emit_bytes(bytes);
+                self.stack_push();
+                Ok(())
+            }
             Expr::Error(message, span) => Err(PortableExprError::with_span(
                 DIAG_EXPR_UNSUPPORTED_FEATURE,
                 message.clone(),
@@ -717,6 +761,10 @@ impl ExprCompiler {
     fn emit_i64(&mut self, value: i64) {
         self.code.extend_from_slice(&value.to_le_bytes());
     }
+
+    fn emit_bytes(&mut self, bytes: &[u8]) {
+        self.code.extend_from_slice(bytes);
+    }
 }
 
 #[cfg(test)]
@@ -746,6 +794,14 @@ mod tests {
 
         fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
             self.finalized.get(name).copied()
+        }
+
+        fn eval_string_literal(&self, bytes: &[u8]) -> Result<i64, String> {
+            match bytes {
+                [single] => Ok(*single as i64),
+                [hi, lo] => Ok(((*hi as i64) << 8) | (*lo as i64)),
+                _ => Err("Multi-character string not allowed in expression.".to_string()),
+            }
         }
     }
 
@@ -965,5 +1021,34 @@ mod tests {
         assert_eq!(indirect_program.symbols, direct_program.symbols);
         assert_eq!(indirect_long_program.code, direct_program.code);
         assert_eq!(indirect_long_program.symbols, direct_program.symbols);
+    }
+
+    #[test]
+    fn string_literal_opcode_evaluates_via_context() {
+        let expr = Expr::String(vec![0x41], span());
+        let program = compile_core_expr_to_portable_program(&expr).expect("compile string");
+
+        let result = eval_portable_expr_program(
+            &program,
+            &TestCtx::default(),
+            PortableExprBudgets::default(),
+        )
+        .expect("eval string literal");
+
+        assert_eq!(result.value, 0x41);
+    }
+
+    #[test]
+    fn hex_suffix_literal_with_0b_prefix_chars_compiles() {
+        let expr = Expr::Number("0B8H".to_string(), span());
+        let program = compile_core_expr_to_portable_program(&expr).expect("compile literal");
+        let result = eval_portable_expr_program(
+            &program,
+            &TestCtx::default(),
+            PortableExprBudgets::default(),
+        )
+        .expect("eval literal");
+
+        assert_eq!(result.value, 0x0B8);
     }
 }

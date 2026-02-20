@@ -243,8 +243,6 @@ pub fn parse_number(text: &str) -> Option<i64> {
     // like $BB or %0101.
     let val = if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
         i64::from_str_radix(hex, 16).ok()?
-    } else if let Some(bin) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
-        i64::from_str_radix(bin, 2).ok()?
     } else if let Some(oct) = text.strip_prefix("0o").or_else(|| text.strip_prefix("0O")) {
         i64::from_str_radix(oct, 8).ok()?
     } else if let Some(bin) = text.strip_prefix('%') {
@@ -253,6 +251,15 @@ pub fn parse_number(text: &str) -> Option<i64> {
         i64::from_str_radix(hex, 16).ok()?
     } else if text.ends_with('h') || text.ends_with('H') {
         i64::from_str_radix(&text[..text.len() - 1], 16).ok()?
+    } else if let Some(bin) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
+        // Keep `0b`/`0B` as binary-prefix notation, but only when the suffix is
+        // a valid binary payload. This prevents values like `0B8H` from being
+        // misclassified as binary and allows the hex-suffix path above to apply.
+        if !bin.is_empty() && bin.chars().all(|c| c == '0' || c == '1') {
+            i64::from_str_radix(bin, 2).ok()?
+        } else {
+            return None;
+        }
     } else if text.ends_with('b') || text.ends_with('B') {
         // Could be binary or hex digit - check if all chars are 0/1
         let inner = &text[..text.len() - 1];
@@ -377,6 +384,7 @@ mod tests {
         assert_eq!(parse_number("$2A"), Some(42));
         assert_eq!(parse_number("2Ah"), Some(42));
         assert_eq!(parse_number("2AH"), Some(42));
+        assert_eq!(parse_number("0B8H"), Some(0x0B8));
     }
 
     #[test]

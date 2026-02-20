@@ -1696,7 +1696,7 @@ fn ptext_rejects_encoded_strings_over_255_bytes() {
 }
 
 #[test]
-fn string_expressions_are_rejected_by_portable_vm() {
+fn string_expressions_are_supported_by_portable_vm() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -1705,12 +1705,8 @@ fn string_expressions_are_rejected_by_portable_vm() {
     assert_eq!(status, LineStatus::Ok);
 
     let status = process_line(&mut asm, "VAL .const 'a'", 0, 1);
-    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
-    assert_eq!(status, LineStatus::Error);
-    assert!(
-        message.to_ascii_lowercase().contains("ope006"),
-        "expected portable VM unsupported-string diagnostic, got: {message}"
-    );
+    assert_eq!(status, LineStatus::DirEqu);
+    assert_eq!(asm.symbols().lookup("VAL"), Some(0x41));
 }
 
 #[test]
@@ -6220,6 +6216,17 @@ fn expression_literals_and_prefixes() {
         asm.bytes(),
         &[0x1f, 0x00, 0x0a, 0x00, 0xe8, 0x03, 0x0f, 0x00, 0x0f, 0x00]
     );
+}
+
+#[test]
+fn instruction_immediate_accepts_0b8h_literal() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let status = process_line(&mut asm, "    LDA #0B8H", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xA9, 0xB8]);
 }
 
 #[test]

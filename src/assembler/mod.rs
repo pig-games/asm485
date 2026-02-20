@@ -4633,6 +4633,13 @@ impl<'a> AssemblerContext for AsmLine<'a> {
                 .map_err(|e| e.error.message().to_string());
         }
 
+        if matches!(expr, Expr::String(_, _)) {
+            return self
+                .eval_expr_ast(expr)
+                .map(|v| v as i64)
+                .map_err(|e| e.error.message().to_string());
+        }
+
         if let Some(model) = self.opthread_execution_model.as_ref() {
             if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
                 if crate::opthread::rollout::package_runtime_default_enabled_for_family(
