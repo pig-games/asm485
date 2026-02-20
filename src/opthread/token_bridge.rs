@@ -682,53 +682,19 @@ fn parse_instruction_at(
 
     let mut operands: Vec<Expr> = Vec::new();
     if idx < tokens.len() {
-        let mut depth_paren = 0i32;
-        let mut depth_bracket = 0i32;
-        let mut depth_brace = 0i32;
-        let mut start = idx;
-        let mut cursor = idx;
-        while cursor < tokens.len() {
-            let token = &tokens[cursor];
-            match token.kind {
-                TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
-                TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
-                TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
-                TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
-                TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
-                TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
-                _ => {}
-            }
-            if matches!(token.kind, TokenKind::Comma)
-                && depth_paren == 0
-                && depth_bracket == 0
-                && depth_brace == 0
-            {
-                parse_operand_expr_range(
-                    tokens,
-                    start,
-                    cursor,
-                    end_span,
-                    end_token_text.clone(),
-                    expr_parse_ctx,
-                    &mut operands,
-                )?;
-                if matches!(operands.last(), Some(Expr::Error(_, _))) {
-                    break;
-                }
-                start = cursor.saturating_add(1);
-            }
-            cursor = cursor.saturating_add(1);
-        }
-        if !matches!(operands.last(), Some(Expr::Error(_, _))) {
+        for (start, end) in split_top_level_comma_ranges(tokens, idx, tokens.len()) {
             parse_operand_expr_range(
                 tokens,
                 start,
-                tokens.len(),
+                end,
                 end_span,
-                end_token_text,
+                end_token_text.clone(),
                 expr_parse_ctx,
                 &mut operands,
             )?;
+            if matches!(operands.last(), Some(Expr::Error(_, _))) {
+                break;
+            }
         }
     }
 
@@ -848,52 +814,19 @@ fn parse_dot_directive_line_from_tokens(
         let mut exprs: Vec<Expr> = Vec::new();
         if needs_expr {
             if list_exprs {
-                let mut start = cursor;
-                let mut depth_paren = 0i32;
-                let mut depth_bracket = 0i32;
-                let mut depth_brace = 0i32;
-                while cursor < tokens.len() {
-                    let token = &tokens[cursor];
-                    match token.kind {
-                        TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
-                        TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
-                        TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
-                        TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
-                        TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
-                        TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
-                        _ => {}
-                    }
-                    if matches!(token.kind, TokenKind::Comma)
-                        && depth_paren == 0
-                        && depth_bracket == 0
-                        && depth_brace == 0
-                    {
-                        parse_operand_expr_range(
-                            tokens,
-                            start,
-                            cursor,
-                            end_span,
-                            end_token_text.clone(),
-                            expr_parse_ctx,
-                            &mut exprs,
-                        )?;
-                        if matches!(exprs.last(), Some(Expr::Error(_, _))) {
-                            break;
-                        }
-                        start = cursor.saturating_add(1);
-                    }
-                    cursor = cursor.saturating_add(1);
-                }
-                if !matches!(exprs.last(), Some(Expr::Error(_, _))) {
+                for (start, end) in split_top_level_comma_ranges(tokens, cursor, tokens.len()) {
                     parse_operand_expr_range(
                         tokens,
                         start,
-                        tokens.len(),
+                        end,
                         end_span,
-                        end_token_text,
+                        end_token_text.clone(),
                         expr_parse_ctx,
                         &mut exprs,
                     )?;
+                    if matches!(exprs.last(), Some(Expr::Error(_, _))) {
+                        break;
+                    }
                 }
             } else {
                 let expr = match parse_expr_with_vm_contract(
@@ -917,52 +850,19 @@ fn parse_dot_directive_line_from_tokens(
 
     let mut operands: Vec<Expr> = Vec::new();
     if cursor < tokens.len() {
-        let mut depth_paren = 0i32;
-        let mut depth_bracket = 0i32;
-        let mut depth_brace = 0i32;
-        let mut start = cursor;
-        while cursor < tokens.len() {
-            let token = &tokens[cursor];
-            match token.kind {
-                TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
-                TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
-                TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
-                TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
-                TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
-                TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
-                _ => {}
-            }
-            if matches!(token.kind, TokenKind::Comma)
-                && depth_paren == 0
-                && depth_bracket == 0
-                && depth_brace == 0
-            {
-                parse_operand_expr_range(
-                    tokens,
-                    start,
-                    cursor,
-                    end_span,
-                    end_token_text.clone(),
-                    expr_parse_ctx,
-                    &mut operands,
-                )?;
-                if matches!(operands.last(), Some(Expr::Error(_, _))) {
-                    break;
-                }
-                start = cursor.saturating_add(1);
-            }
-            cursor = cursor.saturating_add(1);
-        }
-        if !matches!(operands.last(), Some(Expr::Error(_, _))) {
+        for (start, end) in split_top_level_comma_ranges(tokens, cursor, tokens.len()) {
             parse_operand_expr_range(
                 tokens,
                 start,
-                tokens.len(),
+                end,
                 end_span,
-                end_token_text,
+                end_token_text.clone(),
                 expr_parse_ctx,
                 &mut operands,
             )?;
+            if matches!(operands.last(), Some(Expr::Error(_, _))) {
+                break;
+            }
         }
     }
 
@@ -1670,6 +1570,41 @@ fn parse_operand_expr_range(
         Err(err) => operands.push(Expr::Error(err.message, err.span)),
     }
     Ok(())
+}
+
+fn split_top_level_comma_ranges(tokens: &[Token], start: usize, end: usize) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    if start >= end {
+        return ranges;
+    }
+
+    let mut depth_paren = 0i32;
+    let mut depth_bracket = 0i32;
+    let mut depth_brace = 0i32;
+    let mut current_start = start;
+
+    for (cursor, token) in tokens.iter().enumerate().take(end).skip(start) {
+        match token.kind {
+            TokenKind::OpenParen => depth_paren = depth_paren.saturating_add(1),
+            TokenKind::CloseParen => depth_paren = depth_paren.saturating_sub(1),
+            TokenKind::OpenBracket => depth_bracket = depth_bracket.saturating_add(1),
+            TokenKind::CloseBracket => depth_bracket = depth_bracket.saturating_sub(1),
+            TokenKind::OpenBrace => depth_brace = depth_brace.saturating_add(1),
+            TokenKind::CloseBrace => depth_brace = depth_brace.saturating_sub(1),
+            _ => {}
+        }
+        if matches!(token.kind, TokenKind::Comma)
+            && depth_paren == 0
+            && depth_bracket == 0
+            && depth_brace == 0
+        {
+            ranges.push((current_start, cursor));
+            current_start = cursor.saturating_add(1);
+        }
+    }
+
+    ranges.push((current_start, end));
+    ranges
 }
 
 fn is_star_org_assignment(tokens: &[Token], idx: usize) -> bool {
