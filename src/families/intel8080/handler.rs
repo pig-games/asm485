@@ -872,3 +872,54 @@ fn needs_16bit_immediate(mnemonic: &str) -> bool {
             | "LD"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::tokenizer::Span;
+
+    fn span() -> Span {
+        Span {
+            line: 1,
+            col_start: 1,
+            col_end: 2,
+        }
+    }
+
+    #[test]
+    fn encode_rst_accepts_vector_zero_to_seven() {
+        let operand = FamilyOperand::RstVector(Expr::Number("7".to_string(), span()));
+        let result = encode_rst(&[operand]);
+        match result {
+            FamilyEncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xFF]),
+            other => panic!("expected successful RST encode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_rst_rejects_out_of_range_vector() {
+        let operand = FamilyOperand::RstVector(Expr::Number("8".to_string(), span()));
+        let result = encode_rst(&[operand]);
+        match result {
+            FamilyEncodeResult::Error { message, .. } => {
+                assert!(message.contains("RST instruction argument must be 0-7"));
+            }
+            other => panic!("expected RST validation failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_rst_rejects_extra_arguments() {
+        let args = vec![
+            FamilyOperand::RstVector(Expr::Number("1".to_string(), span())),
+            FamilyOperand::Immediate(Expr::Number("2".to_string(), span())),
+        ];
+        let result = encode_rst(&args);
+        match result {
+            FamilyEncodeResult::Error { message, .. } => {
+                assert!(message.contains("Found extra arguments after RST instruction"));
+            }
+            other => panic!("expected extra-argument failure, got {other:?}"),
+        }
+    }
+}
