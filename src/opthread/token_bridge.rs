@@ -29,7 +29,9 @@ use crate::z80::module::Z80CpuModule;
 // Use an authoritative rollout lane so bootstrap/macro token bridge paths
 // exercise strict VM tokenizer entrypoints by default.
 const DEFAULT_TOKENIZER_CPU_ID: &str = "m6502";
+const HOST_PARSER_UNEXPECTED_END_OF_EXPRESSION: &str = "Unexpected end of expression";
 
+/// Tokenize one source line via the runtime tokenizer model and convert back to core tokens.
 pub(crate) fn tokenize_parser_tokens_with_model(
     model: &HierarchyExecutionModel,
     cpu_id: &str,
@@ -73,6 +75,7 @@ pub(crate) fn parse_line_with_default_model(
     Ok(line_ast)
 }
 
+/// Parse one source line using runtime tokenizer + parser VM contracts for a selected CPU pipeline.
 pub(crate) fn parse_line_with_model(
     model: &HierarchyExecutionModel,
     cpu_id: &str,
@@ -127,6 +130,7 @@ pub(crate) fn parse_line_with_model(
     Ok((line_ast, end_span, end_token_text))
 }
 
+/// Tokenize one source line with the default runtime model and canonical bridge CPU.
 pub(crate) fn tokenize_line_with_default_model(
     line: &str,
     line_num: u32,
@@ -1608,7 +1612,10 @@ fn parse_expr_with_vm_contract_and_boundary(
 ) -> Result<Expr, ParseError> {
     match parse_expr_with_vm_contract(expr_parse_ctx, tokens, end_span, end_token_text) {
         Ok(expr) => Ok(expr),
-        Err(err) if err.message == "Unexpected end of expression" && boundary_token.is_some() => {
+        Err(err)
+            if err.message == HOST_PARSER_UNEXPECTED_END_OF_EXPRESSION
+                && boundary_token.is_some() =>
+        {
             let boundary_span = boundary_token.map(|token| token.span).unwrap_or(err.span);
             Err(ParseError {
                 message: "Unexpected token in expression".to_string(),
@@ -1854,6 +1861,7 @@ fn validate_line_column_one(line: &str, line_num: u32) -> Result<(), ParseError>
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+/// Convert runtime portable tokens into core tokenizer tokens with span and lexeme validation.
 pub(crate) fn runtime_tokens_to_core_tokens(
     tokens: &[PortableToken],
     register_checker: &RegisterChecker,
@@ -2742,6 +2750,48 @@ mod tests {
         )
         .expect_err("missing EmitDiagIfNoAst slot must fail");
         assert!(err.message.contains("EmitDiagIfNoAst missing slot operand"));
+    }
+
+    #[test]
+    fn parse_line_with_parser_vm_emit_diag_requires_slot_operand() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    NOP";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let parser_contract = model
+            .validate_parser_contract_for_assembler(DEFAULT_TOKENIZER_CPU_ID, None, tokens.len())
+            .expect("parser contract should validate");
+        let parser_vm_program = RuntimeParserVmProgram {
+            opcode_version: PARSER_VM_OPCODE_VERSION_V1,
+            program: vec![ParserVmOpcode::EmitDiag as u8],
+        };
+
+        let err = parse_line_with_parser_vm(
+            tokens,
+            end_span,
+            end_token_text,
+            &parser_contract,
+            &parser_vm_program,
+            ParserVmExecContext {
+                source_line: source,
+                line_num: 1,
+                expr_parse_ctx: VmExprParseContext {
+                    model,
+                    cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                    dialect_override: None,
+                },
+            },
+        )
+        .expect_err("missing EmitDiag slot must fail");
+        assert!(err.message.contains("EmitDiag missing slot operand"));
     }
 
     #[test]

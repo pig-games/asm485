@@ -587,7 +587,14 @@ fn encode_rst(operands: &[FamilyOperand]) -> FamilyEncodeResult<Vec<u8>> {
     let bytes = vec![0xc7 | (val << 3)];
 
     if operands.len() > 1 {
-        let extra = operands.get(1).unwrap();
+        let Some(extra) = operands.get(1) else {
+            return FamilyEncodeResult::error(
+                bytes,
+                "Found extra arguments after RST instruction",
+                Some(expr_span(expr)),
+                None,
+            );
+        };
         let extra_text = family_operand_text(extra).unwrap_or_default();
         return FamilyEncodeResult::error(
             bytes,

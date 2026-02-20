@@ -78,4 +78,28 @@ mod tests {
         let err = execute_program(&program, &[&[0x42]]).expect_err("operand index should fail");
         assert!(matches!(err, VmError::OperandIndexOutOfRange { .. }));
     }
+
+    #[test]
+    fn reports_truncated_program_for_empty_stream() {
+        let err = execute_program(&[], &[]).expect_err("empty program should fail");
+        assert!(matches!(err, VmError::TruncatedProgram));
+    }
+
+    #[test]
+    fn reports_invalid_opcode_with_pc() {
+        let err = execute_program(&[0x7E], &[]).expect_err("invalid opcode should fail");
+        assert!(matches!(
+            err,
+            VmError::InvalidOpcode {
+                opcode: 0x7E,
+                pc: 0
+            }
+        ));
+    }
+
+    #[test]
+    fn end_only_program_emits_no_bytes() {
+        let out = execute_program(&[OP_END], &[]).expect("end-only program should succeed");
+        assert!(out.is_empty());
+    }
 }
