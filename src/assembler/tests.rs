@@ -6849,6 +6849,39 @@ fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
 }
 
 #[test]
+fn opthread_expr_parser_rollout_criteria_all_registered_families_have_policy_and_checklist() {
+    let registry = default_registry();
+    for family in registry.family_ids() {
+        let policy = crate::opthread::rollout::family_expr_parser_rollout_policy(family.as_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing expr-parser rollout policy for family '{}'",
+                    family.as_str()
+                )
+            });
+        assert!(
+            !policy.migration_checklist.trim().is_empty(),
+            "missing expr-parser migration checklist for family '{}'",
+            family.as_str()
+        );
+    }
+}
+
+#[test]
+fn opthread_expr_parser_rollout_criteria_mos_default_and_intel_staged() {
+    assert!(
+        crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
+            "mos6502"
+        )
+    );
+    assert!(
+        !crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
+            "intel8080"
+        )
+    );
+}
+
+#[test]
 fn opthread_runtime_intel8085_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

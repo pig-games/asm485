@@ -113,6 +113,65 @@ pub(crate) fn portable_expr_runtime_enabled_for_family(
             .any(|opt_in| opt_in.eq_ignore_ascii_case(family_id))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FamilyExprParserMode {
+    /// Portable EXPRP parser path is the default for this family.
+    Authoritative,
+    /// Host parser remains default; EXPRP parser path is staged/opt-in only.
+    StagedVerification,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FamilyExprParserRollout {
+    pub family_id: &'static str,
+    pub expr_parser_mode: FamilyExprParserMode,
+    pub migration_checklist: &'static str,
+}
+
+pub(crate) const FAMILY_EXPR_PARSER_ROLLOUT: &[FamilyExprParserRollout] = &[
+    FamilyExprParserRollout {
+        family_id: "mos6502",
+        expr_parser_mode: FamilyExprParserMode::Authoritative,
+        migration_checklist: "phase8-mos6502-expr-parser-vm-authoritative",
+    },
+    FamilyExprParserRollout {
+        family_id: "intel8080",
+        expr_parser_mode: FamilyExprParserMode::StagedVerification,
+        migration_checklist: "phase8-intel8080-expr-parser-vm-staged",
+    },
+];
+
+pub(crate) fn family_expr_parser_rollout_policy(
+    family_id: &str,
+) -> Option<&'static FamilyExprParserRollout> {
+    FAMILY_EXPR_PARSER_ROLLOUT
+        .iter()
+        .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
+}
+
+pub(crate) fn family_expr_parser_mode(family_id: &str) -> FamilyExprParserMode {
+    family_expr_parser_rollout_policy(family_id)
+        .map(|entry| entry.expr_parser_mode)
+        .unwrap_or(FamilyExprParserMode::StagedVerification)
+}
+
+pub(crate) fn portable_expr_parser_runtime_default_enabled_for_family(family_id: &str) -> bool {
+    matches!(
+        family_expr_parser_mode(family_id),
+        FamilyExprParserMode::Authoritative
+    )
+}
+
+pub(crate) fn portable_expr_parser_runtime_enabled_for_family(
+    family_id: &str,
+    opt_in_families: &[String],
+) -> bool {
+    portable_expr_parser_runtime_default_enabled_for_family(family_id)
+        || opt_in_families
+            .iter()
+            .any(|opt_in| opt_in.eq_ignore_ascii_case(family_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +259,64 @@ mod tests {
     fn expr_eval_rollout_opt_in_is_case_insensitive() {
         let opt_in = vec!["Intel8080".to_string()];
         assert!(portable_expr_runtime_enabled_for_family(
+            "intel8080",
+            &opt_in
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_marks_mos_family_as_authoritative() {
+        assert_eq!(
+            family_expr_parser_mode("mos6502"),
+            FamilyExprParserMode::Authoritative
+        );
+        assert!(portable_expr_parser_runtime_default_enabled_for_family(
+            "mos6502"
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_keeps_intel_family_staged() {
+        assert_eq!(
+            family_expr_parser_mode("intel8080"),
+            FamilyExprParserMode::StagedVerification
+        );
+        assert!(!portable_expr_parser_runtime_default_enabled_for_family(
+            "intel8080"
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_defaults_unknown_family_to_staged_verification() {
+        assert_eq!(
+            family_expr_parser_mode("unknown"),
+            FamilyExprParserMode::StagedVerification
+        );
+        assert!(!portable_expr_parser_runtime_default_enabled_for_family(
+            "unknown"
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_entries_include_migration_checklists() {
+        for entry in FAMILY_EXPR_PARSER_ROLLOUT {
+            assert!(!entry.migration_checklist.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn expr_parser_rollout_opt_in_promotes_staged_family() {
+        let opt_in = vec!["intel8080".to_string()];
+        assert!(portable_expr_parser_runtime_enabled_for_family(
+            "intel8080",
+            &opt_in
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_opt_in_is_case_insensitive() {
+        let opt_in = vec!["Intel8080".to_string()];
+        assert!(portable_expr_parser_runtime_enabled_for_family(
             "intel8080",
             &opt_in
         ));

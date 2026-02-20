@@ -48,6 +48,9 @@ use crate::opthread::package::{
     PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1,
     TOKENIZER_VM_OPCODE_VERSION_V1,
 };
+use crate::opthread::rollout::{
+    family_expr_parser_rollout_policy, portable_expr_parser_runtime_enabled_for_family,
+};
 use crate::opthread::vm::{execute_program, VmError};
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
 use crate::z80::handler::Z80CpuHandler;
@@ -2035,6 +2038,25 @@ impl HierarchyExecutionModel {
         end_token_text: Option<String>,
         parser_vm_opcode_version: Option<u16>,
     ) -> Result<PortableExprProgram, ParseError> {
+        let resolved = self
+            .resolve_pipeline(cpu_id, dialect_override)
+            .map_err(|err| ParseError {
+                message: err.to_string(),
+                span: end_span,
+            })?;
+        let use_expr_parser_vm =
+            portable_expr_parser_runtime_enabled_for_family(resolved.family_id.as_str(), &[])
+                || parser_vm_opcode_version.is_some();
+        if !use_expr_parser_vm {
+            return self.compile_expression_program_for_assembler(
+                cpu_id,
+                dialect_override,
+                tokens,
+                end_span,
+                end_token_text,
+            );
+        }
+
         let contract = self
             .resolve_expr_parser_contract(cpu_id, dialect_override)
             .map_err(|err| ParseError {
@@ -2142,6 +2164,20 @@ impl HierarchyExecutionModel {
     ) -> Result<Option<&'static str>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
         Ok(tokenizer_vm_parity_checklist_for_family(
+            resolved.family_id.as_str(),
+        ))
+    }
+
+    pub fn resolve_expr_parser_vm_parity_checklist(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<&'static str>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        if family_expr_parser_rollout_policy(resolved.family_id.as_str()).is_none() {
+            return Ok(None);
+        }
+        Ok(expr_parser_vm_parity_checklist_for_family(
             resolved.family_id.as_str(),
         ))
     }
@@ -4084,6 +4120,23 @@ const TOKENIZER_VM_CERTIFICATIONS: &[TokenizerVmCertification] = &[
     },
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExprParserVmCertification {
+    family_id: &'static str,
+    parity_checklist: &'static str,
+}
+
+const EXPR_PARSER_VM_CERTIFICATIONS: &[ExprParserVmCertification] = &[
+    ExprParserVmCertification {
+        family_id: "mos6502",
+        parity_checklist: "Phase 8 expression parser VM parity corpus and deterministic diff gates",
+    },
+    ExprParserVmCertification {
+        family_id: "intel8080",
+        parity_checklist: "Phase 8 expression parser VM parity corpus and deterministic diff gates",
+    },
+];
+
 fn tokenizer_vm_certification_for_family(
     family_id: &str,
 ) -> Option<&'static TokenizerVmCertification> {
@@ -4094,6 +4147,18 @@ fn tokenizer_vm_certification_for_family(
 
 fn tokenizer_vm_parity_checklist_for_family(family_id: &str) -> Option<&'static str> {
     tokenizer_vm_certification_for_family(family_id).map(|entry| entry.parity_checklist)
+}
+
+fn expr_parser_vm_certification_for_family(
+    family_id: &str,
+) -> Option<&'static ExprParserVmCertification> {
+    EXPR_PARSER_VM_CERTIFICATIONS
+        .iter()
+        .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
+}
+
+fn expr_parser_vm_parity_checklist_for_family(family_id: &str) -> Option<&'static str> {
+    expr_parser_vm_certification_for_family(family_id).map(|entry| entry.parity_checklist)
 }
 
 fn vm_read_u8(
@@ -6873,6 +6938,49 @@ mod tests {
             );
         }
         assert!(tokenizer_vm_parity_checklist_for_family("nonexistent").is_none());
+    }
+
+    #[test]
+    fn execution_model_expr_parser_vm_parity_checklist_resolves_for_certified_families() {
+        let registry = parity_registry();
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let mos = model
+            .resolve_expr_parser_vm_parity_checklist("m6502", None)
+            .expect("mos6502 checklist resolution");
+        let intel = model
+            .resolve_expr_parser_vm_parity_checklist("z80", None)
+            .expect("intel8080 checklist resolution");
+        assert!(mos.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+        assert!(intel.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+    }
+
+    #[test]
+    fn expr_parser_vm_certification_entries_require_parity_checklist_text() {
+        assert!(
+            !EXPR_PARSER_VM_CERTIFICATIONS.is_empty(),
+            "certified family list must be explicit"
+        );
+        for certification in EXPR_PARSER_VM_CERTIFICATIONS {
+            assert!(
+                !certification.parity_checklist.trim().is_empty(),
+                "certified family {} must declare parity checklist text",
+                certification.family_id
+            );
+            assert!(
+                certification
+                    .parity_checklist
+                    .to_ascii_lowercase()
+                    .contains("parity"),
+                "certified family {} checklist should reference parity gates",
+                certification.family_id
+            );
+            assert_eq!(
+                expr_parser_vm_parity_checklist_for_family(certification.family_id),
+                Some(certification.parity_checklist)
+            );
+        }
+        assert!(expr_parser_vm_parity_checklist_for_family("nonexistent").is_none());
     }
 
     #[test]

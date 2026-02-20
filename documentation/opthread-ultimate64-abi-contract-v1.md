@@ -9,7 +9,7 @@ Last updated: 2026-02-17
 
 This document defines the host/native ABI boundary for consuming opThread hierarchy packages (`*.opcpu`) in Ultimate64-class constrained runtimes.
 
-Forward note: a CPU/family-independent contract container (`*.opcore`) is planned. The intent is that `.opcore` follows the same constrained-runtime ABI principles defined here (endianness/width rules, TOC traversal, ownership independence, deterministic error codes), with its own container magic/versioning as specified when introduced.
+Forward note: a CPU/family-independent contract container (`*.opcore`) is planned. `.opcore` follows the same constrained-runtime ABI principles defined here (endianness/width rules, TOC traversal, ownership independence, deterministic error codes), with its own container magic/versioning as specified when introduced.
 
 Goals:
 - fixed byte-order and numeric-width rules
@@ -44,6 +44,15 @@ Bytes are fixed as:
 
 TOC payloads are emitted contiguously (next offset equals previous `offset + length`).
 
+### 2.4 `.opcore` expression-contract payload expectations
+
+When loading `.opcore` for expression services, v1 integrations should expect owner-scoped chunk descriptors with the same precedence model already used by `.opcpu` (`dialect -> cpu -> family`):
+
+- `EXPR`: expression evaluator contract (opcode version + budgets + diagnostic map).
+- `EXPP`: expression-parser contract (opcode version + parser-diagnostic map).
+
+`EXPP` is currently compatibility-oriented: it validates parser-side contract/versioning for optional runtime entrypoints while host parser semantics remain the baseline implementation.
+
 ## 3. Runtime Ownership Contract
 
 ### 3.1 Input package ownership
@@ -69,6 +78,8 @@ TOC payloads are emitted contiguously (next offset equals previous `offset + len
 - Tokenizer VM diagnostic slots use stable codes `ott001..ott006`.
 - Parser contract/VM diagnostic slots use stable codes `otp001..otp004`.
 - Runtime resolve/mode errors use `OTR001..OTR004` catalog codes where mapped through package diagnostics.
+- Expression evaluator contract diagnostics use stable `ope00x` codes (for invalid opcode, stack underflow/depth, unknown symbol, eval failure, unsupported feature, budget exceeded, invalid program).
+- Expression parser contract diagnostics (`EXPP`) must map to stable cataloged codes; in v1 this is commonly bridged through the parser namespace (`otp...`) to preserve deterministic envelopes.
 
 ## 5. Conformance Expectations for Native Integrators
 
@@ -78,6 +89,7 @@ Native integrations should validate:
 2. Chunk payload traversal follows declared TOC offsets/lengths exactly.
 3. Runtime does not retain borrowed pointers to caller package buffers.
 4. Diagnostic/error handling preserves stable code namespaces (`OPC`, `OTR`, `ott`, `otp`).
+5. Expression contract loading preserves deterministic diagnostics for `EXPR`/`EXPP` (`ope...` and cataloged parser-compatible codes).
 
 ## 6. Host-Side Conformance Coverage
 
