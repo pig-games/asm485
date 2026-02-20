@@ -2997,10 +2997,7 @@ impl HierarchyExecutionModel {
         self.interned_ids.get(value_lower).copied()
     }
 
-    fn scoped_owner_lookup_order(
-        &self,
-        resolved: &ResolvedHierarchy,
-    ) -> [(u8, Option<u32>); 3] {
+    fn scoped_owner_lookup_order(&self, resolved: &ResolvedHierarchy) -> [(u8, Option<u32>); 3] {
         let dialect_id = resolved.dialect_id.to_ascii_lowercase();
         let cpu_id = resolved.cpu_id.to_ascii_lowercase();
         let family_id = resolved.family_id.to_ascii_lowercase();

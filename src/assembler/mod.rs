@@ -3484,8 +3484,7 @@ impl<'a> AsmLine<'a> {
                     && !runtime_expr_force_host;
                 let runtime_expr_vm_path_enabled = runtime_expr_bytes_authoritative;
                 let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
-                    && model
-                        .selector_gate_only_expr_runtime_for_cpu(self.cpu.as_str());
+                    && model.selector_gate_only_expr_runtime_for_cpu(self.cpu.as_str());
                 if runtime_expr_vm_path_enabled {
                     let runtime_expr_operands_storage =
                         Self::opthread_runtime_expr_operands_from_mapped(mapped_operands.as_ref());
