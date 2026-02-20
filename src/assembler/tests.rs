@@ -7654,6 +7654,26 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
 }
 
 #[test]
+fn opthread_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
+    // The mos6502 family is currently VM-eval enabled by default in rollout policy.
+    // Verify representative family CPUs keep byte+diagnostic parity with host mode.
+    let corpus = [
+        (m6502_cpu_id, "    LDA #$10"),
+        (m65c02_cpu_id, "    BRA $0004"),
+        (m65816_cpu_id, "    LDA $123456,k"),
+        (m65816_cpu_id, "    JMP $1234"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
 fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
     let corpus = [
         (m6502_cpu_id, "LABEL: LDA #$10 ; trailing comment"),
