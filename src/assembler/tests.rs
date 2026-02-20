@@ -7053,6 +7053,42 @@ fn opthread_runtime_mos6502_expression_contract_breakage_errors_instead_of_fallb
 }
 
 #[test]
+fn opthread_runtime_mos6502_eval_expr_uses_expr_contract_budgets() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+
+    let span = crate::core::tokenizer::Span::default();
+    let expr = crate::core::parser::Expr::Binary {
+        op: crate::core::parser::BinaryOp::Add,
+        left: Box::new(crate::core::parser::Expr::Number("1".to_string(), span)),
+        right: Box::new(crate::core::parser::Expr::Number("2".to_string(), span)),
+        span,
+    };
+
+    let err = crate::core::family::AssemblerContext::eval_expr(&asm, &expr)
+        .expect_err("portable eval should enforce expr contract budget");
+    assert!(err.to_ascii_lowercase().contains("ope007"));
+}
+
+#[test]
 fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

@@ -35,6 +35,7 @@ use crate::core::assembler::expression::{
 use crate::core::assembler::listing::{ListingLine, ListingWriter};
 use crate::core::assembler::scope::ScopeStack;
 use crate::core::cpu::CpuType;
+use crate::core::expr_vm::compile_core_expr_to_portable_program;
 use crate::core::family::{AssemblerContext, EncodeResult};
 use crate::core::imagestore::ImageStore;
 use crate::core::macro_processor::MacroProcessor;
@@ -51,7 +52,9 @@ use std::sync::Arc;
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::intel8080::module::Intel8080FamilyOperands;
 use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
-use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+use crate::families::mos6502::module::{
+    M6502CpuModule, MOS6502FamilyModule, FAMILY_ID as mos6502_family_id,
+};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
@@ -4481,6 +4484,46 @@ impl<'a> AsmLine<'a> {
 /// and symbol lookup to family and CPU handlers.
 impl<'a> AssemblerContext for AsmLine<'a> {
     fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+        if matches!(expr, Expr::Identifier(_, _) | Expr::Register(_, _)) {
+            return self
+                .eval_expr_ast(expr)
+                .map(|v| v as i64)
+                .map_err(|e| e.error.message().to_string());
+        }
+
+        if let Some(model) = self.opthread_execution_model.as_ref() {
+            if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
+                if crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                    pipeline.family_id.as_str(),
+                ) && pipeline
+                    .family_id
+                    .as_str()
+                    .eq_ignore_ascii_case(mos6502_family_id.as_str())
+                {
+                    let program = compile_core_expr_to_portable_program(expr)
+                        .map_err(|err| err.to_string())?;
+                    match model.evaluate_portable_expression_program_with_contract_for_assembler(
+                        self.cpu.as_str(),
+                        None,
+                        &program,
+                        self,
+                    ) {
+                        Ok(evaluation) => return Ok(evaluation.value),
+                        Err(err) => {
+                            let message = err.to_string();
+                            let is_unknown_symbol = {
+                                let trimmed = message.trim_start();
+                                trimmed == "ope004" || trimmed.starts_with("ope004:")
+                            };
+                            if !is_unknown_symbol {
+                                return Err(message);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         self.eval_expr_ast(expr)
             .map(|v| v as i64)
             .map_err(|e| e.error.message().to_string())

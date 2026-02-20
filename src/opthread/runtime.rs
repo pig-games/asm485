@@ -2853,6 +2853,85 @@ struct SelectorInput<'a> {
     force: Option<OperandForce>,
 }
 
+struct SelectorExprContext<'a> {
+    model: &'a HierarchyExecutionModel,
+    resolved: &'a ResolvedHierarchy,
+    assembler_ctx: &'a dyn AssemblerContext,
+    use_portable_eval: bool,
+}
+
+impl<'a> SelectorExprContext<'a> {
+    fn is_unknown_symbol_error(message: &str) -> bool {
+        let trimmed = message.trim_start();
+        trimmed == "ope004" || trimmed.starts_with("ope004:")
+    }
+
+    fn new(
+        model: &'a HierarchyExecutionModel,
+        resolved: &'a ResolvedHierarchy,
+        assembler_ctx: &'a dyn AssemblerContext,
+    ) -> Self {
+        let use_portable_eval =
+            crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                resolved.family_id.as_str(),
+            );
+        Self {
+            model,
+            resolved,
+            assembler_ctx,
+            use_portable_eval,
+        }
+    }
+
+    fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+        if !self.use_portable_eval {
+            return self.assembler_ctx.eval_expr(expr);
+        }
+        let program = compile_core_expr_to_portable_program(expr).map_err(|err| err.to_string())?;
+        match self
+            .model
+            .evaluate_portable_expression_program_with_contract_for_assembler(
+                self.resolved.cpu_id.as_str(),
+                Some(self.resolved.dialect_id.as_str()),
+                &program,
+                self.assembler_ctx,
+            ) {
+            Ok(evaluation) => Ok(evaluation.value),
+            Err(err) => {
+                let message = err.to_string();
+                if Self::is_unknown_symbol_error(message.as_str()) {
+                    return self.assembler_ctx.eval_expr(expr);
+                }
+                Err(message)
+            }
+        }
+    }
+
+    fn has_unstable_symbols(&self, expr: &Expr) -> Result<bool, String> {
+        if !self.use_portable_eval {
+            return Ok(expr_has_unstable_symbols(expr, self.assembler_ctx));
+        }
+        let program = compile_core_expr_to_portable_program(expr).map_err(|err| err.to_string())?;
+        match self
+            .model
+            .portable_expression_has_unstable_symbols_with_contract_for_assembler(
+                self.resolved.cpu_id.as_str(),
+                Some(self.resolved.dialect_id.as_str()),
+                &program,
+                self.assembler_ctx,
+            ) {
+            Ok(value) => Ok(value),
+            Err(err) => {
+                let message = err.to_string();
+                if Self::is_unknown_symbol_error(message.as_str()) {
+                    return Ok(expr_has_unstable_symbols(expr, self.assembler_ctx));
+                }
+                Err(message)
+            }
+        }
+    }
+}
+
 impl HierarchyExecutionModel {
     fn select_candidates_from_exprs_mos6502(
         &self,
@@ -2861,6 +2940,7 @@ impl HierarchyExecutionModel {
         operands: &[Expr],
         ctx: &dyn AssemblerContext,
     ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
+        let expr_ctx = SelectorExprContext::new(self, resolved, ctx);
         let family = MOS6502FamilyHandler::new();
         let parsed = family.parse_operands(mnemonic, operands).ok();
         let Some(input) = parsed
@@ -2892,9 +2972,12 @@ impl HierarchyExecutionModel {
             (0u8, resolved.family_id.as_str()),
         ];
 
-        let unstable_expr = input
-            .expr0
-            .is_some_and(|expr| expr_has_unstable_symbols(expr, ctx));
+        let unstable_expr = match input.expr0 {
+            Some(expr) => expr_ctx
+                .has_unstable_symbols(expr)
+                .map_err(RuntimeBridgeError::Resolve)?,
+            None => false,
+        };
         let mut candidates = Vec::new();
         let mut candidate_error: Option<String> = None;
         let mut saw_selector = false;
@@ -2928,7 +3011,7 @@ impl HierarchyExecutionModel {
                 if unstable_expr && selector.unstable_widen && has_wider {
                     continue;
                 }
-                match selector_to_candidate(selector, &input, &upper_mnemonic, ctx) {
+                match selector_to_candidate(selector, &input, &upper_mnemonic, &expr_ctx) {
                     Ok(Some(candidate)) => {
                         candidates.push(candidate);
                         if candidates.len() > self.budget_limits.max_candidate_count {
@@ -4204,7 +4287,7 @@ fn selector_to_candidate(
     selector: &ModeSelectorDescriptor,
     input: &SelectorInput<'_>,
     upper_mnemonic: &str,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<Option<VmEncodeCandidate>, String> {
     let Some(mode) = parse_mode_key(&selector.mode_key) else {
         return Ok(None);
@@ -4215,68 +4298,72 @@ fn selector_to_candidate(
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_u8(expr0, ctx)?]
+            vec![encode_expr_u8(expr0, expr_ctx)?]
         }
         "u16" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_u16(expr0, ctx)?]
+            vec![encode_expr_u16(expr0, expr_ctx)?]
         }
         "u24" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_u24(expr0, ctx)?]
+            vec![encode_expr_u24(expr0, expr_ctx)?]
         }
         "force_l_u24" => vec![encode_expr_force_u24(
             input
                 .expr0
                 .ok_or_else(|| "missing force-l operand".to_string())?,
-            ctx,
+            expr_ctx,
         )?],
         "m65816_long_pref_u24" => {
             let expr0 = input
                 .expr0
                 .ok_or_else(|| "missing unresolved-long operand".to_string())?;
-            if !prefer_long_for_expr(expr0, upper_mnemonic, ctx)? {
+            if !prefer_long_for_expr(expr0, upper_mnemonic, expr_ctx)? {
                 return Ok(None);
             }
-            vec![encode_expr_force_u24(expr0, ctx)?]
+            vec![encode_expr_force_u24(expr0, expr_ctx)?]
         }
         "m65816_abs16_bank_fold_dbr" => {
             let expr0 = input
                 .expr0
                 .ok_or_else(|| "missing bank-fold operand".to_string())?;
-            if should_defer_abs16_to_other_candidates(expr0, upper_mnemonic, ctx)? {
+            if should_defer_abs16_to_other_candidates(expr0, upper_mnemonic, expr_ctx)? {
                 return Ok(None);
             }
-            vec![encode_expr_abs16_bank_fold(expr0, upper_mnemonic, ctx)?]
+            vec![encode_expr_abs16_bank_fold(
+                expr0,
+                upper_mnemonic,
+                expr_ctx,
+            )?]
         }
         "rel8" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_rel8(expr0, ctx, 2)?]
+            vec![encode_expr_rel8(expr0, expr_ctx, 2)?]
         }
         "rel16" => {
             let Some(expr0) = input.expr0 else {
                 return Ok(None);
             };
-            vec![encode_expr_rel16(expr0, ctx, 3)?]
+            vec![encode_expr_rel16(expr0, expr_ctx, 3)?]
         }
         "pair_u8_rel8" => vec![
             encode_expr_u8(
                 input
                     .expr0
                     .ok_or_else(|| "missing first operand".to_string())?,
-                ctx,
+                expr_ctx,
             )?,
             encode_expr_rel8(
                 input
                     .expr1
                     .ok_or_else(|| "missing second operand".to_string())?,
-                ctx,
+                expr_ctx,
                 3,
             )?,
         ],
@@ -4285,13 +4372,13 @@ fn selector_to_candidate(
                 input
                     .expr0
                     .ok_or_else(|| "missing first operand".to_string())?,
-                ctx,
+                expr_ctx,
             )?;
             packed.extend(encode_expr_u8(
                 input
                     .expr1
                     .ok_or_else(|| "missing second operand".to_string())?,
-                ctx,
+                expr_ctx,
             )?);
             packed
         }],
@@ -4299,7 +4386,7 @@ fn selector_to_candidate(
             input
                 .expr0
                 .ok_or_else(|| "missing force-d operand".to_string())?,
-            ctx,
+            expr_ctx,
         )?],
         "force_b_abs16_dbr" => {
             if matches!(upper_mnemonic, "JMP" | "JSR") {
@@ -4312,7 +4399,7 @@ fn selector_to_candidate(
                 false,
                 OperandForce::DataBank,
                 upper_mnemonic,
-                ctx,
+                expr_ctx,
             )?]
         }
         "force_k_abs16_pbr" => {
@@ -4326,7 +4413,7 @@ fn selector_to_candidate(
                 true,
                 OperandForce::ProgramBank,
                 upper_mnemonic,
-                ctx,
+                expr_ctx,
             )?]
         }
         "imm_mx" => vec![encode_expr_m65816_immediate(
@@ -4334,7 +4421,7 @@ fn selector_to_candidate(
                 .expr0
                 .ok_or_else(|| "missing immediate operand".to_string())?,
             upper_mnemonic,
-            ctx,
+            expr_ctx,
         )?],
         _ => return Ok(None),
     };
@@ -4379,8 +4466,8 @@ fn parse_mode_key(mode_key: &str) -> Option<AddressMode> {
     }
 }
 
-fn encode_expr_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
+fn encode_expr_u8(expr: &Expr, expr_ctx: &SelectorExprContext<'_>) -> Result<Vec<u8>, String> {
+    let value = expr_ctx.eval_expr(expr)?;
     if (0..=255).contains(&value) {
         Ok(vec![value as u8])
     } else {
@@ -4388,8 +4475,8 @@ fn encode_expr_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, St
     }
 }
 
-fn encode_expr_u16(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
+fn encode_expr_u16(expr: &Expr, expr_ctx: &SelectorExprContext<'_>) -> Result<Vec<u8>, String> {
+    let value = expr_ctx.eval_expr(expr)?;
     if (0..=65535).contains(&value) {
         Ok(vec![
             (value as u16 & 0xFF) as u8,
@@ -4400,8 +4487,8 @@ fn encode_expr_u16(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, S
     }
 }
 
-fn encode_expr_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
+fn encode_expr_u24(expr: &Expr, expr_ctx: &SelectorExprContext<'_>) -> Result<Vec<u8>, String> {
+    let value = expr_ctx.eval_expr(expr)?;
     if (0..=0xFF_FFFF).contains(&value) {
         Ok(vec![
             (value as u32 & 0xFF) as u8,
@@ -4413,11 +4500,14 @@ fn encode_expr_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, S
     }
 }
 
-fn encode_expr_force_d_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
-    if ctx.pass() == 1 && expr_has_unstable_symbols(expr, ctx) {
+fn encode_expr_force_d_u8(
+    expr: &Expr,
+    expr_ctx: &SelectorExprContext<'_>,
+) -> Result<Vec<u8>, String> {
+    if expr_ctx.assembler_ctx.pass() == 1 && expr_ctx.has_unstable_symbols(expr)? {
         return Ok(vec![0]);
     }
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     if (0..=255).contains(&value) {
         return Ok(vec![value as u8]);
     }
@@ -4428,7 +4518,9 @@ fn encode_expr_force_d_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec
         ));
     }
     let absolute_value = value as u16;
-    let Some(dp_offset) = direct_page_offset_for_absolute_address(absolute_value, ctx) else {
+    let Some(dp_offset) =
+        direct_page_offset_for_absolute_address(absolute_value, expr_ctx.assembler_ctx)
+    else {
         return Err(format!(
             "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
         ));
@@ -4436,11 +4528,14 @@ fn encode_expr_force_d_u8(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec
     Ok(vec![dp_offset])
 }
 
-fn encode_expr_force_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<u8>, String> {
-    if ctx.pass() == 1 && expr_has_unstable_symbols(expr, ctx) {
+fn encode_expr_force_u24(
+    expr: &Expr,
+    expr_ctx: &SelectorExprContext<'_>,
+) -> Result<Vec<u8>, String> {
+    if expr_ctx.assembler_ctx.pass() == 1 && expr_ctx.has_unstable_symbols(expr)? {
         return Ok(vec![0, 0, 0]);
     }
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     if !(0..=0xFF_FFFF).contains(&value) {
         return Err(format!(
             "Address {} out of 24-bit range for explicit ',l'",
@@ -4457,16 +4552,18 @@ fn encode_expr_force_u24(expr: &Expr, ctx: &dyn AssemblerContext) -> Result<Vec<
 fn prefer_long_for_expr(
     expr: &Expr,
     upper_mnemonic: &str,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<bool, String> {
-    let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, ctx);
+    let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, expr_ctx.assembler_ctx);
     let symbol_based = expr_has_symbol_references(expr);
 
-    if ctx.pass() == 1 && expr_has_unstable_symbols(expr, ctx) {
-        return Ok(ctx.current_address() > 0xFFFF || !assumed_known || assumed_bank != 0);
+    if expr_ctx.assembler_ctx.pass() == 1 && expr_ctx.has_unstable_symbols(expr)? {
+        return Ok(expr_ctx.assembler_ctx.current_address() > 0xFFFF
+            || !assumed_known
+            || assumed_bank != 0);
     }
 
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     if symbol_based && (0..=0xFFFF).contains(&value) && (!assumed_known || assumed_bank != 0) {
         return Ok(true);
     }
@@ -4482,19 +4579,19 @@ fn prefer_long_for_expr(
 fn should_defer_abs16_to_other_candidates(
     expr: &Expr,
     upper_mnemonic: &str,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<bool, String> {
-    if ctx.pass() == 1 && expr_has_unstable_symbols(expr, ctx) {
+    if expr_ctx.assembler_ctx.pass() == 1 && expr_ctx.has_unstable_symbols(expr)? {
         return Ok(true);
     }
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     if value <= 0xFFFF {
         return Ok(true);
     }
     if value > 0xFF_FFFF {
         return Ok(false);
     }
-    let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, ctx);
+    let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, expr_ctx.assembler_ctx);
     let absolute_bank = ((value as u32) >> 16) as u8;
     Ok(!assumed_known || absolute_bank != assumed_bank)
 }
@@ -4502,9 +4599,9 @@ fn should_defer_abs16_to_other_candidates(
 fn encode_expr_abs16_bank_fold(
     expr: &Expr,
     upper_mnemonic: &str,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     if !(0..=0xFF_FFFF).contains(&value) {
         return Err(format!("Address {} out of 24-bit range", value));
     }
@@ -4516,7 +4613,7 @@ fn encode_expr_abs16_bank_fold(
         ]);
     }
 
-    let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, ctx);
+    let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, expr_ctx.assembler_ctx);
     let assumed_key = if matches!(upper_mnemonic, "JMP" | "JSR") {
         "pbr"
     } else {
@@ -4579,12 +4676,12 @@ fn encode_expr_force_abs16(
     use_program_bank: bool,
     force: OperandForce,
     upper_mnemonic: &str,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<Vec<u8>, String> {
-    if ctx.pass() == 1 && expr_has_unstable_symbols(expr, ctx) {
+    if expr_ctx.assembler_ctx.pass() == 1 && expr_ctx.has_unstable_symbols(expr)? {
         return Ok(vec![0, 0]);
     }
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     if (0..=65535).contains(&value) {
         return Ok(vec![
             (value as u16 & 0xFF) as u8,
@@ -4600,17 +4697,17 @@ fn encode_expr_force_abs16(
     }
     let assumed_bank_key = if use_program_bank { "pbr" } else { "dbr" };
     let assumed_known = if use_program_bank {
-        state::program_bank_known(ctx)
+        state::program_bank_known(expr_ctx.assembler_ctx)
     } else {
-        state::data_bank_known(ctx)
+        state::data_bank_known(expr_ctx.assembler_ctx)
     };
     if !assumed_known {
         return Err(bank_unknown_error(assumed_bank_key, upper_mnemonic));
     }
     let assumed_bank = if use_program_bank {
-        state::program_bank(ctx)
+        state::program_bank(expr_ctx.assembler_ctx)
     } else {
-        state::data_bank(ctx)
+        state::data_bank(expr_ctx.assembler_ctx)
     };
     let absolute_bank = ((value as u32) >> 16) as u8;
     if absolute_bank != assumed_bank {
@@ -4639,14 +4736,14 @@ fn direct_page_offset_for_absolute_address(address: u16, ctx: &dyn AssemblerCont
 
 fn encode_expr_rel8(
     expr: &Expr,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
     instr_len: i64,
 ) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
-    let current = ctx.current_address() as i64 + instr_len;
+    let value = expr_ctx.eval_expr(expr)?;
+    let current = expr_ctx.assembler_ctx.current_address() as i64 + instr_len;
     let offset = value - current;
     if !(-128..=127).contains(&offset) {
-        if ctx.pass() > 1 {
+        if expr_ctx.assembler_ctx.pass() > 1 {
             return Err(format!("Branch target out of range: offset {}", offset));
         }
         return Ok(vec![0]);
@@ -4656,14 +4753,14 @@ fn encode_expr_rel8(
 
 fn encode_expr_rel16(
     expr: &Expr,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
     instr_len: i64,
 ) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
-    let current = ctx.current_address() as i64 + instr_len;
+    let value = expr_ctx.eval_expr(expr)?;
+    let current = expr_ctx.assembler_ctx.current_address() as i64 + instr_len;
     let offset = value - current;
     if !(-32768..=32767).contains(&offset) {
-        if ctx.pass() > 1 {
+        if expr_ctx.assembler_ctx.pass() > 1 {
             return Err(format!(
                 "Long branch target out of range: offset {}",
                 offset
@@ -4681,16 +4778,16 @@ fn encode_expr_rel16(
 fn encode_expr_m65816_immediate(
     expr: &Expr,
     upper_mnemonic: &str,
-    ctx: &dyn AssemblerContext,
+    expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<Vec<u8>, String> {
-    let value = ctx.eval_expr(expr)?;
+    let value = expr_ctx.eval_expr(expr)?;
     let acc_imm = matches!(
         upper_mnemonic,
         "ADC" | "AND" | "BIT" | "CMP" | "EOR" | "LDA" | "ORA" | "SBC"
     );
     let idx_imm = matches!(upper_mnemonic, "CPX" | "CPY" | "LDX" | "LDY");
     if acc_imm {
-        if state::accumulator_is_8bit(ctx) {
+        if state::accumulator_is_8bit(expr_ctx.assembler_ctx) {
             if !(0..=255).contains(&value) {
                 return Err(format!(
                     "Accumulator immediate value {} out of range (0-255) in 8-bit mode",
@@ -4711,7 +4808,7 @@ fn encode_expr_m65816_immediate(
         ]);
     }
     if idx_imm {
-        if state::index_is_8bit(ctx) {
+        if state::index_is_8bit(expr_ctx.assembler_ctx) {
             if !(0..=255).contains(&value) {
                 return Err(format!(
                     "Index immediate value {} out of range (0-255) in 8-bit mode",
@@ -5053,6 +5150,7 @@ mod tests {
         cpu_flags: HashMap<String, u32>,
         addr: u32,
         pass: u8,
+        fail_eval_expr: bool,
     }
 
     impl TestAssemblerContext {
@@ -5063,12 +5161,16 @@ mod tests {
                 cpu_flags: HashMap::new(),
                 addr: 0,
                 pass: 2,
+                fail_eval_expr: false,
             }
         }
     }
 
     impl AssemblerContext for TestAssemblerContext {
         fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+            if self.fail_eval_expr {
+                return Err("forced test eval failure".to_string());
+            }
             match expr {
                 Expr::Number(text, _) => text
                     .parse::<i64>()
@@ -7758,6 +7860,33 @@ mod tests {
         assert!(candidates
             .iter()
             .all(|candidate| candidate.mode_key != "zeropage"));
+    }
+
+    #[test]
+    fn m6502_expr_candidates_use_portable_eval_under_rollout_gate() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let resolved = model
+            .resolve_pipeline("m6502", None)
+            .expect("resolve m6502 pipeline");
+
+        let span = Span::default();
+        let expr = Expr::Number("66".to_string(), span);
+        let mut ctx = TestAssemblerContext::new();
+        ctx.fail_eval_expr = true;
+
+        let candidates = model
+            .select_candidates_from_exprs_mos6502(&resolved, "LDA", &[expr], &ctx)
+            .expect("m6502 selector candidates")
+            .expect("m6502 candidates should exist");
+
+        assert_eq!(candidates[0].operand_bytes, vec![vec![66]]);
     }
 
     #[test]
