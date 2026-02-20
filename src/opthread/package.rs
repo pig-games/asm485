@@ -3740,4 +3740,44 @@ mod tests {
         );
         assert_eq!(ExprParserVmOpcode::from_u8(0xFF), None);
     }
+
+    #[test]
+    fn decode_malformed_count_stress_never_panics_and_returns_errors() {
+        let cpus = encode_cpus_chunk(&sample_cpus()).expect("cpus");
+        let dials = encode_dial_chunk(&sample_dialects()).expect("dial");
+        let regs = encode_regs_chunk(&[]).expect("regs");
+        let forms = encode_form_chunk(&[]).expect("form");
+        let tabl = encode_tabl_chunk(&[]).expect("tabl");
+
+        let mut seed = 0xC0FF_EE01u32;
+        for _ in 0..128 {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let mut fams = Vec::new();
+            write_u32(&mut fams, seed);
+
+            let chunks = vec![
+                (CHUNK_FAMS, fams),
+                (CHUNK_CPUS, cpus.clone()),
+                (CHUNK_DIAL, dials.clone()),
+                (CHUNK_REGS, regs.clone()),
+                (CHUNK_FORM, forms.clone()),
+                (CHUNK_TABL, tabl.clone()),
+            ];
+            let bytes = encode_container(&chunks).expect("container");
+
+            let result = decode_hierarchy_chunks(&bytes);
+            assert!(result.is_err(), "seeded malformed count should fail decode");
+            if let Err(error) = result {
+                assert!(
+                    matches!(
+                        error,
+                        OpcpuCodecError::InvalidChunkFormat { .. }
+                            | OpcpuCodecError::UnexpectedEof { .. }
+                            | OpcpuCodecError::CountOutOfRange { .. }
+                    ),
+                    "unexpected decoder error variant: {error:?}"
+                );
+            }
+        }
+    }
 }
