@@ -7432,6 +7432,51 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_parse_expression_for_assembler_rejects_unclosed_parenthesis() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+        let (tokens, end_span) = tokenize_core_expr_tokens("(1+2", 1);
+        let err = model
+            .parse_expression_for_assembler("m6502", None, tokens, end_span, None)
+            .expect_err("unclosed parenthesis should fail");
+        assert!(
+            err.message.contains("Unexpected")
+                || err.message.contains("expected ')'")
+                || err.message.contains("Missing ')'"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn execution_model_parse_expression_for_assembler_rejects_trailing_operator() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+        let (tokens, end_span) = tokenize_core_expr_tokens("1+", 1);
+        let err = model
+            .parse_expression_for_assembler("m6502", None, tokens, end_span, None)
+            .expect_err("trailing operator should fail");
+        assert!(
+            err.message.contains("Unexpected end of expression")
+                || err.message.contains("Expected expression"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
     fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));

@@ -306,16 +306,13 @@ fn parse_line_with_parser_vm(
                 parsed_line = Some(envelope.to_core_line_ast());
             }
             ParserVmOpcode::EmitDiag => {
-                let Some(slot) = parser_vm_program.program.get(pc).copied() else {
-                    return Err(parse_error_at_end(
-                        exec_ctx.source_line,
-                        exec_ctx.line_num,
-                        format!(
-                            "{}: parser VM EmitDiag missing slot operand",
-                            parser_contract.diagnostics.invalid_statement
-                        ),
-                    ));
-                };
+                let slot = parser_vm_read_diag_slot(
+                    parser_vm_program,
+                    &mut pc,
+                    exec_ctx,
+                    parser_contract,
+                    "EmitDiag",
+                )?;
                 let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
                 return Err(parse_error_at_end(
                     exec_ctx.source_line,
@@ -324,17 +321,13 @@ fn parse_line_with_parser_vm(
                 ));
             }
             ParserVmOpcode::EmitDiagIfNoAst => {
-                let Some(slot) = parser_vm_program.program.get(pc).copied() else {
-                    return Err(parse_error_at_end(
-                        exec_ctx.source_line,
-                        exec_ctx.line_num,
-                        format!(
-                            "{}: parser VM EmitDiagIfNoAst missing slot operand",
-                            parser_contract.diagnostics.invalid_statement
-                        ),
-                    ));
-                };
-                pc = pc.saturating_add(1);
+                let slot = parser_vm_read_diag_slot(
+                    parser_vm_program,
+                    &mut pc,
+                    exec_ctx,
+                    parser_contract,
+                    "EmitDiagIfNoAst",
+                )?;
                 if parsed_line.is_some() {
                     continue;
                 }
@@ -378,6 +371,27 @@ fn parser_diag_code_for_slot(
         2 => diagnostics.expected_operand.as_str(),
         _ => diagnostics.invalid_statement.as_str(),
     }
+}
+
+fn parser_vm_read_diag_slot(
+    parser_vm_program: &RuntimeParserVmProgram,
+    pc: &mut usize,
+    exec_ctx: ParserVmExecContext<'_>,
+    parser_contract: &RuntimeParserContract,
+    opcode_name: &str,
+) -> Result<u8, ParseError> {
+    let Some(slot) = parser_vm_program.program.get(*pc).copied() else {
+        return Err(parse_error_at_end(
+            exec_ctx.source_line,
+            exec_ctx.line_num,
+            format!(
+                "{}: parser VM {} missing slot operand",
+                parser_contract.diagnostics.invalid_statement, opcode_name
+            ),
+        ));
+    };
+    *pc = pc.saturating_add(1);
+    Ok(slot)
 }
 
 fn parse_statement_envelope_from_tokens(
@@ -2063,6 +2077,61 @@ mod tests {
                 assert_eq!(mnemonic.to_ascii_lowercase(), "lda");
             }
             other => panic!("expected instruction line ast, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_line_with_default_model_parses_use_directive() {
+        let line =
+            parse_line_with_default_model("    .use math as m", 1).expect(".use line should parse");
+        match line {
+            LineAst::Use {
+                module_id,
+                alias,
+                items,
+                params,
+                ..
+            } => {
+                assert_eq!(module_id, "math");
+                assert_eq!(alias.as_deref(), Some("m"));
+                assert!(items.is_empty());
+                assert!(params.is_empty());
+            }
+            other => panic!("expected .use AST, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_line_with_default_model_parses_place_directive() {
+        let line = parse_line_with_default_model("    .place code in ram, align=16", 1)
+            .expect(".place line should parse");
+        match line {
+            LineAst::Place {
+                section,
+                region,
+                align,
+                ..
+            } => {
+                assert_eq!(section, "code");
+                assert_eq!(region, "ram");
+                assert!(align.is_some());
+            }
+            other => panic!("expected .place AST, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_line_with_default_model_parses_pack_directive() {
+        let line = parse_line_with_default_model("    .pack in rom: code,data", 1)
+            .expect(".pack line should parse");
+        match line {
+            LineAst::Pack {
+                region, sections, ..
+            } => {
+                assert_eq!(region, "rom");
+                assert_eq!(sections, vec!["code".to_string(), "data".to_string()]);
+            }
+            other => panic!("expected .pack AST, got {other:?}"),
         }
     }
 
