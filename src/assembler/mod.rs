@@ -1070,6 +1070,12 @@ impl<'a> AsmLine<'a> {
         )
     }
 
+    fn portable_expr_runtime_force_host_for_family(&self, family_id: &str) -> bool {
+        self.opthread_expr_eval_force_host_families
+            .iter()
+            .any(|force_host| force_host.eq_ignore_ascii_case(family_id))
+    }
+
     fn build_opthread_execution_model(
         registry: &ModuleRegistry,
         cpu: CpuType,
@@ -3436,103 +3442,112 @@ impl<'a> AsmLine<'a> {
                 );
             }
             if let Some(model) = self.opthread_execution_model.as_ref() {
+                let runtime_expr_force_host =
+                    self.portable_expr_runtime_force_host_for_family(pipeline.family_id.as_str());
                 let strict_runtime_parse_resolve =
                     model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
-                let runtime_expr_bytes_authoritative =
-                    family_runtime_authoritative || strict_runtime_parse_resolve;
-                let runtime_expr_selector_gate_only = self
-                    .cpu
-                    .as_str()
-                    .eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str());
-                let runtime_expr_operands_storage =
-                    Self::opthread_runtime_expr_operands_from_mapped(
-                        pipeline.family_id.as_str(),
-                        mapped_operands.as_ref(),
-                    );
-                let runtime_expr_operands =
-                    runtime_expr_operands_storage.as_deref().unwrap_or(operands);
-                match model.encode_instruction_from_exprs(
-                    self.cpu.as_str(),
-                    None,
-                    &mapped_mnemonic,
-                    runtime_expr_operands,
-                    self,
-                ) {
-                    Ok(Some(bytes)) => {
-                        if runtime_expr_selector_gate_only {
-                            // Keep selector strictness checks, but defer final emission to
-                            // runtime VM encode over native-resolved operands for 65816.
-                        } else if bytes.is_empty() {
-                            if family_runtime_authoritative {
+                let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
+                    || family_runtime_authoritative)
+                    && !runtime_expr_force_host;
+                let runtime_expr_vm_path_enabled = (strict_runtime_parse_resolve
+                    || family_runtime_authoritative)
+                    && !runtime_expr_force_host;
+                let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
+                    && self
+                        .cpu
+                        .as_str()
+                        .eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str());
+                if runtime_expr_vm_path_enabled {
+                    let runtime_expr_operands_storage =
+                        Self::opthread_runtime_expr_operands_from_mapped(
+                            pipeline.family_id.as_str(),
+                            mapped_operands.as_ref(),
+                        );
+                    let runtime_expr_operands =
+                        runtime_expr_operands_storage.as_deref().unwrap_or(operands);
+                    match model.encode_instruction_from_exprs(
+                        self.cpu.as_str(),
+                        None,
+                        &mapped_mnemonic,
+                        runtime_expr_operands,
+                        self,
+                    ) {
+                        Ok(Some(bytes)) => {
+                            if runtime_expr_selector_gate_only {
+                                // Keep selector strictness checks, but defer final emission to
+                                // runtime VM encode over native-resolved operands for 65816.
+                            } else if bytes.is_empty() {
+                                if family_runtime_authoritative {
+                                    return self.failure(
+                                        LineStatus::Error,
+                                        AsmErrorKind::Instruction,
+                                        &format!(
+                                            "opThread VM program emitted no bytes for {}",
+                                            mapped_mnemonic.to_ascii_uppercase()
+                                        ),
+                                        None,
+                                    );
+                                }
+                                // Treat empty runtime output as no emission and continue
+                                // into native resolution/encoding.
+                            } else if !runtime_expr_bytes_authoritative {
+                                // Staged/non-strict families keep native resolution as the source
+                                // of truth for emission parity.
+                            } else {
+                                if let Err(err) = self.validate_instruction_emit_span(
+                                    &mapped_mnemonic,
+                                    operands,
+                                    bytes.len(),
+                                ) {
+                                    return self.failure_at_span(
+                                        LineStatus::Error,
+                                        AsmErrorKind::Instruction,
+                                        err.error.message(),
+                                        None,
+                                        err.span,
+                                    );
+                                }
+                                self.bytes.extend_from_slice(&bytes);
+                                if let Ok(resolved_operands) = pipeline.cpu.resolve_operands(
+                                    mnemonic,
+                                    mapped_operands.as_ref(),
+                                    self,
+                                ) {
+                                    self.apply_cpu_runtime_state_after_encode(
+                                        pipeline.cpu.as_ref(),
+                                        &mapped_mnemonic,
+                                        resolved_operands.as_ref(),
+                                    );
+                                }
+                                return LineStatus::Ok;
+                            }
+                        }
+                        Ok(None) => {
+                            let defer_to_native_diagnostics =
+                                pipeline.family_id.as_str().eq_ignore_ascii_case(
+                                    crate::families::intel8080::module::FAMILY_ID.as_str(),
+                                );
+                            if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
                                 return self.failure(
                                     LineStatus::Error,
                                     AsmErrorKind::Instruction,
                                     &format!(
-                                        "opThread VM program emitted no bytes for {}",
+                                        "No instruction found for {}",
                                         mapped_mnemonic.to_ascii_uppercase()
                                     ),
                                     None,
                                 );
                             }
-                            // Treat empty runtime output as no emission and continue
-                            // into native resolution/encoding.
-                        } else if !runtime_expr_bytes_authoritative {
-                            // Staged/non-strict families keep native resolution as the source
-                            // of truth for emission parity.
-                        } else {
-                            if let Err(err) = self.validate_instruction_emit_span(
-                                &mapped_mnemonic,
-                                operands,
-                                bytes.len(),
-                            ) {
-                                return self.failure_at_span(
+                        }
+                        Err(err) => {
+                            if !runtime_expr_selector_gate_only {
+                                return self.failure(
                                     LineStatus::Error,
                                     AsmErrorKind::Instruction,
-                                    err.error.message(),
+                                    &err.to_string(),
                                     None,
-                                    err.span,
                                 );
                             }
-                            self.bytes.extend_from_slice(&bytes);
-                            if let Ok(resolved_operands) = pipeline.cpu.resolve_operands(
-                                mnemonic,
-                                mapped_operands.as_ref(),
-                                self,
-                            ) {
-                                self.apply_cpu_runtime_state_after_encode(
-                                    pipeline.cpu.as_ref(),
-                                    &mapped_mnemonic,
-                                    resolved_operands.as_ref(),
-                                );
-                            }
-                            return LineStatus::Ok;
-                        }
-                    }
-                    Ok(None) => {
-                        let defer_to_native_diagnostics =
-                            pipeline.family_id.as_str().eq_ignore_ascii_case(
-                                crate::families::intel8080::module::FAMILY_ID.as_str(),
-                            );
-                        if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
-                            return self.failure(
-                                LineStatus::Error,
-                                AsmErrorKind::Instruction,
-                                &format!(
-                                    "No instruction found for {}",
-                                    mapped_mnemonic.to_ascii_uppercase()
-                                ),
-                                None,
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        if !runtime_expr_selector_gate_only {
-                            return self.failure(
-                                LineStatus::Error,
-                                AsmErrorKind::Instruction,
-                                &err.to_string(),
-                                None,
-                            );
                         }
                     }
                 }
