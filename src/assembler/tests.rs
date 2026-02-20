@@ -1,9 +1,9 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
-    expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
-    Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputDirective,
-    LinkerOutputFormat, ListingWriter, MapFileDirective, MapSymbolsMode, RegionState, RootMetadata,
-    SectionState, Severity,
+    expand_source_file, load_module_graph, root_module_id_from_lines,
+    set_host_expr_eval_failpoint_for_tests, AsmErrorKind, AsmLine, Assembler, ExportSectionsFormat,
+    ExportSectionsInclude, LineStatus, LinkerOutputDirective, LinkerOutputFormat, ListingWriter,
+    MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
 };
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
@@ -31,7 +31,8 @@ use crate::opthread::rollout::{
     FamilyRuntimeMode,
 };
 use crate::opthread::runtime::{
-    HierarchyExecutionModel, PortableSpan, PortableToken, PortableTokenKind,
+    set_core_expr_parser_failpoint_for_tests, HierarchyExecutionModel, PortableSpan, PortableToken,
+    PortableTokenKind,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
@@ -7156,6 +7157,112 @@ fn opthread_runtime_mos6502_expr_parser_contract_breakage_errors_instead_of_host
             .to_ascii_lowercase()
             .contains("unsupported expression parser contract opcode version"),
         "expected expression parser contract compatibility failure, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_data_eval_survives_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
+}
+
+#[test]
+fn opthread_runtime_i8085_data_eval_still_uses_host_evaluator_under_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.contains("host expression evaluator failpoint"),
+        "expected host failpoint diagnostic, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_expr_parse_survives_core_parser_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_core_expr_parser_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_core_expr_parser_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
+}
+
+#[test]
+fn opthread_runtime_i8085_expr_parse_hits_core_parser_failpoint_when_staged() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_core_expr_parser_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_core_expr_parser_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.contains("core expression parser failpoint"),
+        "expected core parser failpoint diagnostic, got: {message}"
     );
 }
 

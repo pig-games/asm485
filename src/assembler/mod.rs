@@ -48,6 +48,8 @@ use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolV
 use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
+#[cfg(test)]
+use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::families::intel8080::module::Intel8080FamilyModule;
@@ -77,6 +79,15 @@ const OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_FOR
 #[cfg(feature = "opthread-runtime-opcpu-artifact")]
 const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
     "target/opthread/opforge-runtime.opcpu";
+#[cfg(test)]
+thread_local! {
+    static HOST_EXPR_EVAL_FAILPOINT: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_host_expr_eval_failpoint_for_tests(enabled: bool) {
+    HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.set(enabled));
+}
 
 fn default_cpu() -> CpuType {
     crate::i8085::module::CPU_ID
@@ -4445,6 +4456,18 @@ impl<'a> AsmLine<'a> {
     }
 
     fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
+        #[cfg(test)]
+        if HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.get()) {
+            return Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "host expression evaluator failpoint",
+                    None,
+                ),
+                span: expr_span(expr),
+            });
+        }
+
         match expr {
             Expr::Error(message, span) => Err(AstEvalError {
                 error: AsmError::new(AsmErrorKind::Expression, message, None),

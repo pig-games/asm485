@@ -3,9 +3,9 @@
 
 //! Host/runtime bridge helpers for hierarchy-aware target selection.
 
-use std::collections::{HashMap, HashSet};
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::expr_vm::{
     compile_core_expr_to_portable_program, eval_portable_expr_program,
@@ -58,7 +58,14 @@ use crate::z80::extensions::lookup_extension as lookup_z80_extension;
 use crate::z80::handler::Z80CpuHandler;
 
 #[cfg(test)]
-static CORE_EXPR_PARSER_FAILPOINT: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static CORE_EXPR_PARSER_FAILPOINT: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_core_expr_parser_failpoint_for_tests(enabled: bool) {
+    CORE_EXPR_PARSER_FAILPOINT.with(|flag| flag.set(enabled));
+}
 
 /// Family-keyed operand parse/resolve adapter used by expr-based runtime encode.
 ///
@@ -2037,7 +2044,7 @@ impl HierarchyExecutionModel {
         }
 
         #[cfg(test)]
-        if CORE_EXPR_PARSER_FAILPOINT.load(Ordering::Relaxed) {
+        if CORE_EXPR_PARSER_FAILPOINT.with(|flag| flag.get()) {
             return Err(ParseError {
                 message: "core expression parser failpoint".to_string(),
                 span: end_span,
@@ -7302,12 +7309,12 @@ mod tests {
 
         impl Drop for FailpointReset {
             fn drop(&mut self) {
-                CORE_EXPR_PARSER_FAILPOINT.store(false, Ordering::Relaxed);
+                CORE_EXPR_PARSER_FAILPOINT.with(|flag| flag.set(false));
             }
         }
 
         let _reset = FailpointReset;
-        CORE_EXPR_PARSER_FAILPOINT.store(true, Ordering::Relaxed);
+        CORE_EXPR_PARSER_FAILPOINT.with(|flag| flag.set(true));
 
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -7336,12 +7343,12 @@ mod tests {
 
         impl Drop for FailpointReset {
             fn drop(&mut self) {
-                CORE_EXPR_PARSER_FAILPOINT.store(false, Ordering::Relaxed);
+                CORE_EXPR_PARSER_FAILPOINT.with(|flag| flag.set(false));
             }
         }
 
         let _reset = FailpointReset;
-        CORE_EXPR_PARSER_FAILPOINT.store(true, Ordering::Relaxed);
+        CORE_EXPR_PARSER_FAILPOINT.with(|flag| flag.set(true));
 
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
