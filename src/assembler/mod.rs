@@ -3924,15 +3924,11 @@ impl<'a> AsmLine<'a> {
     }
 
     fn eval_expr_for_data_directive(&self, expr: &Expr) -> Result<u32, AstEvalError> {
-        if let Expr::Identifier(name, span) | Expr::Register(name, span) = expr {
-            if let Some(entry) = self.lookup_scoped_entry(name) {
-                if !self.entry_is_visible(entry) {
-                    return Err(AstEvalError {
-                        error: self.visibility_error(name),
-                        span: *span,
-                    });
-                }
-            }
+        if let Some((name, span)) = self.find_private_symbol_in_expr(expr) {
+            return Err(AstEvalError {
+                error: self.visibility_error(&name),
+                span,
+            });
         }
 
         match AssemblerContext::eval_expr(self, expr) {
@@ -3941,6 +3937,39 @@ impl<'a> AsmLine<'a> {
                 error: AsmError::new(AsmErrorKind::Expression, &message, None),
                 span: expr_span(expr),
             }),
+        }
+    }
+
+    fn find_private_symbol_in_expr(&self, expr: &Expr) -> Option<(String, Span)> {
+        match expr {
+            Expr::Identifier(name, span) | Expr::Register(name, span) => {
+                if let Some(entry) = self.lookup_scoped_entry(name) {
+                    if !self.entry_is_visible(entry) {
+                        return Some((name.clone(), *span));
+                    }
+                }
+                None
+            }
+            Expr::Indirect(inner, _)
+            | Expr::IndirectLong(inner, _)
+            | Expr::Immediate(inner, _)
+            | Expr::Unary { expr: inner, .. } => self.find_private_symbol_in_expr(inner),
+            Expr::Tuple(items, _) => items
+                .iter()
+                .find_map(|item| self.find_private_symbol_in_expr(item)),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => self
+                .find_private_symbol_in_expr(cond)
+                .or_else(|| self.find_private_symbol_in_expr(then_expr))
+                .or_else(|| self.find_private_symbol_in_expr(else_expr)),
+            Expr::Binary { left, right, .. } => self
+                .find_private_symbol_in_expr(left)
+                .or_else(|| self.find_private_symbol_in_expr(right)),
+            Expr::Error(_, _) | Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) => None,
         }
     }
 
