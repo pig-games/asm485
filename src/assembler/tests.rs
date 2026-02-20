@@ -609,7 +609,7 @@ fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
 
 fn expected_example_error(base: &str) -> Option<&'static str> {
     match base {
-        "errors" => Some("Assembly failed: Illegal character in decimal constant: 5X5"),
+        "errors" => Some("Assembly failed: ope005: invalid number: 5X5"),
         "statement_signature_error" => Some("Preprocess failed: Missing closing }]"),
         "statement_unquoted_comma_error" => {
             Some("Preprocess failed: Commas must be quoted in statement signatures")
@@ -1593,21 +1593,21 @@ fn byte_strings_use_active_encoding() {
 }
 
 #[test]
-fn encoding_directive_accepts_alias_and_string_name() {
+fn encoding_directive_accepts_known_names() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = make_asm_line(&mut symbols, &registry);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
-    let status = process_line(&mut asm, "    .encoding \"petscii\"", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
-    let status = process_line(&mut asm, "    .byte \"a\"", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .enc petscii", 0, 2);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
+    let status = process_line(&mut asm, "    .text \"a\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
     assert_eq!(asm.bytes(), &[0x41]);
 
     let status = process_line(&mut asm, "    .enc ascii", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
-    let status = process_line(&mut asm, "    .byte \"a\"", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
+    let status = process_line(&mut asm, "    .text \"a\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
     assert_eq!(asm.bytes(), &[0x61]);
 }
 
@@ -1694,32 +1694,54 @@ fn ptext_rejects_encoded_strings_over_255_bytes() {
 }
 
 #[test]
-fn string_expressions_use_active_encoding() {
+fn string_expressions_are_rejected_by_portable_vm() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = make_asm_line(&mut symbols, &registry);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let status = process_line(&mut asm, "    .enc petscii", 0, 1);
     assert_eq!(status, LineStatus::Ok);
 
     let status = process_line(&mut asm, "VAL .const 'a'", 0, 1);
-    assert_eq!(status, LineStatus::DirEqu);
-    assert_eq!(asm.symbols().lookup("VAL"), Some(0x41));
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope006"),
+        "expected portable VM unsupported-string diagnostic, got: {message}"
+    );
 }
 
 #[test]
 fn module_entry_resets_text_encoding_to_default() {
-    let assembler = run_passes(&[
-        ".module first",
-        "    .enc petscii",
-        "    .byte \"a\"",
-        ".endmodule",
-        ".module second",
-        "    .byte \"a\"",
-        ".endmodule",
-    ]);
-    let entries = assembler.image().entries().expect("entries");
-    assert_eq!(entries, vec![(0x0000, 0x41), (0x0001, 0x61)]);
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    assert_eq!(
+        process_line(&mut asm, ".module first", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, "    .enc petscii", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, "    .text \"a\"", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes(), &[0x41]);
+    assert_eq!(process_line(&mut asm, ".endmodule", 0, 1), LineStatus::Ok);
+
+    assert_eq!(
+        process_line(&mut asm, ".module second", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, "    .text \"a\"", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes(), &[0x61]);
+    assert_eq!(process_line(&mut asm, ".endmodule", 0, 1), LineStatus::Ok);
 }
 
 #[test]
@@ -6871,14 +6893,14 @@ fn opthread_expr_parser_rollout_criteria_all_registered_families_have_policy_and
 }
 
 #[test]
-fn opthread_expr_parser_rollout_criteria_mos_default_and_intel_staged() {
+fn opthread_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
     assert!(
         crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
             "mos6502"
         )
     );
     assert!(
-        !crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
+        crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
             "intel8080"
         )
     );
@@ -7186,7 +7208,7 @@ fn opthread_runtime_mos6502_data_eval_survives_host_evaluator_failpoint() {
 }
 
 #[test]
-fn opthread_runtime_i8085_data_eval_still_uses_host_evaluator_under_failpoint() {
+fn opthread_runtime_i8085_data_eval_survives_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7206,11 +7228,8 @@ fn opthread_runtime_i8085_data_eval_still_uses_host_evaluator_under_failpoint() 
 
     let status = asm.process("    .byte 1+2", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
-    assert_eq!(status, LineStatus::Error);
-    assert!(
-        message.contains("host expression evaluator failpoint"),
-        "expected host failpoint diagnostic, got: {message}"
-    );
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
 }
 
 #[test]
@@ -7239,7 +7258,7 @@ fn opthread_runtime_mos6502_expr_parse_survives_core_parser_failpoint() {
 }
 
 #[test]
-fn opthread_runtime_i8085_expr_parse_hits_core_parser_failpoint_when_staged() {
+fn opthread_runtime_i8085_expr_parse_survives_core_parser_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7259,11 +7278,8 @@ fn opthread_runtime_i8085_expr_parse_hits_core_parser_failpoint_when_staged() {
 
     let status = asm.process("    .byte 1+2", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
-    assert_eq!(status, LineStatus::Error);
-    assert!(
-        message.contains("core expression parser failpoint"),
-        "expected core parser failpoint diagnostic, got: {message}"
-    );
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
 }
 
 #[test]
@@ -7292,7 +7308,7 @@ fn opthread_runtime_mos6502_instruction_expr_parse_survives_core_parser_failpoin
 }
 
 #[test]
-fn opthread_runtime_i8085_instruction_expr_parse_hits_core_parser_failpoint_when_staged() {
+fn opthread_runtime_i8085_instruction_expr_parse_survives_core_parser_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7312,11 +7328,8 @@ fn opthread_runtime_i8085_instruction_expr_parse_hits_core_parser_failpoint_when
 
     let status = asm.process("    MVI A, 1+2", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
-    assert_eq!(status, LineStatus::Error);
-    assert!(
-        message.contains("core expression parser failpoint"),
-        "expected core parser failpoint diagnostic, got: {message}"
-    );
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[0x3E, 0x03]);
 }
 
 #[test]
@@ -7345,7 +7358,7 @@ fn opthread_runtime_mos6502_instruction_expr_eval_survives_host_evaluator_failpo
 }
 
 #[test]
-fn opthread_runtime_i8085_instruction_expr_eval_still_uses_host_evaluator_under_failpoint() {
+fn opthread_runtime_i8085_instruction_expr_eval_survives_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7365,15 +7378,12 @@ fn opthread_runtime_i8085_instruction_expr_eval_still_uses_host_evaluator_under_
 
     let status = asm.process("    MVI A, 1+2", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
-    assert_eq!(status, LineStatus::Error);
-    assert!(
-        message.contains("host expression evaluator failpoint"),
-        "expected host failpoint diagnostic, got: {message}"
-    );
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[0x3E, 0x03]);
 }
 
 #[test]
-fn opthread_runtime_intel8085_expr_parser_contract_breakage_keeps_host_default() {
+fn opthread_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7398,7 +7408,14 @@ fn opthread_runtime_intel8085_expr_parser_contract_breakage_keeps_host_default()
     asm.clear_scopes();
 
     let status = asm.process("    MVI A, ($10 + 1)", 1, 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported expression parser contract opcode version"),
+        "expected expression parser contract compatibility failure, got: {message}"
+    );
 }
 
 #[test]
@@ -7539,7 +7556,7 @@ fn opthread_runtime_mos6502_data_directive_eval_uses_portable_eval_by_default_wh
 }
 
 #[test]
-fn opthread_runtime_intel8085_data_directive_eval_remains_host_while_staged() {
+fn opthread_runtime_intel8085_data_directive_eval_uses_portable_eval_by_default() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7564,7 +7581,12 @@ fn opthread_runtime_intel8085_data_directive_eval_remains_host_while_staged() {
     asm.clear_scopes();
 
     let status = asm.process("    .db (1 + 2)", 1, 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected intel8080-family data directive expression to enforce VM budget contract, got: {message}"
+    );
 }
 
 #[test]
@@ -7602,7 +7624,7 @@ fn opthread_runtime_mos6502_layout_directive_eval_uses_portable_eval_by_default_
 }
 
 #[test]
-fn opthread_runtime_intel8085_layout_directive_eval_remains_host_while_staged() {
+fn opthread_runtime_intel8085_layout_directive_eval_uses_portable_eval_by_default() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7627,7 +7649,12 @@ fn opthread_runtime_intel8085_layout_directive_eval_remains_host_while_staged() 
     asm.clear_scopes();
 
     let status = asm.process(".region ram, $1000, $10ff, align=(1+1)", 1, 0, 1);
-    assert_eq!(status, LineStatus::Ok);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected intel8080-family layout directive expression to enforce VM budget contract, got: {message}"
+    );
 }
 
 #[test]
@@ -7675,7 +7702,7 @@ fn opthread_runtime_mos6502_complex_layout_directives_survive_host_evaluator_fai
 }
 
 #[test]
-fn opthread_runtime_i8085_complex_layout_directives_still_use_host_under_failpoint() {
+fn opthread_runtime_i8085_complex_layout_directives_survive_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7706,19 +7733,15 @@ fn opthread_runtime_i8085_complex_layout_directives_still_use_host_under_failpoi
     assembler.clear_diagnostics();
 
     let pass1 = assembler.pass1(&lines);
-    assert!(pass1.errors > 0);
-    let diagnostics = assembler
-        .diagnostics
-        .iter()
-        .filter(|diag| diag.severity == Severity::Error)
-        .map(|diag| diag.error.message().to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    assert!(
-        diagnostics
+    assert_eq!(
+        pass1.errors,
+        0,
+        "expected intel8080-family complex layout directives to bypass host evaluator failpoint: {:?}",
+        assembler
+            .diagnostics
             .iter()
-            .any(|message| message.contains("host expression evaluator failpoint")),
-        "expected staged complex layout directives to hit host evaluator failpoint, got: {:?}",
-        diagnostics
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -7763,7 +7786,7 @@ fn opthread_runtime_mos6502_output_directive_eval_uses_portable_eval_by_default_
 }
 
 #[test]
-fn opthread_runtime_intel8085_output_directive_eval_remains_host_while_staged() {
+fn opthread_runtime_intel8085_output_directive_eval_uses_portable_eval_by_default() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7794,7 +7817,12 @@ fn opthread_runtime_intel8085_output_directive_eval_remains_host_while_staged() 
         0,
         1,
     );
-    assert_eq!(status, LineStatus::Ok);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected intel8080-family output directive expression to enforce VM budget contract, got: {message}"
+    );
 }
 
 #[test]
@@ -7926,7 +7954,7 @@ fn opthread_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_por
 }
 
 #[test]
-fn opthread_runtime_intel8085_eval_expr_remains_native_while_expr_gate_is_staged() {
+fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_authoritative() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7951,7 +7979,12 @@ fn opthread_runtime_intel8085_eval_expr_remains_native_while_expr_gate_is_staged
     asm.clear_scopes();
 
     let status = asm.process("    MVI A, 3", 1, 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected default intel8080-family VM eval path to enforce expr budgets, got: {message}"
+    );
 }
 
 #[test]

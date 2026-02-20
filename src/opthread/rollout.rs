@@ -77,8 +77,8 @@ pub(crate) const FAMILY_EXPR_EVAL_ROLLOUT: &[FamilyExprEvalRollout] = &[
     },
     FamilyExprEvalRollout {
         family_id: "intel8080",
-        expr_eval_mode: FamilyExprEvalMode::StagedVerification,
-        migration_checklist: "phase7-intel8080-expr-vm-staged",
+        expr_eval_mode: FamilyExprEvalMode::Authoritative,
+        migration_checklist: "phase7-intel8080-expr-vm-authoritative",
     },
 ];
 
@@ -143,8 +143,8 @@ pub(crate) const FAMILY_EXPR_PARSER_ROLLOUT: &[FamilyExprParserRollout] = &[
     },
     FamilyExprParserRollout {
         family_id: "intel8080",
-        expr_parser_mode: FamilyExprParserMode::StagedVerification,
-        migration_checklist: "phase8-intel8080-expr-parser-vm-staged",
+        expr_parser_mode: FamilyExprParserMode::Authoritative,
+        migration_checklist: "phase8-intel8080-expr-parser-vm-authoritative",
     },
 ];
 
@@ -251,12 +251,12 @@ mod tests {
     }
 
     #[test]
-    fn expr_eval_rollout_keeps_intel_family_staged() {
+    fn expr_eval_rollout_marks_intel_family_as_authoritative() {
         assert_eq!(
             family_expr_eval_mode("intel8080"),
-            FamilyExprEvalMode::StagedVerification
+            FamilyExprEvalMode::Authoritative
         );
-        assert!(!portable_expr_runtime_default_enabled_for_family(
+        assert!(portable_expr_runtime_default_enabled_for_family(
             "intel8080"
         ));
     }
@@ -319,12 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn expr_parser_rollout_keeps_intel_family_staged() {
+    fn expr_parser_rollout_marks_intel_family_as_authoritative() {
         assert_eq!(
             family_expr_parser_mode("intel8080"),
-            FamilyExprParserMode::StagedVerification
+            FamilyExprParserMode::Authoritative
         );
-        assert!(!portable_expr_parser_runtime_default_enabled_for_family(
+        assert!(portable_expr_parser_runtime_default_enabled_for_family(
             "intel8080"
         ));
     }

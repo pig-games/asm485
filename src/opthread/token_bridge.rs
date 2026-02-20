@@ -3012,7 +3012,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_program_ref_with_vm_contract_keeps_staged_family_on_host_default() {
+    fn parse_expr_program_ref_with_vm_contract_enforces_vm_contract_for_intel_family() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(Intel8080FamilyModule));
         registry.register_family(Box::new(MOS6502FamilyModule));
@@ -3046,7 +3046,7 @@ mod tests {
             span,
         }];
 
-        let (expr_ref, program) = parse_expr_program_ref_with_vm_contract(
+        let err = parse_expr_program_ref_with_vm_contract(
             &VmExprParseContext {
                 model: &model,
                 cpu_id: "8085",
@@ -3057,12 +3057,13 @@ mod tests {
             None,
             None,
         )
-        .expect("staged family should keep host-default expression parsing path");
-
-        assert_eq!(expr_ref.index, 0);
-        assert_eq!(
-            program.opcode_version,
-            crate::core::expr_vm::EXPR_VM_OPCODE_VERSION_V1
+        .expect_err("intel family should enforce expression parser VM contract compatibility");
+        assert!(
+            err.message
+                .to_ascii_lowercase()
+                .contains("unsupported expression parser contract opcode version"),
+            "expected expression parser contract compatibility failure, got: {}",
+            err.message
         );
     }
 
