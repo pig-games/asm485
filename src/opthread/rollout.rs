@@ -103,6 +103,16 @@ pub(crate) fn portable_expr_runtime_default_enabled_for_family(family_id: &str) 
     )
 }
 
+pub(crate) fn portable_expr_runtime_enabled_for_family(
+    family_id: &str,
+    opt_in_families: &[String],
+) -> bool {
+    portable_expr_runtime_default_enabled_for_family(family_id)
+        || opt_in_families
+            .iter()
+            .any(|opt_in| opt_in.eq_ignore_ascii_case(family_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +185,23 @@ mod tests {
         for entry in FAMILY_EXPR_EVAL_ROLLOUT {
             assert!(!entry.migration_checklist.trim().is_empty());
         }
+    }
+
+    #[test]
+    fn expr_eval_rollout_opt_in_promotes_staged_family() {
+        let opt_in = vec!["intel8080".to_string()];
+        assert!(portable_expr_runtime_enabled_for_family(
+            "intel8080",
+            &opt_in
+        ));
+    }
+
+    #[test]
+    fn expr_eval_rollout_opt_in_is_case_insensitive() {
+        let opt_in = vec!["Intel8080".to_string()];
+        assert!(portable_expr_runtime_enabled_for_family(
+            "intel8080",
+            &opt_in
+        ));
     }
 }

@@ -7118,6 +7118,39 @@ fn opthread_runtime_intel8085_eval_expr_remains_native_while_expr_gate_is_staged
 }
 
 #[test]
+fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_when_opted_in() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.opthread_expr_eval_opt_in_families
+        .push("intel8080".to_string());
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, 3", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.to_ascii_lowercase().contains("ope007"));
+}
+
+#[test]
 fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

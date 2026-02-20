@@ -17,6 +17,7 @@ use bootstrap::*;
 use engine::Assembler;
 
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -71,6 +72,7 @@ pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as
 pub use cli::VERSION;
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
+const OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES";
 #[cfg(feature = "opthread-runtime-opcpu-artifact")]
 const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
     "target/opthread/opforge-runtime.opcpu";
@@ -917,6 +919,7 @@ struct AsmLine<'a> {
     cpu_word_size_bytes: u32,
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
+    opthread_expr_eval_opt_in_families: Vec<String>,
     opthread_execution_model: Option<HierarchyExecutionModel>,
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
@@ -979,6 +982,7 @@ impl<'a> AsmLine<'a> {
             cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
+            opthread_expr_eval_opt_in_families: Self::expr_eval_opt_in_families_from_env(),
             opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
             text_encoding_registry,
             active_text_encoding,
@@ -1024,6 +1028,34 @@ impl<'a> AsmLine<'a> {
             Ok(pipeline) => pipeline.cpu.is_little_endian(),
             Err(_) => true,
         }
+    }
+
+    fn expr_eval_opt_in_families_from_env() -> Vec<String> {
+        let Ok(raw) = env::var(OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV) else {
+            return Vec::new();
+        };
+
+        let mut families = Vec::new();
+        for candidate in raw
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
+            if !families
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(candidate))
+            {
+                families.push(candidate.to_string());
+            }
+        }
+        families
+    }
+
+    fn portable_expr_runtime_enabled_for_family(&self, family_id: &str) -> bool {
+        crate::opthread::rollout::portable_expr_runtime_enabled_for_family(
+            family_id,
+            &self.opthread_expr_eval_opt_in_families,
+        )
     }
 
     fn build_opthread_execution_model(
@@ -4493,9 +4525,8 @@ impl<'a> AssemblerContext for AsmLine<'a> {
             if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
                 if crate::opthread::rollout::package_runtime_default_enabled_for_family(
                     pipeline.family_id.as_str(),
-                ) && crate::opthread::rollout::portable_expr_runtime_default_enabled_for_family(
-                    pipeline.family_id.as_str(),
-                ) {
+                ) && self.portable_expr_runtime_enabled_for_family(pipeline.family_id.as_str())
+                {
                     let program = compile_core_expr_to_portable_program(expr)
                         .map_err(|err| err.to_string())?;
                     match model.evaluate_portable_expression_program_with_contract_for_assembler(
