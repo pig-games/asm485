@@ -36,6 +36,43 @@ Run the full test suite:
 
     make test
 
+Run opThread parity smoke checks (optional feature lane):
+
+    make test-opthread-parity
+
+Run MOS6502 runtime/package parity checks:
+
+    make test-opthread-runtime
+
+Run MOS6502 runtime/package artifact-mode checks (optional feature lane):
+
+    make test-opthread-runtime-artifact
+
+Run Intel8080-family runtime/package parity checks:
+
+    make test-opthread-runtime-intel
+
+Run rollout policy/criteria gate checks:
+
+    make test-opthread-rollout-criteria
+
+Run the local MOS6502 CI gate bundle:
+
+    make ci-opthread-mos6502
+
+Run the local Intel8080-family CI gate bundle:
+
+    make ci-opthread-intel8080
+
+opThread rollout status (VM runtime is default):
+- Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
+- Authoritative package-runtime family: `intel8080` (`8085`, `z80`).
+
+Optional on-disk runtime package artifact mode:
+- Enable feature `opthread-runtime-opcpu-artifact`.
+- Runtime then loads/writes `.opcpu` bytes at `target/opthread/opforge-runtime.opcpu` with registry-build fallback.
+- Rust-table-driven package generation remains the supported authoring path for new families/CPUs (`build_hierarchy_package_from_registry`).
+
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
     make reference

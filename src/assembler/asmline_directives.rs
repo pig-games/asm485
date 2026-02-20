@@ -161,7 +161,7 @@ impl<'a> AsmLine<'a> {
                     );
                 };
 
-                let start = match self.eval_expr_ast(&operands[1]) {
+                let start = match self.eval_expr_for_data_directive(&operands[1]) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -184,7 +184,7 @@ impl<'a> AsmLine<'a> {
                         err.span,
                     );
                 }
-                let end = match self.eval_expr_ast(&operands[2]) {
+                let end = match self.eval_expr_for_data_directive(&operands[2]) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -254,7 +254,7 @@ impl<'a> AsmLine<'a> {
                             *span,
                         );
                     }
-                    let value = match self.eval_expr_ast(right) {
+                    let value = match self.eval_expr_for_data_directive(right) {
                         Ok(value) => value,
                         Err(err) => {
                             return self.failure_at_span(
@@ -797,7 +797,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let val = match self.eval_expr_ast(expr) {
+                let val = match self.eval_expr_for_data_directive(expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -847,7 +847,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let val = match self.eval_expr_ast(expr) {
+                let val = match self.eval_expr_for_data_directive(expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -904,7 +904,7 @@ impl<'a> AsmLine<'a> {
                     }
                 };
                 let is_rw = directive == "SET" || directive == "VAR";
-                let val = match self.eval_expr_ast(expr) {
+                let val = match self.eval_expr_for_data_directive(expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -1032,7 +1032,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let val = match self.eval_expr_ast(expr) {
+                let val = match self.eval_expr_for_data_directive(expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -1364,7 +1364,7 @@ impl<'a> AsmLine<'a> {
         value_expr: &Expr,
         _span: Span,
     ) -> Result<u32, LineStatus> {
-        let value = match self.eval_expr_ast(value_expr) {
+        let value = match self.eval_expr_for_data_directive(value_expr) {
             Ok(value) => value,
             Err(err) => {
                 return Err(self.failure_at_span(
@@ -1907,7 +1907,7 @@ impl<'a> AsmLine<'a> {
                         option_span,
                     );
                 }
-                let value = match self.eval_expr_ast(value_expr) {
+                let value = match self.eval_expr_for_data_directive(value_expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -2284,7 +2284,7 @@ impl<'a> AsmLine<'a> {
             };
 
             if key.eq_ignore_ascii_case("align") {
-                let align = match self.eval_expr_ast(right) {
+                let align = match self.eval_expr_for_data_directive(right) {
                     Ok(value) => value,
                     Err(err) => {
                         return Err(self.failure_at_span(
@@ -2403,6 +2403,12 @@ impl<'a> AsmLine<'a> {
                 }
             };
         if section_placed {
+            if self.pass > 1 {
+                // Pass2 is seeded from pass1 placement state. Treat repeated
+                // placement directives as idempotent so source-order .place/.pack
+                // does not perturb already-rebased section addresses.
+                return LineStatus::Ok;
+            }
             return self.failure_at_span(
                 LineStatus::Error,
                 AsmErrorKind::Directive,
@@ -2547,7 +2553,7 @@ impl<'a> AsmLine<'a> {
         span: Span,
     ) -> LineStatus {
         let directive_align = if let Some(expr) = align_expr {
-            let value = match self.eval_expr_ast(expr) {
+            let value = match self.eval_expr_for_data_directive(expr) {
                 Ok(value) => value,
                 Err(err) => {
                     return self.failure_at_span(

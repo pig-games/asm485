@@ -195,130 +195,130 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              192  ; ========================================
 ----                              193  ; CB-PREFIX — ROTATE / SHIFT ON (HL)
 ----                              194  ; ========================================
-0124    07                        195          rlc (hl)        ; CB 06
-0125    0F                        196          rrc (hl)        ; CB 0E
-0126    CB 16                     197          rl (hl)         ; CB 16
-0128    CB 1E                     198          rr (hl)         ; CB 1E
-012A    CB 26                     199          sla (hl)        ; CB 26
-012C    CB 2E                     200          sra (hl)        ; CB 2E
-012E    CB 36                     201          sll (hl)        ; CB 36  (undocumented)
-0130    CB 3E                     202          srl (hl)        ; CB 3E
+0124    CB 06                     195          rlc (hl)        ; CB 06
+0126    CB 0E                     196          rrc (hl)        ; CB 0E
+0128    CB 16                     197          rl (hl)         ; CB 16
+012A    CB 1E                     198          rr (hl)         ; CB 1E
+012C    CB 26                     199          sla (hl)        ; CB 26
+012E    CB 2E                     200          sra (hl)        ; CB 2E
+0130    CB 36                     201          sll (hl)        ; CB 36  (undocumented)
+0132    CB 3E                     202          srl (hl)        ; CB 3E
 ----                              203  
 ----                              204  ; ========================================
 ----                              205  ; CB-PREFIX — BIT / SET / RES
 ----                              206  ; ========================================
-0132    CB 47                     207          bit 0, a        ; CB 47
-0134    CB 58                     208          bit 3, b        ; CB 58
-0136    CB 7E                     209          bit 7, (hl)     ; CB 7E
-0138    CB C1                     210          set 0, c        ; CB C1
-013A    CB EE                     211          set 5, (hl)     ; CB EE
-013C    CB 8F                     212          res 1, a        ; CB 8F
-013E    CB B2                     213          res 6, d        ; CB B2
+0134    CB 47                     207          bit 0, a        ; CB 47
+0136    CB 58                     208          bit 3, b        ; CB 58
+0138    CB 7E                     209          bit 7, (hl)     ; CB 7E
+013A    CB C1                     210          set 0, c        ; CB C1
+013C    CB EE                     211          set 5, (hl)     ; CB EE
+013E    CB 8F                     212          res 1, a        ; CB 8F
+0140    CB B2                     213          res 6, d        ; CB B2
 ----                              214  
 ----                              215  ; ========================================
 ----                              216  ; CB-PREFIX — INDEXED ROTATE / SHIFT
 ----                              217  ; ========================================
-0140    DD CB 05 06               218          rlc (ix+5)      ; DD CB 05 06
-0144    FD CB FE 0E               219          rrc (iy-2)      ; FD CB FE 0E
-0148    DD CB 01 16               220          rl (ix+1)       ; DD CB 01 16
-014C    FD CB 03 1E               221          rr (iy+3)       ; FD CB 03 1E
-0150    DD CB 00 26               222          sla (ix+0)      ; DD CB 00 26
-0154    FD CB 07 2E               223          sra (iy+7)      ; FD CB 07 2E
-0158    DD CB 02 36               224          sll (ix+2)      ; DD CB 02 36  (undocumented)
-015C    FD CB FF 3E               225          srl (iy-1)      ; FD CB FF 3E
+0142    DD CB 05 06               218          rlc (ix+5)      ; DD CB 05 06
+0146    FD CB FE 0E               219          rrc (iy-2)      ; FD CB FE 0E
+014A    DD CB 01 16               220          rl (ix+1)       ; DD CB 01 16
+014E    FD CB 03 1E               221          rr (iy+3)       ; FD CB 03 1E
+0152    DD CB 00 26               222          sla (ix+0)      ; DD CB 00 26
+0156    FD CB 07 2E               223          sra (iy+7)      ; FD CB 07 2E
+015A    DD CB 02 36               224          sll (ix+2)      ; DD CB 02 36  (undocumented)
+015E    FD CB FF 3E               225          srl (iy-1)      ; FD CB FF 3E
 ----                              226  
 ----                              227  ; ========================================
 ----                              228  ; CB-PREFIX — INDEXED BIT / SET / RES
 ----                              229  ; ========================================
-0160    DD CB 05 56               230          bit 2, (ix+5)   ; DD CB 05 56
-0164    FD CB FD 66               231          bit 4, (iy-3)   ; FD CB FD 66
-0168    DD CB 00 FE               232          set 7, (ix+0)   ; DD CB 00 FE
-016C    FD CB 06 CE               233          set 1, (iy+6)   ; FD CB 06 CE
-0170    DD CB FF 9E               234          res 3, (ix-1)   ; DD CB FF 9E
-0174    FD CB 02 86               235          res 0, (iy+2)   ; FD CB 02 86
+0162    DD CB 05 56               230          bit 2, (ix+5)   ; DD CB 05 56
+0166    FD CB FD 66               231          bit 4, (iy-3)   ; FD CB FD 66
+016A    DD CB 00 FE               232          set 7, (ix+0)   ; DD CB 00 FE
+016E    FD CB 06 CE               233          set 1, (iy+6)   ; FD CB 06 CE
+0172    DD CB FF 9E               234          res 3, (ix-1)   ; DD CB FF 9E
+0176    FD CB 02 86               235          res 0, (iy+2)   ; FD CB 02 86
 ----                              236  
 ----                              237  ; ========================================
 ----                              238  ; RELATIVE JUMPS
 ----                              239  ; ========================================
-0178    18 FE                     240  loop:   jr loop         ; 18 FE  (self-loop)
-017A    28 FC                     241          jr z, loop      ; 28 FC  (backward)
-017C    20 FE                     242          jr nz, $        ; 20 FE  (self-loop via $)
-017E    38 FE                     243          jr c, $         ; 38 FE
-0180    30 FE                     244          jr nc, $        ; 30 FE
-0182    10 F4                     245          djnz loop       ; 10 F4  (backward)
+017A    18 FE                     240  loop:   jr loop         ; 18 FE  (self-loop)
+017C    28 FC                     241          jr z, loop      ; 28 FC  (backward)
+017E    20 FE                     242          jr nz, $        ; 20 FE  (self-loop via $)
+0180    38 FE                     243          jr c, $         ; 38 FE
+0182    30 FE                     244          jr nc, $        ; 30 FE
+0184    10 F4                     245          djnz loop       ; 10 F4  (backward)
 ----                              246  
 ----                              247  ; ========================================
 ----                              248  ; JP / CALL VIA INDEX REGISTER
 ----                              249  ; ========================================
-0184    DD E9                     250          jp (ix)         ; DD E9
-0186    FD E9                     251          jp (iy)         ; FD E9
+0186    DD E9                     250          jp (ix)         ; DD E9
+0188    FD E9                     251          jp (iy)         ; FD E9
 ----                              252  
 ----                              253  ; ========================================
 ----                              254  ; IM — INTERRUPT MODES
 ----                              255  ; ========================================
-0188    ED 46                     256          im 0            ; ED 46
-018A    ED 56                     257          im 1            ; ED 56
-018C    ED 5E                     258          im 2            ; ED 5E
+018A    ED 46                     256          im 0            ; ED 46
+018C    ED 56                     257          im 1            ; ED 56
+018E    ED 5E                     258          im 2            ; ED 5E
 ----                              259  
 ----                              260  ; ========================================
 ----                              261  ; RETURN VARIANTS
 ----                              262  ; ========================================
-018E    ED 4D                     263          reti            ; ED 4D
-0190    ED 45                     264          retn            ; ED 45
+0190    ED 4D                     263          reti            ; ED 4D
+0192    ED 45                     264          retn            ; ED 45
 ----                              265  
 ----                              266  ; ========================================
 ----                              267  ; BLOCK TRANSFER
 ----                              268  ; ========================================
-0192    ED A0                     269          ldi             ; ED A0
-0194    ED B0                     270          ldir            ; ED B0
-0196    ED A8                     271          ldd             ; ED A8
-0198    ED B8                     272          lddr            ; ED B8
+0194    ED A0                     269          ldi             ; ED A0
+0196    ED B0                     270          ldir            ; ED B0
+0198    ED A8                     271          ldd             ; ED A8
+019A    ED B8                     272          lddr            ; ED B8
 ----                              273  
 ----                              274  ; ========================================
 ----                              275  ; BLOCK COMPARE
 ----                              276  ; ========================================
-019A    ED B1                     277          cpir            ; ED B1
-019C    ED A9                     278          cpd             ; ED A9
-019E    ED B9                     279          cpdr            ; ED B9
+019C    ED B1                     277          cpir            ; ED B1
+019E    ED A9                     278          cpd             ; ED A9
+01A0    ED B9                     279          cpdr            ; ED B9
 ----                              280  
 ----                              281  ; ========================================
 ----                              282  ; BLOCK I/O
 ----                              283  ; ========================================
-01A0    ED A2                     284          ini             ; ED A2
-01A2    ED B2                     285          inir            ; ED B2
-01A4    ED AA                     286          ind             ; ED AA
-01A6    ED BA                     287          indr            ; ED BA
-01A8    ED A3                     288          outi            ; ED A3
-01AA    ED B3                     289          otir            ; ED B3
-01AC    ED AB                     290          outd            ; ED AB
-01AE    ED BB                     291          otdr            ; ED BB
+01A2    ED A2                     284          ini             ; ED A2
+01A4    ED B2                     285          inir            ; ED B2
+01A6    ED AA                     286          ind             ; ED AA
+01A8    ED BA                     287          indr            ; ED BA
+01AA    ED A3                     288          outi            ; ED A3
+01AC    ED B3                     289          otir            ; ED B3
+01AE    ED AB                     290          outd            ; ED AB
+01B0    ED BB                     291          otdr            ; ED BB
 ----                              292  
 ----                              293  ; ========================================
 ----                              294  ; EXTENDED I/O
 ----                              295  ; ========================================
-01B0    DB C0                     296          in a, (0C0h)    ; DB C0   (basic I/O)
-01B2    D3 80                     297          out (080h), a   ; D3 80   (basic I/O)
-01B4    ED 40                     298          in b, (c)       ; ED 40
-01B6    ED 48                     299          in c, (c)       ; ED 48
-01B8    ED 50                     300          in d, (c)       ; ED 50
-01BA    ED 58                     301          in e, (c)       ; ED 58
-01BC    ED 60                     302          in h, (c)       ; ED 60
-01BE    ED 68                     303          in l, (c)       ; ED 68
-01C0    ED 78                     304          in a, (c)       ; ED 78
-01C2    ED 41                     305          out (c), b      ; ED 41
-01C4    ED 49                     306          out (c), c      ; ED 49
-01C6    ED 51                     307          out (c), d      ; ED 51
-01C8    ED 59                     308          out (c), e      ; ED 59
-01CA    ED 61                     309          out (c), h      ; ED 61
-01CC    ED 69                     310          out (c), l      ; ED 69
-01CE    ED 79                     311          out (c), a      ; ED 79
+01B2    DB C0                     296          in a, (0C0h)    ; DB C0   (basic I/O)
+01B4    D3 80                     297          out (080h), a   ; D3 80   (basic I/O)
+01B6    ED 40                     298          in b, (c)       ; ED 40
+01B8    ED 48                     299          in c, (c)       ; ED 48
+01BA    ED 50                     300          in d, (c)       ; ED 50
+01BC    ED 58                     301          in e, (c)       ; ED 58
+01BE    ED 60                     302          in h, (c)       ; ED 60
+01C0    ED 68                     303          in l, (c)       ; ED 68
+01C2    ED 78                     304          in a, (c)       ; ED 78
+01C4    ED 41                     305          out (c), b      ; ED 41
+01C6    ED 49                     306          out (c), c      ; ED 49
+01C8    ED 51                     307          out (c), d      ; ED 51
+01CA    ED 59                     308          out (c), e      ; ED 59
+01CC    ED 61                     309          out (c), h      ; ED 61
+01CE    ED 69                     310          out (c), l      ; ED 69
+01D0    ED 79                     311          out (c), a      ; ED 79
 ----                              312  
 ----                              313  ; ========================================
 ----                              314  ; MISC ED-PREFIX
 ----                              315  ; ========================================
-01D0    ED 44                     316          neg             ; ED 44
-01D2    ED 6F                     317          rld             ; ED 6F
-01D4    ED 67                     318          rrd             ; ED 67
+01D2    ED 44                     316          neg             ; ED 44
+01D4    ED 6F                     317          rld             ; ED 6F
+01D6    ED 67                     318          rrd             ; ED 67
 ----                              319  
 ----                              320          .end
 
@@ -326,9 +326,9 @@ Lines: 320  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
-loop            : 0178 (376)
+loop            : 017a (378)
 
-Total memory is 470 bytes
+Total memory is 472 bytes
 
 GENERATED OUTPUT
 
@@ -352,15 +352,15 @@ ADDR    BYTES
 00F0    DD A4 DD A5 DD B4 DD B5 DD AC DD AD DD BC DD BD
 0100    FD A4 FD A5 FD B4 FD B5 FD AC FD AD FD BC FD BD
 0110    DD 94 DD 95 CB 00 CB 09 CB 12 CB 1B CB 24 CB 2D
-0120    CB 37 CB 38 07 0F CB 16 CB 1E CB 26 CB 2E CB 36
-0130    CB 3E CB 47 CB 58 CB 7E CB C1 CB EE CB 8F CB B2
-0140    DD CB 05 06 FD CB FE 0E DD CB 01 16 FD CB 03 1E
-0150    DD CB 00 26 FD CB 07 2E DD CB 02 36 FD CB FF 3E
-0160    DD CB 05 56 FD CB FD 66 DD CB 00 FE FD CB 06 CE
-0170    DD CB FF 9E FD CB 02 86 18 FE 28 FC 20 FE 38 FE
-0180    30 FE 10 F4 DD E9 FD E9 ED 46 ED 56 ED 5E ED 4D
-0190    ED 45 ED A0 ED B0 ED A8 ED B8 ED B1 ED A9 ED B9
-01A0    ED A2 ED B2 ED AA ED BA ED A3 ED B3 ED AB ED BB
-01B0    DB C0 D3 80 ED 40 ED 48 ED 50 ED 58 ED 60 ED 68
-01C0    ED 78 ED 41 ED 49 ED 51 ED 59 ED 61 ED 69 ED 79
-01D0    ED 44 ED 6F ED 67
+0120    CB 37 CB 38 CB 06 CB 0E CB 16 CB 1E CB 26 CB 2E
+0130    CB 36 CB 3E CB 47 CB 58 CB 7E CB C1 CB EE CB 8F
+0140    CB B2 DD CB 05 06 FD CB FE 0E DD CB 01 16 FD CB
+0150    03 1E DD CB 00 26 FD CB 07 2E DD CB 02 36 FD CB
+0160    FF 3E DD CB 05 56 FD CB FD 66 DD CB 00 FE FD CB
+0170    06 CE DD CB FF 9E FD CB 02 86 18 FE 28 FC 20 FE
+0180    38 FE 30 FE 10 F4 DD E9 FD E9 ED 46 ED 56 ED 5E
+0190    ED 4D ED 45 ED A0 ED B0 ED A8 ED B8 ED B1 ED A9
+01A0    ED B9 ED A2 ED B2 ED AA ED BA ED A3 ED B3 ED AB
+01B0    ED BB DB C0 D3 80 ED 40 ED 48 ED 50 ED 58 ED 60
+01C0    ED 68 ED 78 ED 41 ED 49 ED 51 ED 59 ED 61 ED 69
+01D0    ED 79 ED 44 ED 6F ED 67

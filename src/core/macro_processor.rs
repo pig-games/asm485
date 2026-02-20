@@ -4,10 +4,10 @@
 // Assembler macro processor implementing 64tass-style .macro/.endmacro expansion.
 
 use crate::core::parser::{
-    match_statement_signature, select_statement_signature, LineAst, Parser, StatementSignature,
+    match_statement_signature, select_statement_signature, LineAst, StatementSignature,
 };
 use crate::core::text_utils::{is_ident_char, is_ident_start, is_space, to_upper, Cursor};
-use crate::core::tokenizer::{Span, Token, TokenKind, Tokenizer};
+use crate::core::tokenizer::{Span, Token, TokenKind};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -550,21 +550,16 @@ fn parse_statement_def_line(
     code: &str,
     line_num: u32,
 ) -> Result<(String, StatementSignature), MacroError> {
-    let mut parser = Parser::from_line(code, line_num)
+    let line_ast = crate::opthread::token_bridge::parse_line_with_default_model(code, line_num)
         .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))?;
-    match parser.parse_line() {
-        Ok(LineAst::StatementDef {
+    match line_ast {
+        LineAst::StatementDef {
             keyword, signature, ..
-        }) => Ok((keyword, signature)),
-        Ok(_) => Err(MacroError::new(
+        } => Ok((keyword, signature)),
+        _ => Err(MacroError::new(
             "Expected .statement definition",
             Some(line_num),
             Some(1),
-        )),
-        Err(err) => Err(MacroError::new(
-            err.message,
-            Some(line_num),
-            Some(err.span.col_start),
         )),
     }
 }
@@ -658,18 +653,8 @@ fn expand_statement_invocation(
 }
 
 fn tokenize_line(line: &str, line_num: u32) -> Result<Vec<Token>, MacroError> {
-    let mut tokenizer = Tokenizer::new(line, line_num);
-    let mut tokens = Vec::new();
-    loop {
-        let token = tokenizer.next_token().map_err(|err| {
-            MacroError::new(err.message, Some(line_num), Some(err.span.col_start))
-        })?;
-        if matches!(token.kind, TokenKind::End) {
-            break;
-        }
-        tokens.push(token);
-    }
-    Ok(tokens)
+    crate::opthread::token_bridge::tokenize_line_with_default_model(line, line_num)
+        .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))
 }
 
 fn split_single_letter_digit_tokens(tokens: &[Token]) -> Vec<Token> {

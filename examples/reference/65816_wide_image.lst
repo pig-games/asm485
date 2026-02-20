@@ -11,13 +11,13 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                8  
 ----                                9          .section code  ; [section code]
 ----                               10  start:  ; [section code]
-0000    C2 30                      11          rep #$30  ; [section code]
-0002    E2 10                      12          sep #$10  ; [section code]
-0004    AF 56 34 12                13          lda $123456  ; [section code]
-0008    9F 5A 34 12                14          sta $12345a,x  ; [section code]
-000C    22 56 34 12                15          jsl $123456  ; [section code]
-0010    42 42                      16          wdm #$42  ; [section code]
-0012    6B                         17          rtl  ; [section code]
+123400  C2 30                      11          rep #$30  ; [section code]
+123402  E2 10                      12          sep #$10  ; [section code]
+123404  AF 56 34 12                13          lda $123456  ; [section code]
+123408  9F 5A 34 12                14          sta $12345a,x  ; [section code]
+12340C  22 56 34 12                15          jsl $123456  ; [section code]
+123410  42 42                      16          wdm #$42  ; [section code]
+123412  6B                         17          rtl  ; [section code]
 ----                               18          .endsection
 ----                               19  
 ----                               20          .place code in bank12

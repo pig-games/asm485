@@ -1,0 +1,153 @@
+ADC:Absolute	    ADC $1234	ok	6D3412	
+ADC:AbsoluteX	    ADC $1234,X	ok	7D3412	
+ADC:AbsoluteY	    ADC $1234,Y	ok	793412	
+ADC:Immediate	    ADC #$10	ok	6910	
+ADC:IndexedIndirectX	    ADC ($10,X)	ok	6110	
+ADC:IndirectIndexedY	    ADC ($10),Y	ok	7110	
+ADC:ZeroPage	    ADC $10	ok	6510	
+ADC:ZeroPageX	    ADC $10,X	ok	7510	
+AND:Absolute	    AND $1234	ok	2D3412	
+AND:AbsoluteX	    AND $1234,X	ok	3D3412	
+AND:AbsoluteY	    AND $1234,Y	ok	393412	
+AND:Immediate	    AND #$10	ok	2910	
+AND:IndexedIndirectX	    AND ($10,X)	ok	2110	
+AND:IndirectIndexedY	    AND ($10),Y	ok	3110	
+AND:ZeroPage	    AND $10	ok	2510	
+AND:ZeroPageX	    AND $10,X	ok	3510	
+ASL:Absolute	    ASL $1234	ok	0E3412	
+ASL:AbsoluteX	    ASL $1234,X	ok	1E3412	
+ASL:Accumulator	    ASL A	ok	0A	
+ASL:ZeroPage	    ASL $10	ok	0610	
+ASL:ZeroPageX	    ASL $10,X	ok	1610	
+BCC:Relative	    BCC $0004	ok	9002	
+BCS:Relative	    BCS $0004	ok	B002	
+BEQ:Relative	    BEQ $0004	ok	F002	
+BIT:Absolute	    BIT $1234	ok	2C3412	
+BIT:ZeroPage	    BIT $10	ok	2410	
+BMI:Relative	    BMI $0004	ok	3002	
+BNE:Relative	    BNE $0004	ok	D002	
+BPL:Relative	    BPL $0004	ok	1002	
+BRK:Implied	    BRK	ok	00	
+BVC:Relative	    BVC $0004	ok	5002	
+BVS:Relative	    BVS $0004	ok	7002	
+CLC:Implied	    CLC	ok	18	
+CLD:Implied	    CLD	ok	D8	
+CLI:Implied	    CLI	ok	58	
+CLV:Implied	    CLV	ok	B8	
+CMP:Absolute	    CMP $1234	ok	CD3412	
+CMP:AbsoluteX	    CMP $1234,X	ok	DD3412	
+CMP:AbsoluteY	    CMP $1234,Y	ok	D93412	
+CMP:Immediate	    CMP #$10	ok	C910	
+CMP:IndexedIndirectX	    CMP ($10,X)	ok	C110	
+CMP:IndirectIndexedY	    CMP ($10),Y	ok	D110	
+CMP:ZeroPage	    CMP $10	ok	C510	
+CMP:ZeroPageX	    CMP $10,X	ok	D510	
+CPX:Absolute	    CPX $1234	ok	EC3412	
+CPX:Immediate	    CPX #$10	ok	E010	
+CPX:ZeroPage	    CPX $10	ok	E410	
+CPY:Absolute	    CPY $1234	ok	CC3412	
+CPY:Immediate	    CPY #$10	ok	C010	
+CPY:ZeroPage	    CPY $10	ok	C410	
+DEC:Absolute	    DEC $1234	ok	CE3412	
+DEC:AbsoluteX	    DEC $1234,X	ok	DE3412	
+DEC:ZeroPage	    DEC $10	ok	C610	
+DEC:ZeroPageX	    DEC $10,X	ok	D610	
+DEX:Implied	    DEX	ok	CA	
+DEY:Implied	    DEY	ok	88	
+EOR:Absolute	    EOR $1234	ok	4D3412	
+EOR:AbsoluteX	    EOR $1234,X	ok	5D3412	
+EOR:AbsoluteY	    EOR $1234,Y	ok	593412	
+EOR:Immediate	    EOR #$10	ok	4910	
+EOR:IndexedIndirectX	    EOR ($10,X)	ok	4110	
+EOR:IndirectIndexedY	    EOR ($10),Y	ok	5110	
+EOR:ZeroPage	    EOR $10	ok	4510	
+EOR:ZeroPageX	    EOR $10,X	ok	5510	
+INC:Absolute	    INC $1234	ok	EE3412	
+INC:AbsoluteX	    INC $1234,X	ok	FE3412	
+INC:ZeroPage	    INC $10	ok	E610	
+INC:ZeroPageX	    INC $10,X	ok	F610	
+INX:Implied	    INX	ok	E8	
+INY:Implied	    INY	ok	C8	
+JMP:Absolute	    JMP $1234	ok	4C3412	
+JMP:Indirect	    JMP ($1234)	ok	6C3412	
+JSR:Absolute	    JSR $1234	ok	203412	
+LDA:Absolute	    LDA $1234	ok	AD3412	
+LDA:AbsoluteX	    LDA $1234,X	ok	BD3412	
+LDA:AbsoluteY	    LDA $1234,Y	ok	B93412	
+LDA:Immediate	    LDA #$10	ok	A910	
+LDA:IndexedIndirectX	    LDA ($10,X)	ok	A110	
+LDA:IndirectIndexedY	    LDA ($10),Y	ok	B110	
+LDA:ZeroPage	    LDA $10	ok	A510	
+LDA:ZeroPageX	    LDA $10,X	ok	B510	
+LDX:Absolute	    LDX $1234	ok	AE3412	
+LDX:AbsoluteY	    LDX $1234,Y	ok	BE3412	
+LDX:Immediate	    LDX #$10	ok	A210	
+LDX:ZeroPage	    LDX $10	ok	A610	
+LDX:ZeroPageY	    LDX $10,Y	ok	B610	
+LDY:Absolute	    LDY $1234	ok	AC3412	
+LDY:AbsoluteX	    LDY $1234,X	ok	BC3412	
+LDY:Immediate	    LDY #$10	ok	A010	
+LDY:ZeroPage	    LDY $10	ok	A410	
+LDY:ZeroPageX	    LDY $10,X	ok	B410	
+LSR:Absolute	    LSR $1234	ok	4E3412	
+LSR:AbsoluteX	    LSR $1234,X	ok	5E3412	
+LSR:Accumulator	    LSR A	ok	4A	
+LSR:ZeroPage	    LSR $10	ok	4610	
+LSR:ZeroPageX	    LSR $10,X	ok	5610	
+M6502_ERROR:BRA	    BRA $0004	error		No instruction found for BRA
+M6502_ERROR:UNRESOLVED	    JMP missing_label	error		Label not found: missing_label
+NOP:Implied	    NOP	ok	EA	
+ORA:Absolute	    ORA $1234	ok	0D3412	
+ORA:AbsoluteX	    ORA $1234,X	ok	1D3412	
+ORA:AbsoluteY	    ORA $1234,Y	ok	193412	
+ORA:Immediate	    ORA #$10	ok	0910	
+ORA:IndexedIndirectX	    ORA ($10,X)	ok	0110	
+ORA:IndirectIndexedY	    ORA ($10),Y	ok	1110	
+ORA:ZeroPage	    ORA $10	ok	0510	
+ORA:ZeroPageX	    ORA $10,X	ok	1510	
+PHA:Implied	    PHA	ok	48	
+PHP:Implied	    PHP	ok	08	
+PLA:Implied	    PLA	ok	68	
+PLP:Implied	    PLP	ok	28	
+ROL:Absolute	    ROL $1234	ok	2E3412	
+ROL:AbsoluteX	    ROL $1234,X	ok	3E3412	
+ROL:Accumulator	    ROL A	ok	2A	
+ROL:ZeroPage	    ROL $10	ok	2610	
+ROL:ZeroPageX	    ROL $10,X	ok	3610	
+ROR:Absolute	    ROR $1234	ok	6E3412	
+ROR:AbsoluteX	    ROR $1234,X	ok	7E3412	
+ROR:Accumulator	    ROR A	ok	6A	
+ROR:ZeroPage	    ROR $10	ok	6610	
+ROR:ZeroPageX	    ROR $10,X	ok	7610	
+RTI:Implied	    RTI	ok	40	
+RTS:Implied	    RTS	ok	60	
+SBC:Absolute	    SBC $1234	ok	ED3412	
+SBC:AbsoluteX	    SBC $1234,X	ok	FD3412	
+SBC:AbsoluteY	    SBC $1234,Y	ok	F93412	
+SBC:Immediate	    SBC #$10	ok	E910	
+SBC:IndexedIndirectX	    SBC ($10,X)	ok	E110	
+SBC:IndirectIndexedY	    SBC ($10),Y	ok	F110	
+SBC:ZeroPage	    SBC $10	ok	E510	
+SBC:ZeroPageX	    SBC $10,X	ok	F510	
+SEC:Implied	    SEC	ok	38	
+SED:Implied	    SED	ok	F8	
+SEI:Implied	    SEI	ok	78	
+STA:Absolute	    STA $1234	ok	8D3412	
+STA:AbsoluteX	    STA $1234,X	ok	9D3412	
+STA:AbsoluteY	    STA $1234,Y	ok	993412	
+STA:IndexedIndirectX	    STA ($10,X)	ok	8110	
+STA:IndirectIndexedY	    STA ($10),Y	ok	9110	
+STA:ZeroPage	    STA $10	ok	8510	
+STA:ZeroPageX	    STA $10,X	ok	9510	
+STX:Absolute	    STX $1234	ok	8E3412	
+STX:ZeroPage	    STX $10	ok	8610	
+STX:ZeroPageY	    STX $10,Y	ok	9610	
+STY:Absolute	    STY $1234	ok	8C3412	
+STY:ZeroPage	    STY $10	ok	8410	
+STY:ZeroPageX	    STY $10,X	ok	9410	
+TAX:Implied	    TAX	ok	AA	
+TAY:Implied	    TAY	ok	A8	
+TSX:Implied	    TSX	ok	BA	
+TXA:Implied	    TXA	ok	8A	
+TXS:Implied	    TXS	ok	9A	
+TYA:Implied	    TYA	ok	98	

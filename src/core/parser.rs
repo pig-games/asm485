@@ -216,12 +216,53 @@ pub struct Parser {
 }
 
 impl Parser {
+    fn from_token_parts(
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Self {
+        Self {
+            tokens,
+            index: 0,
+            end_span,
+            end_token_text,
+        }
+    }
     pub fn from_line(line: &str, line_num: u32) -> Result<Self, ParseError> {
         Self::from_line_with_registers(
             line,
             line_num,
             crate::core::tokenizer::register_checker_none(),
         )
+    }
+
+    pub fn from_tokens(tokens: Vec<Token>, end_span: Span, end_token_text: Option<String>) -> Self {
+        Self::from_token_parts(tokens, end_span, end_token_text)
+    }
+
+    pub fn parse_line_from_tokens(
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<LineAst, ParseError> {
+        let mut parser = Self::from_token_parts(tokens, end_span, end_token_text);
+        parser.parse_line()
+    }
+
+    pub fn parse_expr_from_tokens(
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<Expr, ParseError> {
+        let mut parser = Self::from_token_parts(tokens, end_span, end_token_text);
+        let expr = parser.parse_expr()?;
+        if parser.index < parser.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: parser.tokens[parser.index].span,
+            });
+        }
+        Ok(expr)
     }
 
     pub fn from_line_with_registers(
@@ -263,12 +304,7 @@ impl Parser {
             }
             tokens.push(token);
         };
-        Ok(Self {
-            tokens,
-            index: 0,
-            end_span,
-            end_token_text,
-        })
+        Ok(Self::from_token_parts(tokens, end_span, end_token_text))
     }
 
     pub fn end_span(&self) -> Span {
@@ -1828,7 +1864,7 @@ mod tests {
         match_statement_signature, select_statement_signature, AssignOp, ConditionalKind, LineAst,
         Parser, SignatureAtom,
     };
-    use crate::core::tokenizer::Tokenizer;
+    use crate::core::tokenizer::{Span, Tokenizer};
 
     fn tokenize_line(line: &str) -> Vec<crate::core::tokenizer::Token> {
         let mut tokenizer = Tokenizer::new(line, 1);
@@ -1841,6 +1877,38 @@ mod tests {
             tokens.push(token);
         }
         tokens
+    }
+
+    #[test]
+    fn parser_from_tokens_preserves_end_metadata() {
+        let tokens = tokenize_line("LDA #$42");
+        let end_span = Span {
+            line: 1,
+            col_start: 99,
+            col_end: 99,
+        };
+        let parser = Parser::from_tokens(tokens, end_span, Some(";".to_string()));
+        assert_eq!(parser.end_span(), end_span);
+        assert_eq!(parser.end_token_text(), Some(";"));
+    }
+
+    #[test]
+    fn parser_from_tokens_matches_line_parse_for_basic_statement() {
+        let line = "LABEL: MOV A,B";
+        let tokens = tokenize_line(line);
+        let mut from_line = Parser::from_line(line, 1).unwrap();
+        let expected = from_line.parse_line().unwrap();
+        let mut from_tokens = Parser::from_tokens(
+            tokens,
+            Span {
+                line: 1,
+                col_start: line.len() + 1,
+                col_end: line.len() + 1,
+            },
+            None,
+        );
+        let actual = from_tokens.parse_line().unwrap();
+        assert_eq!(format!("{expected:?}"), format!("{actual:?}"));
     }
 
     #[test]

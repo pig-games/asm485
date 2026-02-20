@@ -17,6 +17,7 @@ use bootstrap::*;
 use engine::Assembler;
 
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -35,6 +36,7 @@ use crate::core::assembler::expression::{
 use crate::core::assembler::listing::{ListingLine, ListingWriter};
 use crate::core::assembler::scope::ScopeStack;
 use crate::core::cpu::CpuType;
+use crate::core::expr_vm::compile_core_expr_to_portable_program;
 use crate::core::family::{AssemblerContext, EncodeResult};
 use crate::core::imagestore::ImageStore;
 use crate::core::macro_processor::MacroProcessor;
@@ -46,13 +48,20 @@ use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolV
 use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
+#[cfg(test)]
+use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::families::intel8080::module::Intel8080FamilyModule;
+use crate::families::intel8080::module::Intel8080FamilyOperands;
+use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
+use crate::opthread::builder::build_hierarchy_package_from_registry;
+use crate::opthread::runtime::HierarchyExecutionModel;
+use crate::opthread::token_bridge::parse_line_with_model;
 use crate::z80::module::Z80CpuModule;
 
 use cli::{
@@ -65,6 +74,20 @@ pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as
 pub use cli::VERSION;
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
+const OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES";
+const OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES";
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
+    "target/opthread/opforge-runtime.opcpu";
+#[cfg(test)]
+thread_local! {
+    static HOST_EXPR_EVAL_FAILPOINT: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_host_expr_eval_failpoint_for_tests(enabled: bool) {
+    HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.set(enabled));
+}
 
 fn default_cpu() -> CpuType {
     crate::i8085::module::CPU_ID
@@ -908,6 +931,9 @@ struct AsmLine<'a> {
     cpu_word_size_bytes: u32,
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
+    opthread_expr_eval_opt_in_families: Vec<String>,
+    opthread_expr_eval_force_host_families: Vec<String>,
+    opthread_execution_model: Option<HierarchyExecutionModel>,
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
     encoding_scope_stack: Vec<EncodingScopeState>,
@@ -969,6 +995,9 @@ impl<'a> AsmLine<'a> {
             cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
+            opthread_expr_eval_opt_in_families: Self::expr_eval_opt_in_families_from_env(),
+            opthread_expr_eval_force_host_families: Self::expr_eval_force_host_families_from_env(),
+            opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
             text_encoding_registry,
             active_text_encoding,
             encoding_scope_stack: Vec::new(),
@@ -1013,6 +1042,105 @@ impl<'a> AsmLine<'a> {
             Ok(pipeline) => pipeline.cpu.is_little_endian(),
             Err(_) => true,
         }
+    }
+
+    fn parse_family_list_from_env(var_name: &str) -> Vec<String> {
+        let Ok(raw) = env::var(var_name) else {
+            return Vec::new();
+        };
+
+        let mut families = Vec::new();
+        for candidate in raw
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
+            if !families
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(candidate))
+            {
+                families.push(candidate.to_string());
+            }
+        }
+        families
+    }
+
+    fn expr_eval_opt_in_families_from_env() -> Vec<String> {
+        Self::parse_family_list_from_env(OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV)
+    }
+
+    fn expr_eval_force_host_families_from_env() -> Vec<String> {
+        Self::parse_family_list_from_env(OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV)
+    }
+
+    fn portable_expr_runtime_enabled_for_family(&self, family_id: &str) -> bool {
+        crate::opthread::rollout::portable_expr_runtime_enabled_for_family(
+            family_id,
+            &self.opthread_expr_eval_opt_in_families,
+            &self.opthread_expr_eval_force_host_families,
+        )
+    }
+
+    fn portable_expr_runtime_force_host_for_family(&self, family_id: &str) -> bool {
+        self.opthread_expr_eval_force_host_families
+            .iter()
+            .any(|force_host| force_host.eq_ignore_ascii_case(family_id))
+    }
+
+    fn build_opthread_execution_model(
+        registry: &ModuleRegistry,
+        cpu: CpuType,
+    ) -> Option<HierarchyExecutionModel> {
+        if registry.resolve_pipeline(cpu, None).is_err() {
+            return None;
+        }
+
+        #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+        {
+            if let Some(path) = Self::opthread_package_artifact_path() {
+                if let Some(model) = Self::load_opthread_execution_model_from_artifact(&path) {
+                    return Some(model);
+                }
+                if let Ok(package_bytes) = build_hierarchy_package_from_registry(registry) {
+                    if let Ok(model) =
+                        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                    {
+                        Self::persist_opthread_package_artifact(path.as_path(), &package_bytes);
+                        return Some(model);
+                    }
+                }
+                return None;
+            }
+        }
+
+        let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
+        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
+    }
+
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    fn opthread_package_artifact_path_for_dir(base_dir: &Path) -> PathBuf {
+        base_dir.join(OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH)
+    }
+
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    fn opthread_package_artifact_path() -> Option<PathBuf> {
+        std::env::current_dir()
+            .ok()
+            .map(|base_dir| Self::opthread_package_artifact_path_for_dir(base_dir.as_path()))
+    }
+
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    fn load_opthread_execution_model_from_artifact(path: &Path) -> Option<HierarchyExecutionModel> {
+        let bytes = fs::read(path).ok()?;
+        HierarchyExecutionModel::from_package_bytes(bytes.as_slice()).ok()
+    }
+
+    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    fn persist_opthread_package_artifact(path: &Path, package_bytes: &[u8]) {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(path, package_bytes);
     }
 
     fn take_root_metadata(&mut self) -> RootMetadata {
@@ -1865,15 +1993,21 @@ impl<'a> AsmLine<'a> {
         );
     }
 
+    fn resolve_pipeline_for_cpu<'b>(
+        registry: &'b ModuleRegistry,
+        cpu: CpuType,
+    ) -> Result<crate::core::registry::ResolvedPipeline<'b>, String> {
+        registry
+            .resolve_pipeline(cpu, None)
+            .map_err(registry_error_message)
+    }
+
     fn apply_cpu_runtime_directive(
         &mut self,
         directive: &str,
         operands: &[Expr],
     ) -> Result<bool, String> {
-        let pipeline = self
-            .registry
-            .resolve_pipeline(self.cpu, None)
-            .map_err(registry_error_message)?;
+        let pipeline = Self::resolve_pipeline_for_cpu(self.registry, self.cpu)?;
         let mut state_flags = std::mem::take(&mut self.cpu_state_flags);
         let result =
             pipeline
@@ -1881,6 +2015,64 @@ impl<'a> AsmLine<'a> {
                 .apply_runtime_directive(directive, operands, self, &mut state_flags);
         self.cpu_state_flags = state_flags;
         result
+    }
+
+    fn opthread_form_allows_mnemonic(
+        &self,
+        pipeline: &crate::core::registry::ResolvedPipeline<'_>,
+        mapped_mnemonic: &str,
+    ) -> Result<bool, String> {
+        if !crate::opthread::rollout::package_runtime_default_enabled_for_family(
+            pipeline.family_id.as_str(),
+        ) {
+            return Ok(true);
+        }
+        let Some(model) = self.opthread_execution_model.as_ref() else {
+            return Ok(true);
+        };
+        model
+            .supports_mnemonic(self.cpu.as_str(), None, mapped_mnemonic)
+            .map_err(|err| err.to_string())
+    }
+
+    fn opthread_runtime_expr_operands_from_mapped(
+        family_id: &str,
+        mapped_operands: &dyn crate::core::registry::FamilyOperandSet,
+    ) -> Option<Vec<Expr>> {
+        if !family_id.eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str()) {
+            return None;
+        }
+        let intel_operands = mapped_operands
+            .as_any()
+            .downcast_ref::<Intel8080FamilyOperands>()?;
+        let mut exprs = Vec::with_capacity(intel_operands.0.len());
+        for operand in &intel_operands.0 {
+            let expr = match operand {
+                IntelFamilyOperand::Register(name, span)
+                | IntelFamilyOperand::Condition(name, span) => {
+                    Expr::Identifier(name.clone(), *span)
+                }
+                IntelFamilyOperand::Indirect(name, span) => {
+                    Expr::Indirect(Box::new(Expr::Identifier(name.clone(), *span)), *span)
+                }
+                IntelFamilyOperand::Immediate(expr)
+                | IntelFamilyOperand::RstVector(expr)
+                | IntelFamilyOperand::InterruptMode(expr)
+                | IntelFamilyOperand::BitNumber(expr)
+                | IntelFamilyOperand::Port(expr) => expr.clone(),
+                IntelFamilyOperand::Indexed { base, offset, span } => Expr::Indirect(
+                    Box::new(Expr::Binary {
+                        op: asm_parser::BinaryOp::Add,
+                        left: Box::new(Expr::Identifier(base.clone(), *span)),
+                        right: Box::new(offset.clone()),
+                        span: *span,
+                    }),
+                    *span,
+                ),
+            };
+            exprs.push(expr);
+        }
+        Some(exprs)
     }
 
     fn cond_last(&self) -> Option<&ConditionalContext> {
@@ -2300,6 +2492,53 @@ impl<'a> AsmLine<'a> {
     fn visibility_error(&self, name: &str) -> AsmError {
         AsmError::new(AsmErrorKind::Symbol, "Symbol is private", Some(name))
     }
+    fn process_with_runtime_tokenizer(&mut self, line: &str, line_num: u32) -> LineStatus {
+        let model = match self.opthread_execution_model.as_ref() {
+            Some(model) => model,
+            None => {
+                let family_id = Self::resolve_pipeline_for_cpu(self.registry, self.cpu)
+                    .map(|pipeline| pipeline.family_id.as_str().to_string())
+                    .unwrap_or_else(|_| self.cpu.as_str().to_string());
+                let err = ParseError {
+                    message: format!(
+                        "opThread runtime tokenizer model unavailable for family '{}'",
+                        family_id
+                    ),
+                    span: Span {
+                        line: line_num,
+                        col_start: 1,
+                        col_end: 1,
+                    },
+                };
+                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.last_error_column = Some(err.span.col_start);
+                self.last_parser_error = Some(err);
+                return LineStatus::Error;
+            }
+        };
+
+        let (ast, end_span, end_token_text) = match parse_line_with_model(
+            model,
+            self.cpu.as_str(),
+            None,
+            line,
+            line_num,
+            &self.register_checker,
+        ) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                self.line_end_span = Some(err.span);
+                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.last_error_column = Some(err.span.col_start);
+                self.last_parser_error = Some(err);
+                return LineStatus::Error;
+            }
+        };
+
+        self.line_end_span = Some(end_span);
+        self.line_end_token = end_token_text;
+        self.process_ast(ast)
+    }
 
     fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {
         self.last_error = None;
@@ -2315,31 +2554,7 @@ impl<'a> AsmLine<'a> {
         self.label = None;
         self.mnemonic = None;
 
-        // Use the cached register checker
-        let is_register_fn = self.register_checker.clone();
-
-        match asm_parser::Parser::from_line_with_registers(line, line_num, is_register_fn) {
-            Ok(mut parser) => {
-                self.line_end_span = Some(parser.end_span());
-                self.line_end_token = parser.end_token_text().map(|s| s.to_string());
-                match parser.parse_line() {
-                    Ok(ast) => self.process_ast(ast),
-                    Err(err) => {
-                        self.last_error =
-                            Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                        self.last_error_column = Some(err.span.col_start);
-                        self.last_parser_error = Some(err);
-                        LineStatus::Error
-                    }
-                }
-            }
-            Err(err) => {
-                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                self.last_error_column = Some(err.span.col_start);
-                self.last_parser_error = Some(err);
-                LineStatus::Error
-            }
-        }
+        self.process_with_runtime_tokenizer(line, line_num)
     }
     fn process_ast(&mut self, ast: LineAst) -> LineStatus {
         if self.statement_depth > 0 {
@@ -3175,15 +3390,10 @@ impl<'a> AsmLine<'a> {
     }
 
     fn process_instruction_ast(&mut self, mnemonic: &str, operands: &[Expr]) -> LineStatus {
-        let pipeline = match self.registry.resolve_pipeline(self.cpu, None) {
+        let pipeline = match Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
             Ok(pipeline) => pipeline,
-            Err(err) => {
-                return self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &registry_error_message(err),
-                    None,
-                )
+            Err(message) => {
+                return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &message, None)
             }
         };
 
@@ -3204,6 +3414,156 @@ impl<'a> AsmLine<'a> {
             .dialect
             .map_mnemonic(mnemonic, family_operands.as_ref())
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
+
+        let family_runtime_authoritative =
+            crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                pipeline.family_id.as_str(),
+            );
+
+        {
+            let allow = match self.opthread_form_allows_mnemonic(&pipeline, &mapped_mnemonic) {
+                Ok(allow) => allow,
+                Err(message) => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &message,
+                        None,
+                    )
+                }
+            };
+            if !allow {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &format!("No instruction found for {}", mnemonic.to_ascii_uppercase()),
+                    None,
+                );
+            }
+
+            if self.opthread_execution_model.is_none() && family_runtime_authoritative {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &format!(
+                        "opThread runtime model unavailable for authoritative family '{}'",
+                        pipeline.family_id.as_str()
+                    ),
+                    None,
+                );
+            }
+            if let Some(model) = self.opthread_execution_model.as_ref() {
+                let runtime_expr_force_host =
+                    self.portable_expr_runtime_force_host_for_family(pipeline.family_id.as_str());
+                let strict_runtime_parse_resolve =
+                    model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
+                let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
+                    || family_runtime_authoritative)
+                    && !runtime_expr_force_host;
+                let runtime_expr_vm_path_enabled = (strict_runtime_parse_resolve
+                    || family_runtime_authoritative)
+                    && !runtime_expr_force_host;
+                let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
+                    && self
+                        .cpu
+                        .as_str()
+                        .eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str());
+                if runtime_expr_vm_path_enabled {
+                    let runtime_expr_operands_storage =
+                        Self::opthread_runtime_expr_operands_from_mapped(
+                            pipeline.family_id.as_str(),
+                            mapped_operands.as_ref(),
+                        );
+                    let runtime_expr_operands =
+                        runtime_expr_operands_storage.as_deref().unwrap_or(operands);
+                    match model.encode_instruction_from_exprs(
+                        self.cpu.as_str(),
+                        None,
+                        &mapped_mnemonic,
+                        runtime_expr_operands,
+                        self,
+                    ) {
+                        Ok(Some(bytes)) => {
+                            if runtime_expr_selector_gate_only {
+                                // Keep selector strictness checks, but defer final emission to
+                                // runtime VM encode over native-resolved operands for 65816.
+                            } else if bytes.is_empty() {
+                                if family_runtime_authoritative {
+                                    return self.failure(
+                                        LineStatus::Error,
+                                        AsmErrorKind::Instruction,
+                                        &format!(
+                                            "opThread VM program emitted no bytes for {}",
+                                            mapped_mnemonic.to_ascii_uppercase()
+                                        ),
+                                        None,
+                                    );
+                                }
+                                // Treat empty runtime output as no emission and continue
+                                // into native resolution/encoding.
+                            } else if !runtime_expr_bytes_authoritative {
+                                // Staged/non-strict families keep native resolution as the source
+                                // of truth for emission parity.
+                            } else {
+                                if let Err(err) = self.validate_instruction_emit_span(
+                                    &mapped_mnemonic,
+                                    operands,
+                                    bytes.len(),
+                                ) {
+                                    return self.failure_at_span(
+                                        LineStatus::Error,
+                                        AsmErrorKind::Instruction,
+                                        err.error.message(),
+                                        None,
+                                        err.span,
+                                    );
+                                }
+                                self.bytes.extend_from_slice(&bytes);
+                                if let Ok(resolved_operands) = pipeline.cpu.resolve_operands(
+                                    mnemonic,
+                                    mapped_operands.as_ref(),
+                                    self,
+                                ) {
+                                    self.apply_cpu_runtime_state_after_encode(
+                                        pipeline.cpu.as_ref(),
+                                        &mapped_mnemonic,
+                                        resolved_operands.as_ref(),
+                                    );
+                                }
+                                return LineStatus::Ok;
+                            }
+                        }
+                        Ok(None) => {
+                            let defer_to_native_diagnostics =
+                                pipeline.family_id.as_str().eq_ignore_ascii_case(
+                                    crate::families::intel8080::module::FAMILY_ID.as_str(),
+                                );
+                            if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
+                                return self.failure(
+                                    LineStatus::Error,
+                                    AsmErrorKind::Instruction,
+                                    &format!(
+                                        "No instruction found for {}",
+                                        mapped_mnemonic.to_ascii_uppercase()
+                                    ),
+                                    None,
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            if !runtime_expr_selector_gate_only {
+                                return self.failure(
+                                    LineStatus::Error,
+                                    AsmErrorKind::Instruction,
+                                    &err.to_string(),
+                                    None,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         match pipeline.family.encode_family_operands(
             &mapped_mnemonic,
@@ -3268,6 +3628,88 @@ impl<'a> AsmLine<'a> {
                 validator.validate_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
             {
                 return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &err, None);
+            }
+        }
+
+        if self.opthread_execution_model.is_none() && family_runtime_authoritative {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                &format!(
+                    "opThread runtime model unavailable for authoritative family '{}'",
+                    pipeline.family_id.as_str()
+                ),
+                None,
+            );
+        }
+        if let Some(model) = self.opthread_execution_model.as_ref() {
+            let strict_runtime_vm_programs = family_runtime_authoritative
+                || model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
+            match model.encode_instruction(
+                self.cpu.as_str(),
+                None,
+                &mapped_mnemonic,
+                resolved_operands.as_ref(),
+            ) {
+                Ok(Some(bytes)) => {
+                    if bytes.is_empty() {
+                        if family_runtime_authoritative {
+                            return self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &format!(
+                                    "opThread VM program emitted no bytes for {}",
+                                    mapped_mnemonic.to_ascii_uppercase()
+                                ),
+                                None,
+                            );
+                        }
+                        // Treat empty runtime output as no emission and continue
+                        // into native family/cpu encoding.
+                    } else {
+                        if let Err(err) = self.validate_instruction_emit_span(
+                            &mapped_mnemonic,
+                            operands,
+                            bytes.len(),
+                        ) {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                err.error.message(),
+                                None,
+                                err.span,
+                            );
+                        }
+                        self.bytes.extend_from_slice(&bytes);
+                        self.apply_cpu_runtime_state_after_encode(
+                            pipeline.cpu.as_ref(),
+                            &mapped_mnemonic,
+                            resolved_operands.as_ref(),
+                        );
+                        return LineStatus::Ok;
+                    }
+                }
+                Ok(None) => {
+                    if strict_runtime_vm_programs {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &format!(
+                                "missing opThread VM program for {}",
+                                mapped_mnemonic.to_ascii_uppercase()
+                            ),
+                            None,
+                        );
+                    }
+                }
+                Err(err) => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &err.to_string(),
+                        None,
+                    );
+                }
             }
         }
 
@@ -3485,10 +3927,60 @@ impl<'a> AsmLine<'a> {
                 } else if name.eq_ignore_ascii_case("long") {
                     Ok(4)
                 } else {
-                    self.eval_expr_ast(unit)
+                    self.eval_expr_for_data_directive(unit)
                 }
             }
-            _ => self.eval_expr_ast(unit),
+            _ => self.eval_expr_for_data_directive(unit),
+        }
+    }
+
+    fn eval_expr_for_data_directive(&self, expr: &Expr) -> Result<u32, AstEvalError> {
+        if let Some((name, span)) = self.find_private_symbol_in_expr(expr) {
+            return Err(AstEvalError {
+                error: self.visibility_error(&name),
+                span,
+            });
+        }
+
+        match AssemblerContext::eval_expr(self, expr) {
+            Ok(value) => Ok(value as u32),
+            Err(message) => Err(AstEvalError {
+                error: AsmError::new(AsmErrorKind::Expression, &message, None),
+                span: expr_span(expr),
+            }),
+        }
+    }
+
+    fn find_private_symbol_in_expr(&self, expr: &Expr) -> Option<(String, Span)> {
+        match expr {
+            Expr::Identifier(name, span) | Expr::Register(name, span) => {
+                if let Some(entry) = self.lookup_scoped_entry(name) {
+                    if !self.entry_is_visible(entry) {
+                        return Some((name.clone(), *span));
+                    }
+                }
+                None
+            }
+            Expr::Indirect(inner, _)
+            | Expr::IndirectLong(inner, _)
+            | Expr::Immediate(inner, _)
+            | Expr::Unary { expr: inner, .. } => self.find_private_symbol_in_expr(inner),
+            Expr::Tuple(items, _) => items
+                .iter()
+                .find_map(|item| self.find_private_symbol_in_expr(item)),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => self
+                .find_private_symbol_in_expr(cond)
+                .or_else(|| self.find_private_symbol_in_expr(then_expr))
+                .or_else(|| self.find_private_symbol_in_expr(else_expr)),
+            Expr::Binary { left, right, .. } => self
+                .find_private_symbol_in_expr(left)
+                .or_else(|| self.find_private_symbol_in_expr(right)),
+            Expr::Error(_, _) | Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) => None,
         }
     }
 
@@ -3607,7 +4099,7 @@ impl<'a> AsmLine<'a> {
         }
 
         for expr in &operands[1..] {
-            let value = match self.eval_expr_ast(expr) {
+            let value = match self.eval_expr_for_data_directive(expr) {
                 Ok(value) => value,
                 Err(err) => {
                     return self.failure_at_span(
@@ -3670,7 +4162,7 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let count = match self.eval_expr_ast(&operands[1]) {
+        let count = match self.eval_expr_for_data_directive(&operands[1]) {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -3741,7 +4233,7 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let count = match self.eval_expr_ast(&operands[1]) {
+        let count = match self.eval_expr_for_data_directive(&operands[1]) {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -3753,7 +4245,7 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let value = match self.eval_expr_ast(&operands[2]) {
+        let value = match self.eval_expr_for_data_directive(&operands[2]) {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -3920,7 +4412,7 @@ impl<'a> AsmLine<'a> {
                     err.span,
                 );
             }
-            let val = match self.eval_expr_ast(expr) {
+            let val = match self.eval_expr_for_data_directive(expr) {
                 Ok(value) => value,
                 Err(err) => {
                     return self.failure_at_span(
@@ -3964,6 +4456,18 @@ impl<'a> AsmLine<'a> {
     }
 
     fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
+        #[cfg(test)]
+        if HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.get()) {
+            return Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "host expression evaluator failpoint",
+                    None,
+                ),
+                span: expr_span(expr),
+            });
+        }
+
         match expr {
             Expr::Error(message, span) => Err(AstEvalError {
                 error: AsmError::new(AsmErrorKind::Expression, message, None),
@@ -4110,6 +4614,43 @@ impl<'a> AsmLine<'a> {
 /// and symbol lookup to family and CPU handlers.
 impl<'a> AssemblerContext for AsmLine<'a> {
     fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+        if matches!(expr, Expr::Identifier(_, _) | Expr::Register(_, _)) {
+            return self
+                .eval_expr_ast(expr)
+                .map(|v| v as i64)
+                .map_err(|e| e.error.message().to_string());
+        }
+
+        if let Some(model) = self.opthread_execution_model.as_ref() {
+            if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
+                if crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                    pipeline.family_id.as_str(),
+                ) && self.portable_expr_runtime_enabled_for_family(pipeline.family_id.as_str())
+                {
+                    let program = compile_core_expr_to_portable_program(expr)
+                        .map_err(|err| err.to_string())?;
+                    match model.evaluate_portable_expression_program_with_contract_for_assembler(
+                        self.cpu.as_str(),
+                        None,
+                        &program,
+                        self,
+                    ) {
+                        Ok(evaluation) => return Ok(evaluation.value),
+                        Err(err) => {
+                            let message = err.to_string();
+                            let is_unknown_symbol = {
+                                let trimmed = message.trim_start();
+                                trimmed == "ope004" || trimmed.starts_with("ope004:")
+                            };
+                            if !is_unknown_symbol {
+                                return Err(message);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         self.eval_expr_ast(expr)
             .map(|v| v as i64)
             .map_err(|e| e.error.message().to_string())

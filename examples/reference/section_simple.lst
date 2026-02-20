@@ -6,7 +6,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                3  .module main
 ----                                4      .region ram, $1000, $10ff
 ----                                5      .section data  ; [section data]
-0000    01 02                       6      .byte 1, 2  ; [section data]
+1000    01 02                       6      .byte 1, 2  ; [section data]
 ----                                7      .endsection
 ----                                8      .place data in ram
 ----                                9  .endmodule

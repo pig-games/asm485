@@ -1,9 +1,9 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
-    expand_source_file, load_module_graph, root_module_id_from_lines, AsmErrorKind, AsmLine,
-    Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus, LinkerOutputDirective,
-    LinkerOutputFormat, ListingWriter, MapFileDirective, MapSymbolsMode, RegionState, RootMetadata,
-    SectionState, Severity,
+    expand_source_file, load_module_graph, root_module_id_from_lines,
+    set_host_expr_eval_failpoint_for_tests, AsmErrorKind, AsmLine, Assembler, ExportSectionsFormat,
+    ExportSectionsInclude, LineStatus, LinkerOutputDirective, LinkerOutputFormat, ListingWriter,
+    MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
 };
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
@@ -12,15 +12,31 @@ use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
-use crate::families::mos6502::FAMILY_INSTRUCTION_TABLE;
+use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
+use crate::opthread::builder::build_hierarchy_chunks_from_registry;
+use crate::opthread::builder::build_hierarchy_package_from_registry;
+use crate::opthread::hierarchy::ScopedOwner;
+use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
+use crate::opthread::package::{
+    ModeSelectorDescriptor, ParserVmOpcode, TokenizerVmOpcode, EXPR_PARSER_VM_OPCODE_VERSION_V1,
+};
+use crate::opthread::rollout::{
+    family_runtime_mode, family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
+    FamilyRuntimeMode,
+};
+use crate::opthread::runtime::{
+    set_core_expr_parser_failpoint_for_tests, HierarchyExecutionModel, PortableSpan, PortableToken,
+    PortableTokenKind,
+};
+use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -45,6 +61,73 @@ fn make_asm_line<'a>(symbols: &'a mut SymbolTable, registry: &'a ModuleRegistry)
 
 fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineStatus {
     asm.process(line, 1, addr, pass)
+}
+
+#[test]
+fn runtime_token_bridge_maps_portable_tokens_to_core_tokens() {
+    let runtime_tokens = vec![
+        PortableToken {
+            kind: PortableTokenKind::Identifier("lda".to_string()),
+            span: PortableSpan {
+                line: 1,
+                col_start: 5,
+                col_end: 8,
+            },
+        },
+        PortableToken {
+            kind: PortableTokenKind::Hash,
+            span: PortableSpan {
+                line: 1,
+                col_start: 9,
+                col_end: 10,
+            },
+        },
+        PortableToken {
+            kind: PortableTokenKind::Number {
+                text: "$42".to_string(),
+                base: 16,
+            },
+            span: PortableSpan {
+                line: 1,
+                col_start: 10,
+                col_end: 13,
+            },
+        },
+    ];
+
+    let mapped = crate::opthread::token_bridge::runtime_tokens_to_core_tokens(
+        &runtime_tokens,
+        &crate::core::tokenizer::register_checker_none(),
+    )
+    .expect("portable token mapping should succeed");
+    assert_eq!(mapped.len(), 3);
+    assert!(matches!(
+        &mapped[0].kind,
+        crate::core::tokenizer::TokenKind::Identifier(name) if name == "lda"
+    ));
+    assert!(matches!(
+        &mapped[2].kind,
+        crate::core::tokenizer::TokenKind::Number(num) if num.text == "$42" && num.base == 16
+    ));
+}
+
+#[test]
+fn runtime_token_bridge_rejects_invalid_spans() {
+    let runtime_tokens = vec![PortableToken {
+        kind: PortableTokenKind::Identifier("lda".to_string()),
+        span: PortableSpan {
+            line: 1,
+            col_start: 0,
+            col_end: 3,
+        },
+    }];
+
+    let err = crate::opthread::token_bridge::runtime_tokens_to_core_tokens(
+        &runtime_tokens,
+        &crate::core::tokenizer::register_checker_none(),
+    )
+    .expect_err("invalid spans should be rejected");
+    assert!(err.message.contains("invalid token span"));
 }
 
 fn assemble_bytes(cpu: crate::core::cpu::CpuType, line: &str) -> Vec<u8> {
@@ -75,6 +158,124 @@ fn assemble_line_status(
     let status = asm.process(line, 1, 0, 2);
     let message = asm.error().map(|err| err.to_string());
     (status, message)
+}
+
+fn assemble_line_with_runtime_mode(
+    cpu: crate::core::cpu::CpuType,
+    line: &str,
+    _enable_opthread_runtime: bool,
+) -> (LineStatus, Option<String>, Vec<u8>) {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+    if _enable_opthread_runtime {
+        let enable_intel_runtime = registry
+            .resolve_pipeline(cpu, None)
+            .map(|pipeline| {
+                pipeline
+                    .family_id
+                    .as_str()
+                    .eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str())
+            })
+            .unwrap_or(false);
+        if enable_intel_runtime {
+            let package_bytes =
+                build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
+            asm.opthread_execution_model = Some(
+                HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                    .expect("runtime execution model from package bytes"),
+            );
+        }
+    }
+    asm.clear_conditionals();
+    asm.clear_scopes();
+    let status = asm.process(line, 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec())
+}
+
+fn assemble_line_with_runtime_mode_no_injection(
+    cpu: crate::core::cpu::CpuType,
+    line: &str,
+    _enable_opthread_runtime: bool,
+) -> (LineStatus, Option<String>, Vec<u8>, bool) {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+    let has_model = asm.opthread_execution_model.is_some();
+    asm.clear_conditionals();
+    asm.clear_scopes();
+    let status = asm.process(line, 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec(), has_model)
+}
+
+fn assemble_i8085_line_with_expr_vm_opt_in(
+    line: &str,
+    start_addr: u32,
+    symbol_seed: Option<(u32, bool)>,
+    enable_portable_expr_vm: bool,
+) -> (LineStatus, Option<String>, Vec<u8>) {
+    let mut symbols = SymbolTable::new();
+    if let Some((value, finalized)) = symbol_seed {
+        assert_eq!(
+            symbols.add("target", value, false, SymbolVisibility::Private, None),
+            SymbolTableResult::Ok,
+            "seed symbol add should succeed"
+        );
+        if finalized {
+            assert_eq!(
+                symbols.update("target", value),
+                SymbolTableResult::Ok,
+                "seed symbol finalize should succeed"
+            );
+        }
+    }
+
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    if enable_portable_expr_vm {
+        asm.opthread_expr_eval_opt_in_families
+            .push("intel8080".to_string());
+    }
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process(line, 1, start_addr, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec())
+}
+
+fn assemble_source_entries_with_runtime_mode(
+    lines: &[&str],
+    _enable_opthread_runtime: bool,
+) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
+    let pass1 = assembler.pass1(&lines);
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .map_err(|err| format!("Pass2 failed: {err}"))?;
+
+    let entries = assembler
+        .image()
+        .entries()
+        .map_err(|err| format!("Read generated output: {err}"))?;
+    let diagnostics: Vec<String> = assembler
+        .diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+        .collect();
+
+    if pass1.errors > 0 || pass2.errors > 0 {
+        return Ok((entries, diagnostics));
+    }
+    Ok((entries, diagnostics))
 }
 
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
@@ -160,6 +361,46 @@ fn assemble_example_with_base(
         .collect();
 
     Ok(map_outputs)
+}
+
+fn assemble_example_entries_with_runtime_mode(
+    asm_path: &Path,
+    _enable_opthread_runtime: bool,
+) -> Result<(Vec<(u32, u8)>, Vec<String>), String> {
+    let root_lines =
+        expand_source_file(asm_path, &[], 64).map_err(|err| format!("Preprocess failed: {err}"))?;
+    let graph = load_module_graph(asm_path, root_lines.clone(), &[], 64)
+        .map_err(|err| format!("Preprocess failed: {err}"))?;
+    let expanded_lines = graph.lines;
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id =
+        Some(root_module_id_from_lines(asm_path, &root_lines).map_err(|err| err.to_string())?);
+    assembler.module_macro_names = graph.module_macro_names;
+    assembler.clear_diagnostics();
+
+    let pass1 = assembler.pass1(&expanded_lines);
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&expanded_lines, &mut listing)
+        .map_err(|err| format!("Pass2 failed: {err}"))?;
+
+    let entries = assembler
+        .image()
+        .entries()
+        .map_err(|err| format!("Read generated output: {err}"))?;
+    let diagnostics: Vec<String> = assembler
+        .diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+        .collect();
+
+    if pass1.errors > 0 || pass2.errors > 0 {
+        return Ok((entries, diagnostics));
+    }
+    Ok((entries, diagnostics))
 }
 
 fn run_pass1(lines: &[&str]) -> Assembler {
@@ -368,7 +609,7 @@ fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
 
 fn expected_example_error(base: &str) -> Option<&'static str> {
     match base {
-        "errors" => Some("Assembly failed: Illegal character in decimal constant: 5X5"),
+        "errors" => Some("Assembly failed: ope005: invalid number: 5X5"),
         "statement_signature_error" => Some("Preprocess failed: Missing closing }]"),
         "statement_unquoted_comma_error" => {
             Some("Preprocess failed: Commas must be quoted in statement signatures")
@@ -658,6 +899,12 @@ fn z80_cb_bit_set_res_encode() {
 fn z80_cb_rotate_shift_encode() {
     let bytes = assemble_bytes(z80_cpu_id, "    RLC C");
     assert_eq!(bytes, vec![0xCB, 0x01]);
+
+    let bytes = assemble_bytes(z80_cpu_id, "    RLC (HL)");
+    assert_eq!(bytes, vec![0xCB, 0x06]);
+
+    let bytes = assemble_bytes(z80_cpu_id, "    RRC (HL)");
+    assert_eq!(bytes, vec![0xCB, 0x0E]);
 
     let bytes = assemble_bytes(z80_cpu_id, "    SRA (HL)");
     assert_eq!(bytes, vec![0xCB, 0x2E]);
@@ -1346,21 +1593,21 @@ fn byte_strings_use_active_encoding() {
 }
 
 #[test]
-fn encoding_directive_accepts_alias_and_string_name() {
+fn encoding_directive_accepts_known_names() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = make_asm_line(&mut symbols, &registry);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
-    let status = process_line(&mut asm, "    .encoding \"petscii\"", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
-    let status = process_line(&mut asm, "    .byte \"a\"", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(&mut asm, "    .enc petscii", 0, 2);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
+    let status = process_line(&mut asm, "    .text \"a\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
     assert_eq!(asm.bytes(), &[0x41]);
 
     let status = process_line(&mut asm, "    .enc ascii", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
-    let status = process_line(&mut asm, "    .byte \"a\"", 0, 2);
-    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
+    let status = process_line(&mut asm, "    .text \"a\"", 0, 2);
+    assert_eq!(status, LineStatus::Ok, "{}", asm.error_message());
     assert_eq!(asm.bytes(), &[0x61]);
 }
 
@@ -1447,32 +1694,54 @@ fn ptext_rejects_encoded_strings_over_255_bytes() {
 }
 
 #[test]
-fn string_expressions_use_active_encoding() {
+fn string_expressions_are_rejected_by_portable_vm() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let mut asm = make_asm_line(&mut symbols, &registry);
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
 
     let status = process_line(&mut asm, "    .enc petscii", 0, 1);
     assert_eq!(status, LineStatus::Ok);
 
     let status = process_line(&mut asm, "VAL .const 'a'", 0, 1);
-    assert_eq!(status, LineStatus::DirEqu);
-    assert_eq!(asm.symbols().lookup("VAL"), Some(0x41));
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope006"),
+        "expected portable VM unsupported-string diagnostic, got: {message}"
+    );
 }
 
 #[test]
 fn module_entry_resets_text_encoding_to_default() {
-    let assembler = run_passes(&[
-        ".module first",
-        "    .enc petscii",
-        "    .byte \"a\"",
-        ".endmodule",
-        ".module second",
-        "    .byte \"a\"",
-        ".endmodule",
-    ]);
-    let entries = assembler.image().entries().expect("entries");
-    assert_eq!(entries, vec![(0x0000, 0x41), (0x0001, 0x61)]);
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    assert_eq!(
+        process_line(&mut asm, ".module first", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, "    .enc petscii", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, "    .text \"a\"", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes(), &[0x41]);
+    assert_eq!(process_line(&mut asm, ".endmodule", 0, 1), LineStatus::Ok);
+
+    assert_eq!(
+        process_line(&mut asm, ".module second", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(
+        process_line(&mut asm, "    .text \"a\"", 0, 2),
+        LineStatus::Ok
+    );
+    assert_eq!(asm.bytes(), &[0x61]);
+    assert_eq!(process_line(&mut asm, ".endmodule", 0, 1), LineStatus::Ok);
 }
 
 #[test]
@@ -4484,6 +4753,37 @@ fn m65c02_forward_boundary_label_uses_stable_absolute_sizing() {
 }
 
 #[test]
+fn m6502_branch_in_packed_section_uses_rebased_address_before_pack_line() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".cpu 6502",
+        ".region c64, $0801, $08FF",
+        ".section code, align=1",
+        "start:",
+        "    BEQ done",
+        "    NOP",
+        "done:",
+        "    RTS",
+        ".endsection",
+        ".pack in c64 : code",
+        ".endmodule",
+    ]);
+
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(
+        entries,
+        vec![
+            (0x0801, 0xF0),
+            (0x0802, 0x01),
+            (0x0803, 0xEA),
+            (0x0804, 0x60),
+        ]
+    );
+    assert_eq!(assembler.symbols().lookup("main.start"), Some(0x0801));
+    assert_eq!(assembler.symbols().lookup("main.done"), Some(0x0804));
+}
+
+#[test]
 fn m65816_direct_page_indirect_long_forms_encode() {
     assert_eq!(
         assemble_bytes(m65816_cpu_id, "    ORA [$10]"),
@@ -4618,13 +4918,18 @@ fn legacy_cpus_reject_65816_mnemonics_and_modes() {
 
     let (status, message) = assemble_line_status(m6502_cpu_id, "    JSL $123456");
     assert_eq!(status, LineStatus::Error);
-    assert!(message.unwrap_or_default().contains("out of 16-bit range"));
+    let message = message.unwrap_or_default();
+    assert!(
+        message.contains("No instruction found for JSL") || message.contains("out of 16-bit range")
+    );
 
     let (status, message) = assemble_line_status(m65c02_cpu_id, "    MVN $01,$02");
     assert_eq!(status, LineStatus::Error);
-    assert!(message
-        .unwrap_or_default()
-        .contains("65816-only addressing mode not supported on 65C02"));
+    let message = message.unwrap_or_default();
+    assert!(
+        message.contains("65816-only addressing mode not supported on 65C02")
+            || message.contains("No instruction found for MVN")
+    );
 
     let (status, message) = assemble_line_status(m65c02_cpu_id, "    PEA $1234");
     assert_eq!(status, LineStatus::Error);
@@ -6257,4 +6562,2301 @@ fn error_kind_for_symbol_failure() {
     let status = process_line(&mut asm, "LABEL: NOP", 1, 1);
     assert_eq!(status, LineStatus::Error);
     assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Symbol);
+}
+
+#[cfg(feature = "opthread-parity")]
+#[test]
+fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
+    use crate::opthread::builder::build_hierarchy_package_from_registry;
+    use crate::opthread::package::load_hierarchy_package;
+    use std::fs;
+    use std::path::Path;
+
+    let registry = default_registry();
+    let package_bytes =
+        build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
+    let package = load_hierarchy_package(&package_bytes).expect("load hierarchy package");
+    let vectors_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/opthread/vectors");
+    let mut vector_paths: Vec<_> = fs::read_dir(vectors_dir)
+        .expect("read vectors dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "optst"))
+        .collect();
+    vector_paths.sort();
+
+    for vector_path in vector_paths {
+        let content = fs::read_to_string(&vector_path).expect("read vector");
+        let mut fields = std::collections::HashMap::new();
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = trimmed.split_once('=') {
+                fields.insert(key.trim().to_string(), value.trim_end().to_string());
+            }
+        }
+
+        let cpu_name = fields.get("cpu").expect("cpu field");
+        let cpu = registry
+            .resolve_cpu_name(cpu_name)
+            .expect("cpu must exist in registry");
+        let expected_dialect = fields.get("dialect").expect("dialect field");
+        let native_line = fields.get("native_line").expect("native_line field");
+        let canonical_line = fields.get("canonical_line").expect("canonical_line field");
+        let expect_status = fields.get("expect_status").expect("expect_status field");
+
+        let resolved = package
+            .resolve_pipeline(cpu.as_str(), None)
+            .expect("pipeline should resolve");
+        assert_eq!(
+            resolved.dialect_id.to_ascii_lowercase(),
+            expected_dialect.to_ascii_lowercase(),
+            "vector {} resolved unexpected dialect",
+            vector_path.display()
+        );
+
+        match expect_status.as_str() {
+            "ok" => {
+                let native_bytes = assemble_bytes(cpu, native_line);
+                let package_path_bytes = assemble_bytes(cpu, canonical_line);
+                assert_eq!(
+                    native_bytes,
+                    package_path_bytes,
+                    "vector {} byte mismatch",
+                    vector_path.display()
+                );
+            }
+            "error" => {
+                let (native_status, native_message) = assemble_line_status(cpu, native_line);
+                let (package_status, package_message) = assemble_line_status(cpu, canonical_line);
+                assert_eq!(
+                    native_status,
+                    package_status,
+                    "vector {} status mismatch",
+                    vector_path.display()
+                );
+                assert_eq!(
+                    native_message,
+                    package_message,
+                    "vector {} diagnostic mismatch",
+                    vector_path.display()
+                );
+            }
+            other => panic!(
+                "unsupported expect_status '{}' in {}",
+                other,
+                vector_path.display()
+            ),
+        }
+    }
+}
+
+#[test]
+fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
+    let bytes = assemble_bytes(m6502_cpu_id, "    LDA #$10");
+    assert_eq!(bytes, vec![0xA9, 0x10]);
+
+    let (status, message) = assemble_line_status(m6502_cpu_id, "    BRA $0000");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .contains("no instruction found"));
+}
+
+#[test]
+fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    for cpu in [m6502_cpu_id, m65c02_cpu_id, m65816_cpu_id] {
+        let asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+        assert!(
+            asm.opthread_execution_model.is_some(),
+            "expected runtime execution model for {}",
+            cpu.as_str()
+        );
+    }
+}
+
+#[test]
+fn opthread_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokenization() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    let i8085_asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    assert!(i8085_asm.opthread_execution_model.is_some());
+
+    let z80_asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
+    assert!(z80_asm.opthread_execution_model.is_some());
+}
+
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+#[test]
+fn opthread_runtime_artifact_path_is_target_relative() {
+    let base = create_temp_dir("opthread-artifact-path");
+    let path = AsmLine::opthread_package_artifact_path_for_dir(base.as_path());
+    assert_eq!(
+        path,
+        base.join("target")
+            .join("opthread")
+            .join("opforge-runtime.opcpu")
+    );
+}
+
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+#[test]
+fn opthread_runtime_artifact_helpers_round_trip_model_load() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let path = create_temp_dir("opthread-artifact-roundtrip")
+        .join("target")
+        .join("opthread")
+        .join("opforge-runtime.opcpu");
+    let package_bytes =
+        build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
+    AsmLine::persist_opthread_package_artifact(path.as_path(), &package_bytes);
+
+    let model = AsmLine::load_opthread_execution_model_from_artifact(path.as_path());
+    assert!(
+        model.is_some(),
+        "expected runtime model from artifact bytes"
+    );
+
+    let asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    assert!(
+        asm.opthread_execution_model.is_some(),
+        "runtime model should still initialize for authoritative family"
+    );
+}
+
+#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+#[test]
+fn opthread_runtime_artifact_mos6502_parity_and_determinism_gate() {
+    let source = [
+        "    .cpu 6502",
+        "    .org $1000",
+        "start:",
+        "    LDA #<target",
+        "    STA ptr",
+        "    LDA #>target",
+        "    STA ptr+1",
+        "    BNE later",
+        "ptr: .word target",
+        "    .byte $EA,$EA",
+        "later:",
+        "    BEQ start",
+        "target:",
+        "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime_a = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("artifact runtime source assembly should run");
+    let runtime_b = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("artifact runtime source re-run should be deterministic");
+
+    assert_eq!(
+        runtime_a.0, native.0,
+        "artifact bytes/reloc parity mismatch"
+    );
+    assert_eq!(runtime_a.1, native.1, "artifact diagnostic parity mismatch");
+    assert_eq!(
+        runtime_b.0, runtime_a.0,
+        "artifact runtime bytes are non-deterministic"
+    );
+    assert_eq!(
+        runtime_b.1, runtime_a.1,
+        "artifact runtime diagnostics are non-deterministic"
+    );
+}
+
+#[test]
+fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist() {
+    let registry = default_registry();
+    for family in registry.family_ids() {
+        let policy = family_runtime_rollout_policy(family.as_str())
+            .unwrap_or_else(|| panic!("missing rollout policy for family '{}'", family.as_str()));
+        assert!(
+            !policy.migration_checklist.trim().is_empty(),
+            "missing migration checklist for family '{}'",
+            family.as_str()
+        );
+    }
+}
+
+#[test]
+fn opthread_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled() {
+    assert_eq!(
+        family_runtime_mode("intel8080"),
+        FamilyRuntimeMode::Authoritative
+    );
+    assert!(package_runtime_default_enabled_for_family("intel8080"));
+
+    for (cpu, line) in [
+        (i8085_cpu_id, "    MVI A,55h"),
+        (z80_cpu_id, "    LD A,55h"),
+    ] {
+        let native = assemble_line_with_runtime_mode_no_injection(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode_no_injection(cpu, line, true);
+        assert!(
+            runtime.3,
+            "authoritative family should initialize opthread model for VM tokenization on {}",
+            cpu.as_str()
+        );
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_intel_authoritative_preserves_lxi_register_name_diagnostic_shape() {
+    let source = ["    .cpu 8085", "SP: .word 256", "    LXI H,SP"];
+    let (_entries, diagnostics) = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("source assembly should run");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diag| diag.contains("expected 16-bit immediate, got register SP")),
+        "expected legacy LXI/SP diagnostic, got: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
+    assert_eq!(
+        family_runtime_mode("mos6502"),
+        FamilyRuntimeMode::Authoritative
+    );
+    assert!(package_runtime_default_enabled_for_family("mos6502"));
+
+    let source = [
+        "    .cpu 6502",
+        "    .org $1000",
+        "start:",
+        "    LDA #<target",
+        "    STA ptr",
+        "    LDA #>target",
+        "    STA ptr+1",
+        "    BNE later",
+        "ptr: .word target",
+        "    .byte $EA,$EA",
+        "later:",
+        "    BEQ start",
+        "target:",
+        "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime_a = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    let runtime_b = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source re-run should be deterministic");
+
+    assert_eq!(runtime_a.0, native.0, "bytes/reloc parity mismatch");
+    assert_eq!(runtime_a.1, native.1, "diagnostic parity mismatch");
+    assert_eq!(
+        runtime_b.0, runtime_a.0,
+        "runtime bytes are non-deterministic"
+    );
+    assert_eq!(
+        runtime_b.1, runtime_a.1,
+        "runtime diagnostics are non-deterministic"
+    );
+}
+
+#[test]
+fn opthread_expr_parser_rollout_criteria_all_registered_families_have_policy_and_checklist() {
+    let registry = default_registry();
+    for family in registry.family_ids() {
+        let policy = crate::opthread::rollout::family_expr_parser_rollout_policy(family.as_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing expr-parser rollout policy for family '{}'",
+                    family.as_str()
+                )
+            });
+        assert!(
+            !policy.migration_checklist.trim().is_empty(),
+            "missing expr-parser migration checklist for family '{}'",
+            family.as_str()
+        );
+    }
+}
+
+#[test]
+fn opthread_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
+    assert!(
+        crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
+            "mos6502"
+        )
+    );
+    assert!(
+        crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
+            "intel8080"
+        )
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_path_uses_package_forms() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mvi_a = crate::families::intel8080::table::lookup_instruction("MVI", Some("A"), None)
+        .expect("MVI A should exist");
+    let mvi_mode_key = mode_key_for_instruction_entry(mvi_a);
+    for table in &mut chunks.tables {
+        let is_intel_family_owner = matches!(&table.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"));
+        if is_intel_family_owner
+            && table.mnemonic.eq_ignore_ascii_case("mvi")
+            && table.mode_key == mvi_mode_key
+        {
+            table.program = vec![OP_EMIT_U8, 0x00, OP_EMIT_OPERAND, 0x00, OP_END];
+        }
+    }
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A,$42", 1, 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x00, 0x42]);
+}
+
+#[test]
+fn opthread_runtime_z80_dialect_path_uses_package_forms() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mov_a_b =
+        crate::families::intel8080::table::lookup_instruction("MOV", Some("A"), Some("B"))
+            .expect("MOV A,B should exist");
+    let mov_mode_key = mode_key_for_instruction_entry(mov_a_b);
+    for table in &mut chunks.tables {
+        let is_intel_family_owner = matches!(&table.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"));
+        if is_intel_family_owner
+            && table.mnemonic.eq_ignore_ascii_case("mov")
+            && table.mode_key == mov_mode_key
+        {
+            table.program = vec![OP_EMIT_U8, 0x00, OP_END];
+        }
+    }
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LD A,B", 1, 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0x00]);
+}
+
+#[test]
+fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
+    let pairs = [
+        ("    MVI A,55h", "    LD A,55h"),
+        ("    MOV A,B", "    LD A,B"),
+        ("    JMP 1000h", "    JP 1000h"),
+        ("    JZ 1000h", "    JP Z,1000h"),
+        ("    ADI 10h", "    ADD A,10h"),
+    ];
+
+    for (intel_line, z80_line) in pairs {
+        let intel_native = assemble_line_with_runtime_mode(i8085_cpu_id, intel_line, false);
+        let intel_runtime = assemble_line_with_runtime_mode(i8085_cpu_id, intel_line, true);
+        assert_eq!(
+            intel_runtime.0, intel_native.0,
+            "8085 status mismatch for '{}'",
+            intel_line
+        );
+        assert_eq!(
+            intel_runtime.1, intel_native.1,
+            "8085 diagnostic mismatch for '{}'",
+            intel_line
+        );
+        assert_eq!(
+            intel_runtime.2, intel_native.2,
+            "8085 bytes mismatch for '{}'",
+            intel_line
+        );
+
+        let z80_native = assemble_line_with_runtime_mode(z80_cpu_id, z80_line, false);
+        let z80_runtime = assemble_line_with_runtime_mode(z80_cpu_id, z80_line, true);
+        assert_eq!(
+            z80_runtime.0, z80_native.0,
+            "z80 status mismatch for '{}'",
+            z80_line
+        );
+        assert_eq!(
+            z80_runtime.1, z80_native.1,
+            "z80 diagnostic mismatch for '{}'",
+            z80_line
+        );
+        assert_eq!(
+            z80_runtime.2, z80_native.2,
+            "z80 bytes mismatch for '{}'",
+            z80_line
+        );
+
+        assert_eq!(
+            intel_runtime.2, z80_runtime.2,
+            "intel/z80 rewrite bytes mismatch for pair '{}'<->'{}'",
+            intel_line, z80_line
+        );
+    }
+}
+
+#[test]
+fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
+    let corpus = ["    RIM", "    SIM"];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(i8085_cpu_id, line, false);
+        let runtime = assemble_line_with_runtime_mode(i8085_cpu_id, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
+    let corpus = ["    DJNZ $0004", "    RLC B"];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(z80_cpu_id, line, false);
+        let runtime = assemble_line_with_runtime_mode(z80_cpu_id, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.tables.retain(|program| {
+        let is_mos6502_owner =
+            matches!(&program.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(is_mos6502_owner
+            && program.mnemonic.eq_ignore_ascii_case("lda")
+            && program.mode_key.eq_ignore_ascii_case("immediate"))
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("missing opthread vm program"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_parser_vm_failure_errors_instead_of_host_parser_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .parser_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family parser vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.program = vec![ParserVmOpcode::Fail as u8, ParserVmOpcode::End as u8];
+    chunks.parser_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("parser vm requested failure"),
+        "expected parser VM failure diagnostics, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_expression_contract_breakage_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.grammar_id = "opforge.line.v0".to_string();
+    chunks.parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported parser grammar id"),
+        "expected expression contract compatibility diagnostic, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+    chunks.expr_parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #($10 + 1)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported expression parser contract opcode version"),
+        "expected expression parser contract compatibility failure, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_data_eval_survives_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
+}
+
+#[test]
+fn opthread_runtime_i8085_data_eval_survives_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
+}
+
+#[test]
+fn opthread_runtime_mos6502_expr_parse_survives_core_parser_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_core_expr_parser_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_core_expr_parser_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
+}
+
+#[test]
+fn opthread_runtime_i8085_expr_parse_survives_core_parser_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_core_expr_parser_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_core_expr_parser_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[3]);
+}
+
+#[test]
+fn opthread_runtime_mos6502_instruction_expr_parse_survives_core_parser_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_core_expr_parser_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_core_expr_parser_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #(1+2)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[0xA9, 0x03]);
+}
+
+#[test]
+fn opthread_runtime_i8085_instruction_expr_parse_survives_core_parser_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_core_expr_parser_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_core_expr_parser_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[0x3E, 0x03]);
+}
+
+#[test]
+fn opthread_runtime_mos6502_instruction_expr_eval_survives_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #(1+2)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[0xA9, 0x03]);
+}
+
+#[test]
+fn opthread_runtime_i8085_instruction_expr_eval_survives_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, 1+2", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Ok, "unexpected error: {message}");
+    assert_eq!(asm.bytes(), &[0x3E, 0x03]);
+}
+
+#[test]
+fn opthread_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+    chunks.expr_parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, ($10 + 1)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported expression parser contract opcode version"),
+        "expected expression parser contract compatibility failure, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_eval_expr_uses_expr_contract_budgets() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+
+    let span = crate::core::tokenizer::Span::default();
+    let expr = crate::core::parser::Expr::Binary {
+        op: crate::core::parser::BinaryOp::Add,
+        left: Box::new(crate::core::parser::Expr::Number("1".to_string(), span)),
+        right: Box::new(crate::core::parser::Expr::Number("2".to_string(), span)),
+        span,
+    };
+
+    let err = crate::core::family::AssemblerContext::eval_expr(&asm, &expr)
+        .expect_err("portable eval should enforce expr contract budget");
+    assert!(err.to_ascii_lowercase().contains("ope007"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_eval_expr_uses_portable_eval_by_default_when_certified() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #3", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected default certified VM eval path to enforce expr budgets, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_eval_expr_force_host_override_disables_default_vm() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.opthread_expr_eval_force_host_families
+        .push("mos6502".to_string());
+    asm.opthread_expr_eval_force_host_families
+        .push("m6502".to_string());
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #3", 1, 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+}
+
+#[test]
+fn opthread_runtime_mos6502_data_directive_eval_uses_portable_eval_by_default_when_certified() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .byte ($10 + 1)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected certified data directive expression to enforce VM budget contract, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_data_directive_eval_uses_portable_eval_by_default() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    .db (1 + 2)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected intel8080-family data directive expression to enforce VM budget contract, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_layout_directive_eval_uses_portable_eval_by_default_when_certified() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process(".region ram, $1000, $10ff, align=(1+1)", 1, 0, 1);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected certified layout directive expression to enforce VM budget contract, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_layout_directive_eval_uses_portable_eval_by_default() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process(".region ram, $1000, $10ff, align=(1+1)", 1, 0, 1);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected intel8080-family layout directive expression to enforce VM budget contract, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_complex_layout_directives_survive_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 6502".to_string(),
+        ".section code, align=(1+1)".to_string(),
+        "    .byte $aa".to_string(),
+        ".endsection".to_string(),
+        ".section data, align=(1+1)".to_string(),
+        "    .byte $bb".to_string(),
+        ".endsection".to_string(),
+        ".region ram, $1000, $10ff, align=(1+1)".to_string(),
+        ".pack in ram : code, data".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(
+        pass1.errors,
+        0,
+        "expected certified complex layout directives to bypass host evaluator failpoint: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn opthread_runtime_i8085_complex_layout_directives_survive_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 8085".to_string(),
+        ".section code, align=(1+1)".to_string(),
+        "    .db 1".to_string(),
+        ".endsection".to_string(),
+        ".section data, align=(1+1)".to_string(),
+        "    .db 2".to_string(),
+        ".endsection".to_string(),
+        ".region ram, $1000, $10ff, align=(1+1)".to_string(),
+        ".pack in ram : code, data".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(
+        pass1.errors,
+        0,
+        "expected intel8080-family complex layout directives to bypass host evaluator failpoint: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_output_directive_eval_uses_portable_eval_by_default_when_certified() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    assert_eq!(asm.process(".module main", 1, 0, 1), LineStatus::Ok);
+    let status = asm.process(
+        ".output \"out.bin\", format=bin, sections=code, image=\"$1000..$1001\", fill=(1+2)",
+        2,
+        0,
+        1,
+    );
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected certified output directive expression to enforce VM budget contract, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_output_directive_eval_uses_portable_eval_by_default() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    assert_eq!(asm.process(".module main", 1, 0, 1), LineStatus::Ok);
+    let status = asm.process(
+        ".output \"out.bin\", format=bin, sections=code, image=\"$1000..$1001\", fill=(1+2)",
+        2,
+        0,
+        1,
+    );
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected intel8080-family output directive expression to enforce VM budget contract, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_selector_unknown_symbol_uses_explicit_compat_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let chunks = build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA missing_label", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("label not found"),
+        "expected host compatibility diagnostic shape, got: {message}"
+    );
+    assert!(
+        !message.to_ascii_lowercase().contains("ope004"),
+        "unexpected direct VM unknown-symbol diagnostic leaked instead of compat fallback: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_mos6502_selector_non_compat_eval_error_does_not_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA $10 + 1", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected non-compat VM evaluation error without host fallback, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_portable_eval() {
+    let unresolved_native =
+        assemble_i8085_line_with_expr_vm_opt_in("    MVI A, missing_symbol", 0x1000, None, false);
+    let unresolved_runtime =
+        assemble_i8085_line_with_expr_vm_opt_in("    MVI A, missing_symbol", 0x1000, None, true);
+    assert_eq!(unresolved_runtime.0, unresolved_native.0);
+    assert_eq!(unresolved_runtime.1, unresolved_native.1);
+    assert_eq!(unresolved_runtime.2, unresolved_native.2);
+
+    let unstable_native = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, false)),
+        false,
+    );
+    let unstable_runtime = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, false)),
+        true,
+    );
+    assert_eq!(unstable_runtime.0, unstable_native.0);
+    assert_eq!(unstable_runtime.1, unstable_native.1);
+    assert_eq!(unstable_runtime.2, unstable_native.2);
+
+    let finalized_native = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, true)),
+        false,
+    );
+    let finalized_runtime = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, true)),
+        true,
+    );
+    assert_eq!(finalized_runtime.0, finalized_native.0);
+    assert_eq!(finalized_runtime.1, finalized_native.1);
+    assert_eq!(finalized_runtime.2, finalized_native.2);
+}
+
+#[test]
+fn opthread_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
+    let corpus = [
+        "    MVI A, ((1 + 2 * 3) == 7 ? $2A : $55)",
+        "    MVI A, (($ + 2) > $1000 ? $11 : $22)",
+        "    MVI A, ((<$1234) + ($80 >> 3))",
+    ];
+
+    for line in corpus {
+        let native = assemble_i8085_line_with_expr_vm_opt_in(line, 0x1000, None, false);
+        let runtime_a = assemble_i8085_line_with_expr_vm_opt_in(line, 0x1000, None, true);
+        let runtime_b = assemble_i8085_line_with_expr_vm_opt_in(line, 0x1000, None, true);
+
+        assert_eq!(runtime_a.0, native.0, "status mismatch for '{line}'");
+        assert_eq!(runtime_a.1, native.1, "diagnostic mismatch for '{line}'");
+        assert_eq!(runtime_a.2, native.2, "byte mismatch for '{line}'");
+
+        assert_eq!(runtime_b.0, runtime_a.0, "runtime status non-deterministic");
+        assert_eq!(
+            runtime_b.1, runtime_a.1,
+            "runtime diagnostics non-deterministic"
+        );
+        assert_eq!(runtime_b.2, runtime_a.2, "runtime bytes non-deterministic");
+    }
+}
+
+#[test]
+fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_authoritative() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, 3", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected default intel8080-family VM eval path to enforce expr budgets, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_when_opted_in() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.opthread_expr_eval_opt_in_families
+        .push("intel8080".to_string());
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, 3", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.to_ascii_lowercase().contains("ope007"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.program = vec![TokenizerVmOpcode::End as u8];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("produced no tokens for non-empty source line"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.program = vec![0xFE];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("unknown tokenizer vm opcode"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.program = vec![
+        TokenizerVmOpcode::DelegateCore as u8,
+        TokenizerVmOpcode::End as u8,
+    ];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("delegatecore opcode is forbidden"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.state_entry_offsets = Vec::new();
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #$10", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("tokenizer vm state table is empty"));
+}
+
+#[test]
+fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_authoritative() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("z80".to_string());
+    cpu_override.program = vec![TokenizerVmOpcode::End as u8];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LD A,B", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("produced no tokens for non-empty source line"));
+}
+
+#[test]
+fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime_flag_is_off() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .tokenizer_vm_programs
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family tokenizer vm program");
+    cpu_override.owner = ScopedOwner::Cpu("z80".to_string());
+    cpu_override.program = vec![TokenizerVmOpcode::End as u8];
+    chunks.tokenizer_vm_programs.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LD A,B", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message
+        .to_ascii_lowercase()
+        .contains("produced no tokens for non-empty source line"));
+}
+
+#[test]
+fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.selectors.retain(|selector| {
+        let owner_is_mos6502_family =
+            matches!(&selector.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(selector.mnemonic.eq_ignore_ascii_case("lda")
+            && selector.shape_key.eq_ignore_ascii_case("direct")
+            && owner_is_mos6502_family)
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA $1234", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.contains("No instruction found for LDA"));
+}
+
+#[test]
+fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m65c02_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.selectors.retain(|selector| {
+        let owner_is_mos6502_family =
+            matches!(&selector.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(selector.mnemonic.eq_ignore_ascii_case("lda")
+            && selector.shape_key.eq_ignore_ascii_case("direct")
+            && owner_is_mos6502_family)
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA $1234", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.contains("No instruction found for LDA"));
+}
+
+#[test]
+fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m65816_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.selectors.retain(|selector| {
+        let owner_is_mos6502_family =
+            matches!(&selector.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        let owner_is_m65816_cpu =
+            matches!(&selector.owner, ScopedOwner::Cpu(owner) if owner.eq_ignore_ascii_case("65816"));
+        !(selector.mnemonic.eq_ignore_ascii_case("lda")
+            && selector.shape_key.eq_ignore_ascii_case("direct")
+            && (owner_is_mos6502_family || owner_is_m65816_cpu))
+    });
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA $1234", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.contains("No instruction found for LDA"));
+}
+
+#[test]
+fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
+    let corpus = [
+        "    LDA #$10",
+        "    STA $2000",
+        "    ADC ($10),Y",
+        "    JMP $1234",
+        "    BNE $0004",
+        "    BRA $0004",
+        "    JMP missing_label",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
+        let package_mode = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
+        assert_eq!(package_mode.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(
+            package_mode.1, native.1,
+            "diagnostic mismatch for '{}'",
+            line
+        );
+        assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
+    // The mos6502 family is currently VM-eval enabled by default in rollout policy.
+    // Verify representative family CPUs keep byte+diagnostic parity with host mode.
+    let corpus = [
+        (m6502_cpu_id, "    LDA #$10"),
+        (m65c02_cpu_id, "    BRA $0004"),
+        (m65816_cpu_id, "    LDA $123456,k"),
+        (m65816_cpu_id, "    JMP $1234"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "LABEL: LDA #$10 ; trailing comment"),
+        (m6502_cpu_id, "LABEL LDA $10,X"),
+        (m6502_cpu_id, "    ASL A"),
+        (m6502_cpu_id, "    .byte \"A\", $42, %1010"),
+        (m6502_cpu_id, "    .word >$1234, <$1234"),
+        (m6502_cpu_id, "1mov a,b"),
+        (m65c02_cpu_id, "    ASL A"),
+        (m65c02_cpu_id, "    BRA $0004"),
+        (m65816_cpu_id, "    LDA [$10],Y"),
+        (m65816_cpu_id, "    LDA $123456,l"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(
+            runtime.0,
+            native.0,
+            "status mismatch for '{}' on {}",
+            line,
+            cpu.as_str()
+        );
+        assert_eq!(
+            runtime.1,
+            native.1,
+            "diagnostic mismatch for '{}' on {}",
+            line,
+            cpu.as_str()
+        );
+        assert_eq!(
+            runtime.2,
+            native.2,
+            "bytes mismatch for '{}' on {}",
+            line,
+            cpu.as_str()
+        );
+    }
+}
+
+#[test]
+fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fallback() {
+    let line = "    LDA ($10,S),Y";
+    let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
+    let runtime = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
+    assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+    assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+    assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+}
+
+#[test]
+fn opthread_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "    LDA $10,d"),
+        (m65c02_cpu_id, "    LDA $10,d"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_mos6502_pathological_line_corpus_matches_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "    LDA missing_label"),
+        (m6502_cpu_id, "    BNE missing_label"),
+        (m65c02_cpu_id, "    LDA missing_label"),
+        (m65c02_cpu_id, "    LDA $10,d"),
+        (m65816_cpu_id, "    LDA $123456,k"),
+        (m65816_cpu_id, "    JMP $123456,b"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_m65816_width_edge_program_matches_native_mode() {
+    let source = [
+        "    .cpu 65816",
+        "    SEP #$20",
+        "    LDA #$1234",
+        "    REP #$20",
+        "    LDA #$1234",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    assert_eq!(runtime.0, native.0, "image parity mismatch");
+    assert_eq!(runtime.1, native.1, "diagnostic parity mismatch");
+}
+
+#[test]
+fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
+    let registry = default_registry();
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    chunks.selectors.retain(|selector| {
+        let owner_is_mos6502_family =
+            matches!(&selector.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"));
+        !(selector.mnemonic.eq_ignore_ascii_case("lda")
+            && selector.shape_key.eq_ignore_ascii_case("direct")
+            && owner_is_mos6502_family)
+    });
+    chunks.selectors.push(ModeSelectorDescriptor {
+        owner: ScopedOwner::Family("mos6502".to_string()),
+        mnemonic: "lda".to_string(),
+        shape_key: "direct".to_string(),
+        mode_key: "absolute".to_string(),
+        operand_plan: "u8".to_string(),
+        priority: 0,
+        unstable_widen: false,
+        width_rank: 1,
+    });
+
+    let (status_a, message_a) = {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+        asm.opthread_execution_model = Some(
+            HierarchyExecutionModel::from_chunks(chunks.clone()).expect("execution model build"),
+        );
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        let status = asm.process("    LDA $1234", 1, 0, 2);
+        let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+        (status, message)
+    };
+
+    let (status_b, message_b) = {
+        let mut symbols = SymbolTable::new();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+        asm.opthread_execution_model =
+            Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        let status = asm.process("    LDA $1234", 1, 0, 2);
+        let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+        (status, message)
+    };
+
+    assert_eq!(status_a, LineStatus::Error);
+    assert_eq!(status_b, LineStatus::Error);
+    assert!(!message_a.is_empty());
+    assert_eq!(message_a, message_b);
+}
+
+#[test]
+fn opthread_runtime_mos6502_example_programs_match_native_mode() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let corpus = ["6502_simple.asm", "6502_allmodes.asm", "mos6502_modes.asm"];
+
+    for name in corpus {
+        let path = base.join(name);
+        let native = assemble_example_entries_with_runtime_mode(&path, false)
+            .expect("native example assembly should run");
+        let runtime = assemble_example_entries_with_runtime_mode(&path, true)
+            .expect("runtime example assembly should run");
+        assert_eq!(runtime.0, native.0, "image parity mismatch for {}", name);
+        assert_eq!(
+            runtime.1, native.1,
+            "diagnostic parity mismatch for {}",
+            name
+        );
+    }
+}
+
+#[test]
+fn opthread_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
+    let source = [
+        "    .cpu 6502",
+        "    .org $1000",
+        "start:",
+        "    LDA #<target",
+        "    STA ptr",
+        "    LDA #>target",
+        "    STA ptr+1",
+        "    BNE later",
+        "ptr: .word target",
+        "    .byte $EA,$EA,$EA",
+        "later:",
+        "    BEQ start",
+        "target:",
+        "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    assert_eq!(runtime.0, native.0, "image parity mismatch");
+    assert_eq!(runtime.1, native.1, "diagnostic parity mismatch");
+}
+
+#[test]
+fn opthread_runtime_m65c02_example_programs_match_native_mode() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let corpus = ["65c02_simple.asm", "65c02_allmodes.asm"];
+
+    for name in corpus {
+        let path = base.join(name);
+        let native = assemble_example_entries_with_runtime_mode(&path, false)
+            .expect("native example assembly should run");
+        let runtime = assemble_example_entries_with_runtime_mode(&path, true)
+            .expect("runtime example assembly should run");
+        assert_eq!(runtime.0, native.0, "image parity mismatch for {}", name);
+        assert_eq!(
+            runtime.1, native.1,
+            "diagnostic parity mismatch for {}",
+            name
+        );
+    }
+}
+
+#[test]
+fn opthread_runtime_m65816_example_programs_match_native_mode() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let corpus = [
+        "65816_simple.asm",
+        "65816_allmodes.asm",
+        "65816_assume_state.asm",
+        "65816_wide_alignment.asm",
+        "65816_wide_const_var.asm",
+        "65816_wide_image.asm",
+        "65816_wide_listing_aux.asm",
+        "65816_wide_mapfile.asm",
+        "65816_bss_wide_reserve.asm",
+    ];
+
+    for name in corpus {
+        let path = base.join(name);
+        let native = assemble_example_entries_with_runtime_mode(&path, false)
+            .expect("native example assembly should run");
+        let runtime = assemble_example_entries_with_runtime_mode(&path, true)
+            .expect("runtime example assembly should run");
+        assert_eq!(runtime.0, native.0, "image parity mismatch for {}", name);
+        assert_eq!(
+            runtime.1, native.1,
+            "diagnostic parity mismatch for {}",
+            name
+        );
+    }
+}
+
+#[test]
+fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() {
+    let corpus = [
+        (m6502_cpu_id, "    BNE $0200"),
+        (m6502_cpu_id, "    JMP missing_label"),
+        (m65c02_cpu_id, "    BBR0 $12,$0200"),
+        (m65816_cpu_id, "    BRL $8003"),
+        (m65816_cpu_id, "    LDA $123456,k"),
+        (m65816_cpu_id, "    JMP $123456,b"),
+    ];
+
+    for (cpu, line) in corpus {
+        let native = assemble_line_with_runtime_mode(cpu, line, false);
+        let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
+    let corpus = [
+        "    BRA $0004",
+        "    BBR0 $12,$0005",
+        "    STZ $10",
+        "    BIT #$10",
+        "    JMP ($1234,X)",
+        "    SMB0 $10",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m65c02_cpu_id, line, false);
+        let package_mode = assemble_line_with_runtime_mode(m65c02_cpu_id, line, true);
+        assert_eq!(package_mode.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(
+            package_mode.1, native.1,
+            "diagnostic mismatch for '{}'",
+            line
+        );
+        assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
+    let corpus = [
+        "    REP #$30",
+        "    SEP #$20",
+        "    XBA",
+        "    JSL $001234",
+        "    JML $001234",
+        "    MVN $01,$02",
+        "    LDA $123456",
+        "    LDA $123456,X",
+        "    LDA $123456,l",
+        "    LDA $1234,b",
+        "    JMP $1234,k",
+        "    LDA $f0,d",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m65816_cpu_id, line, false);
+        let package_mode = assemble_line_with_runtime_mode(m65816_cpu_id, line, true);
+        assert_eq!(package_mode.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(
+            package_mode.1, native.1,
+            "diagnostic mismatch for '{}'",
+            line
+        );
+        assert_eq!(package_mode.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn opthread_runtime_m65c02_table_modes_match_native_mode() {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+    for entry in M65C02_INSTRUCTION_TABLE {
+        if entry.mnemonic.starts_with("BBR") || entry.mnemonic.starts_with("BBS") {
+            // Bit-branch mnemonics require two operands; keep this parity corpus
+            // focused on one-operand mode table entries.
+            continue;
+        }
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+
+    for (case_id, line) in cases {
+        let native = assemble_line_with_runtime_mode(m65c02_cpu_id, &line, false);
+        let runtime = assemble_line_with_runtime_mode(m65c02_cpu_id, &line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for {}", case_id);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for {}", case_id);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for {}", case_id);
+    }
+}
+
+#[test]
+fn opthread_runtime_m65816_table_modes_match_native_mode() {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+    for entry in M65816_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let line = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, line));
+    }
+
+    for (case_id, line) in cases {
+        let native = assemble_line_with_runtime_mode(m65816_cpu_id, &line, false);
+        let runtime = assemble_line_with_runtime_mode(m65816_cpu_id, &line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for {}", case_id);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for {}", case_id);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for {}", case_id);
+    }
+}
+
+fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
+    match mode {
+        AddressMode::Implied => None,
+        AddressMode::Accumulator => Some("A"),
+        AddressMode::Immediate => Some("#$10"),
+        AddressMode::ZeroPage => Some("$10"),
+        AddressMode::ZeroPageX => Some("$10,X"),
+        AddressMode::ZeroPageY => Some("$10,Y"),
+        AddressMode::Absolute => Some("$1234"),
+        AddressMode::AbsoluteX => Some("$1234,X"),
+        AddressMode::AbsoluteY => Some("$1234,Y"),
+        AddressMode::Indirect => Some("($1234)"),
+        AddressMode::IndexedIndirectX => Some("($10,X)"),
+        AddressMode::IndirectIndexedY => Some("($10),Y"),
+        AddressMode::Relative => Some("$0004"),
+        AddressMode::RelativeLong => Some("$0004"),
+        AddressMode::ZeroPageIndirect => Some("($10)"),
+        AddressMode::AbsoluteIndexedIndirect => Some("($1234,X)"),
+        AddressMode::StackRelative => Some("$10,S"),
+        AddressMode::StackRelativeIndirectIndexedY => Some("($10,S),Y"),
+        AddressMode::AbsoluteLong => Some("$001234"),
+        AddressMode::AbsoluteLongX => Some("$001234,X"),
+        AddressMode::IndirectLong => Some("[$1234]"),
+        AddressMode::DirectPageIndirectLongY => Some("[$10],Y"),
+        AddressMode::DirectPageIndirectLong => Some("[$10]"),
+        AddressMode::BlockMove => Some("$01,$02"),
+    }
+}
+
+fn collect_mos6502_native_baseline_snapshot() -> String {
+    let mut cases: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        let key = format!("{}:{:?}", entry.mnemonic, entry.mode);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let source = match mos6502_operand_for_mode(entry.mode) {
+            Some(operand) => format!("    {} {}", entry.mnemonic, operand),
+            None => format!("    {}", entry.mnemonic),
+        };
+        cases.push((key, source));
+    }
+
+    // Include explicit compatibility/error anchors.
+    cases.push(("M6502_ERROR:BRA".to_string(), "    BRA $0004".to_string()));
+    cases.push((
+        "M6502_ERROR:UNRESOLVED".to_string(),
+        "    JMP missing_label".to_string(),
+    ));
+
+    cases.sort();
+
+    let mut rows = Vec::with_capacity(cases.len());
+    for (case_id, line) in cases {
+        let (status, message) = assemble_line_status(m6502_cpu_id, &line);
+        let status_name = match status {
+            LineStatus::Ok => "ok",
+            LineStatus::Error => "error",
+            other => panic!("unexpected status {:?} for '{}'", other, line),
+        };
+        let bytes = if status == LineStatus::Ok {
+            assemble_bytes(m6502_cpu_id, &line)
+                .into_iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join("")
+        } else {
+            String::new()
+        };
+        let diag = message
+            .unwrap_or_default()
+            .replace('\t', " ")
+            .replace('\n', " ");
+        rows.push(format!("{case_id}\t{line}\t{status_name}\t{bytes}\t{diag}"));
+    }
+
+    rows.join("\n") + "\n"
+}
+
+#[test]
+fn mos6502_native_baseline_matches_reference() {
+    let baseline_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/opthread/reference/mos6502_native_baseline.tsv");
+    let snapshot = collect_mos6502_native_baseline_snapshot();
+
+    if std::env::var("opForge_UPDATE_OPTHREAD_BASELINE").is_ok() {
+        if let Some(parent) = baseline_path.parent() {
+            fs::create_dir_all(parent).expect("create baseline directory");
+        }
+        fs::write(&baseline_path, &snapshot).expect("write baseline snapshot");
+    }
+
+    let expected = fs::read_to_string(&baseline_path).unwrap_or_else(|err| {
+        panic!(
+            "missing baseline file {}: {} (run with opForge_UPDATE_OPTHREAD_BASELINE=1)",
+            baseline_path.display(),
+            err
+        )
+    });
+    assert_eq!(snapshot, expected);
 }

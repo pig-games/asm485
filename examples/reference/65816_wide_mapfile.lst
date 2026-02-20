@@ -12,7 +12,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                9  
 ----                               10  .section code  ; [section code]
 ----                               11  entry:  ; [section code]
-0000    EA                         12      .byte $ea  ; [section code]
+FF0000  EA                         12      .byte $ea  ; [section code]
 ----                               13  .endsection
 ----                               14  
 ----                               15  .place code in hi

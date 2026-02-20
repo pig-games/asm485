@@ -16,6 +16,20 @@ pub struct M65C02CpuModule;
 
 pub const CPU_ID: CpuType = CpuType::new("65c02");
 
+fn cpu_form_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = super::instructions::CPU_INSTRUCTION_TABLE
+        .iter()
+        .map(|entry| entry.mnemonic.to_ascii_lowercase())
+        .collect();
+    for bit in 0u8..=7 {
+        mnemonics.push(format!("bbr{bit}"));
+        mnemonics.push(format!("bbs{bit}"));
+    }
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
+
 impl CpuModule for M65C02CpuModule {
     fn cpu_id(&self) -> CpuType {
         CPU_ID
@@ -31,6 +45,10 @@ impl CpuModule for M65C02CpuModule {
 
     fn default_dialect(&self) -> &'static str {
         DIALECT_TRANSPARENT
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        cpu_form_mnemonics()
     }
 
     fn handler(&self) -> Box<dyn CpuHandlerDyn> {

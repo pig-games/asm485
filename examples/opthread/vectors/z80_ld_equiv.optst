@@ -1,0 +1,6 @@
+family=intel8080
+cpu=z80
+dialect=zilog
+native_line=    LD A,B
+canonical_line=    MOV A,B
+expect_status=ok

@@ -14,13 +14,26 @@ use crate::core::registry::{
     DialectModule, FamilyHandlerDyn, FamilyModule, FamilyOperandSet, OperandSet,
 };
 
-use super::dialect::map_zilog_to_canonical;
+use super::dialect::{map_zilog_to_canonical, zilog_dialect_mnemonics};
 use super::{FamilyOperand, Intel8080FamilyHandler, Operand};
 
 pub const DIALECT_INTEL8080: &str = "intel8080";
 pub const DIALECT_ZILOG: &str = "zilog";
 pub const FAMILY_ID: CpuFamily = CpuFamily::new("intel8080");
 const FAMILY_CPU_NAME: &str = "8080";
+const FAMILY_REGISTER_IDS: &[&str] = &[
+    "A", "B", "C", "D", "E", "H", "L", "M", "BC", "DE", "HL", "SP", "PSW",
+];
+
+fn family_form_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = super::FAMILY_INSTRUCTION_TABLE
+        .iter()
+        .map(|entry| entry.mnemonic.to_ascii_lowercase())
+        .collect();
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
 
 pub struct Intel8080FamilyModule;
 
@@ -39,6 +52,14 @@ impl FamilyModule for Intel8080FamilyModule {
 
     fn canonical_dialect(&self) -> &'static str {
         DIALECT_INTEL8080
+    }
+
+    fn register_ids(&self) -> &'static [&'static str] {
+        FAMILY_REGISTER_IDS
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        family_form_mnemonics()
     }
 
     fn dialects(&self) -> Vec<Box<dyn DialectModule>> {
@@ -111,6 +132,10 @@ impl DialectModule for ZilogDialect {
 
     fn family_id(&self) -> CpuFamily {
         FAMILY_ID
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        zilog_dialect_mnemonics()
     }
 
     fn map_mnemonic(

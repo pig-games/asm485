@@ -9,7 +9,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                6      .pub
 ----    EQU 0004                    7  LIBVAL  .const 4
 ----                                8      .section data  ; [section data]
-0000    02 03                       9      .byte 2, 3  ; [section data]
+1000    02 03                       9      .byte 2, 3  ; [section data]
 ----                               10      .endsection
 ----                               11  .endmodule
 ----                               12  
@@ -17,7 +17,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               14      .use example.section.include.lib (LIBVAL)
 ----                               15      .region ram, $1000, $10ff
 ----                               16      .section data  ; [section data]
-0002    01 04                      17      .byte 1, LIBVAL  ; [section data]
+1002    01 04                      17      .byte 1, LIBVAL  ; [section data]
 ----                               18      .endsection
 ----                               19      .place data in ram
 ----                               20  .endmodule

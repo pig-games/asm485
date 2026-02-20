@@ -16,6 +16,16 @@ pub struct I8085CpuModule;
 
 pub const CPU_ID: CpuType = CpuType::new("8085");
 
+fn cpu_form_mnemonics() -> Vec<String> {
+    let mut mnemonics: Vec<String> = super::I8085_EXTENSION_TABLE
+        .iter()
+        .map(|entry| entry.mnemonic.to_ascii_lowercase())
+        .collect();
+    mnemonics.sort();
+    mnemonics.dedup();
+    mnemonics
+}
+
 impl CpuModule for I8085CpuModule {
     fn cpu_id(&self) -> CpuType {
         CPU_ID
@@ -31,6 +41,10 @@ impl CpuModule for I8085CpuModule {
 
     fn default_dialect(&self) -> &'static str {
         DIALECT_INTEL8080
+    }
+
+    fn form_mnemonics(&self) -> Vec<String> {
+        cpu_form_mnemonics()
     }
 
     fn handler(&self) -> Box<dyn CpuHandlerDyn> {

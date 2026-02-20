@@ -19,6 +19,22 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 
 ## Added
 
+- opThread hierarchy groundwork (in-progress, feature-gated development surface):
+  - hierarchy package chunks for `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`
+  - optional `TOKS` package chunk for scoped token-policy hints (case folding, identifier classes, punctuation set)
+  - phase-1 `TOKS` schema closure with full lexical policy fields (comment/quote/escape/number/operator policy) and backward-compatible legacy decode defaults
+  - portable tokenizer ABI and delegation path (`PortableTokenizerAdapter` + `tokenize_portable_statement`) using package-scoped token policy selection
+  - phase-0 tokenizer contract lock with portable token model (`PortableToken*`) and precedence/parity contract tests
+  - tokenization parity coverage between host mode and VM-policy delegated mode for MOS6502 paths
+  - deterministic metadata canonicalization and stable snapshot coverage
+  - host/runtime bridge API for active CPU selection + hierarchy-aware pipeline resolution
+  - explicit family rollout modes: MOS6502-family is authoritative package-runtime; Intel8080-family remains staged verification (native default)
+  - optional feature-gated `.opcpu` artifact load/write path (`opthread-runtime-opcpu-artifact`) using `target/opthread/opforge-runtime.opcpu`
+  - artifact-mode MOS6502 runtime verification lane via `make test-opthread-runtime-artifact`
+  - explicit retention of Rust-table-driven package generation (`build_hierarchy_package_from_registry`) as the authoring path for new family/CPU onboarding
+  - bounded deterministic dialect rewrite engine (`src/opthread/rewrite.rs`)
+  - parity smoke harness behind feature flag (`cargo test --features opthread-parity ...`)
+  - draft `.optst` vector corpus under `examples/opthread/vectors/`
 - Linker-region workflow directives and validation:
   - `.region`, `.place`, `.pack`
   - strict region-bound placement checks

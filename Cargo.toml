@@ -9,6 +9,11 @@ repository = "https://github.com/pig-games/opForge"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 
+[features]
+default = []
+opthread-runtime-opcpu-artifact = []
+opthread-parity = []
+
 [profile.release]
 lto = true
 codegen-units = 1
