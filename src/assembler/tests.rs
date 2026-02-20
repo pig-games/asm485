@@ -207,6 +207,42 @@ fn assemble_line_with_runtime_mode_no_injection(
     (status, message, asm.bytes().to_vec(), has_model)
 }
 
+fn assemble_i8085_line_with_expr_vm_opt_in(
+    line: &str,
+    start_addr: u32,
+    symbol_seed: Option<(u32, bool)>,
+    enable_portable_expr_vm: bool,
+) -> (LineStatus, Option<String>, Vec<u8>) {
+    let mut symbols = SymbolTable::new();
+    if let Some((value, finalized)) = symbol_seed {
+        assert_eq!(
+            symbols.add("target", value, false, SymbolVisibility::Private, None),
+            SymbolTableResult::Ok,
+            "seed symbol add should succeed"
+        );
+        if finalized {
+            assert_eq!(
+                symbols.update("target", value),
+                SymbolTableResult::Ok,
+                "seed symbol finalize should succeed"
+            );
+        }
+    }
+
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+    if enable_portable_expr_vm {
+        asm.opthread_expr_eval_opt_in_families
+            .push("intel8080".to_string());
+    }
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process(line, 1, start_addr, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec())
+}
+
 fn assemble_source_entries_with_runtime_mode(
     lines: &[&str],
     _enable_opthread_runtime: bool,
@@ -7086,6 +7122,75 @@ fn opthread_runtime_mos6502_eval_expr_uses_expr_contract_budgets() {
     let err = crate::core::family::AssemblerContext::eval_expr(&asm, &expr)
         .expect_err("portable eval should enforce expr contract budget");
     assert!(err.to_ascii_lowercase().contains("ope007"));
+}
+
+#[test]
+fn opthread_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_portable_eval() {
+    let unresolved_native =
+        assemble_i8085_line_with_expr_vm_opt_in("    MVI A, missing_symbol", 0x1000, None, false);
+    let unresolved_runtime =
+        assemble_i8085_line_with_expr_vm_opt_in("    MVI A, missing_symbol", 0x1000, None, true);
+    assert_eq!(unresolved_runtime.0, unresolved_native.0);
+    assert_eq!(unresolved_runtime.1, unresolved_native.1);
+    assert_eq!(unresolved_runtime.2, unresolved_native.2);
+
+    let unstable_native = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, false)),
+        false,
+    );
+    let unstable_runtime = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, false)),
+        true,
+    );
+    assert_eq!(unstable_runtime.0, unstable_native.0);
+    assert_eq!(unstable_runtime.1, unstable_native.1);
+    assert_eq!(unstable_runtime.2, unstable_native.2);
+
+    let finalized_native = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, true)),
+        false,
+    );
+    let finalized_runtime = assemble_i8085_line_with_expr_vm_opt_in(
+        "    MVI A, target",
+        0x1000,
+        Some((0x0010, true)),
+        true,
+    );
+    assert_eq!(finalized_runtime.0, finalized_native.0);
+    assert_eq!(finalized_runtime.1, finalized_native.1);
+    assert_eq!(finalized_runtime.2, finalized_native.2);
+}
+
+#[test]
+fn opthread_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
+    let corpus = [
+        "    MVI A, ((1 + 2 * 3) == 7 ? $2A : $55)",
+        "    MVI A, (($ + 2) > $1000 ? $11 : $22)",
+        "    MVI A, ((<$1234) + ($80 >> 3))",
+    ];
+
+    for line in corpus {
+        let native = assemble_i8085_line_with_expr_vm_opt_in(line, 0x1000, None, false);
+        let runtime_a = assemble_i8085_line_with_expr_vm_opt_in(line, 0x1000, None, true);
+        let runtime_b = assemble_i8085_line_with_expr_vm_opt_in(line, 0x1000, None, true);
+
+        assert_eq!(runtime_a.0, native.0, "status mismatch for '{line}'");
+        assert_eq!(runtime_a.1, native.1, "diagnostic mismatch for '{line}'");
+        assert_eq!(runtime_a.2, native.2, "byte mismatch for '{line}'");
+
+        assert_eq!(runtime_b.0, runtime_a.0, "runtime status non-deterministic");
+        assert_eq!(
+            runtime_b.1, runtime_a.1,
+            "runtime diagnostics non-deterministic"
+        );
+        assert_eq!(runtime_b.2, runtime_a.2, "runtime bytes non-deterministic");
+    }
 }
 
 #[test]
