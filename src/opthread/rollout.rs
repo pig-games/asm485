@@ -308,6 +308,17 @@ mod tests {
     }
 
     #[test]
+    fn expr_eval_rollout_force_host_overrides_opt_in() {
+        let opt_in = vec!["intel8080".to_string()];
+        let force_host = vec!["InTeL8080".to_string()];
+        assert!(!portable_expr_runtime_enabled_for_family(
+            "intel8080",
+            &opt_in,
+            &force_host
+        ));
+    }
+
+    #[test]
     fn expr_parser_rollout_marks_mos_family_as_authoritative() {
         assert_eq!(
             family_expr_parser_mode("mos6502"),
@@ -373,6 +384,17 @@ mod tests {
         assert!(!portable_expr_parser_runtime_enabled_for_family(
             "mos6502",
             &[],
+            &force_host
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_force_host_overrides_opt_in() {
+        let opt_in = vec!["intel8080".to_string()];
+        let force_host = vec!["InTeL8080".to_string()];
+        assert!(!portable_expr_parser_runtime_enabled_for_family(
+            "intel8080",
+            &opt_in,
             &force_host
         ));
     }

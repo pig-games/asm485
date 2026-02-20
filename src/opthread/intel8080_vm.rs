@@ -316,7 +316,7 @@ fn z80_cb_opcode_with_reg(mnemonic: &str, bit: Option<u8>, reg_code: u8) -> Opti
                 "BIT" => 0x40,
                 "RES" => 0x80,
                 "SET" => 0xC0,
-                _ => unreachable!(),
+                _ => return None,
             };
             Some(base | (bit << 3) | reg_code)
         }
@@ -398,5 +398,42 @@ fn z80_half_index_prefix_key(prefix: &str) -> Option<&'static str> {
         "IX" => Some("ix"),
         "IY" => Some("iy"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupt_mode_key_rejects_out_of_range_mode() {
+        assert_eq!(mode_key_for_z80_interrupt_mode(3), None);
+    }
+
+    #[test]
+    fn cb_register_key_rejects_bit_out_of_range() {
+        assert_eq!(mode_key_for_z80_cb_register("BIT", Some(8), "A"), None);
+    }
+
+    #[test]
+    fn compile_instruction_vm_skips_im_mode_entries() {
+        let entry = InstructionEntry {
+            mnemonic: "IM",
+            reg1: "",
+            reg2: "",
+            num_regs: 0,
+            prefix: Prefix::Ed,
+            opcode: 0x46,
+            arg_type: ArgType::Im,
+        };
+        assert_eq!(compile_vm_program_for_instruction_entry(&entry), None);
+    }
+
+    #[test]
+    fn compile_indexed_memory_rejects_invalid_operand_count() {
+        assert_eq!(
+            compile_vm_program_for_z80_indexed_memory("IX", 0x34, 3),
+            None
+        );
     }
 }

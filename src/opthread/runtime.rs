@@ -439,7 +439,7 @@ pub struct PortableToken {
 }
 
 impl PortableToken {
-    fn from_core_token(value: Token) -> Self {
+    fn from_core_token(value: Token) -> Option<Self> {
         let kind = match value.kind {
             TokenKind::Identifier(name) => PortableTokenKind::Identifier(name),
             TokenKind::Register(name) => PortableTokenKind::Register(name),
@@ -462,12 +462,12 @@ impl PortableToken {
             TokenKind::OpenParen => PortableTokenKind::OpenParen,
             TokenKind::CloseParen => PortableTokenKind::CloseParen,
             TokenKind::Operator(op) => PortableTokenKind::Operator(op.into()),
-            TokenKind::End => unreachable!("end token is not representable as portable token"),
+            TokenKind::End => return None,
         };
-        Self {
+        Some(Self {
             kind,
             span: value.span.into(),
-        }
+        })
     }
 
     pub(crate) fn to_core_token(&self) -> Token {
@@ -4266,7 +4266,7 @@ fn intel8080_half_index_candidate(
                 "ADD" => 0x80,
                 "ADC" => 0x88,
                 "SBC" => 0x98,
-                _ => unreachable!(),
+                _ => return None,
             };
             (base | code, Vec::new(), format!("r:{code}"))
         }
@@ -4292,7 +4292,7 @@ fn intel8080_half_index_candidate(
                 "XOR" => 0xA8,
                 "OR" => 0xB0,
                 "CP" => 0xB8,
-                _ => unreachable!(),
+                _ => return None,
             };
             (base | code, Vec::new(), format!("r:{code}"))
         }
@@ -4429,7 +4429,7 @@ fn intel8080_indexed_memory_candidate(
                 "ADD" => "add_a_idx",
                 "ADC" => "adc_a_idx",
                 "SBC" => "sbc_a_idx",
-                _ => unreachable!(),
+                _ => return None,
             };
             (form.to_string(), vec![vec![displacement]])
         }
@@ -4452,7 +4452,7 @@ fn intel8080_indexed_memory_candidate(
                 "XOR" => "xor_idx",
                 "OR" => "or_idx",
                 "CP" => "cp_idx",
-                _ => unreachable!(),
+                _ => return None,
             };
             (form.to_string(), vec![vec![displacement]])
         }
@@ -4890,7 +4890,10 @@ fn vm_scan_next_core_token(
         if matches!(token.kind, TokenKind::End) {
             return Ok(None);
         }
-        return Ok(Some((PortableToken::from_core_token(token), token_end)));
+        if let Some(portable) = PortableToken::from_core_token(token) {
+            return Ok(Some((portable, token_end)));
+        }
+        return Ok(None);
     }
 }
 
@@ -5733,7 +5736,9 @@ mod tests {
             if matches!(token.kind, TokenKind::End) {
                 break;
             }
-            tokens.push(PortableToken::from_core_token(token));
+            if let Some(portable) = PortableToken::from_core_token(token) {
+                tokens.push(portable);
+            }
         }
         Ok(tokens)
     }
@@ -6675,7 +6680,7 @@ mod tests {
         let portable_tokens: Vec<PortableToken> = core_tokens
             .iter()
             .cloned()
-            .map(PortableToken::from_core_token)
+            .filter_map(PortableToken::from_core_token)
             .collect();
         let round_trip: Vec<Token> = portable_tokens
             .iter()

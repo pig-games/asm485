@@ -1796,7 +1796,7 @@ fn encode_fams_chunk(families: &[FamilyDescriptor]) -> Result<Vec<u8>, OpcpuCode
 
 fn decode_fams_chunk(bytes: &[u8]) -> Result<Vec<FamilyDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "FAMS");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 8, "family entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         entries.push(FamilyDescriptor {
@@ -1838,7 +1838,7 @@ fn encode_strs_chunk(strings: &[String]) -> Result<Vec<u8>, OpcpuCodecError> {
 
 fn decode_strs_chunk(bytes: &[u8]) -> Result<Vec<String>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "STRS");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 4, "string entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         entries.push(cur.read_string()?);
@@ -1859,7 +1859,7 @@ fn encode_diag_chunk(diagnostics: &[DiagnosticDescriptor]) -> Result<Vec<u8>, Op
 
 fn decode_diag_chunk(bytes: &[u8]) -> Result<Vec<DiagnosticDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "DIAG");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 8, "diagnostic entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         entries.push(DiagnosticDescriptor {
@@ -1924,7 +1924,7 @@ fn encode_toks_chunk(policies: &[TokenPolicyDescriptor]) -> Result<Vec<u8>, Opcp
 
 fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "TOKS");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "token policy entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -1966,7 +1966,7 @@ fn decode_toks_chunk(bytes: &[u8]) -> Result<Vec<TokenPolicyDescriptor>, OpcpuCo
                 number_suffix_decimal = cur.read_string()?;
                 number_suffix_hex = cur.read_string()?;
                 operator_chars = cur.read_string()?;
-                let operator_count = cur.read_u32()? as usize;
+                let operator_count = read_bounded_count(&mut cur, 1, "multi-char operator")?;
                 let mut operators = Vec::with_capacity(operator_count);
                 for _ in 0..operator_count {
                     operators.push(cur.read_string()?);
@@ -2026,7 +2026,7 @@ fn encode_cpus_chunk(cpus: &[CpuDescriptor]) -> Result<Vec<u8>, OpcpuCodecError>
 
 fn decode_cpus_chunk(bytes: &[u8]) -> Result<Vec<CpuDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "CPUS");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "cpu entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let id = cur.read_string()?;
@@ -2077,7 +2077,7 @@ fn encode_dial_chunk(dialects: &[DialectDescriptor]) -> Result<Vec<u8>, OpcpuCod
 
 fn decode_dial_chunk(bytes: &[u8]) -> Result<Vec<DialectDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "DIAL");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "dialect entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let id = cur.read_string()?;
@@ -2086,7 +2086,7 @@ fn decode_dial_chunk(bytes: &[u8]) -> Result<Vec<DialectDescriptor>, OpcpuCodecE
         let cpu_allow_list = match has_allow_list {
             0 => None,
             1 => {
-                let allow_count = cur.read_u32()? as usize;
+                let allow_count = read_bounded_count(&mut cur, 1, "dialect allow-list entry")?;
                 let mut allow = Vec::with_capacity(allow_count);
                 for _ in 0..allow_count {
                     allow.push(cur.read_string()?);
@@ -2128,7 +2128,7 @@ fn encode_regs_chunk(registers: &[ScopedRegisterDescriptor]) -> Result<Vec<u8>, 
 
 fn decode_regs_chunk(bytes: &[u8]) -> Result<Vec<ScopedRegisterDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "REGS");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "register entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2169,7 +2169,7 @@ fn encode_form_chunk(forms: &[ScopedFormDescriptor]) -> Result<Vec<u8>, OpcpuCod
 
 fn decode_form_chunk(bytes: &[u8]) -> Result<Vec<ScopedFormDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "FORM");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "form entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2216,7 +2216,7 @@ fn encode_tabl_chunk(tables: &[VmProgramDescriptor]) -> Result<Vec<u8>, OpcpuCod
 
 fn decode_tabl_chunk(bytes: &[u8]) -> Result<Vec<VmProgramDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "TABL");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "table entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2271,7 +2271,7 @@ fn encode_msel_chunk(selectors: &[ModeSelectorDescriptor]) -> Result<Vec<u8>, Op
 
 fn decode_msel_chunk(bytes: &[u8]) -> Result<Vec<ModeSelectorDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "MSEL");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "mode selector entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2365,7 +2365,7 @@ fn encode_tkvm_chunk(
 
 fn decode_tkvm_chunk(bytes: &[u8]) -> Result<Vec<TokenizerVmProgramDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "TKVM");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "tokenizer VM entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2383,7 +2383,7 @@ fn decode_tkvm_chunk(bytes: &[u8]) -> Result<Vec<TokenizerVmProgramDescriptor>, 
         };
         let opcode_version = cur.read_u16()?;
         let start_state = cur.read_u16()?;
-        let state_count = cur.read_u32()? as usize;
+        let state_count = read_bounded_count(&mut cur, 4, "state-entry offset")?;
         let mut state_entry_offsets = Vec::with_capacity(state_count);
         for _ in 0..state_count {
             state_entry_offsets.push(cur.read_u32()?);
@@ -2445,7 +2445,7 @@ fn encode_pars_chunk(contracts: &[ParserContractDescriptor]) -> Result<Vec<u8>, 
 
 fn decode_pars_chunk(bytes: &[u8]) -> Result<Vec<ParserContractDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "PARS");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "parser contract entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2507,7 +2507,7 @@ fn encode_prvm_chunk(programs: &[ParserVmProgramDescriptor]) -> Result<Vec<u8>, 
 
 fn decode_prvm_chunk(bytes: &[u8]) -> Result<Vec<ParserVmProgramDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "PRVM");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "parser VM entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2566,7 +2566,7 @@ fn encode_expr_chunk(contracts: &[ExprContractDescriptor]) -> Result<Vec<u8>, Op
 
 fn decode_expr_chunk(bytes: &[u8]) -> Result<Vec<ExprContractDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "EXPR");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "expression contract entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2639,7 +2639,7 @@ fn encode_expp_chunk(
 
 fn decode_expp_chunk(bytes: &[u8]) -> Result<Vec<ExprParserContractDescriptor>, OpcpuCodecError> {
     let mut cur = Decoder::new(bytes, "EXPP");
-    let count = cur.read_u32()? as usize;
+    let count = read_bounded_count(&mut cur, 1, "expression parser contract entry")?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let owner_tag = cur.read_u8()?;
@@ -2815,6 +2815,30 @@ fn chunk_name(tag: &[u8; 4]) -> String {
         .unwrap_or_else(|_| format!("{:02X?}", tag))
 }
 
+fn read_bounded_count(
+    cur: &mut Decoder<'_>,
+    min_record_bytes: usize,
+    detail: &str,
+) -> Result<usize, OpcpuCodecError> {
+    let count = cur.read_u32()? as usize;
+    if min_record_bytes == 0 {
+        return Ok(count);
+    }
+
+    let max_count = cur.remaining_len() / min_record_bytes;
+    if count > max_count {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: cur.chunk.to_string(),
+            detail: format!(
+                "{} count {} exceeds remaining payload bound {}",
+                detail, count, max_count
+            ),
+        });
+    }
+
+    Ok(count)
+}
+
 struct Decoder<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -2846,6 +2870,10 @@ impl<'a> Decoder<'a> {
 
     fn has_remaining(&self) -> bool {
         self.pos < self.bytes.len()
+    }
+
+    fn remaining_len(&self) -> usize {
+        self.bytes.len().saturating_sub(self.pos)
     }
 
     fn read_u32(&mut self) -> Result<u32, OpcpuCodecError> {
@@ -3878,6 +3906,55 @@ mod tests {
         let err = decode_hierarchy_chunks(&bytes).expect_err("invalid case rule should fail");
         assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
         assert_eq!(err.code(), "OPC009");
+    }
+
+    #[test]
+    fn decode_rejects_bounded_count_overflow_before_allocation() {
+        let mut fams = Vec::new();
+        write_u32(&mut fams, u32::MAX);
+
+        let err = decode_fams_chunk(&fams).expect_err("oversized count should be rejected");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert!(
+            err.to_string().contains("family entry count")
+                || err.to_string().contains("family entry")
+        );
+    }
+
+    #[test]
+    fn decode_rejects_invalid_msel_unstable_widen_flag() {
+        let mut msel = Vec::new();
+        write_u32(&mut msel, 1);
+        msel.push(0);
+        write_string(&mut msel, "MSEL", "mos6502").expect("owner");
+        write_string(&mut msel, "MSEL", "lda").expect("mnemonic");
+        write_string(&mut msel, "MSEL", "shape").expect("shape");
+        write_string(&mut msel, "MSEL", "mode").expect("mode");
+        write_string(&mut msel, "MSEL", "plan").expect("plan");
+        msel.extend_from_slice(&0u16.to_le_bytes());
+        msel.push(2);
+        msel.push(0);
+
+        let chunks = vec![
+            (CHUNK_MSEL, msel),
+            (
+                CHUNK_FAMS,
+                encode_fams_chunk(&sample_families()).expect("fams"),
+            ),
+            (CHUNK_CPUS, encode_cpus_chunk(&sample_cpus()).expect("cpus")),
+            (
+                CHUNK_DIAL,
+                encode_dial_chunk(&sample_dialects()).expect("dial"),
+            ),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+
+        let err = decode_hierarchy_chunks(&bytes).expect_err("invalid unstable_widen should fail");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert!(err.to_string().contains("unstable_widen"));
     }
 
     #[test]

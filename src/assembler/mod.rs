@@ -2987,7 +2987,20 @@ impl<'a> AsmLine<'a> {
                         None => 0,
                     }
                 };
-                let ctx = self.cond_stack.last_mut().unwrap();
+                let Some(ctx) = self.cond_stack.last_mut() else {
+                    let err_span = if kind == ConditionalKind::ElseIf {
+                        expr_err_span
+                    } else {
+                        end_span
+                    };
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".else or .elseif found without matching .if",
+                        None,
+                        err_span,
+                    );
+                };
                 if ctx.sub_type == TokenValue::Else as i32 {
                     let err_span = if kind == ConditionalKind::ElseIf {
                         expr_err_span
@@ -3106,7 +3119,15 @@ impl<'a> AsmLine<'a> {
                     }
                 }
                 let sub_type = TokenValue::Case as i32;
-                let ctx = self.cond_stack.last_mut().unwrap();
+                let Some(ctx) = self.cond_stack.last_mut() else {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".case found without matching .match",
+                        None,
+                        expr_err_span,
+                    );
+                };
                 if !ctx.skipping {
                     ctx.skipping = true;
                     ctx.sub_type = sub_type;
@@ -3153,7 +3174,15 @@ impl<'a> AsmLine<'a> {
                         end_span,
                     );
                 }
-                let ctx = self.cond_stack.last_mut().unwrap();
+                let Some(ctx) = self.cond_stack.last_mut() else {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".default found without matching .match",
+                        None,
+                        end_span,
+                    );
+                };
                 if ctx.sub_type == TokenValue::Default as i32 {
                     return self.failure_at_span(
                         LineStatus::Error,
@@ -3182,7 +3211,16 @@ impl<'a> AsmLine<'a> {
                         err_span,
                     );
                 }
-                let ctx = self.cond_stack.last_mut().unwrap();
+                let Some(ctx) = self.cond_stack.last_mut() else {
+                    let err_span = end_span;
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".endif found without matching .if",
+                        None,
+                        err_span,
+                    );
+                };
                 if ctx.skip_level > 0 {
                     ctx.skip_level = ctx.skip_level.saturating_sub(1);
                     return LineStatus::Skip;
@@ -3213,7 +3251,16 @@ impl<'a> AsmLine<'a> {
                         err_span,
                     );
                 }
-                let ctx = self.cond_stack.last_mut().unwrap();
+                let Some(ctx) = self.cond_stack.last_mut() else {
+                    let err_span = end_span;
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Conditional,
+                        ".endmatch found without matching .match",
+                        None,
+                        err_span,
+                    );
+                };
                 if ctx.skip_level > 0 {
                     ctx.skip_level = ctx.skip_level.saturating_sub(1);
                     return LineStatus::Skip;
@@ -3460,9 +3507,7 @@ impl<'a> AsmLine<'a> {
                 let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
                     || family_runtime_authoritative)
                     && !runtime_expr_force_host;
-                let runtime_expr_vm_path_enabled = (strict_runtime_parse_resolve
-                    || family_runtime_authoritative)
-                    && !runtime_expr_force_host;
+                let runtime_expr_vm_path_enabled = runtime_expr_bytes_authoritative;
                 let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
                     && self
                         .cpu
