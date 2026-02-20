@@ -2461,23 +2461,8 @@ impl HierarchyExecutionModel {
     }
 
     fn token_policy_for_resolved(&self, resolved: &ResolvedHierarchy) -> RuntimeTokenPolicy {
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(dialect_id.as_str())),
-            (1u8, self.interned_id(cpu_id.as_str())),
-            (0u8, self.interned_id(family_id.as_str())),
-        ];
-        for (owner_tag, owner_id) in owner_order {
-            let Some(owner_id) = owner_id else {
-                continue;
-            };
-            if let Some(policy) = self.token_policies.get(&(owner_tag, owner_id)) {
-                return policy.clone();
-            }
-        }
-        RuntimeTokenPolicy::default()
+        self.lookup_scoped_cloned(&self.token_policies, resolved)
+            .unwrap_or_default()
     }
 
     fn effective_tokenizer_mode(&self) -> RuntimeTokenizerMode {
@@ -2491,115 +2476,35 @@ impl HierarchyExecutionModel {
         &self,
         resolved: &ResolvedHierarchy,
     ) -> Option<RuntimeTokenizerVmProgram> {
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(dialect_id.as_str())),
-            (1u8, self.interned_id(cpu_id.as_str())),
-            (0u8, self.interned_id(family_id.as_str())),
-        ];
-        for (owner_tag, owner_id) in owner_order {
-            let Some(owner_id) = owner_id else {
-                continue;
-            };
-            if let Some(program) = self.tokenizer_vm_programs.get(&(owner_tag, owner_id)) {
-                return Some(program.clone());
-            }
-        }
-        None
+        self.lookup_scoped_cloned(&self.tokenizer_vm_programs, resolved)
     }
 
     fn parser_contract_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
     ) -> Option<RuntimeParserContract> {
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(dialect_id.as_str())),
-            (1u8, self.interned_id(cpu_id.as_str())),
-            (0u8, self.interned_id(family_id.as_str())),
-        ];
-        for (owner_tag, owner_id) in owner_order {
-            let Some(owner_id) = owner_id else {
-                continue;
-            };
-            if let Some(contract) = self.parser_contracts.get(&(owner_tag, owner_id)) {
-                return Some(contract.clone());
-            }
-        }
-        None
+        self.lookup_scoped_cloned(&self.parser_contracts, resolved)
     }
 
     fn parser_vm_program_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
     ) -> Option<RuntimeParserVmProgram> {
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(dialect_id.as_str())),
-            (1u8, self.interned_id(cpu_id.as_str())),
-            (0u8, self.interned_id(family_id.as_str())),
-        ];
-        for (owner_tag, owner_id) in owner_order {
-            let Some(owner_id) = owner_id else {
-                continue;
-            };
-            if let Some(program) = self.parser_vm_programs.get(&(owner_tag, owner_id)) {
-                return Some(program.clone());
-            }
-        }
-        None
+        self.lookup_scoped_cloned(&self.parser_vm_programs, resolved)
     }
 
     fn expr_contract_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
     ) -> Option<RuntimeExprContract> {
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(dialect_id.as_str())),
-            (1u8, self.interned_id(cpu_id.as_str())),
-            (0u8, self.interned_id(family_id.as_str())),
-        ];
-        for (owner_tag, owner_id) in owner_order {
-            let Some(owner_id) = owner_id else {
-                continue;
-            };
-            if let Some(contract) = self.expr_contracts.get(&(owner_tag, owner_id)) {
-                return Some(contract.clone());
-            }
-        }
-        None
+        self.lookup_scoped_cloned(&self.expr_contracts, resolved)
     }
 
     fn expr_parser_contract_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
     ) -> Option<RuntimeExprParserContract> {
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(&dialect_id)),
-            (1u8, self.interned_id(&cpu_id)),
-            (0u8, self.interned_id(&family_id)),
-        ];
-        for (owner_tag, owner_id) in owner_order {
-            let Some(owner_id) = owner_id else {
-                continue;
-            };
-            if let Some(contract) = self.expr_parser_contracts.get(&(owner_tag, owner_id)) {
-                return Some(contract.clone());
-            }
-        }
-        None
+        self.lookup_scoped_cloned(&self.expr_parser_contracts, resolved)
     }
 
     fn ensure_parser_contract_compatible_for_assembler(
@@ -3092,6 +2997,36 @@ impl HierarchyExecutionModel {
         self.interned_ids.get(value_lower).copied()
     }
 
+    fn scoped_owner_lookup_order(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> [(u8, Option<u32>); 3] {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        [
+            (2u8, self.interned_id(&dialect_id)),
+            (1u8, self.interned_id(&cpu_id)),
+            (0u8, self.interned_id(&family_id)),
+        ]
+    }
+
+    fn lookup_scoped_cloned<T: Clone>(
+        &self,
+        map: &HashMap<(u8, u32), T>,
+        resolved: &ResolvedHierarchy,
+    ) -> Option<T> {
+        for (owner_tag, owner_id) in self.scoped_owner_lookup_order(resolved) {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(value) = map.get(&(owner_tag, owner_id)) {
+                return Some(value.clone());
+            }
+        }
+        None
+    }
+
     fn encode_candidates(
         &self,
         resolved: &ResolvedHierarchy,
@@ -3102,14 +3037,7 @@ impl HierarchyExecutionModel {
         let Some(mnemonic_id) = self.interned_id(&normalized_mnemonic) else {
             return Ok(None);
         };
-        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
-        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
-        let family_id = resolved.family_id.to_ascii_lowercase();
-        let owner_order = [
-            (2u8, self.interned_id(&dialect_id)),
-            (1u8, self.interned_id(&cpu_id)),
-            (0u8, self.interned_id(&family_id)),
-        ];
+        let owner_order = self.scoped_owner_lookup_order(resolved);
 
         for candidate in candidates {
             let mode_key = candidate.mode_key.to_ascii_lowercase();
@@ -3785,11 +3713,7 @@ impl HierarchyExecutionModel {
                 self.non_m65816_force_error(&resolved.cpu_id),
             ));
         }
-        let owner_order = [
-            (2u8, resolved.dialect_id.as_str()),
-            (1u8, resolved.cpu_id.as_str()),
-            (0u8, resolved.family_id.as_str()),
-        ];
+        let owner_order = self.scoped_owner_lookup_order(resolved);
 
         let unstable_expr = match input.expr0 {
             Some(expr) => expr_ctx
@@ -3803,8 +3727,7 @@ impl HierarchyExecutionModel {
         let mut selectors_scanned = 0usize;
 
         for (owner_tag, owner_id) in owner_order {
-            let owner_id = owner_id.to_ascii_lowercase();
-            let Some(owner_id) = self.interned_id(&owner_id) else {
+            let Some(owner_id) = owner_id else {
                 continue;
             };
             let key = (owner_tag, owner_id, mnemonic_id, shape_id);
