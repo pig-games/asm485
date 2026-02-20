@@ -9,6 +9,8 @@ Last updated: 2026-02-17
 
 This document defines the host/native ABI boundary for consuming opThread hierarchy packages (`*.opcpu`) in Ultimate64-class constrained runtimes.
 
+Forward note: a CPU/family-independent contract container (`*.opcore`) is planned. The intent is that `.opcore` follows the same constrained-runtime ABI principles defined here (endianness/width rules, TOC traversal, ownership independence, deterministic error codes), with its own container magic/versioning as specified when introduced.
+
 Goals:
 - fixed byte-order and numeric-width rules
 - deterministic ownership semantics at load/runtime boundaries

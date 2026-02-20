@@ -22,6 +22,7 @@
 pub mod assembler;
 pub mod cpu;
 pub mod expr;
+pub mod expr_vm;
 pub mod family;
 pub mod imagestore;
 pub mod macro_processor;
@@ -41,6 +42,12 @@ pub mod tokenizer;
 pub use cpu::{CpuType, EncodeError, OperandParseError};
 pub use expr::{
     eval_expr, parse_number, EvalContext, EvalError, SimpleEvalContext, SymbolTableContext,
+};
+pub use expr_vm::{
+    compile_core_expr_to_portable_program, eval_portable_expr_program,
+    expr_program_has_unstable_symbols, PortableExprBudgets, PortableExprError,
+    PortableExprEvalContext, PortableExprEvaluation, PortableExprProgram, PortableExprRef,
+    EXPR_VM_OPCODE_VERSION_V1,
 };
 pub use family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler, FamilyParseError};
 pub use operand::{Operand, SizeSuffix};

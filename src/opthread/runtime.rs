@@ -5,6 +5,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::core::expr_vm::{
+    compile_core_expr_to_portable_program, eval_portable_expr_program,
+    expr_program_has_unstable_symbols, PortableExprBudgets, PortableExprEvalContext,
+    PortableExprEvaluation, PortableExprProgram,
+};
 use crate::core::family::CpuHandler;
 use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, FamilyHandler};
 use crate::core::parser::{
@@ -1345,6 +1350,31 @@ impl PortableInstructionAdapter for OperandSetInstructionAdapter<'_> {
     }
 }
 
+struct RuntimePortableExprEvalContext<'a> {
+    assembler_ctx: &'a dyn AssemblerContext,
+}
+
+impl PortableExprEvalContext for RuntimePortableExprEvalContext<'_> {
+    fn lookup_symbol(&self, name: &str) -> Option<i64> {
+        self.assembler_ctx
+            .symbols()
+            .entry(name)
+            .map(|entry| entry.val as i64)
+    }
+
+    fn current_address(&self) -> Option<i64> {
+        Some(self.assembler_ctx.current_address() as i64)
+    }
+
+    fn pass(&self) -> u8 {
+        self.assembler_ctx.pass()
+    }
+
+    fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
+        self.assembler_ctx.symbol_is_finalized(name)
+    }
+}
+
 /// Runtime view with resolved hierarchy bridge and scoped FORM ownership sets.
 #[derive(Debug)]
 pub struct HierarchyExecutionModel {
@@ -1828,6 +1858,49 @@ impl HierarchyExecutionModel {
             })?;
 
         Parser::parse_expr_from_tokens(tokens, end_span, end_token_text)
+    }
+
+    pub fn compile_expression_program_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<PortableExprProgram, ParseError> {
+        let expr = self.parse_expression_for_assembler(
+            cpu_id,
+            dialect_override,
+            tokens,
+            end_span,
+            end_token_text,
+        )?;
+        compile_core_expr_to_portable_program(&expr).map_err(|err| ParseError {
+            message: err.to_string(),
+            span: err.span.unwrap_or(end_span),
+        })
+    }
+
+    pub fn evaluate_portable_expression_program_for_assembler(
+        &self,
+        program: &PortableExprProgram,
+        budgets: PortableExprBudgets,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<PortableExprEvaluation, RuntimeBridgeError> {
+        let adapter = RuntimePortableExprEvalContext { assembler_ctx: ctx };
+        eval_portable_expr_program(program, &adapter, budgets)
+            .map_err(|err| RuntimeBridgeError::Resolve(err.to_string()))
+    }
+
+    pub fn portable_expression_has_unstable_symbols_for_assembler(
+        &self,
+        program: &PortableExprProgram,
+        budgets: PortableExprBudgets,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<bool, RuntimeBridgeError> {
+        let adapter = RuntimePortableExprEvalContext { assembler_ctx: ctx };
+        expr_program_has_unstable_symbols(program, &adapter, budgets)
+            .map_err(|err| RuntimeBridgeError::Resolve(err.to_string()))
     }
 
     pub fn parse_portable_line_for_assembler(
