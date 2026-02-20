@@ -5316,37 +5316,36 @@ fn parse_mode_key(mode_key: &str) -> Option<AddressMode> {
 }
 
 fn encode_expr_u8(expr: &Expr, expr_ctx: &SelectorExprContext<'_>) -> Result<Vec<u8>, String> {
-    let value = expr_ctx.eval_expr(expr)?;
-    if (0..=255).contains(&value) {
-        Ok(vec![value as u8])
-    } else {
-        Err("invalid u8 operand".to_string())
-    }
+    encode_expr_fixed_width(expr, expr_ctx, 1, 0xFF, "invalid u8 operand")
 }
 
 fn encode_expr_u16(expr: &Expr, expr_ctx: &SelectorExprContext<'_>) -> Result<Vec<u8>, String> {
-    let value = expr_ctx.eval_expr(expr)?;
-    if (0..=65535).contains(&value) {
-        Ok(vec![
-            (value as u16 & 0xFF) as u8,
-            ((value as u16 >> 8) & 0xFF) as u8,
-        ])
-    } else {
-        Err("invalid u16 operand".to_string())
-    }
+    encode_expr_fixed_width(expr, expr_ctx, 2, 0xFFFF, "invalid u16 operand")
 }
 
 fn encode_expr_u24(expr: &Expr, expr_ctx: &SelectorExprContext<'_>) -> Result<Vec<u8>, String> {
+    encode_expr_fixed_width(expr, expr_ctx, 3, 0xFF_FFFF, "invalid u24 operand")
+}
+
+fn encode_expr_fixed_width(
+    expr: &Expr,
+    expr_ctx: &SelectorExprContext<'_>,
+    byte_count: usize,
+    max_value: i64,
+    error_message: &str,
+) -> Result<Vec<u8>, String> {
     let value = expr_ctx.eval_expr(expr)?;
-    if (0..=0xFF_FFFF).contains(&value) {
-        Ok(vec![
-            (value as u32 & 0xFF) as u8,
-            ((value as u32 >> 8) & 0xFF) as u8,
-            ((value as u32 >> 16) & 0xFF) as u8,
-        ])
-    } else {
-        Err("invalid u24 operand".to_string())
+    if !(0..=max_value).contains(&value) {
+        return Err(error_message.to_string());
     }
+
+    let mut bytes = Vec::with_capacity(byte_count);
+    let mut remaining = value as u32;
+    for _ in 0..byte_count {
+        bytes.push((remaining & 0xFF) as u8);
+        remaining >>= 8;
+    }
+    Ok(bytes)
 }
 
 fn encode_expr_force_d_u8(
@@ -5588,16 +5587,15 @@ fn encode_expr_rel8(
     expr_ctx: &SelectorExprContext<'_>,
     instr_len: i64,
 ) -> Result<Vec<u8>, String> {
-    let value = expr_ctx.eval_expr(expr)?;
-    let current = expr_ctx.assembler_ctx.current_address() as i64 + instr_len;
-    let offset = value - current;
-    if !(-128..=127).contains(&offset) {
-        if expr_ctx.assembler_ctx.pass() > 1 {
-            return Err(format!("Branch target out of range: offset {}", offset));
-        }
-        return Ok(vec![0]);
-    }
-    Ok(vec![offset as i8 as u8])
+    encode_expr_relative(
+        expr,
+        expr_ctx,
+        instr_len,
+        -128,
+        127,
+        1,
+        "Branch target out of range",
+    )
 }
 
 fn encode_expr_rel16(
@@ -5605,23 +5603,42 @@ fn encode_expr_rel16(
     expr_ctx: &SelectorExprContext<'_>,
     instr_len: i64,
 ) -> Result<Vec<u8>, String> {
+    encode_expr_relative(
+        expr,
+        expr_ctx,
+        instr_len,
+        -32768,
+        32767,
+        2,
+        "Long branch target out of range",
+    )
+}
+
+fn encode_expr_relative(
+    expr: &Expr,
+    expr_ctx: &SelectorExprContext<'_>,
+    instr_len: i64,
+    min_offset: i64,
+    max_offset: i64,
+    byte_count: usize,
+    error_label: &str,
+) -> Result<Vec<u8>, String> {
     let value = expr_ctx.eval_expr(expr)?;
     let current = expr_ctx.assembler_ctx.current_address() as i64 + instr_len;
     let offset = value - current;
-    if !(-32768..=32767).contains(&offset) {
+    if !(min_offset..=max_offset).contains(&offset) {
         if expr_ctx.assembler_ctx.pass() > 1 {
-            return Err(format!(
-                "Long branch target out of range: offset {}",
-                offset
-            ));
+            return Err(format!("{}: offset {}", error_label, offset));
         }
-        return Ok(vec![0, 0]);
+        return Ok(vec![0; byte_count]);
     }
-    let rel = offset as i16;
-    Ok(vec![
-        (rel as u16 & 0xFF) as u8,
-        ((rel as u16 >> 8) & 0xFF) as u8,
-    ])
+    let mut bytes = Vec::with_capacity(byte_count);
+    let mut remaining = offset as i32 as u32;
+    for _ in 0..byte_count {
+        bytes.push((remaining & 0xFF) as u8);
+        remaining >>= 8;
+    }
+    Ok(bytes)
 }
 
 fn encode_expr_m65816_immediate(
