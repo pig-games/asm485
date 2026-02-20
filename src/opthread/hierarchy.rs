@@ -638,6 +638,30 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_duplicate_family_id() {
+        let err = HierarchyPackage::new(
+            vec![base_family(), base_family()],
+            vec![base_cpu()],
+            vec![base_dialect()],
+        )
+        .expect_err("duplicate family id should fail validation");
+
+        assert!(matches!(err, HierarchyError::DuplicateFamilyId { .. }));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_cpu_id() {
+        let err = HierarchyPackage::new(
+            vec![base_family()],
+            vec![base_cpu(), base_cpu()],
+            vec![base_dialect()],
+        )
+        .expect_err("duplicate cpu id should fail validation");
+
+        assert!(matches!(err, HierarchyError::DuplicateCpuId { .. }));
+    }
+
+    #[test]
     fn validate_rejects_missing_dialect_ref() {
         let err = HierarchyPackage::new(
             vec![base_family()],
@@ -728,6 +752,25 @@ mod tests {
         assert!(matches!(
             err,
             HierarchyError::CpuBlockedByDialectAllowList { .. }
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_unknown_cpu_in_dialect_allow_list() {
+        let err = HierarchyPackage::new(
+            vec![base_family()],
+            vec![base_cpu()],
+            vec![DialectDescriptor {
+                id: "intel".to_string(),
+                family_id: "intel8080".to_string(),
+                cpu_allow_list: Some(vec!["ghost".to_string()]),
+            }],
+        )
+        .expect_err("unknown allow-list cpu should fail validation");
+
+        assert!(matches!(
+            err,
+            HierarchyError::UnknownCpuInDialectAllowList { .. }
         ));
     }
 

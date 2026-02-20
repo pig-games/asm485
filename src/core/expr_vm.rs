@@ -909,4 +909,61 @@ mod tests {
         assert_eq!(err_a.code, DIAG_EXPR_EVAL_FAILURE);
         assert_eq!(err_b.code, DIAG_EXPR_EVAL_FAILURE);
     }
+
+    #[test]
+    fn ternary_opcode_selects_true_and_false_branches() {
+        let expr_true = Expr::Ternary {
+            cond: Box::new(Expr::Number("1".to_string(), span())),
+            then_expr: Box::new(Expr::Number("10".to_string(), span())),
+            else_expr: Box::new(Expr::Number("20".to_string(), span())),
+            span: span(),
+        };
+        let expr_false = Expr::Ternary {
+            cond: Box::new(Expr::Number("0".to_string(), span())),
+            then_expr: Box::new(Expr::Number("10".to_string(), span())),
+            else_expr: Box::new(Expr::Number("20".to_string(), span())),
+            span: span(),
+        };
+
+        let program_true =
+            compile_core_expr_to_portable_program(&expr_true).expect("compile true ternary");
+        let program_false =
+            compile_core_expr_to_portable_program(&expr_false).expect("compile false ternary");
+
+        let result_true = eval_portable_expr_program(
+            &program_true,
+            &TestCtx::default(),
+            PortableExprBudgets::default(),
+        )
+        .expect("eval true ternary");
+        let result_false = eval_portable_expr_program(
+            &program_false,
+            &TestCtx::default(),
+            PortableExprBudgets::default(),
+        )
+        .expect("eval false ternary");
+
+        assert_eq!(result_true.value, 10);
+        assert_eq!(result_false.value, 20);
+    }
+
+    #[test]
+    fn indirect_expressions_compile_to_inner_program() {
+        let inner = Expr::Identifier("label".to_string(), span());
+        let expr_indirect = Expr::Indirect(Box::new(inner.clone()), span());
+        let expr_indirect_long = Expr::IndirectLong(Box::new(inner), span());
+
+        let direct_program =
+            compile_core_expr_to_portable_program(&Expr::Identifier("label".to_string(), span()))
+                .expect("compile direct identifier");
+        let indirect_program =
+            compile_core_expr_to_portable_program(&expr_indirect).expect("compile indirect");
+        let indirect_long_program = compile_core_expr_to_portable_program(&expr_indirect_long)
+            .expect("compile indirect long");
+
+        assert_eq!(indirect_program.code, direct_program.code);
+        assert_eq!(indirect_program.symbols, direct_program.symbols);
+        assert_eq!(indirect_long_program.code, direct_program.code);
+        assert_eq!(indirect_long_program.symbols, direct_program.symbols);
+    }
 }
