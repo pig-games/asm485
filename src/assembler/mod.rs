@@ -2760,40 +2760,8 @@ impl<'a> AsmLine<'a> {
                     Some(m) => m,
                     None => {
                         if let Some(label) = &label {
-                            if self.pass == 1 && self.selective_import_conflict(&label.name) {
-                                return self.failure_at_span(
-                                    LineStatus::Error,
-                                    AsmErrorKind::Symbol,
-                                    "Symbol conflicts with selective import",
-                                    Some(&label.name),
-                                    label.span,
-                                );
-                            }
-                            let full_name = self.scoped_define_name(&label.name);
-                            let res = if self.pass == 1 {
-                                self.symbols.add(
-                                    &full_name,
-                                    self.start_addr,
-                                    false,
-                                    self.current_visibility(),
-                                    self.module_active.as_deref(),
-                                )
-                            } else if self.in_section() {
-                                crate::symbol_table::SymbolTableResult::Ok
-                            } else {
-                                self.symbols.update(&full_name, self.start_addr)
-                            };
-                            if res == crate::symbol_table::SymbolTableResult::Duplicate {
-                                return self.failure_at_span(
-                                    LineStatus::Error,
-                                    AsmErrorKind::Symbol,
-                                    "Symbol defined more than once",
-                                    Some(&label.name),
-                                    label.span,
-                                );
-                            }
-                            if res == crate::symbol_table::SymbolTableResult::Ok {
-                                self.track_section_symbol(&full_name);
+                            if let Some(status) = self.define_statement_label(label) {
+                                return status;
                             }
                         }
                         return LineStatus::NothingDone;
@@ -2802,40 +2770,8 @@ impl<'a> AsmLine<'a> {
 
                 if let Some(label) = &label {
                     if !is_symbol_assignment_directive(&mnemonic) {
-                        if self.pass == 1 && self.selective_import_conflict(&label.name) {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                AsmErrorKind::Symbol,
-                                "Symbol conflicts with selective import",
-                                Some(&label.name),
-                                label.span,
-                            );
-                        }
-                        let full_name = self.scoped_define_name(&label.name);
-                        let res = if self.pass == 1 {
-                            self.symbols.add(
-                                &full_name,
-                                self.start_addr,
-                                false,
-                                self.current_visibility(),
-                                self.module_active.as_deref(),
-                            )
-                        } else if self.in_section() {
-                            crate::symbol_table::SymbolTableResult::Ok
-                        } else {
-                            self.symbols.update(&full_name, self.start_addr)
-                        };
-                        if res == crate::symbol_table::SymbolTableResult::Duplicate {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                AsmErrorKind::Symbol,
-                                "Symbol defined more than once",
-                                Some(&label.name),
-                                label.span,
-                            );
-                        }
-                        if res == crate::symbol_table::SymbolTableResult::Ok {
-                            self.track_section_symbol(&full_name);
+                        if let Some(status) = self.define_statement_label(label) {
+                            return status;
                         }
                     }
                 }
@@ -2847,6 +2783,49 @@ impl<'a> AsmLine<'a> {
                 status
             }
         }
+    }
+
+    fn define_statement_label(&mut self, label: &Label) -> Option<LineStatus> {
+        if self.pass == 1 && self.selective_import_conflict(&label.name) {
+            return Some(self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "Symbol conflicts with selective import",
+                Some(&label.name),
+                label.span,
+            ));
+        }
+
+        let full_name = self.scoped_define_name(&label.name);
+        let res = if self.pass == 1 {
+            self.symbols.add(
+                &full_name,
+                self.start_addr,
+                false,
+                self.current_visibility(),
+                self.module_active.as_deref(),
+            )
+        } else if self.in_section() {
+            crate::symbol_table::SymbolTableResult::Ok
+        } else {
+            self.symbols.update(&full_name, self.start_addr)
+        };
+
+        if res == crate::symbol_table::SymbolTableResult::Duplicate {
+            return Some(self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "Symbol defined more than once",
+                Some(&label.name),
+                label.span,
+            ));
+        }
+
+        if res == crate::symbol_table::SymbolTableResult::Ok {
+            self.track_section_symbol(&full_name);
+        }
+
+        None
     }
 
     fn process_conditional_ast(
