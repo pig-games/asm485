@@ -1379,10 +1379,12 @@ struct RuntimePortableExprEvalContext<'a> {
 
 impl PortableExprEvalContext for RuntimePortableExprEvalContext<'_> {
     fn lookup_symbol(&self, name: &str) -> Option<i64> {
+        if !self.assembler_ctx.has_symbol(name) {
+            return None;
+        }
         self.assembler_ctx
-            .symbols()
-            .entry(name)
-            .map(|entry| entry.val as i64)
+            .eval_expr(&Expr::Identifier(name.to_string(), Span::default()))
+            .ok()
     }
 
     fn current_address(&self) -> Option<i64> {
@@ -1976,6 +1978,17 @@ impl HierarchyExecutionModel {
             .map_err(|err| RuntimeBridgeError::Resolve(err.to_string()))
     }
 
+    pub fn evaluate_portable_expression_program_with_contract_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        program: &PortableExprProgram,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<PortableExprEvaluation, RuntimeBridgeError> {
+        let budgets = self.resolve_expr_budgets(cpu_id, dialect_override)?;
+        self.evaluate_portable_expression_program_for_assembler(program, budgets, ctx)
+    }
+
     pub fn portable_expression_has_unstable_symbols_for_assembler(
         &self,
         program: &PortableExprProgram,
@@ -1985,6 +1998,17 @@ impl HierarchyExecutionModel {
         let adapter = RuntimePortableExprEvalContext { assembler_ctx: ctx };
         expr_program_has_unstable_symbols(program, &adapter, budgets)
             .map_err(|err| RuntimeBridgeError::Resolve(err.to_string()))
+    }
+
+    pub fn portable_expression_has_unstable_symbols_with_contract_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        program: &PortableExprProgram,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<bool, RuntimeBridgeError> {
+        let budgets = self.resolve_expr_budgets(cpu_id, dialect_override)?;
+        self.portable_expression_has_unstable_symbols_for_assembler(program, budgets, ctx)
     }
 
     pub fn parse_portable_line_for_assembler(
@@ -6022,6 +6046,61 @@ mod tests {
             .expect("expr budgets should resolve");
         assert_eq!(budgets.max_program_bytes, 2048);
         assert_eq!(budgets.max_stack_depth, 64);
+    }
+
+    #[test]
+    fn execution_model_expr_contract_budgets_apply_to_portable_eval() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.expr_contracts.clear();
+        let mut contract = expr_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        contract.max_program_bytes = 1;
+        chunks.expr_contracts.push(contract);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Number("1".to_string(), Span::default())),
+            right: Box::new(Expr::Number("2".to_string(), Span::default())),
+            span: Span::default(),
+        };
+        let program = compile_core_expr_to_portable_program(&expr).expect("compile should work");
+        let ctx = TestAssemblerContext::new();
+
+        let err = model
+            .evaluate_portable_expression_program_with_contract_for_assembler(
+                "m6502", None, &program, &ctx,
+            )
+            .expect_err("contract budget should reject eval");
+        assert!(err.to_string().contains("ope007"));
+    }
+
+    #[test]
+    fn execution_model_expr_contract_unstable_check_uses_resolved_budgets() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let expr = Expr::Identifier("forward_label".to_string(), Span::default());
+        let program = compile_core_expr_to_portable_program(&expr).expect("compile should work");
+        let ctx = TestAssemblerContext::new();
+
+        let unstable = model
+            .portable_expression_has_unstable_symbols_with_contract_for_assembler(
+                "m6502", None, &program, &ctx,
+            )
+            .expect("unstable-symbol scan should succeed");
+        assert!(unstable);
     }
 
     #[test]
