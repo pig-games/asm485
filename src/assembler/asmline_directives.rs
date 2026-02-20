@@ -797,7 +797,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let val = match self.eval_expr_ast(expr) {
+                let val = match self.eval_expr_for_data_directive(expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(

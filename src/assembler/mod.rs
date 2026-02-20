@@ -3916,10 +3916,31 @@ impl<'a> AsmLine<'a> {
                 } else if name.eq_ignore_ascii_case("long") {
                     Ok(4)
                 } else {
-                    self.eval_expr_ast(unit)
+                    self.eval_expr_for_data_directive(unit)
                 }
             }
-            _ => self.eval_expr_ast(unit),
+            _ => self.eval_expr_for_data_directive(unit),
+        }
+    }
+
+    fn eval_expr_for_data_directive(&self, expr: &Expr) -> Result<u32, AstEvalError> {
+        if let Expr::Identifier(name, span) | Expr::Register(name, span) = expr {
+            if let Some(entry) = self.lookup_scoped_entry(name) {
+                if !self.entry_is_visible(entry) {
+                    return Err(AstEvalError {
+                        error: self.visibility_error(name),
+                        span: *span,
+                    });
+                }
+            }
+        }
+
+        match AssemblerContext::eval_expr(self, expr) {
+            Ok(value) => Ok(value as u32),
+            Err(message) => Err(AstEvalError {
+                error: AsmError::new(AsmErrorKind::Expression, &message, None),
+                span: expr_span(expr),
+            }),
         }
     }
 
@@ -4038,7 +4059,7 @@ impl<'a> AsmLine<'a> {
         }
 
         for expr in &operands[1..] {
-            let value = match self.eval_expr_ast(expr) {
+            let value = match self.eval_expr_for_data_directive(expr) {
                 Ok(value) => value,
                 Err(err) => {
                     return self.failure_at_span(
@@ -4101,7 +4122,7 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let count = match self.eval_expr_ast(&operands[1]) {
+        let count = match self.eval_expr_for_data_directive(&operands[1]) {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -4172,7 +4193,7 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let count = match self.eval_expr_ast(&operands[1]) {
+        let count = match self.eval_expr_for_data_directive(&operands[1]) {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -4184,7 +4205,7 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let value = match self.eval_expr_ast(&operands[2]) {
+        let value = match self.eval_expr_for_data_directive(&operands[2]) {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -4351,7 +4372,7 @@ impl<'a> AsmLine<'a> {
                     err.span,
                 );
             }
-            let val = match self.eval_expr_ast(expr) {
+            let val = match self.eval_expr_for_data_directive(expr) {
                 Ok(value) => value,
                 Err(err) => {
                     return self.failure_at_span(
