@@ -1999,44 +1999,37 @@ impl HierarchyExecutionModel {
         end_span: Span,
         end_token_text: Option<String>,
     ) -> Result<Expr, ParseError> {
-        self.parse_expression_for_assembler_with_mode(
+        let use_vm_parser = self.resolve_expr_parser_vm_rollout_for_assembler(
+            cpu_id,
+            dialect_override,
+            false,
+            end_span,
+        )?;
+
+        self.parse_expression_with_mode_for_assembler(
             cpu_id,
             dialect_override,
             tokens,
             end_span,
             end_token_text,
-            false,
+            use_vm_parser,
         )
     }
 
-    fn parse_expression_for_assembler_with_mode(
+    fn parse_expression_with_mode_for_assembler(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
         tokens: Vec<Token>,
         end_span: Span,
         end_token_text: Option<String>,
-        force_vm_parser: bool,
+        use_vm_parser: bool,
     ) -> Result<Expr, ParseError> {
-        let resolved = self
-            .resolve_pipeline(cpu_id, dialect_override)
-            .map_err(|err| ParseError {
-                message: err.to_string(),
-                span: end_span,
-            })?;
-
         self.validate_parser_contract_for_assembler(cpu_id, dialect_override, tokens.len())
             .map_err(|err| ParseError {
                 message: err.to_string(),
                 span: end_span,
             })?;
-
-        let use_vm_parser = force_vm_parser
-            || portable_expr_parser_runtime_enabled_for_family(
-                resolved.family_id.as_str(),
-                &[],
-                &[],
-            );
 
         if use_vm_parser {
             return RuntimeExpressionParser::new(tokens, end_span, end_token_text)
@@ -2054,6 +2047,41 @@ impl HierarchyExecutionModel {
         Parser::parse_expr_from_tokens(tokens, end_span, end_token_text)
     }
 
+    fn resolve_expr_parser_vm_rollout_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        force_vm_parser: bool,
+        end_span: Span,
+    ) -> Result<bool, ParseError> {
+        if force_vm_parser {
+            return Ok(true);
+        }
+
+        let resolved = self
+            .resolve_pipeline(cpu_id, dialect_override)
+            .map_err(|err| ParseError {
+                message: err.to_string(),
+                span: end_span,
+            })?;
+
+        Ok(portable_expr_parser_runtime_enabled_for_family(
+            resolved.family_id.as_str(),
+            &[],
+            &[],
+        ))
+    }
+
+    fn compile_parsed_expression_for_assembler(
+        expr: &Expr,
+        end_span: Span,
+    ) -> Result<PortableExprProgram, ParseError> {
+        compile_core_expr_to_portable_program(expr).map_err(|err| ParseError {
+            message: err.to_string(),
+            span: err.span.unwrap_or(end_span),
+        })
+    }
+
     pub fn compile_expression_program_for_assembler(
         &self,
         cpu_id: &str,
@@ -2069,10 +2097,7 @@ impl HierarchyExecutionModel {
             end_span,
             end_token_text,
         )?;
-        compile_core_expr_to_portable_program(&expr).map_err(|err| ParseError {
-            message: err.to_string(),
-            span: err.span.unwrap_or(end_span),
-        })
+        Self::compile_parsed_expression_for_assembler(&expr, end_span)
     }
 
     pub fn parse_expression_program_for_assembler(
@@ -2121,23 +2146,23 @@ impl HierarchyExecutionModel {
         end_token_text: Option<String>,
         parser_vm_opcode_version: Option<u16>,
     ) -> Result<PortableExprProgram, ParseError> {
-        let resolved = self
-            .resolve_pipeline(cpu_id, dialect_override)
-            .map_err(|err| ParseError {
-                message: err.to_string(),
-                span: end_span,
-            })?;
-        let use_expr_parser_vm =
-            portable_expr_parser_runtime_enabled_for_family(resolved.family_id.as_str(), &[], &[])
-                || parser_vm_opcode_version.is_some();
+        let use_expr_parser_vm = self.resolve_expr_parser_vm_rollout_for_assembler(
+            cpu_id,
+            dialect_override,
+            parser_vm_opcode_version.is_some(),
+            end_span,
+        )?;
         if !use_expr_parser_vm {
-            return self.compile_expression_program_for_assembler(
+            let expr = self.parse_expression_with_mode_for_assembler(
                 cpu_id,
                 dialect_override,
                 tokens,
                 end_span,
                 end_token_text,
+                false,
             );
+            return expr
+                .and_then(|expr| Self::compile_parsed_expression_for_assembler(&expr, end_span));
         }
 
         let contract = self
@@ -2168,7 +2193,7 @@ impl HierarchyExecutionModel {
             });
         }
 
-        let expr = self.parse_expression_for_assembler_with_mode(
+        let expr = self.parse_expression_with_mode_for_assembler(
             cpu_id,
             dialect_override,
             tokens,
@@ -2176,10 +2201,7 @@ impl HierarchyExecutionModel {
             end_token_text,
             true,
         )?;
-        compile_core_expr_to_portable_program(&expr).map_err(|err| ParseError {
-            message: err.to_string(),
-            span: err.span.unwrap_or(end_span),
-        })
+        Self::compile_parsed_expression_for_assembler(&expr, end_span)
     }
 
     pub fn evaluate_portable_expression_program_for_assembler(
