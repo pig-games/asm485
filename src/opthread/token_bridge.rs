@@ -3,6 +3,7 @@
 
 use std::sync::OnceLock;
 
+use crate::core::expr_vm::{PortableExprProgram, PortableExprRef};
 use crate::core::parser::{
     AssignOp, Expr, Label, LineAst, ParseError, SignatureAtom, StatementSignature, UseItem,
     UseParam,
@@ -1508,12 +1509,11 @@ fn current_span_at(tokens: &[Token], cursor: usize, fallback: Span) -> Span {
         .unwrap_or(fallback)
 }
 
-fn parse_expr_with_vm_contract(
+fn enforce_expr_token_budget(
     expr_parse_ctx: &VmExprParseContext<'_>,
     tokens: &[Token],
     end_span: Span,
-    end_token_text: Option<String>,
-) -> Result<Expr, ParseError> {
+) -> Result<(), ParseError> {
     let token_budget = expr_parse_ctx
         .model
         .runtime_budget_limits()
@@ -1543,6 +1543,40 @@ fn parse_expr_with_vm_contract(
             span: end_span,
         });
     }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn parse_expr_program_ref_with_vm_contract(
+    expr_parse_ctx: &VmExprParseContext<'_>,
+    tokens: &[Token],
+    end_span: Span,
+    end_token_text: Option<String>,
+    parser_vm_opcode_version: Option<u16>,
+) -> Result<(PortableExprRef, PortableExprProgram), ParseError> {
+    enforce_expr_token_budget(expr_parse_ctx, tokens, end_span)?;
+    let mut owned_tokens = Vec::with_capacity(tokens.len());
+    owned_tokens.extend_from_slice(tokens);
+    let program = expr_parse_ctx
+        .model
+        .compile_expression_program_with_parser_vm_opt_in_for_assembler(
+            expr_parse_ctx.cpu_id,
+            expr_parse_ctx.dialect_override,
+            owned_tokens,
+            end_span,
+            end_token_text,
+            parser_vm_opcode_version,
+        )?;
+    Ok((PortableExprRef { index: 0 }, program))
+}
+
+fn parse_expr_with_vm_contract(
+    expr_parse_ctx: &VmExprParseContext<'_>,
+    tokens: &[Token],
+    end_span: Span,
+    end_token_text: Option<String>,
+) -> Result<Expr, ParseError> {
+    enforce_expr_token_budget(expr_parse_ctx, tokens, end_span)?;
     let mut owned_tokens = Vec::with_capacity(tokens.len());
     owned_tokens.extend_from_slice(tokens);
     expr_parse_ctx.model.parse_expression_for_assembler(
@@ -2962,6 +2996,116 @@ mod tests {
         assert!(
             err.message.to_ascii_lowercase().contains("otp004"),
             "expected parser diagnostic code in budget error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn parse_expr_program_ref_with_vm_contract_keeps_staged_family_on_host_default() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+            .expect("hierarchy chunks build");
+        for contract in &mut chunks.expr_parser_contracts {
+            if matches!(
+                contract.owner,
+                crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("intel8080")
+            ) {
+                contract.opcode_version =
+                    crate::opthread::package::EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+            }
+        }
+        let model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
+
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 3,
+        };
+        let tokens = vec![Token {
+            kind: TokenKind::Identifier("value".to_string()),
+            span,
+        }];
+
+        let (expr_ref, program) = parse_expr_program_ref_with_vm_contract(
+            &VmExprParseContext {
+                model: &model,
+                cpu_id: "8085",
+                dialect_override: None,
+            },
+            tokens.as_slice(),
+            span,
+            None,
+            None,
+        )
+        .expect("staged family should keep host-default expression parsing path");
+
+        assert_eq!(expr_ref.index, 0);
+        assert_eq!(
+            program.opcode_version,
+            crate::core::expr_vm::EXPR_VM_OPCODE_VERSION_V1
+        );
+    }
+
+    #[test]
+    fn parse_expr_program_ref_with_vm_contract_uses_vm_path_for_enabled_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(I8085CpuModule));
+        registry.register_cpu(Box::new(Z80CpuModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+        let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+            .expect("hierarchy chunks build");
+        for contract in &mut chunks.expr_parser_contracts {
+            if matches!(
+                contract.owner,
+                crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+                    if family_id.eq_ignore_ascii_case("mos6502")
+            ) {
+                contract.opcode_version =
+                    crate::opthread::package::EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+            }
+        }
+        let model =
+            HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
+
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 3,
+        };
+        let tokens = vec![Token {
+            kind: TokenKind::Identifier("value".to_string()),
+            span,
+        }];
+
+        let err = parse_expr_program_ref_with_vm_contract(
+            &VmExprParseContext {
+                model: &model,
+                cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+                dialect_override: None,
+            },
+            tokens.as_slice(),
+            span,
+            None,
+            None,
+        )
+        .expect_err("enabled family should enforce expression parser VM contract compatibility");
+        assert!(
+            err.message
+                .contains("unsupported expression parser contract opcode version"),
+            "expected VM-path expression parser contract compatibility error, got: {}",
             err.message
         );
     }
