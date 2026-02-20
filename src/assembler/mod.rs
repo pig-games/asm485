@@ -52,9 +52,7 @@ use std::sync::Arc;
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::intel8080::module::Intel8080FamilyOperands;
 use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
-use crate::families::mos6502::module::{
-    M6502CpuModule, MOS6502FamilyModule, FAMILY_ID as mos6502_family_id,
-};
+use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
@@ -4495,11 +4493,9 @@ impl<'a> AssemblerContext for AsmLine<'a> {
             if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
                 if crate::opthread::rollout::package_runtime_default_enabled_for_family(
                     pipeline.family_id.as_str(),
-                ) && pipeline
-                    .family_id
-                    .as_str()
-                    .eq_ignore_ascii_case(mos6502_family_id.as_str())
-                {
+                ) && crate::opthread::rollout::portable_expr_runtime_default_enabled_for_family(
+                    pipeline.family_id.as_str(),
+                ) {
                     let program = compile_core_expr_to_portable_program(expr)
                         .map_err(|err| err.to_string())?;
                     match model.evaluate_portable_expression_program_with_contract_for_assembler(
