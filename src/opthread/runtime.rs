@@ -44,8 +44,9 @@ use crate::opthread::package::{
     ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenizerVmDiagnosticMap,
     TokenizerVmLimits, TokenizerVmOpcode, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
     DIAG_OPTHREAD_FORCE_UNSUPPORTED_65C02, DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE,
-    DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_VM_OPCODE_VERSION_V1, PARSER_AST_SCHEMA_ID_LINE_V1,
-    PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
+    DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_PARSER_VM_OPCODE_VERSION_V1, EXPR_VM_OPCODE_VERSION_V1,
+    PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1,
+    TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{execute_program, VmError};
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
@@ -1965,6 +1966,36 @@ impl HierarchyExecutionModel {
             message: err.to_string(),
             span: err.span.unwrap_or(end_span),
         })
+    }
+
+    pub fn compile_expression_program_with_parser_vm_opt_in_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+        parser_vm_opcode_version: Option<u16>,
+    ) -> Result<PortableExprProgram, ParseError> {
+        if let Some(opcode_version) = parser_vm_opcode_version {
+            if opcode_version != EXPR_PARSER_VM_OPCODE_VERSION_V1 {
+                return Err(ParseError {
+                    message: format!(
+                        "unsupported opThread expression parser VM opcode version {}",
+                        opcode_version
+                    ),
+                    span: end_span,
+                });
+            }
+        }
+
+        self.compile_expression_program_for_assembler(
+            cpu_id,
+            dialect_override,
+            tokens,
+            end_span,
+            end_token_text,
+        )
     }
 
     pub fn evaluate_portable_expression_program_for_assembler(
@@ -4876,8 +4907,8 @@ mod tests {
         VmProgramDescriptor, DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE,
         DIAG_EXPR_INVALID_OPCODE, DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED,
         DIAG_EXPR_STACK_UNDERFLOW, DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE,
-        DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_VM_OPCODE_VERSION_V1, PARSER_VM_OPCODE_VERSION_V1,
-        TOKENIZER_VM_OPCODE_VERSION_V1,
+        DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_PARSER_VM_OPCODE_VERSION_V1,
+        EXPR_VM_OPCODE_VERSION_V1, PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use crate::z80::module::Z80CpuModule;
@@ -6503,6 +6534,93 @@ mod tests {
             "expected parser invalid-statement diagnostic code, got: {}",
             err.message
         );
+    }
+
+    #[test]
+    fn execution_model_compile_expression_program_parser_vm_opt_in_matches_host_semantics() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let (host_tokens, host_end_span) = tokenize_core_expr_tokens("1 ? $+1 : target", 1);
+        let (opt_in_tokens, opt_in_end_span) = tokenize_core_expr_tokens("1 ? $+1 : target", 1);
+
+        let host_program = model
+            .compile_expression_program_for_assembler(
+                "m6502",
+                None,
+                host_tokens,
+                host_end_span,
+                None,
+            )
+            .expect("host compile should succeed");
+        let opt_in_program = model
+            .compile_expression_program_with_parser_vm_opt_in_for_assembler(
+                "m6502",
+                None,
+                opt_in_tokens,
+                opt_in_end_span,
+                None,
+                Some(EXPR_PARSER_VM_OPCODE_VERSION_V1),
+            )
+            .expect("opt-in compile should succeed");
+
+        assert_eq!(opt_in_program, host_program);
+
+        let mut ctx = TestAssemblerContext::new();
+        ctx.addr = 0x2000;
+        ctx.values.insert("target".to_string(), 7);
+
+        let host_eval = model
+            .evaluate_portable_expression_program_with_contract_for_assembler(
+                "m6502",
+                None,
+                &host_program,
+                &ctx,
+            )
+            .expect("host eval should succeed");
+        let opt_in_eval = model
+            .evaluate_portable_expression_program_with_contract_for_assembler(
+                "m6502",
+                None,
+                &opt_in_program,
+                &ctx,
+            )
+            .expect("opt-in eval should succeed");
+
+        assert_eq!(host_eval.value, 0x2001);
+        assert_eq!(opt_in_eval, host_eval);
+    }
+
+    #[test]
+    fn execution_model_compile_expression_program_parser_vm_opt_in_rejects_unknown_opcode_version()
+    {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+        let (tokens, end_span) = tokenize_core_expr_tokens("1+2*3", 1);
+        let err = model
+            .compile_expression_program_with_parser_vm_opt_in_for_assembler(
+                "m6502",
+                None,
+                tokens,
+                end_span,
+                None,
+                Some(EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1)),
+            )
+            .expect_err("unknown expression parser VM opcode version should fail");
+        assert!(err
+            .message
+            .contains("unsupported opThread expression parser VM opcode version"));
     }
 
     #[test]

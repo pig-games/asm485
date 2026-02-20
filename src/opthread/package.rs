@@ -65,6 +65,7 @@ pub const DIAG_PARSER_EXPECTED_OPERAND: &str = "otp003";
 pub const DIAG_PARSER_INVALID_STATEMENT: &str = "otp004";
 pub const TOKENIZER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
+pub const EXPR_PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_GRAMMAR_ID_LINE_V1: &str = "opforge.line.v1";
 pub const PARSER_AST_SCHEMA_ID_LINE_V1: &str = "opforge.ast.line.v1";
 pub const EXPR_VM_OPCODE_VERSION_V1: u16 = crate::core::expr_vm::EXPR_VM_OPCODE_VERSION_V1;
@@ -252,6 +253,29 @@ impl ParserVmOpcode {
             0x07 => Some(Self::ParseInstructionEnvelope),
             0x08 => Some(Self::ParseStarOrgEnvelope),
             0x09 => Some(Self::EmitDiagIfNoAst),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExprParserVmOpcode {
+    End = 0x00,
+    ParseExpression = 0x01,
+    EmitDiag = 0x02,
+    Fail = 0x03,
+    DelegateCore = 0x04,
+}
+
+impl ExprParserVmOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0x00 => Some(Self::End),
+            0x01 => Some(Self::ParseExpression),
+            0x02 => Some(Self::EmitDiag),
+            0x03 => Some(Self::Fail),
+            0x04 => Some(Self::DelegateCore),
             _ => None,
         }
     }
@@ -3724,5 +3748,30 @@ mod tests {
         assert!(err
             .to_string()
             .contains("missing diagnostics.invalid_program code"));
+    }
+
+    #[test]
+    fn expr_parser_vm_opcode_from_u8_round_trip_and_unknown_rejection() {
+        assert_eq!(
+            ExprParserVmOpcode::from_u8(ExprParserVmOpcode::End as u8),
+            Some(ExprParserVmOpcode::End)
+        );
+        assert_eq!(
+            ExprParserVmOpcode::from_u8(ExprParserVmOpcode::ParseExpression as u8),
+            Some(ExprParserVmOpcode::ParseExpression)
+        );
+        assert_eq!(
+            ExprParserVmOpcode::from_u8(ExprParserVmOpcode::EmitDiag as u8),
+            Some(ExprParserVmOpcode::EmitDiag)
+        );
+        assert_eq!(
+            ExprParserVmOpcode::from_u8(ExprParserVmOpcode::Fail as u8),
+            Some(ExprParserVmOpcode::Fail)
+        );
+        assert_eq!(
+            ExprParserVmOpcode::from_u8(ExprParserVmOpcode::DelegateCore as u8),
+            Some(ExprParserVmOpcode::DelegateCore)
+        );
+        assert_eq!(ExprParserVmOpcode::from_u8(0xFF), None);
     }
 }
