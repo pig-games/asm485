@@ -6151,6 +6151,42 @@ mod tests {
     }
 
     #[test]
+    fn execution_model_tokenizer_vm_covers_all_supported_cpu_ids() {
+        let registry = parity_registry();
+        let model =
+            HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+        let cpu_cases = [
+            ("m6502", "LDA #$42", "lda"),
+            ("65c02", "LDA #$42", "lda"),
+            ("65816", "LDA #$42", "lda"),
+            ("8085", "MVI A,1", "mvi"),
+            ("z80", "LD A,B", "ld"),
+        ];
+
+        for (cpu_id, source_line, mnemonic) in cpu_cases {
+            let program = model
+                .resolve_tokenizer_vm_program(cpu_id, None)
+                .expect("tokenizer vm program resolution should succeed");
+            let program = program.expect("supported cpu should resolve a tokenizer vm program");
+            assert!(
+                program
+                    .program
+                    .contains(&(TokenizerVmOpcode::ScanCoreToken as u8)),
+                "{cpu_id} should resolve a tokenizer VM program containing ScanCoreToken"
+            );
+
+            let tokens = model
+                .tokenize_portable_statement_for_assembler(cpu_id, None, source_line, 1)
+                .expect("assembler tokenization should remain strict VM for supported cpu");
+            assert!(matches!(
+                &tokens[0].kind,
+                PortableTokenKind::Identifier(name) if name == mnemonic
+            ));
+        }
+    }
+
+    #[test]
     fn execution_model_tokenizer_mode_auto_matches_vm_mode() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));
