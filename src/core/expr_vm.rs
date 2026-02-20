@@ -858,4 +858,55 @@ mod tests {
             .expect_err("invalid opcode should fail");
         assert_eq!(err.code, DIAG_EXPR_INVALID_OPCODE);
     }
+
+    #[test]
+    fn stack_underflow_reports_stable_code() {
+        let program = PortableExprProgram {
+            opcode_version: EXPR_VM_OPCODE_VERSION_V1,
+            code: vec![ExprVmOpcode::ApplyUnary as u8, ExprVmUnary::Plus as u8],
+            symbols: Vec::new(),
+            declared_stack_depth: 1,
+        };
+
+        let err_a = eval_portable_expr_program(&program, &TestCtx::default(), Default::default())
+            .expect_err("stack underflow should fail");
+        let err_b = eval_portable_expr_program(&program, &TestCtx::default(), Default::default())
+            .expect_err("stack underflow should fail deterministically");
+
+        assert_eq!(err_a.code, DIAG_EXPR_STACK_UNDERFLOW);
+        assert_eq!(err_b.code, DIAG_EXPR_STACK_UNDERFLOW);
+    }
+
+    #[test]
+    fn unknown_symbol_reports_stable_code() {
+        let expr = Expr::Identifier("missing_symbol".to_string(), span());
+        let program = compile_core_expr_to_portable_program(&expr).expect("compile should work");
+
+        let err_a = eval_portable_expr_program(&program, &TestCtx::default(), Default::default())
+            .expect_err("unknown symbol should fail");
+        let err_b = eval_portable_expr_program(&program, &TestCtx::default(), Default::default())
+            .expect_err("unknown symbol should fail deterministically");
+
+        assert_eq!(err_a.code, DIAG_EXPR_UNKNOWN_SYMBOL);
+        assert_eq!(err_b.code, DIAG_EXPR_UNKNOWN_SYMBOL);
+    }
+
+    #[test]
+    fn divide_by_zero_reports_stable_code() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Divide,
+            left: Box::new(Expr::Number("1".to_string(), span())),
+            right: Box::new(Expr::Number("0".to_string(), span())),
+            span: span(),
+        };
+        let program = compile_core_expr_to_portable_program(&expr).expect("compile should work");
+
+        let err_a = eval_portable_expr_program(&program, &TestCtx::default(), Default::default())
+            .expect_err("divide by zero should fail");
+        let err_b = eval_portable_expr_program(&program, &TestCtx::default(), Default::default())
+            .expect_err("divide by zero should fail deterministically");
+
+        assert_eq!(err_a.code, DIAG_EXPR_EVAL_FAILURE);
+        assert_eq!(err_b.code, DIAG_EXPR_EVAL_FAILURE);
+    }
 }
