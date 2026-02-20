@@ -851,90 +851,45 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 
     for entry in registers.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.id = entry.id.to_ascii_lowercase();
     }
     registers.sort_by_key(|entry| {
-        let owner_kind = match entry.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let owner_id = match &entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        (owner_kind, owner_id, entry.id.to_ascii_lowercase())
+        (
+            entry.owner.owner_tag(),
+            entry.owner.owner_id().to_ascii_lowercase(),
+            entry.id.to_ascii_lowercase(),
+        )
     });
-    registers.dedup_by(|left, right| {
-        left.id == right.id
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
-    });
+    registers.dedup_by(|left, right| left.id == right.id && left.owner.same_scope(&right.owner));
 
     for entry in forms.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
     }
     forms.sort_by_key(|entry| {
-        let owner_kind = match entry.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let owner_id = match &entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        (owner_kind, owner_id, entry.mnemonic.to_ascii_lowercase())
+        (
+            entry.owner.owner_tag(),
+            entry.owner.owner_id().to_ascii_lowercase(),
+            entry.mnemonic.to_ascii_lowercase(),
+        )
     });
     forms.dedup_by(|left, right| {
-        left.mnemonic == right.mnemonic
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+        left.mnemonic == right.mnemonic && left.owner.same_scope(&right.owner)
     });
 
     for entry in tables.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
         entry.mode_key = entry.mode_key.to_ascii_lowercase();
     }
     tables.sort_by_key(|entry| {
-        let owner_kind = match entry.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let owner_id = match &entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
         (
-            owner_kind,
-            owner_id,
+            entry.owner.owner_tag(),
+            entry.owner.owner_id().to_ascii_lowercase(),
             entry.mnemonic.to_ascii_lowercase(),
             entry.mode_key.to_ascii_lowercase(),
         )
@@ -942,39 +897,21 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     tables.dedup_by(|left, right| {
         left.mnemonic == right.mnemonic
             && left.mode_key == right.mode_key
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 
     for entry in selectors.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
         entry.shape_key = entry.shape_key.to_ascii_lowercase();
         entry.mode_key = entry.mode_key.to_ascii_lowercase();
         entry.operand_plan = entry.operand_plan.to_ascii_lowercase();
     }
     selectors.sort_by_key(|entry| {
-        let owner_kind = match entry.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let owner_id = match &entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
         (
-            owner_kind,
-            owner_id,
+            entry.owner.owner_tag(),
+            entry.owner.owner_id().to_ascii_lowercase(),
             entry.mnemonic.to_ascii_lowercase(),
             entry.shape_key.to_ascii_lowercase(),
             entry.priority,
@@ -989,22 +926,14 @@ pub(crate) fn canonicalize_hierarchy_metadata(
             && left.operand_plan == right.operand_plan
             && left.unstable_widen == right.unstable_widen
             && left.width_rank == right.width_rank
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 
 pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDescriptor>) {
     for entry in token_policies.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.punctuation_chars = canonicalize_ascii_char_set(&entry.punctuation_chars);
         entry.quote_chars = canonicalize_ascii_char_set(&entry.quote_chars);
         entry.number_prefix_chars = canonicalize_ascii_char_set(&entry.number_prefix_chars);
@@ -1018,29 +947,15 @@ pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDe
         entry.multi_char_operators.dedup();
     }
     token_policies.sort_by(|left, right| {
-        let left_owner_kind = match left.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let right_owner_kind = match right.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let left_owner_id = match &left.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        let right_owner_id = match &right.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        left_owner_kind
-            .cmp(&right_owner_kind)
-            .then_with(|| left_owner_id.cmp(&right_owner_id))
+        left.owner
+            .owner_tag()
+            .cmp(&right.owner.owner_tag())
+            .then_with(|| {
+                left.owner
+                    .owner_id()
+                    .to_ascii_lowercase()
+                    .cmp(&right.owner.owner_id().to_ascii_lowercase())
+            })
             .then_with(|| (left.case_rule as u8).cmp(&(right.case_rule as u8)))
             .then_with(|| {
                 left.identifier_start_class
@@ -1077,12 +992,7 @@ pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDe
             && left.number_suffix_hex == right.number_suffix_hex
             && left.operator_chars == right.operator_chars
             && left.multi_char_operators == right.multi_char_operators
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 
@@ -1090,36 +1000,19 @@ pub(crate) fn canonicalize_tokenizer_vm_programs(
     tokenizer_vm_programs: &mut Vec<TokenizerVmProgramDescriptor>,
 ) {
     for entry in tokenizer_vm_programs.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
     }
     tokenizer_vm_programs.sort_by(|left, right| {
-        let left_owner_kind = match left.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let right_owner_kind = match right.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let left_owner_id = match &left.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        let right_owner_id = match &right.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        left_owner_kind
-            .cmp(&right_owner_kind)
-            .then_with(|| left_owner_id.cmp(&right_owner_id))
+        left.owner
+            .owner_tag()
+            .cmp(&right.owner.owner_tag())
+            .then_with(|| {
+                left.owner
+                    .owner_id()
+                    .to_ascii_lowercase()
+                    .cmp(&right.owner.owner_id().to_ascii_lowercase())
+            })
             .then_with(|| left.opcode_version.cmp(&right.opcode_version))
             .then_with(|| left.start_state.cmp(&right.start_state))
             .then_with(|| left.state_entry_offsets.cmp(&right.state_entry_offsets))
@@ -1182,49 +1075,27 @@ pub(crate) fn canonicalize_tokenizer_vm_programs(
             && left.limits == right.limits
             && left.diagnostics == right.diagnostics
             && left.program == right.program
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 
 pub(crate) fn canonicalize_parser_contracts(parser_contracts: &mut Vec<ParserContractDescriptor>) {
     for entry in parser_contracts.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
         entry.grammar_id = entry.grammar_id.to_ascii_lowercase();
         entry.ast_schema_id = entry.ast_schema_id.to_ascii_lowercase();
     }
     parser_contracts.sort_by(|left, right| {
-        let left_owner_kind = match left.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let right_owner_kind = match right.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let left_owner_id = match &left.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        let right_owner_id = match &right.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        left_owner_kind
-            .cmp(&right_owner_kind)
-            .then_with(|| left_owner_id.cmp(&right_owner_id))
+        left.owner
+            .owner_tag()
+            .cmp(&right.owner.owner_tag())
+            .then_with(|| {
+                left.owner
+                    .owner_id()
+                    .to_ascii_lowercase()
+                    .cmp(&right.owner.owner_id().to_ascii_lowercase())
+            })
             .then_with(|| left.grammar_id.cmp(&right.grammar_id))
             .then_with(|| left.ast_schema_id.cmp(&right.ast_schema_id))
             .then_with(|| left.opcode_version.cmp(&right.opcode_version))
@@ -1259,12 +1130,7 @@ pub(crate) fn canonicalize_parser_contracts(parser_contracts: &mut Vec<ParserCon
             && left.opcode_version == right.opcode_version
             && left.max_ast_nodes_per_line == right.max_ast_nodes_per_line
             && left.diagnostics == right.diagnostics
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 
@@ -1272,48 +1138,26 @@ pub(crate) fn canonicalize_parser_vm_programs(
     parser_vm_programs: &mut Vec<ParserVmProgramDescriptor>,
 ) {
     for entry in parser_vm_programs.iter_mut() {
-        match &mut entry.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                *id = id.to_ascii_lowercase();
-            }
-        }
+        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
+        *entry.owner.owner_id_mut() = owner_id;
     }
     parser_vm_programs.sort_by(|left, right| {
-        let left_owner_kind = match left.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let right_owner_kind = match right.owner {
-            ScopedOwner::Family(_) => 0u8,
-            ScopedOwner::Cpu(_) => 1u8,
-            ScopedOwner::Dialect(_) => 2u8,
-        };
-        let left_owner_id = match &left.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        let right_owner_id = match &right.owner {
-            ScopedOwner::Family(id) | ScopedOwner::Cpu(id) | ScopedOwner::Dialect(id) => {
-                id.to_ascii_lowercase()
-            }
-        };
-        left_owner_kind
-            .cmp(&right_owner_kind)
-            .then_with(|| left_owner_id.cmp(&right_owner_id))
+        left.owner
+            .owner_tag()
+            .cmp(&right.owner.owner_tag())
+            .then_with(|| {
+                left.owner
+                    .owner_id()
+                    .to_ascii_lowercase()
+                    .cmp(&right.owner.owner_id().to_ascii_lowercase())
+            })
             .then_with(|| left.opcode_version.cmp(&right.opcode_version))
             .then_with(|| left.program.cmp(&right.program))
     });
     parser_vm_programs.dedup_by(|left, right| {
         left.opcode_version == right.opcode_version
             && left.program == right.program
-            && match (&left.owner, &right.owner) {
-                (ScopedOwner::Family(left), ScopedOwner::Family(right)) => left == right,
-                (ScopedOwner::Cpu(left), ScopedOwner::Cpu(right)) => left == right,
-                (ScopedOwner::Dialect(left), ScopedOwner::Dialect(right)) => left == right,
-                _ => false,
-            }
+            && left.owner.same_scope(&right.owner)
     });
 }
 

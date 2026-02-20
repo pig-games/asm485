@@ -53,6 +53,33 @@ pub enum ScopedOwner {
     Dialect(String),
 }
 
+impl ScopedOwner {
+    pub fn owner_tag(&self) -> u8 {
+        match self {
+            Self::Family(_) => 0,
+            Self::Cpu(_) => 1,
+            Self::Dialect(_) => 2,
+        }
+    }
+
+    pub fn owner_id(&self) -> &str {
+        match self {
+            Self::Family(id) | Self::Cpu(id) | Self::Dialect(id) => id,
+        }
+    }
+
+    pub fn owner_id_mut(&mut self) -> &mut String {
+        match self {
+            Self::Family(id) | Self::Cpu(id) | Self::Dialect(id) => id,
+        }
+    }
+
+    pub fn same_scope(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+            && self.owner_id() == other.owner_id()
+    }
+}
+
 /// Register descriptor with explicit scope ownership.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedRegisterDescriptor {
