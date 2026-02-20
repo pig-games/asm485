@@ -7631,6 +7631,98 @@ fn opthread_runtime_intel8085_layout_directive_eval_remains_host_while_staged() 
 }
 
 #[test]
+fn opthread_runtime_mos6502_complex_layout_directives_survive_host_evaluator_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 6502".to_string(),
+        ".section code, align=(1+1)".to_string(),
+        "    .byte $aa".to_string(),
+        ".endsection".to_string(),
+        ".section data, align=(1+1)".to_string(),
+        "    .byte $bb".to_string(),
+        ".endsection".to_string(),
+        ".region ram, $1000, $10ff, align=(1+1)".to_string(),
+        ".pack in ram : code, data".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(
+        pass1.errors,
+        0,
+        "expected certified complex layout directives to bypass host evaluator failpoint: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn opthread_runtime_i8085_complex_layout_directives_still_use_host_under_failpoint() {
+    struct FailpointReset;
+
+    impl Drop for FailpointReset {
+        fn drop(&mut self) {
+            set_host_expr_eval_failpoint_for_tests(false);
+        }
+    }
+
+    let _reset = FailpointReset;
+    set_host_expr_eval_failpoint_for_tests(true);
+
+    let lines = vec![
+        ".module main".to_string(),
+        ".cpu 8085".to_string(),
+        ".section code, align=(1+1)".to_string(),
+        "    .db 1".to_string(),
+        ".endsection".to_string(),
+        ".section data, align=(1+1)".to_string(),
+        "    .db 2".to_string(),
+        ".endsection".to_string(),
+        ".region ram, $1000, $10ff, align=(1+1)".to_string(),
+        ".pack in ram : code, data".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.root_metadata.root_module_id = Some("main".to_string());
+    assembler.clear_diagnostics();
+
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    let diagnostics = assembler
+        .diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .map(|diag| diag.error.message().to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("host expression evaluator failpoint")),
+        "expected staged complex layout directives to hit host evaluator failpoint, got: {:?}",
+        diagnostics
+    );
+}
+
+#[test]
 fn opthread_runtime_mos6502_output_directive_eval_uses_portable_eval_by_default_when_certified() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
