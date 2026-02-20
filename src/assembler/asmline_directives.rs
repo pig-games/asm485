@@ -1032,7 +1032,7 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 };
-                let val = match self.eval_expr_ast(expr) {
+                let val = match self.eval_expr_for_data_directive(expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
@@ -1364,7 +1364,7 @@ impl<'a> AsmLine<'a> {
         value_expr: &Expr,
         _span: Span,
     ) -> Result<u32, LineStatus> {
-        let value = match self.eval_expr_ast(value_expr) {
+        let value = match self.eval_expr_for_data_directive(value_expr) {
             Ok(value) => value,
             Err(err) => {
                 return Err(self.failure_at_span(
@@ -1907,7 +1907,7 @@ impl<'a> AsmLine<'a> {
                         option_span,
                     );
                 }
-                let value = match self.eval_expr_ast(value_expr) {
+                let value = match self.eval_expr_for_data_directive(value_expr) {
                     Ok(value) => value,
                     Err(err) => {
                         return self.failure_at_span(
