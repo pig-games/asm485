@@ -30,23 +30,24 @@ use crate::opthread::intel8080_vm::{
     mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
 };
 use crate::opthread::package::{
-    canonicalize_hierarchy_metadata, canonicalize_parser_contracts,
-    canonicalize_parser_vm_programs, canonicalize_token_policies,
+    canonicalize_expr_parser_contracts, canonicalize_hierarchy_metadata,
+    canonicalize_parser_contracts, canonicalize_parser_vm_programs, canonicalize_token_policies,
     canonicalize_tokenizer_vm_programs, default_runtime_diagnostic_catalog,
     default_token_policy_lexical_defaults, encode_hierarchy_chunks_from_chunks,
-    token_identifier_class, ExprContractDescriptor, ExprDiagnosticMap, HierarchyChunks,
-    ModeSelectorDescriptor, OpcpuCodecError, ParserContractDescriptor, ParserDiagnosticMap,
-    ParserVmOpcode, ParserVmProgramDescriptor, TokenCaseRule, TokenPolicyDescriptor,
-    TokenizerVmDiagnosticMap, TokenizerVmLimits, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
-    VmProgramDescriptor, DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE,
-    DIAG_EXPR_INVALID_OPCODE, DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED,
-    DIAG_EXPR_STACK_UNDERFLOW, DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE,
-    DIAG_PARSER_EXPECTED_EXPRESSION, DIAG_PARSER_EXPECTED_OPERAND, DIAG_PARSER_INVALID_STATEMENT,
-    DIAG_PARSER_UNEXPECTED_TOKEN, DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED, DIAG_TOKENIZER_INVALID_CHAR,
+    token_identifier_class, ExprContractDescriptor, ExprDiagnosticMap,
+    ExprParserContractDescriptor, ExprParserDiagnosticMap, HierarchyChunks, ModeSelectorDescriptor,
+    OpcpuCodecError, ParserContractDescriptor, ParserDiagnosticMap, ParserVmOpcode,
+    ParserVmProgramDescriptor, TokenCaseRule, TokenPolicyDescriptor, TokenizerVmDiagnosticMap,
+    TokenizerVmLimits, TokenizerVmOpcode, TokenizerVmProgramDescriptor, VmProgramDescriptor,
+    DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE, DIAG_EXPR_INVALID_OPCODE,
+    DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED, DIAG_EXPR_STACK_UNDERFLOW,
+    DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE, DIAG_PARSER_EXPECTED_EXPRESSION,
+    DIAG_PARSER_EXPECTED_OPERAND, DIAG_PARSER_INVALID_STATEMENT, DIAG_PARSER_UNEXPECTED_TOKEN,
+    DIAG_TOKENIZER_ERROR_LIMIT_EXCEEDED, DIAG_TOKENIZER_INVALID_CHAR,
     DIAG_TOKENIZER_LEXEME_LIMIT_EXCEEDED, DIAG_TOKENIZER_STEP_LIMIT_EXCEEDED,
     DIAG_TOKENIZER_TOKEN_LIMIT_EXCEEDED, DIAG_TOKENIZER_UNTERMINATED_STRING,
-    EXPR_VM_OPCODE_VERSION_V1, PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1,
-    PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
+    EXPR_PARSER_VM_OPCODE_VERSION_V1, EXPR_VM_OPCODE_VERSION_V1, PARSER_AST_SCHEMA_ID_LINE_V1,
+    PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
@@ -163,6 +164,10 @@ pub fn build_hierarchy_chunks_from_registry(
     let mut expr_contracts = family_ids
         .iter()
         .map(|family| default_family_expr_contract(family.as_str(), expr_budget_defaults))
+        .collect();
+    let mut expr_parser_contracts = family_ids
+        .iter()
+        .map(|family| default_family_expr_parser_contract(family.as_str()))
         .collect();
 
     let mut registers = Vec::new();
@@ -686,6 +691,7 @@ pub fn build_hierarchy_chunks_from_registry(
     canonicalize_parser_contracts(&mut parser_contracts);
     canonicalize_parser_vm_programs(&mut parser_vm_programs);
     crate::opthread::package::canonicalize_expr_contracts(&mut expr_contracts);
+    canonicalize_expr_parser_contracts(&mut expr_parser_contracts);
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
@@ -699,6 +705,7 @@ pub fn build_hierarchy_chunks_from_registry(
         parser_contracts,
         parser_vm_programs,
         expr_contracts,
+        expr_parser_contracts,
         families,
         cpus,
         dialects,
@@ -729,6 +736,16 @@ fn default_family_expr_contract(
             unsupported_feature: DIAG_EXPR_UNSUPPORTED_FEATURE.to_string(),
             budget_exceeded: DIAG_EXPR_BUDGET_EXCEEDED.to_string(),
             invalid_program: DIAG_EXPR_INVALID_PROGRAM.to_string(),
+        },
+    }
+}
+
+fn default_family_expr_parser_contract(family_id: &str) -> ExprParserContractDescriptor {
+    ExprParserContractDescriptor {
+        owner: ScopedOwner::Family(family_id.to_string()),
+        opcode_version: EXPR_PARSER_VM_OPCODE_VERSION_V1,
+        diagnostics: ExprParserDiagnosticMap {
+            invalid_expression_program: DIAG_PARSER_INVALID_STATEMENT.to_string(),
         },
     }
 }

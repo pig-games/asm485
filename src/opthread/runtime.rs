@@ -228,6 +228,17 @@ pub struct RuntimeExprContract {
     pub diagnostics: RuntimeExprDiagnosticMap,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RuntimeExprParserDiagnosticMap {
+    pub invalid_expression_program: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeExprParserContract {
+    pub opcode_version: u16,
+    pub diagnostics: RuntimeExprParserDiagnosticMap,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeTokenPolicy {
     pub case_rule: TokenCaseRule,
@@ -1415,6 +1426,7 @@ pub struct HierarchyExecutionModel {
     parser_contracts: HashMap<ParserContractKey, RuntimeParserContract>,
     parser_vm_programs: HashMap<ParserVmProgramKey, RuntimeParserVmProgram>,
     expr_contracts: HashMap<ExprContractKey, RuntimeExprContract>,
+    expr_parser_contracts: HashMap<ParserContractKey, RuntimeExprParserContract>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
     diag_templates: HashMap<String, String>,
@@ -1444,6 +1456,7 @@ impl HierarchyExecutionModel {
             parser_contracts,
             parser_vm_programs,
             expr_contracts,
+            expr_parser_contracts,
             families,
             cpus,
             dialects,
@@ -1578,6 +1591,23 @@ impl HierarchyExecutionModel {
                 },
             );
         }
+        let mut scoped_expr_parser_contracts: HashMap<
+            ParserContractKey,
+            RuntimeExprParserContract,
+        > = HashMap::new();
+        for entry in expr_parser_contracts {
+            let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
+            let owner_id = interner.intern(owner_id.as_str());
+            scoped_expr_parser_contracts.insert(
+                (owner_tag, owner_id),
+                RuntimeExprParserContract {
+                    opcode_version: entry.opcode_version,
+                    diagnostics: RuntimeExprParserDiagnosticMap {
+                        invalid_expression_program: entry.diagnostics.invalid_expression_program,
+                    },
+                },
+            );
+        }
         let mut family_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut cpu_forms: HashMap<String, HashSet<String>> = HashMap::new();
         let mut dialect_forms: HashMap<String, HashSet<String>> = HashMap::new();
@@ -1637,6 +1667,7 @@ impl HierarchyExecutionModel {
             parser_contracts: scoped_parser_contracts,
             parser_vm_programs: scoped_parser_vm_programs,
             expr_contracts: scoped_expr_contracts,
+            expr_parser_contracts: scoped_expr_parser_contracts,
             interned_ids: interner.into_ids(),
             expr_resolvers,
             diag_templates,
@@ -1889,6 +1920,15 @@ impl HierarchyExecutionModel {
         Ok(self.expr_contract_for_resolved(&resolved))
     }
 
+    pub fn resolve_expr_parser_contract(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<Option<RuntimeExprParserContract>, RuntimeBridgeError> {
+        let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
+        Ok(self.expr_parser_contract_for_resolved(&resolved))
+    }
+
     pub fn resolve_expr_budgets(
         &self,
         cpu_id: &str,
@@ -1968,6 +2008,24 @@ impl HierarchyExecutionModel {
         })
     }
 
+    pub fn parse_expression_program_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+        tokens: Vec<Token>,
+        end_span: Span,
+        end_token_text: Option<String>,
+    ) -> Result<PortableExprProgram, ParseError> {
+        self.compile_expression_program_with_parser_vm_opt_in_for_assembler(
+            cpu_id,
+            dialect_override,
+            tokens,
+            end_span,
+            end_token_text,
+            None,
+        )
+    }
+
     pub fn compile_expression_program_with_parser_vm_opt_in_for_assembler(
         &self,
         cpu_id: &str,
@@ -1977,16 +2035,32 @@ impl HierarchyExecutionModel {
         end_token_text: Option<String>,
         parser_vm_opcode_version: Option<u16>,
     ) -> Result<PortableExprProgram, ParseError> {
-        if let Some(opcode_version) = parser_vm_opcode_version {
-            if opcode_version != EXPR_PARSER_VM_OPCODE_VERSION_V1 {
-                return Err(ParseError {
-                    message: format!(
-                        "unsupported opThread expression parser VM opcode version {}",
-                        opcode_version
-                    ),
+        let contract = self
+            .resolve_expr_parser_contract(cpu_id, dialect_override)
+            .map_err(|err| ParseError {
+                message: err.to_string(),
+                span: end_span,
+            })?;
+
+        if let Some(contract) = contract.as_ref() {
+            self.ensure_expr_parser_contract_compatible_for_assembler(contract)
+                .map_err(|err| ParseError {
+                    message: err.to_string(),
                     span: end_span,
-                });
-            }
+                })?;
+        }
+
+        let opcode_version = parser_vm_opcode_version
+            .or_else(|| contract.as_ref().map(|entry| entry.opcode_version))
+            .unwrap_or(EXPR_PARSER_VM_OPCODE_VERSION_V1);
+        if opcode_version != EXPR_PARSER_VM_OPCODE_VERSION_V1 {
+            return Err(ParseError {
+                message: format!(
+                    "unsupported opThread expression parser VM opcode version {}",
+                    opcode_version
+                ),
+                span: end_span,
+            });
         }
 
         self.compile_expression_program_for_assembler(
@@ -2336,6 +2410,29 @@ impl HierarchyExecutionModel {
         None
     }
 
+    fn expr_parser_contract_for_resolved(
+        &self,
+        resolved: &ResolvedHierarchy,
+    ) -> Option<RuntimeExprParserContract> {
+        let dialect_id = resolved.dialect_id.to_ascii_lowercase();
+        let cpu_id = resolved.cpu_id.to_ascii_lowercase();
+        let family_id = resolved.family_id.to_ascii_lowercase();
+        let owner_order = [
+            (2u8, self.interned_id(&dialect_id)),
+            (1u8, self.interned_id(&cpu_id)),
+            (0u8, self.interned_id(&family_id)),
+        ];
+        for (owner_tag, owner_id) in owner_order {
+            let Some(owner_id) = owner_id else {
+                continue;
+            };
+            if let Some(contract) = self.expr_parser_contracts.get(&(owner_tag, owner_id)) {
+                return Some(contract.clone());
+            }
+        }
+        None
+    }
+
     fn ensure_parser_contract_compatible_for_assembler(
         &self,
         contract: &RuntimeParserContract,
@@ -2411,6 +2508,47 @@ impl HierarchyExecutionModel {
             )?;
         }
         Ok(())
+    }
+
+    fn ensure_expr_parser_contract_compatible_for_assembler(
+        &self,
+        contract: &RuntimeExprParserContract,
+    ) -> Result<(), RuntimeBridgeError> {
+        let error_code = if contract
+            .diagnostics
+            .invalid_expression_program
+            .trim()
+            .is_empty()
+        {
+            "opthread-runtime"
+        } else {
+            contract.diagnostics.invalid_expression_program.as_str()
+        };
+
+        if contract.opcode_version != EXPR_PARSER_VM_OPCODE_VERSION_V1 {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: unsupported expression parser contract opcode version {}",
+                error_code, contract.opcode_version
+            )));
+        }
+
+        if contract
+            .diagnostics
+            .invalid_expression_program
+            .trim()
+            .is_empty()
+        {
+            return Err(RuntimeBridgeError::Resolve(format!(
+                "{}: missing diagnostics.invalid_expression_program code",
+                error_code
+            )));
+        }
+
+        self.ensure_diag_code_declared_in_package_catalog(
+            error_code,
+            "expression parser contract diagnostics.invalid_expression_program",
+            contract.diagnostics.invalid_expression_program.as_str(),
+        )
     }
 
     fn ensure_tokenizer_vm_program_compatible_for_assembler(
@@ -4901,14 +5039,15 @@ mod tests {
     };
     use crate::opthread::package::{
         default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
-        ExprContractDescriptor, ExprDiagnosticMap, HierarchyChunks, ParserContractDescriptor,
-        ParserDiagnosticMap, ParserVmOpcode, ParserVmProgramDescriptor, TokenCaseRule,
-        TokenPolicyDescriptor, TokenizerVmOpcode, TokenizerVmProgramDescriptor,
-        VmProgramDescriptor, DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE,
-        DIAG_EXPR_INVALID_OPCODE, DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED,
-        DIAG_EXPR_STACK_UNDERFLOW, DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE,
-        DIAG_OPTHREAD_MISSING_VM_PROGRAM, EXPR_PARSER_VM_OPCODE_VERSION_V1,
-        EXPR_VM_OPCODE_VERSION_V1, PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
+        ExprContractDescriptor, ExprDiagnosticMap, ExprParserContractDescriptor,
+        ExprParserDiagnosticMap, HierarchyChunks, ParserContractDescriptor, ParserDiagnosticMap,
+        ParserVmOpcode, ParserVmProgramDescriptor, TokenCaseRule, TokenPolicyDescriptor,
+        TokenizerVmOpcode, TokenizerVmProgramDescriptor, VmProgramDescriptor,
+        DIAG_EXPR_BUDGET_EXCEEDED, DIAG_EXPR_EVAL_FAILURE, DIAG_EXPR_INVALID_OPCODE,
+        DIAG_EXPR_INVALID_PROGRAM, DIAG_EXPR_STACK_DEPTH_EXCEEDED, DIAG_EXPR_STACK_UNDERFLOW,
+        DIAG_EXPR_UNKNOWN_SYMBOL, DIAG_EXPR_UNSUPPORTED_FEATURE, DIAG_OPTHREAD_MISSING_VM_PROGRAM,
+        EXPR_PARSER_VM_OPCODE_VERSION_V1, EXPR_VM_OPCODE_VERSION_V1, PARSER_VM_OPCODE_VERSION_V1,
+        TOKENIZER_VM_OPCODE_VERSION_V1,
     };
     use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
     use crate::z80::module::Z80CpuModule;
@@ -5160,6 +5299,16 @@ mod tests {
         }
     }
 
+    fn expr_parser_contract_for_test(owner: ScopedOwner) -> ExprParserContractDescriptor {
+        ExprParserContractDescriptor {
+            owner,
+            opcode_version: EXPR_PARSER_VM_OPCODE_VERSION_V1,
+            diagnostics: ExprParserDiagnosticMap {
+                invalid_expression_program: "otp004".to_string(),
+            },
+        }
+    }
+
     fn runtime_vm_program_for_test(
         program: Vec<u8>,
         limits: TokenizerVmLimits,
@@ -5305,6 +5454,7 @@ mod tests {
             parser_contracts: Vec::new(),
             parser_vm_programs: Vec::new(),
             expr_contracts: Vec::new(),
+            expr_parser_contracts: Vec::new(),
             families: vec![FamilyDescriptor {
                 id: "intel8080".to_string(),
                 canonical_dialect: "intel".to_string(),
@@ -6534,6 +6684,65 @@ mod tests {
             "expected parser invalid-statement diagnostic code, got: {}",
             err.message
         );
+    }
+
+    #[test]
+    fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.expr_parser_contracts.clear();
+        chunks
+            .expr_parser_contracts
+            .push(expr_parser_contract_for_test(ScopedOwner::Family(
+                "mos6502".to_string(),
+            )));
+        let mut cpu_contract = expr_parser_contract_for_test(ScopedOwner::Cpu("m6502".to_string()));
+        cpu_contract.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1;
+        chunks.expr_parser_contracts.push(cpu_contract);
+        let mut dialect_contract =
+            expr_parser_contract_for_test(ScopedOwner::Dialect("transparent".to_string()));
+        dialect_contract.diagnostics.invalid_expression_program = "otp003".to_string();
+        chunks.expr_parser_contracts.push(dialect_contract);
+
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+        let contract = model
+            .resolve_expr_parser_contract("m6502", None)
+            .expect("expr parser contract resolution")
+            .expect("expr parser contract should resolve");
+        assert_eq!(contract.opcode_version, EXPR_PARSER_VM_OPCODE_VERSION_V1);
+        assert_eq!(contract.diagnostics.invalid_expression_program, "otp003");
+    }
+
+    #[test]
+    fn execution_model_parse_expression_program_for_assembler_uses_expr_parser_contract() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_family(Box::new(MOS6502FamilyModule));
+        registry.register_cpu(Box::new(M6502CpuModule));
+        registry.register_cpu(Box::new(M65C02CpuModule));
+        registry.register_cpu(Box::new(M65816CpuModule));
+
+        let mut chunks =
+            build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+        chunks.expr_parser_contracts.clear();
+        let mut contract =
+            expr_parser_contract_for_test(ScopedOwner::Family("mos6502".to_string()));
+        contract.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+        chunks.expr_parser_contracts.push(contract);
+        let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model build");
+
+        let (tokens, end_span) = tokenize_core_expr_tokens("1+2", 1);
+        let err = model
+            .parse_expression_program_for_assembler("m6502", None, tokens, end_span, None)
+            .expect_err("unsupported expr parser contract version should fail");
+        assert!(err
+            .message
+            .contains("unsupported expression parser contract opcode version"));
     }
 
     #[test]
