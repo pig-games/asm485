@@ -40,7 +40,9 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               37  ; not required.  All constants must start with a numeric character, so hex 
 ----                               38  ; values starting with A-F must have a leading zero.
 ----    EQU 0037                   39  num0    .const     55              ; Decimal constant
-----    EQU 0037                   40  num1    .const     55D             ; Decimal constant with optional suffix
+----                               40  num1    .const     55D             ; Decimal constant with optional suffix
+   40 | num1    .const     [31m5[0m5D             ; Decimal constant with optional suffix
+ERROR: ope005: invalid number: 55D
 ----    EQU 00A6                   41  num3    .const     0a6h            ; Hex with leading zero
 ----    EQU 1AB4                   42  num4    .const     1AB4H           ; Hex without leading zero
 ----    EQU 0065                   43  num5    .const     01100101b       ; Binary
@@ -55,74 +57,102 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               52  ; The .byte directive can also be used with strings.  Each octet in the string
 ----                               53  ; generates one octet of output.  Strings and numeric constants can be mixed
 ----                               54  ; in a single directive.
-2049    54                         55  str1:   .byte      'T'             ; Single character constant
-204A    57 65 6C 63 6F 6D 65       56  str2:   .byte      "Welcome"       ; String constant
-2051    72 65 64 67 72 65 65 6E    57  str3:   .byte      "red","green"   ; Multiple strings
-2059    03 72 65 64 04 62 6C 75 65    58  str4:   .byte      3,"red",4,"blue"; Mixed strings and numerics
+----                               55  str1:   .byte      'T'             ; Single character constant
+   55 | str1:   .byte      [31m'[0mT'             ; Single character constant
+ERROR: ope006: string expression is not supported by portable expression VM
+2049    57 65 6C 63 6F 6D 65       56  str2:   .byte      "Welcome"       ; String constant
+2050    72 65 64 67 72 65 65 6E    57  str3:   .byte      "red","green"   ; Multiple strings
+2058    03 72 65 64 04 62 6C 75 65    58  str4:   .byte      3,"red",4,"blue"; Mixed strings and numerics
 ----                               59  
 ----                               60  ; Note that a single character string can also be used anywhere a numeric
 ----                               61  ; would be allowed.  It evaluates to the ASCII value of the single character.
-2062    0E 41                      62          mvi     c, 65           ; Move the letter 'A' into register C.
-2064    0E 41                      63          mvi     c, 041H         ; Move the letter 'A' into register C.
-2066    0E 41                      64          mvi     c, 'A'          ; Move the letter 'A' into register C.
+2061    0E 41                      62          mvi     c, 65           ; Move the letter 'A' into register C.
+2063    0E 41                      63          mvi     c, 041H         ; Move the letter 'A' into register C.
+2065    0E                         64          mvi     c, 'A'          ; Move the letter 'A' into register C.
+   64 |         mvi     c, [31m'[0mA'          ; Move the letter 'A' into register C.
+ERROR: ope006: string expression is not supported by portable expression VM
 ----                               65  
 ----                               66  ; A two character string can also be used anywhere a numeric would be allowed.
 ----                               67  ; It evaluates to the 16-bit value of ASCII value of the two characters, where
 ----                               68  ; the MSB is the first char and the LSB is the second.
-2068    21 42 41                   69          lxi     h,04142H        ; All of these evaluate to 4142H
-206B    21 42 41                   70          lxi     h,'AB'          ; All of these evaluate to 4142H
-206E    21 42 41                   71          lxi     h,"AB"          ; All of these evaluate to 4142H
-2071    21 42 41                   72          lxi     h,'A'*256 | 'B' ; All of these evaluate to 4142H
+2066    21 42 41                   69          lxi     h,04142H        ; All of these evaluate to 4142H
+2069    21                         70          lxi     h,'AB'          ; All of these evaluate to 4142H
+   70 |         lxi     h,[31m'[0mAB'          ; All of these evaluate to 4142H
+ERROR: ope006: string expression is not supported by portable expression VM
+206A    21                         71          lxi     h,"AB"          ; All of these evaluate to 4142H
+   71 |         lxi     h,[31m"[0mAB"          ; All of these evaluate to 4142H
+ERROR: ope006: string expression is not supported by portable expression VM
+206B    21                         72          lxi     h,'A'*256 | 'B' ; All of these evaluate to 4142H
+   72 |         lxi     h,'A'*256 [31m|[0m 'B' ; All of these evaluate to 4142H
+ERROR: ope006: string expression is not supported by portable expression VM
 ----                               73  
 ----                               74  
 ----                               75  ; Some common C-style string escapes are supported: CR, LF, tab, NULL, and
 ----                               76  ; hex value.  Hex escapes can use upper or lower case and must be 2 digits.
-2074    0D 0A 09 2A 2B 00          77      .byte  "\r\n\t\x2a\x2B\0"
+206C    0D 0A 09 2A 2B 00          77      .byte  "\r\n\t\x2a\x2B\0"
 ----                               78  
 ----                               79  ; The backslash can also be used to escape quotes or the backslash character
 ----                               80  ; itself.  Embedded quotes can also be handled by placing double quotes
 ----                               81  ; inside single quotes or single quotes inside double quotes.
-207A    5C                         82      .byte  '\\'                    ; Backslash character.
-207B    27                         83      .byte  '\''                    ; Single quote character.
-207C    27                         84      .byte  "'"                     ; Same string using double quotes.
-207D    41 20 22 71 75 6F 74 65 64 22 20 73 74 72 69 6E 67    85      .byte  "A \"quoted\" string"   ; Quotes within quotes.
-208E    41 20 22 71 75 6F 74 65 64 22 20 73 74 72 69 6E 67    86      .byte  'A "quoted" string'     ; Same string using single quotes.
-209F    54 68 69 73 20 69 73 6E 27 74 20 62 61 64    87      .byte  "This isn't bad"        ; Single quote in double quotes.
+----                               82      .byte  '\\'                    ; Backslash character.
+   82 |     .byte  [31m'[0m\\'                    ; Backslash character.
+ERROR: ope006: string expression is not supported by portable expression VM
+----                               83      .byte  '\''                    ; Single quote character.
+   83 |     .byte  [31m'[0m\''                    ; Single quote character.
+ERROR: ope006: string expression is not supported by portable expression VM
+----                               84      .byte  "'"                     ; Same string using double quotes.
+   84 |     .byte  [31m"[0m'"                     ; Same string using double quotes.
+ERROR: ope006: string expression is not supported by portable expression VM
+2072    41 20 22 71 75 6F 74 65 64 22 20 73 74 72 69 6E 67    85      .byte  "A \"quoted\" string"   ; Quotes within quotes.
+2083    41 20 22 71 75 6F 74 65 64 22 20 73 74 72 69 6E 67    86      .byte  'A "quoted" string'     ; Same string using single quotes.
+2094    54 68 69 73 20 69 73 6E 27 74 20 62 61 64    87      .byte  "This isn't bad"        ; Single quote in double quotes.
 ----                               88      
 ----                               89  ; The following .byte directives are all equivalent  
 ----    EQU 000D                   90  CR  .const 13
-----    EQU 000A                   91  LF  .const '\n'
-20AD    41 42 43 31 32 33 0D 0A    92      .byte  "ABC123\r\n"
-20B5    41 42 43 31 32 33 0D 0A    93      .byte  "ABC123",CR,LF
-20BD    41 42 43 31 32 33 0D 0A    94      .byte  "ABC123",13,10
-20C5    41 42 43 31 32 33 0D 0A    95      .byte  'A','B','C','1','2','3','\r','\n'
-20CD    41 42 43 31 32 33 0D 0A    96      .byte  "ABC",31h,32h,"3",'\r',LF
+----                               91  LF  .const '\n'
+   91 | LF  .const [31m'[0m\n'
+ERROR: ope006: string expression is not supported by portable expression VM
+20A2    41 42 43 31 32 33 0D 0A    92      .byte  "ABC123\r\n"
+20AA    41 42 43 31 32 33 0D       93      .byte  "ABC123",CR,LF
+   93 |     .byte  "ABC123",CR,[31mL[0mF
+ERROR: Label not found: LF
+20B1    41 42 43 31 32 33 0D 0A    94      .byte  "ABC123",13,10
+----                               95      .byte  'A','B','C','1','2','3','\r','\n'
+   95 |     .byte  [31m'[0mA','B','C','1','2','3','\r','\n'
+ERROR: ope006: string expression is not supported by portable expression VM
+20B9    41 42 43 31 32             96      .byte  "ABC",31h,32h,"3",'\r',LF
+   96 |     .byte  "ABC",31h,32h,[31m"[0m3",'\r',LF
+ERROR: ope006: string expression is not supported by portable expression VM
 ----                               97  
 ----                               98  ; The .word directive stores one or more 16 bit values.
-20D5    03 02                      99  words1: .word      0203h           ; One word value in hex
-20D7    B4 1A                     100  words2: .word      num4            ; One word value in decimal
-20D9    55 AA                     101  words3: .word      1010101001010101B ; One word value in binary
-20DB    02 00 03 00               102  words4: .word      02h, 03h        ; Two word values
-20DF    02 00 03 00 FF 04         103  words5: .word      02h, 03, 04ffh  ; Three word values
+20BE    03 02                      99  words1: .word      0203h           ; One word value in hex
+20C0    B4 1A                     100  words2: .word      num4            ; One word value in decimal
+20C2    55 AA                     101  words3: .word      1010101001010101B ; One word value in binary
+20C4    02 00 03 00               102  words4: .word      02h, 03h        ; Two word values
+20C8    02 00 03 00 FF 04         103  words5: .word      02h, 03, 04ffh  ; Three word values
 ----                              104  
 ----                              105  ; Note that .word stores the two octet values in intel (little endian) order, so
 ----                              106  ; the following two declarations are equivalent:
-20E5    34 12                     107          .word      01234h
-20E7    34 12                     108          .byte      034h, 012h
+20CE    34 12                     107          .word      01234h
+20D0    34 12                     108          .byte      034h, 012h
 ----                              109  
 ----                              110  ; The .ds directive reserves space, but does not generate any output.  It
 ----                              111  ; simply advances the target address for the next code or data.
 ----    EQU 0020                  112  StrSize .const     32
-20E9    +0080                     113  buffer: .ds  StrSize * 4     ; Reserve space for 4 strings
+20D2    +0080                     113  buffer: .ds  StrSize * 4     ; Reserve space for 4 strings
 ----                              114  
 ----                              115  ; Expressions can be used in place of any numeric constant.
-2169    00 0C                     116  t:      .word      1024 * 3
-216B    31 82 00                  117          LXI     SP, 32 * 4 + 2
-216E    21 5E 20                  118          lxi     h, str4 + 5
-2171    11 09 21                  119          lxi     d, buffer + StrSize
-2174    39                        120          .byte      7+7*7+7/(7+7-7)
-2175    0E 61                     121          mvi     c, 'A' | 020H
-2177    0E 41                     122          mvi     c, 'a' & 11011111b
+2152    00 0C                     116  t:      .word      1024 * 3
+2154    31 82 00                  117          LXI     SP, 32 * 4 + 2
+2157    21 5D 20                  118          lxi     h, str4 + 5
+215A    11 F2 20                  119          lxi     d, buffer + StrSize
+215D    39                        120          .byte      7+7*7+7/(7+7-7)
+215E    0E                        121          mvi     c, 'A' | 020H
+  121 |         mvi     c, 'A' [31m|[0m 020H
+ERROR: ope006: string expression is not supported by portable expression VM
+215F    0E                        122          mvi     c, 'a' & 11011111b
+  122 |         mvi     c, 'a' [31m&[0m 11011111b
+ERROR: ope006: string expression is not supported by portable expression VM
 ----                              123  
 ----                              124  ; Operators and precedence (highest to lowest):
 ----                              125  ;   unary: + - ~ ! < >
@@ -135,46 +165,56 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              132  ;   logical: && ^^ ||
 ----                              133  ;   ternary: ?:
 ----                              134  PREC:
-2179    0F 00                     135          .word      (8+7)           ; Parenthesis have highest precedence
-217B    FF FF                     136          .word      -1              ; unary plus/minus
-217D    02                        137          .byte      >512            ; high byte
-217E    00                        138          .byte      <512            ; low byte
-217F    08 00                     139          .word      2 ** 3          ; power
-2181    02 00                     140          .word      100 / 10 % 4    ; multiply/divide/mod
-2183    09 00                     141          .word      2 + 8 - 1       ; add/subtract
-2185    01 00                     142          .word      2 <= 3          ; comparisons
-2187    03 00                     143          .word      23H & 0FH       ; bitwise AND
-2189    F3 00                     144          .word      23H | 0FH ^ 0FFH; bitwise OR/XOR
-218B    01 00                     145          .word      !0              ; logical NOT
-218D    00 00                     146          .word      1 && 0          ; logical AND
-218F    01 00                     147          .word      1 ^^ 0          ; logical XOR
-2191    02 00                     148          .word      1 ? 2 : 3       ; ternary
+2160    0F 00                     135          .word      (8+7)           ; Parenthesis have highest precedence
+2162    FF FF                     136          .word      -1              ; unary plus/minus
+2164    02                        137          .byte      >512            ; high byte
+2165    00                        138          .byte      <512            ; low byte
+2166    08 00                     139          .word      2 ** 3          ; power
+2168    02 00                     140          .word      100 / 10 % 4    ; multiply/divide/mod
+216A    09 00                     141          .word      2 + 8 - 1       ; add/subtract
+216C    01 00                     142          .word      2 <= 3          ; comparisons
+216E    03 00                     143          .word      23H & 0FH       ; bitwise AND
+2170    F3 00                     144          .word      23H | 0FH ^ 0FFH; bitwise OR/XOR
+2172    01 00                     145          .word      !0              ; logical NOT
+2174    00 00                     146          .word      1 && 0          ; logical AND
+2176    01 00                     147          .word      1 ^^ 0          ; logical XOR
+2178    02 00                     148          .word      1 ? 2 : 3       ; ternary
 ----                              149  
 ----                              150  ; Logical operators treat any non-zero value as TRUE and return 1 (true) or 0 (false).
-2193    01                        151          .byte      !0              ; TRUE
-2194    00                        152          .byte      !1              ; FALSE
-2195    01                        153          .byte      2 && 3          ; TRUE
-2196    01                        154          .byte      0 || 4          ; TRUE
-2197    00                        155          .byte      2 ^^ 3          ; FALSE
+217A    01                        151          .byte      !0              ; TRUE
+217B    00                        152          .byte      !1              ; FALSE
+217C    01                        153          .byte      2 && 3          ; TRUE
+217D    01                        154          .byte      0 || 4          ; TRUE
+217E    00                        155          .byte      2 ^^ 3          ; FALSE
 ----                              156  
 ----                              157  ; Address
 ----                              158  ; The $ symbol is used in an expression to represent the current address.
 ----                              159  ; This is useful for calculating the size of objects
-2198    48 65 6C 6C 6F 2C 20 77 6F 72 6C 64   160  hello:  .byte  "Hello, world"
+217F    48 65 6C 6C 6F 2C 20 77 6F 72 6C 64   160  hello:  .byte  "Hello, world"
 ----    EQU 000C                  161  strLen  .const     $ - hello       ; Length of the string
 ----                              162  
 ----                              163  jump_tab:                       ; Jump table.  Each entry is 3 octets.
-21A4    61                        164          .byte      'a'             ; ADD command
-21A5    00 01                     165          .word      0100h           ; Handler address
-21A7    65                        166          .byte      'e'             ; EXAMINE command
-21A8    42 01                     167          .word      0142h
-21AA    70                        168          .byte      'p'             ; PRINT command
-21AB    20 02                     169          .word      0220h
-21AD    73                        170          .byte      's'             ; STEP command
-21AE    34 03                     171          .word      0334h
-21B0    78                        172          .byte      'x'             ; EXIT command
-21B1    34 04                     173          .word      0434h
-----    EQU 0005                  174  entries .const     ($-jump_tab) / 3 ; Number of entries in the table
+----                              164          .byte      'a'             ; ADD command
+  164 |         .byte      [31m'[0ma'             ; ADD command
+ERROR: ope006: string expression is not supported by portable expression VM
+218B    00 01                     165          .word      0100h           ; Handler address
+----                              166          .byte      'e'             ; EXAMINE command
+  166 |         .byte      [31m'[0me'             ; EXAMINE command
+ERROR: ope006: string expression is not supported by portable expression VM
+218D    42 01                     167          .word      0142h
+----                              168          .byte      'p'             ; PRINT command
+  168 |         .byte      [31m'[0mp'             ; PRINT command
+ERROR: ope006: string expression is not supported by portable expression VM
+218F    20 02                     169          .word      0220h
+----                              170          .byte      's'             ; STEP command
+  170 |         .byte      [31m'[0ms'             ; STEP command
+ERROR: ope006: string expression is not supported by portable expression VM
+2191    34 03                     171          .word      0334h
+----                              172          .byte      'x'             ; EXIT command
+  172 |         .byte      [31m'[0mx'             ; EXIT command
+ERROR: ope006: string expression is not supported by portable expression VM
+2193    34 04                     173          .word      0434h
+----    EQU 0003                  174  entries .const     ($-jump_tab) / 3 ; Number of entries in the table
 ----                              175  
 ----                              176  
 ----                              177  ; It is legal, though probably not wise, to have a label with the same name
@@ -183,12 +223,12 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              180  ; of these have any relation to the SP register.
 ----                              181  ; Labels that match registers are not permitted in Intel85, but this change was
 ----                              182  ; added to support some code that was developed with a different assembler.
-21B3    00 01                     183  SP:     .word      256             ; define a word at location named SP
-21B5    21                        184          LXI     H,SP            ; laod address of "SP" word into HL pair
+2195    00 01                     183  SP:     .word      256             ; define a word at location named SP
+2197    21                        184          LXI     H,SP            ; laod address of "SP" word into HL pair
   184 |         LXI     H,[31mS[0mP            ; laod address of "SP" word into HL pair
 ERROR: expected 16-bit immediate, got register SP
-21B6    21 B3 21                  185          LXI     H,SP+0
-21B9    21 B3 21                  186          LXI     H,0+SP
+2198    21 95 21                  185          LXI     H,SP+0
+219B    21 95 21                  186          LXI     H,0+SP
 ----                              187  
 ----                              188  
 ----                              189  ; Conditional directives
@@ -293,7 +333,7 @@ F012    C3 0A 1A                  282                  jmp 6666
 ----                              288  NOLAB4:   .endif
 ----                              289  ENDLAB: .endif                          ; label included
 
-Lines: 289  Errors: 1  Warnings: 0
+Lines: 289  Errors: 21  Warnings: 0
 
 SYMBOL TABLE
 
@@ -304,7 +344,6 @@ VeryVeryVeryLongLabel: 2003 (8195)
 RAMST           : 0000 (0)
 ROMST           : c000 (49152)
 num0            : 0037 (55)
-num1            : 0037 (55)
 num3            : 00a6 (166)
 num4            : 1ab4 (6836)
 num5            : 0065 (101)
@@ -314,25 +353,24 @@ d1              : 2041 (8257)
 d2              : 2042 (8258)
 d3              : 2046 (8262)
 str1            : 2049 (8265)
-str2            : 204a (8266)
-str3            : 2051 (8273)
-str4            : 2059 (8281)
+str2            : 2049 (8265)
+str3            : 2050 (8272)
+str4            : 2058 (8280)
 CR              : 000d (13)
-LF              : 000a (10)
-words1          : 20d5 (8405)
-words2          : 20d7 (8407)
-words3          : 20d9 (8409)
-words4          : 20db (8411)
-words5          : 20df (8415)
+words1          : 20be (8382)
+words2          : 20c0 (8384)
+words3          : 20c2 (8386)
+words4          : 20c4 (8388)
+words5          : 20c8 (8392)
 StrSize         : 0020 (32)
-buffer          : 20e9 (8425)
-t               : 2169 (8553)
-PREC            : 2179 (8569)
-hello           : 2198 (8600)
+buffer          : 20d2 (8402)
+t               : 2152 (8530)
+PREC            : 2160 (8544)
+hello           : 217f (8575)
 strLen          : 000c (12)
-jump_tab        : 21a4 (8612)
-entries         : 0005 (5)
-SP              : 21b3 (8627)
+jump_tab        : 218b (8587)
+entries         : 0003 (3)
+SP              : 2195 (8597)
 YES             : 0001 (1)
 TRUE            : ffff (65535)
 NO              : 0000 (0)
@@ -341,7 +379,7 @@ EX1AVAR         : 1234 (4660)
 EX1ADATA        : 4000 (16384)
 EX1A            : 4002 (16386)
 
-Total memory is 343 bytes
+Total memory is 313 bytes
 
 GENERATED OUTPUT
 
@@ -352,23 +390,21 @@ ADDR    BYTES
 2010    20 75 70 20 74 6F 20 33 32 20 63 68 61 72 61 63
 2020    74 65 72 73 20 26 26 20 6D 75 73 74 20 73 74 61
 2030    72 74 20 77 69 74 68 20 61 6E 20 61 6C 70 68 61
-2040    2E 05 12 34 56 78 05 2A 0B 54 57 65 6C 63 6F 6D
-2050    65 72 65 64 67 72 65 65 6E 03 72 65 64 04 62 6C
-2060    75 65 0E 41 0E 41 0E 41 21 42 41 21 42 41 21 42
-2070    41 21 42 41 0D 0A 09 2A 2B 00 5C 27 27 41 20 22
-2080    71 75 6F 74 65 64 22 20 73 74 72 69 6E 67 41 20
-2090    22 71 75 6F 74 65 64 22 20 73 74 72 69 6E 67 54
-20A0    68 69 73 20 69 73 6E 27 74 20 62 61 64 41 42 43
-20B0    31 32 33 0D 0A 41 42 43 31 32 33 0D 0A 41 42 43
-20C0    31 32 33 0D 0A 41 42 43 31 32 33 0D 0A 41 42 43
-20D0    31 32 33 0D 0A 03 02 B4 1A 55 AA 02 00 03 00 02
-20E0    00 03 00 FF 04 34 12 34 12
-2169    00 0C 31 82 00 21 5E 20 11 09 21 39 0E 61 0E 41
-2179    0F 00 FF FF 02 00 08 00 02 00 09 00 01 00 03 00
-2189    F3 00 01 00 00 00 01 00 02 00 01 00 01 01 00 48
-2199    65 6C 6C 6F 2C 20 77 6F 72 6C 64 61 00 01 65 42
-21A9    01 70 20 02 73 34 03 78 34 04 00 01 21 21 B3 21
-21B9    21 B3 21
+2040    2E 05 12 34 56 78 05 2A 0B 57 65 6C 63 6F 6D 65
+2050    72 65 64 67 72 65 65 6E 03 72 65 64 04 62 6C 75
+2060    65 0E 41 0E 41 0E 21 42 41 21 21 21 0D 0A 09 2A
+2070    2B 00 41 20 22 71 75 6F 74 65 64 22 20 73 74 72
+2080    69 6E 67 41 20 22 71 75 6F 74 65 64 22 20 73 74
+2090    72 69 6E 67 54 68 69 73 20 69 73 6E 27 74 20 62
+20A0    61 64 41 42 43 31 32 33 0D 0A 41 42 43 31 32 33
+20B0    0D 41 42 43 31 32 33 0D 0A 41 42 43 31 32 03 02
+20C0    B4 1A 55 AA 02 00 03 00 02 00 03 00 FF 04 34 12
+20D0    34 12
+2152    00 0C 31 82 00 21 5D 20 11 F2 20 39 0E 0E 0F 00
+2162    FF FF 02 00 08 00 02 00 09 00 01 00 03 00 F3 00
+2172    01 00 00 00 01 00 02 00 01 00 01 01 00 48 65 6C
+2182    6C 6F 2C 20 77 6F 72 6C 64 00 01 42 01 20 02 34
+2192    03 34 04 00 01 21 21 95 21 21 95 21
 4000    34 12 78
 F000    C3 B3 15 C3 0A 1A 4F C3 05 0D 3E 11 06 22 3E 66
 F010    06 77 C3 0A 1A

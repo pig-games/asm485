@@ -70,8 +70,12 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 0005                   67  ternary3        .const  (0 || 1) ? (2 + 3) : (4 + 5)
 ----                               68  
 ----                               69  ; String constants
-----    EQU 0041                   70  char_a          .const  'A'
-----    EQU 4142                   71  char_ab         .const  'AB'
+----                               70  char_a          .const  'A'
+   70 | char_a          .const  [31m'[0mA'
+ERROR: ope006: string expression is not supported by portable expression VM
+----                               71  char_ab         .const  'AB'
+   71 | char_ab         .const  [31m'[0mAB'
+ERROR: ope006: string expression is not supported by portable expression VM
 ----                               72  
 ----                               73  ; ============================================================================
 ----                               74  ; 8085 IMMEDIATE MODE: MVI reg, imm8  /  LXI rp, imm16
@@ -182,20 +186,24 @@ ADDR    BYTES                    LINE  SOURCE
 0084    00 FF FF                  179          .byte bit_and, bit_or, bit_xor
 0087    01 01 00                  180          .byte log_and, log_or, log_xor
 008A    02 07 05                  181          .byte ternary1, ternary2, ternary3
-008D    41                        182          .byte char_a
-008E    15                        183          .byte BASE + OFFSET     ; expression in .byte
-008F    20                        184          .byte (TABLE >> 8)      ; high byte of word
-0090    00                        185          .byte (TABLE & $ff)     ; low byte of word
-0091    F0                        186          .byte num_sep_bin       ; binary with digit separators
-0092    F0                        187          .byte num_sep_suf       ; suffix binary with separators
+----                              182          .byte char_a
+  182 |         .byte [31mc[0mhar_a
+ERROR: Label not found: char_a
+008D    15                        183          .byte BASE + OFFSET     ; expression in .byte
+008E    20                        184          .byte (TABLE >> 8)      ; high byte of word
+008F    00                        185          .byte (TABLE & $ff)     ; low byte of word
+0090    F0                        186          .byte num_sep_bin       ; binary with digit separators
+0091    F0                        187          .byte num_sep_suf       ; suffix binary with separators
 ----                              188          
-0093    00 FF FF FF 08 00 51 00   189          .word bit_not, neg_one, pow1, pow2
-009B    42 41                     190          .word char_ab
-009D    00 20                     191          .word TABLE             ; label in .word
-009F    00 13                     192          .word PAGE + $100       ; expression in .word
-00A1    0A 20                     193          .word TABLE + (OFFSET << 1)  ; complex expression
-00A3    40 42                     194          .word num_sep_dec       ; decimal with digit separators (truncated)
-00A5    00 FF                     195          .word num_sep_hex       ; hex with digit separators
+0092    00 FF FF FF 08 00 51 00   189          .word bit_not, neg_one, pow1, pow2
+----                              190          .word char_ab
+  190 |         .word [31mc[0mhar_ab
+ERROR: Label not found: char_ab
+009A    00 20                     191          .word TABLE             ; label in .word
+009C    00 13                     192          .word PAGE + $100       ; expression in .word
+009E    0A 20                     193          .word TABLE + (OFFSET << 1)  ; complex expression
+00A0    40 42                     194          .word num_sep_dec       ; decimal with digit separators (truncated)
+00A2    00 FF                     195          .word num_sep_hex       ; hex with digit separators
 ----                              196  
 ----                              197  ; ============================================================================
 ----                              198  ; PART 2: 6502 FAMILY - Expressions in addressing modes
@@ -454,7 +462,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              451  
 ----                              452          .end
 
-Lines: 452  Errors: 0  Warnings: 0
+Lines: 452  Errors: 4  Warnings: 0
 
 SYMBOL TABLE
 
@@ -501,8 +509,6 @@ log_xor         : 0000 (0)
 ternary1        : 0002 (2)
 ternary2        : 0007 (7)
 ternary3        : 0005 (5)
-char_a          : 0041 (65)
-char_ab         : 4142 (16706)
 i8085_imm       : 0000 (0)
 TABLE_HI        : 0020 (32)
 TABLE_LO        : 0000 (0)
@@ -552,7 +558,7 @@ derived2        : 0025 (37)
 derived3        : 00a5 (165)
 addr_base       : 080e (2062)
 
-Total memory is 453 bytes
+Total memory is 450 bytes
 
 GENERATED OUTPUT
 
@@ -566,9 +572,9 @@ ADDR    BYTES
 0050    22 00 C9 C3 56 00 00 C3 54 00 C3 5A 00 C3 5D 00
 0060    C7 CF D7 DF E7 EF F7 FF DB 10 DB 11 D3 11 D3 12
 0070    7B A6 1F 0A 0A F0 0F 0F 12 34 01 00 10 0F 01 01
-0080    01 01 01 01 00 FF FF 01 01 00 02 07 05 41 15 20
-0090    00 F0 F0 00 FF FF FF 08 00 51 00 42 41 00 20 00
-00A0    13 0A 20 40 42 00 FF
+0080    01 01 01 01 00 FF FF 01 01 00 02 07 05 15 20 00
+0090    F0 F0 00 FF FF FF 08 00 51 00 00 20 00 13 0A 20
+00A0    40 42 00 FF
 0400    A9 10 A9 15 A9 10 A9 00 A9 07 A9 1F A9 08 A9 20
 0410    A9 0F A9 0C A9 0C A9 14 A9 0F A9 FF A9 AA A2 20
 0420    A0 08 A2 20 A0 00 A5 20 A5 28 85 21 A6 22 A4 23
