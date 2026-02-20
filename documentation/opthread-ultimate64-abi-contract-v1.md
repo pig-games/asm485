@@ -49,9 +49,32 @@ TOC payloads are emitted contiguously (next offset equals previous `offset + len
 When loading `.opcore` for expression services, v1 integrations should expect owner-scoped chunk descriptors with the same precedence model already used by `.opcpu` (`dialect -> cpu -> family`):
 
 - `EXPR`: expression evaluator contract (opcode version + budgets + diagnostic map).
-- `EXPP`: expression-parser contract (opcode version + parser-diagnostic map).
+- `EXPRP`: expression-parser contract (opcode version + parser-diagnostic map).
 
-`EXPP` is currently compatibility-oriented: it validates parser-side contract/versioning for optional runtime entrypoints while host parser semantics remain the baseline implementation.
+`EXPRP` is currently compatibility-oriented: it validates parser-side contract/versioning for optional runtime entrypoints while host parser semantics remain the baseline implementation.
+
+### 2.5 `.opcore` VM-native expression parser payload contract (`EXPRP`)
+
+`EXPRP` payloads and descriptor usage must satisfy the same deterministic ABI properties as `TOKS`/`PARS` contracts:
+
+- **Ownership:** runtime must deep-copy and own decoded parser-contract payloads at load; native callers may release or mutate source bytes after successful load.
+- **Lifecycle:** parser-contract payloads are immutable for the lifetime of the loaded runtime model and are only replaced by explicit package reload.
+- **Diagnostics:** parser failures in VM-native paths must map to stable cataloged namespaces (`otp...` or equivalent parser-namespace mappings declared by the contract), with no nondeterministic free-form fallback.
+- **Scope precedence:** contract resolution remains `dialect -> cpu -> family`; missing narrower scopes must deterministically fall back to broader scopes.
+
+### 2.6 `EXPRP` opcode/version compatibility matrix
+
+| Runtime support | Contract `EXPRP` opcode version | Behavior |
+|---|---|---|
+| v1 | `1` | Accept and evaluate compatibility checks normally |
+| v1 | missing `EXPRP` contract | Treat as staged/compat path (host parser baseline) |
+| v1 | `!= 1` | Deterministic incompatibility error (`otp`-namespace mapping) |
+
+Migration guidance for constrained runtimes:
+
+1. Ship `EXPRP` contracts with opcode version `1` before enabling parser-authoritative rollout for a family.
+2. Keep parser rollout staged for families lacking `EXPRP` `v1` descriptors.
+3. Treat unknown future opcode versions as hard incompatibilities until runtime support is explicitly added.
 
 ## 3. Runtime Ownership Contract
 
@@ -79,7 +102,7 @@ When loading `.opcore` for expression services, v1 integrations should expect ow
 - Parser contract/VM diagnostic slots use stable codes `otp001..otp004`.
 - Runtime resolve/mode errors use `OTR001..OTR004` catalog codes where mapped through package diagnostics.
 - Expression evaluator contract diagnostics use stable `ope00x` codes (for invalid opcode, stack underflow/depth, unknown symbol, eval failure, unsupported feature, budget exceeded, invalid program).
-- Expression parser contract diagnostics (`EXPP`) must map to stable cataloged codes; in v1 this is commonly bridged through the parser namespace (`otp...`) to preserve deterministic envelopes.
+- Expression parser contract diagnostics (`EXPRP`) must map to stable cataloged codes; in v1 this is commonly bridged through the parser namespace (`otp...`) to preserve deterministic envelopes.
 
 ## 5. Conformance Expectations for Native Integrators
 
@@ -89,7 +112,7 @@ Native integrations should validate:
 2. Chunk payload traversal follows declared TOC offsets/lengths exactly.
 3. Runtime does not retain borrowed pointers to caller package buffers.
 4. Diagnostic/error handling preserves stable code namespaces (`OPC`, `OTR`, `ott`, `otp`).
-5. Expression contract loading preserves deterministic diagnostics for `EXPR`/`EXPP` (`ope...` and cataloged parser-compatible codes).
+5. Expression contract loading preserves deterministic diagnostics for `EXPR`/`EXPRP` (`ope...` and cataloged parser-compatible codes).
 
 ## 6. Host-Side Conformance Coverage
 
