@@ -106,7 +106,14 @@ pub(crate) fn portable_expr_runtime_default_enabled_for_family(family_id: &str) 
 pub(crate) fn portable_expr_runtime_enabled_for_family(
     family_id: &str,
     opt_in_families: &[String],
+    force_host_families: &[String],
 ) -> bool {
+    if force_host_families
+        .iter()
+        .any(|force_host| force_host.eq_ignore_ascii_case(family_id))
+    {
+        return false;
+    }
     portable_expr_runtime_default_enabled_for_family(family_id)
         || opt_in_families
             .iter()
@@ -165,7 +172,14 @@ pub(crate) fn portable_expr_parser_runtime_default_enabled_for_family(family_id:
 pub(crate) fn portable_expr_parser_runtime_enabled_for_family(
     family_id: &str,
     opt_in_families: &[String],
+    force_host_families: &[String],
 ) -> bool {
+    if force_host_families
+        .iter()
+        .any(|force_host| force_host.eq_ignore_ascii_case(family_id))
+    {
+        return false;
+    }
     portable_expr_parser_runtime_default_enabled_for_family(family_id)
         || opt_in_families
             .iter()
@@ -251,7 +265,8 @@ mod tests {
         let opt_in = vec!["intel8080".to_string()];
         assert!(portable_expr_runtime_enabled_for_family(
             "intel8080",
-            &opt_in
+            &opt_in,
+            &[]
         ));
     }
 
@@ -260,7 +275,18 @@ mod tests {
         let opt_in = vec!["Intel8080".to_string()];
         assert!(portable_expr_runtime_enabled_for_family(
             "intel8080",
-            &opt_in
+            &opt_in,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn expr_eval_rollout_force_host_disables_default_enabled_family() {
+        let force_host = vec!["MoS6502".to_string()];
+        assert!(!portable_expr_runtime_enabled_for_family(
+            "mos6502",
+            &[],
+            &force_host
         ));
     }
 
@@ -309,7 +335,8 @@ mod tests {
         let opt_in = vec!["intel8080".to_string()];
         assert!(portable_expr_parser_runtime_enabled_for_family(
             "intel8080",
-            &opt_in
+            &opt_in,
+            &[]
         ));
     }
 
@@ -318,7 +345,18 @@ mod tests {
         let opt_in = vec!["Intel8080".to_string()];
         assert!(portable_expr_parser_runtime_enabled_for_family(
             "intel8080",
-            &opt_in
+            &opt_in,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn expr_parser_rollout_force_host_disables_default_enabled_family() {
+        let force_host = vec!["MoS6502".to_string()];
+        assert!(!portable_expr_parser_runtime_enabled_for_family(
+            "mos6502",
+            &[],
+            &force_host
         ));
     }
 }

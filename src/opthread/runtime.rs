@@ -2045,7 +2045,7 @@ impl HierarchyExecutionModel {
                 span: end_span,
             })?;
         let use_expr_parser_vm =
-            portable_expr_parser_runtime_enabled_for_family(resolved.family_id.as_str(), &[])
+            portable_expr_parser_runtime_enabled_for_family(resolved.family_id.as_str(), &[], &[])
                 || parser_vm_opcode_version.is_some();
         if !use_expr_parser_vm {
             return self.compile_expression_program_for_assembler(

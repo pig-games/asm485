@@ -73,6 +73,7 @@ pub use cli::VERSION;
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
 const OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES";
+const OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES";
 #[cfg(feature = "opthread-runtime-opcpu-artifact")]
 const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
     "target/opthread/opforge-runtime.opcpu";
@@ -920,6 +921,7 @@ struct AsmLine<'a> {
     cpu_little_endian: bool,
     cpu_state_flags: HashMap<String, u32>,
     opthread_expr_eval_opt_in_families: Vec<String>,
+    opthread_expr_eval_force_host_families: Vec<String>,
     opthread_execution_model: Option<HierarchyExecutionModel>,
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
@@ -983,6 +985,7 @@ impl<'a> AsmLine<'a> {
             cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
             cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
             opthread_expr_eval_opt_in_families: Self::expr_eval_opt_in_families_from_env(),
+            opthread_expr_eval_force_host_families: Self::expr_eval_force_host_families_from_env(),
             opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
             text_encoding_registry,
             active_text_encoding,
@@ -1030,8 +1033,8 @@ impl<'a> AsmLine<'a> {
         }
     }
 
-    fn expr_eval_opt_in_families_from_env() -> Vec<String> {
-        let Ok(raw) = env::var(OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV) else {
+    fn parse_family_list_from_env(var_name: &str) -> Vec<String> {
+        let Ok(raw) = env::var(var_name) else {
             return Vec::new();
         };
 
@@ -1051,10 +1054,19 @@ impl<'a> AsmLine<'a> {
         families
     }
 
+    fn expr_eval_opt_in_families_from_env() -> Vec<String> {
+        Self::parse_family_list_from_env(OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV)
+    }
+
+    fn expr_eval_force_host_families_from_env() -> Vec<String> {
+        Self::parse_family_list_from_env(OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV)
+    }
+
     fn portable_expr_runtime_enabled_for_family(&self, family_id: &str) -> bool {
         crate::opthread::rollout::portable_expr_runtime_enabled_for_family(
             family_id,
             &self.opthread_expr_eval_opt_in_families,
+            &self.opthread_expr_eval_force_host_families,
         )
     }
 
