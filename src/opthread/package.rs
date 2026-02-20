@@ -2486,9 +2486,94 @@ fn decode_expr_chunk(bytes: &[u8]) -> Result<Vec<ExprContractDescriptor>, OpcpuC
             max_eval_steps,
             diagnostics,
         });
+        if let Some(entry) = entries.last() {
+            validate_expr_contract_descriptor(entry)?;
+        }
     }
     cur.finish()?;
     Ok(entries)
+}
+
+fn validate_expr_contract_descriptor(
+    descriptor: &ExprContractDescriptor,
+) -> Result<(), OpcpuCodecError> {
+    if descriptor.opcode_version != EXPR_VM_OPCODE_VERSION_V1 {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: "EXPR".to_string(),
+            detail: format!("unsupported opcode_version: {}", descriptor.opcode_version),
+        });
+    }
+
+    if descriptor.max_program_bytes == 0 {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: "EXPR".to_string(),
+            detail: "max_program_bytes must be > 0".to_string(),
+        });
+    }
+    if descriptor.max_stack_depth == 0 {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: "EXPR".to_string(),
+            detail: "max_stack_depth must be > 0".to_string(),
+        });
+    }
+    if descriptor.max_symbol_refs == 0 {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: "EXPR".to_string(),
+            detail: "max_symbol_refs must be > 0".to_string(),
+        });
+    }
+    if descriptor.max_eval_steps == 0 {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: "EXPR".to_string(),
+            detail: "max_eval_steps must be > 0".to_string(),
+        });
+    }
+
+    let diagnostics = &descriptor.diagnostics;
+    let required_codes = [
+        (
+            "diagnostics.invalid_opcode",
+            diagnostics.invalid_opcode.as_str(),
+        ),
+        (
+            "diagnostics.stack_underflow",
+            diagnostics.stack_underflow.as_str(),
+        ),
+        (
+            "diagnostics.stack_depth_exceeded",
+            diagnostics.stack_depth_exceeded.as_str(),
+        ),
+        (
+            "diagnostics.unknown_symbol",
+            diagnostics.unknown_symbol.as_str(),
+        ),
+        (
+            "diagnostics.eval_failure",
+            diagnostics.eval_failure.as_str(),
+        ),
+        (
+            "diagnostics.unsupported_feature",
+            diagnostics.unsupported_feature.as_str(),
+        ),
+        (
+            "diagnostics.budget_exceeded",
+            diagnostics.budget_exceeded.as_str(),
+        ),
+        (
+            "diagnostics.invalid_program",
+            diagnostics.invalid_program.as_str(),
+        ),
+    ];
+    for (name, code) in required_codes {
+        if code.trim().is_empty() {
+            return Err(OpcpuCodecError::InvalidChunkFormat {
+                chunk: "EXPR".to_string(),
+                detail: format!("missing {} code", name),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 fn write_u32(out: &mut Vec<u8>, value: u32) {
@@ -3565,5 +3650,79 @@ mod tests {
             policy.multi_char_operators,
             vec!["**", "==", "!=", "&&", "||", "^^", "<<", ">>", "<=", ">=", "<>"]
         );
+    }
+
+    fn expr_chunk_with_single_contract(contract: &ExprContractDescriptor) -> Vec<u8> {
+        encode_expr_chunk(std::slice::from_ref(contract)).expect("EXPR chunk encode")
+    }
+
+    fn base_required_chunks_with_expr(expr_chunk: Vec<u8>) -> Vec<([u8; 4], Vec<u8>)> {
+        vec![
+            (CHUNK_EXPR, expr_chunk),
+            (
+                CHUNK_FAMS,
+                encode_fams_chunk(&sample_families()).expect("fams"),
+            ),
+            (CHUNK_CPUS, encode_cpus_chunk(&sample_cpus()).expect("cpus")),
+            (
+                CHUNK_DIAL,
+                encode_dial_chunk(&sample_dialects()).expect("dial"),
+            ),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ]
+    }
+
+    #[test]
+    fn decode_rejects_expr_contract_with_unsupported_opcode_version() {
+        let mut contract = expr_contract_for_test(ScopedOwner::Family("mos6502".to_string()));
+        contract.opcode_version = EXPR_VM_OPCODE_VERSION_V1 + 1;
+
+        let bytes = encode_container(&base_required_chunks_with_expr(
+            expr_chunk_with_single_contract(&contract),
+        ))
+        .expect("container");
+
+        let err = decode_hierarchy_chunks(&bytes)
+            .expect_err("unsupported EXPR opcode version should fail decode");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert_eq!(err.code(), "OPC009");
+        assert!(err.to_string().contains("unsupported opcode_version"));
+    }
+
+    #[test]
+    fn decode_rejects_expr_contract_with_zero_budget() {
+        let mut contract = expr_contract_for_test(ScopedOwner::Family("mos6502".to_string()));
+        contract.max_eval_steps = 0;
+
+        let bytes = encode_container(&base_required_chunks_with_expr(
+            expr_chunk_with_single_contract(&contract),
+        ))
+        .expect("container");
+
+        let err = decode_hierarchy_chunks(&bytes).expect_err("zero EXPR budget should fail decode");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert_eq!(err.code(), "OPC009");
+        assert!(err.to_string().contains("max_eval_steps must be > 0"));
+    }
+
+    #[test]
+    fn decode_rejects_expr_contract_with_missing_diag_mapping() {
+        let mut contract = expr_contract_for_test(ScopedOwner::Family("mos6502".to_string()));
+        contract.diagnostics.invalid_program.clear();
+
+        let bytes = encode_container(&base_required_chunks_with_expr(
+            expr_chunk_with_single_contract(&contract),
+        ))
+        .expect("container");
+
+        let err = decode_hierarchy_chunks(&bytes)
+            .expect_err("missing EXPR diagnostic mapping should fail decode");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert_eq!(err.code(), "OPC009");
+        assert!(err
+            .to_string()
+            .contains("missing diagnostics.invalid_program code"));
     }
 }
