@@ -64,6 +64,18 @@ pub const DIAG_PARSER_UNEXPECTED_TOKEN: &str = "otp001";
 pub const DIAG_PARSER_EXPECTED_EXPRESSION: &str = "otp002";
 pub const DIAG_PARSER_EXPECTED_OPERAND: &str = "otp003";
 pub const DIAG_PARSER_INVALID_STATEMENT: &str = "otp004";
+
+/// VM opcode-version compatibility matrix for package-scoped contracts/programs.
+///
+/// - `TOKENIZER_VM_OPCODE_VERSION_V1`: tokenizer VM (`TKVM`) payloads.
+/// - `PARSER_VM_OPCODE_VERSION_V1`: line parser VM (`PRVM`) payloads.
+/// - `EXPR_PARSER_VM_OPCODE_VERSION_V1`: expression parser VM (`EXPP`) payloads.
+/// - `EXPR_VM_OPCODE_VERSION_V1`: expression evaluator VM contracts (`EXPR`),
+///   sourced from `core::expr_vm` to keep runtime/package compatibility strict.
+///
+/// Decode/validation policy for all versioned VM payloads:
+/// - exact version match required for the active decoder.
+/// - unknown versions must produce deterministic errors.
 pub const TOKENIZER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 pub const EXPR_PARSER_VM_OPCODE_VERSION_V1: u16 = 0x0001;

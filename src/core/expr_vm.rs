@@ -9,6 +9,21 @@ use crate::core::tokenizer::Span;
 
 pub const EXPR_VM_OPCODE_VERSION_V1: u16 = 0x0001;
 
+/// Expression VM opcode table and compatibility notes.
+///
+/// Opcode map (`EXPR_VM_OPCODE_VERSION_V1`):
+/// - `0x00`: `End`
+/// - `0x01`: `PushLiteral`
+/// - `0x02`: `PushCurrentAddress`
+/// - `0x03`: `PushSymbol`
+/// - `0x04`: `ApplyUnary`
+/// - `0x05`: `ApplyBinary`
+/// - `0x06`: `SelectTernary`
+///
+/// Compatibility matrix:
+/// - Runtime evaluator supports: `v1`.
+/// - Program decode policy: reject unknown opcode versions; do not silently
+///   reinterpret payloads across versions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ExprVmOpcode {
