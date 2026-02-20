@@ -108,16 +108,12 @@ pub(crate) fn portable_expr_runtime_enabled_for_family(
     opt_in_families: &[String],
     force_host_families: &[String],
 ) -> bool {
-    if force_host_families
-        .iter()
-        .any(|force_host| force_host.eq_ignore_ascii_case(family_id))
-    {
-        return false;
-    }
-    portable_expr_runtime_default_enabled_for_family(family_id)
-        || opt_in_families
-            .iter()
-            .any(|opt_in| opt_in.eq_ignore_ascii_case(family_id))
+    rollout_enabled_for_family(
+        family_id,
+        opt_in_families,
+        force_host_families,
+        portable_expr_runtime_default_enabled_for_family,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,16 +170,30 @@ pub(crate) fn portable_expr_parser_runtime_enabled_for_family(
     opt_in_families: &[String],
     force_host_families: &[String],
 ) -> bool {
-    if force_host_families
-        .iter()
-        .any(|force_host| force_host.eq_ignore_ascii_case(family_id))
-    {
+    rollout_enabled_for_family(
+        family_id,
+        opt_in_families,
+        force_host_families,
+        portable_expr_parser_runtime_default_enabled_for_family,
+    )
+}
+
+fn rollout_enabled_for_family(
+    family_id: &str,
+    opt_in_families: &[String],
+    force_host_families: &[String],
+    default_enabled: fn(&str) -> bool,
+) -> bool {
+    if contains_family_ignore_ascii_case(force_host_families, family_id) {
         return false;
     }
-    portable_expr_parser_runtime_default_enabled_for_family(family_id)
-        || opt_in_families
-            .iter()
-            .any(|opt_in| opt_in.eq_ignore_ascii_case(family_id))
+    default_enabled(family_id) || contains_family_ignore_ascii_case(opt_in_families, family_id)
+}
+
+fn contains_family_ignore_ascii_case(families: &[String], family_id: &str) -> bool {
+    families
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(family_id))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

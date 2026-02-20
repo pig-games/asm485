@@ -2827,6 +2827,7 @@ impl HierarchyExecutionModel {
         let mut tokens = Vec::with_capacity(token_capacity);
         let mut emitted_errors = 0u32;
         let mut step_count = 0u32;
+        let mut core_tokenizer: Option<Tokenizer<'_>> = None;
 
         loop {
             step_count = step_count.saturating_add(1);
@@ -3043,7 +3044,7 @@ impl HierarchyExecutionModel {
                     )));
                 }
                 TokenizerVmOpcode::ScanCoreToken => {
-                    match vm_scan_next_core_token(request, cursor)? {
+                    match vm_scan_next_core_token(request, cursor, &mut core_tokenizer)? {
                         Some((portable, next_cursor)) => {
                             if tokens.len() >= max_tokens_per_line_usize {
                                 return Err(RuntimeBridgeError::Resolve(format!(
@@ -4867,15 +4868,21 @@ fn source_line_can_tokenize_to_empty(source_line: &str, policy: &RuntimeTokenPol
             && trimmed.starts_with(policy.comment_prefix.as_str()))
 }
 
-fn vm_scan_next_core_token(
-    request: &PortableTokenizeRequest<'_>,
+fn vm_scan_next_core_token<'a>(
+    request: &PortableTokenizeRequest<'a>,
     cursor: usize,
+    tokenizer: &mut Option<Tokenizer<'a>>,
 ) -> Result<Option<(PortableToken, usize)>, RuntimeBridgeError> {
     if cursor >= request.source_line.len() {
         return Ok(None);
     }
 
-    let mut tokenizer = Tokenizer::new(request.source_line, request.line_num);
+    if tokenizer.is_none() {
+        *tokenizer = Some(Tokenizer::new(request.source_line, request.line_num));
+    }
+    let Some(tokenizer) = tokenizer.as_mut() else {
+        return Ok(None);
+    };
     loop {
         let token = tokenizer
             .next_token()
