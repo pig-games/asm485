@@ -1577,6 +1577,17 @@ fn parse_expr_with_vm_contract(
     end_token_text: Option<String>,
 ) -> Result<Expr, ParseError> {
     enforce_expr_token_budget(expr_parse_ctx, tokens, end_span)?;
+    expr_parse_ctx
+        .model
+        .validate_expression_parser_contract_for_assembler(
+            expr_parse_ctx.cpu_id,
+            expr_parse_ctx.dialect_override,
+        )
+        .map_err(|err| ParseError {
+            message: err.to_string(),
+            span: end_span,
+        })?;
+
     let mut owned_tokens = Vec::with_capacity(tokens.len());
     owned_tokens.extend_from_slice(tokens);
     expr_parse_ctx.model.parse_expression_for_assembler(

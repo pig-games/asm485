@@ -2029,6 +2029,25 @@ impl HierarchyExecutionModel {
         )
     }
 
+    pub fn validate_expression_parser_contract_for_assembler(
+        &self,
+        cpu_id: &str,
+        dialect_override: Option<&str>,
+    ) -> Result<(), RuntimeBridgeError> {
+        let resolved = self.resolve_pipeline(cpu_id, dialect_override)?;
+        let use_expr_parser_vm =
+            portable_expr_parser_runtime_enabled_for_family(resolved.family_id.as_str(), &[], &[]);
+        if !use_expr_parser_vm {
+            return Ok(());
+        }
+
+        let contract = self.resolve_expr_parser_contract(cpu_id, dialect_override)?;
+        if let Some(contract) = contract.as_ref() {
+            self.ensure_expr_parser_contract_compatible_for_assembler(contract)?;
+        }
+        Ok(())
+    }
+
     pub fn compile_expression_program_with_parser_vm_opt_in_for_assembler(
         &self,
         cpu_id: &str,

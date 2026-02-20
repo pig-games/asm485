@@ -23,7 +23,9 @@ use crate::opthread::builder::build_hierarchy_chunks_from_registry;
 use crate::opthread::builder::build_hierarchy_package_from_registry;
 use crate::opthread::hierarchy::ScopedOwner;
 use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
-use crate::opthread::package::{ModeSelectorDescriptor, ParserVmOpcode, TokenizerVmOpcode};
+use crate::opthread::package::{
+    ModeSelectorDescriptor, ParserVmOpcode, TokenizerVmOpcode, EXPR_PARSER_VM_OPCODE_VERSION_V1,
+};
 use crate::opthread::rollout::{
     family_runtime_mode, family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
     FamilyRuntimeMode,
@@ -7119,6 +7121,71 @@ fn opthread_runtime_mos6502_expression_contract_breakage_errors_instead_of_fallb
             .contains("unsupported parser grammar id"),
         "expected expression contract compatibility diagnostic, got: {message}"
     );
+}
+
+#[test]
+fn opthread_runtime_mos6502_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("mos6502"))
+        })
+        .cloned()
+        .expect("mos6502 family expr parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6502".to_string());
+    cpu_override.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+    chunks.expr_parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #($10 + 1)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported expression parser contract opcode version"),
+        "expected expression parser contract compatibility failure, got: {message}"
+    );
+}
+
+#[test]
+fn opthread_runtime_intel8085_expr_parser_contract_breakage_keeps_host_default() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("intel8080"))
+        })
+        .cloned()
+        .expect("intel8080 family expr parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("8085".to_string());
+    cpu_override.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+    chunks.expr_parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    MVI A, ($10 + 1)", 1, 0, 2);
+    assert_eq!(status, LineStatus::Ok);
 }
 
 #[test]
