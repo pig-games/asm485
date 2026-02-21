@@ -511,7 +511,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-2** | DRY | Medium | Closed | Unify `encode_expr_*` LE-byte helpers |
 | **D-6** | DRY | Medium | New | Test registry setup boilerplate (~40 repetitions) |
 | **R-2** | Idiom | Medium | Worse | Eliminate mirror enums with macro/derive (~400 lines) |
-| **R-4** | Idiom | Medium | Worse | Replace `unreachable!()` with fallible return |
+| **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
 | **Q-1** | Quality | **High** | Worse | Split `runtime.rs` (9.4 kLOC → ~3.2 kLOC + 5 modules) |
 | **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |

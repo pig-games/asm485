@@ -670,12 +670,10 @@ fn split_single_letter_digit_tokens(tokens: &[Token]) -> Vec<Token> {
                             && !rest.is_empty()
                             && rest.chars().all(|c| c.is_ascii_digit())
                         {
-                            let first_kind = match &token.kind {
-                                TokenKind::Identifier(_) => {
-                                    TokenKind::Identifier(first.to_string())
-                                }
-                                TokenKind::Register(_) => TokenKind::Register(first.to_string()),
-                                _ => unreachable!(),
+                            let first_kind = if matches!(token.kind, TokenKind::Register(_)) {
+                                TokenKind::Register(first.to_string())
+                            } else {
+                                TokenKind::Identifier(first.to_string())
                             };
                             let first_start = token.span.col_start;
                             let first_end = first_start + 1;

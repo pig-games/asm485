@@ -861,7 +861,11 @@ impl Z80CpuHandler {
                 "BIT" => 0x40,
                 "RES" => 0x80,
                 "SET" => 0xC0,
-                _ => unreachable!(),
+                _ => {
+                    return Some(EncodeResult::error(format!(
+                        "Unsupported CB-prefix mnemonic '{mnemonic}'"
+                    )));
+                }
             };
             let opcode = base | (bit << 3) | reg_code;
             return Some(EncodeResult::Ok(Self::emit_cb_bytes(
