@@ -433,12 +433,11 @@ erroring instead of oversized allocation attempts.
 
 ### 5.7 Concerns — Assembler Integration
 
-**Q-15. Identical boolean expressions.** `assembler/mod.rs` L3460–3465:
-`runtime_expr_bytes_authoritative` and `runtime_expr_vm_path_enabled` are
-assigned the exact same expression
-`(strict || family_authoritative) && !force_host`. Either this is a copy-paste
-error or intentional future-proofing — add a comment or unify.
-**Severity: low-medium.**
+**Q-15. Runtime-expression gate coupling is now explicitly documented.**
+`assembler/mod.rs` keeps separate booleans for authoritative-bytes behavior and
+VM-path enabling, with an explicit comment that they are intentionally coupled
+today and may diverge under future rollout policy changes.
+**Severity: closed.**
 
 **Q-16. Duplicate label-definition logic.** `assembler/mod.rs` L2772–2810 (label
 only) vs L2816–2851 (label + mnemonic) contain ~40 duplicated lines. Extract
@@ -519,7 +518,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-5** | Quality | Medium | New | Add doc comments to `token_bridge.rs` entry points |
 | **Q-7** | Perf | Medium | New | Fix O(n²) `vm_scan_next_core_token()` |
 | **Q-14** | Security | Medium | Closed | Added bounded + hard-capped decode count checks to prevent malformed-input OOM |
-| **Q-15** | Quality | Low-Med | New | Clarify identical boolean expressions in assembler |
+| **Q-15** | Quality | Low-Med | Closed | Clarified intentional coupling between runtime expression authority and VM-path gate |
 | **Q-16** | Quality | Medium | New | Extract duplicate label-definition logic |
 | **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
 | **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |

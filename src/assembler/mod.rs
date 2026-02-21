@@ -3482,6 +3482,9 @@ impl<'a> AsmLine<'a> {
                 let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
                     || family_runtime_authoritative)
                     && !runtime_expr_force_host;
+                // Keep this alias explicit even though it currently equals
+                // `runtime_expr_bytes_authoritative`: selector-gate and VM-path
+                // rollout can diverge in the future without changing call sites.
                 let runtime_expr_vm_path_enabled = runtime_expr_bytes_authoritative;
                 let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
                     && model.selector_gate_only_expr_runtime_for_cpu(self.cpu.as_str());
