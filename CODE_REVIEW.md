@@ -276,8 +276,11 @@ untested. **Severity: medium.**
 `UnknownCpuInDialectAllowList` error paths.** The happy-path and cross-family
 dialect tests are good, but construction-error coverage has gaps. **Severity: low.**
 
-**T-4. `rewrite.rs` has only 5 tests.** (Carried forward, unchanged.)
-**Severity: low.**
+**T-4. `rewrite.rs` rewrite-error coverage expanded with direct tests.**
+Coverage now includes targeted checks for `RuleHasEmptyMatch`,
+`GrowthLimitExceeded`, and `TokenLimitExceeded` in addition to prior
+deterministic mapping, filtering, overflow, and invalid-output paths.
+**Severity: closed.**
 
 **T-5. No fuzz/property-based testing for binary codec.** (Carried forward,
 unchanged.) The 24 package tests are deterministic fixtures. `proptest` or
@@ -296,8 +299,9 @@ primary-token failures, and explicit precedence shape (`1+2*3`) through the
 runtime parser itself in addition to execution-model rejection tests.
 **Severity: closed.**
 
-**T-8. `vm.rs` has only 2 tests for 3 opcodes + 3 error paths.** No test for
-empty program, invalid opcode, or `OP_END`-only program. **Severity: low.**
+**T-8. `vm.rs` now includes direct edge-case coverage for VM execution errors.**
+Tests now cover empty/truncated program input, invalid opcode reporting, and
+`OP_END`-only execution behavior. **Severity: closed.**
 
 **T-9. Intel 8080 `handler.rs` now has direct unit tests for family encode behavior.**
 Coverage now includes Z80 deferral paths (`JP IX` and two-operand I/O) plus
@@ -423,12 +427,11 @@ the relevant token span when available. **Severity: low.**
 
 ### 5.6 Concerns — Security (binary codec)
 
-**Q-14. Potential OOM via crafted `count` field in decode.** Every
-`decode_*_chunk` reads a `u32` count field and calls
-`Vec::with_capacity(count as usize)`. A malicious package with
-`count = 0xFFFF_FFFF` triggers a 4-billion-element allocation attempt. Add a
-cap: `min(count, remaining_bytes / min_record_size)`. **Severity: medium** for
-untrusted input; low if packages are always self-generated.
+**Q-14. Decode count hardening now rejects pathological allocation requests.**
+The decode path now applies bounded-count checks (including a hard maximum)
+before allocation, and malformed-count regression tests verify deterministic
+erroring instead of oversized allocation attempts.
+**Severity: closed.**
 
 ### 5.7 Concerns — Assembler Integration
 
@@ -517,7 +520,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
 | **Q-5** | Quality | Medium | New | Add doc comments to `token_bridge.rs` entry points |
 | **Q-7** | Perf | Medium | New | Fix O(n²) `vm_scan_next_core_token()` |
-| **Q-14** | Security | Medium | New | Cap decode count to prevent OOM on malformed input |
+| **Q-14** | Security | Medium | Closed | Added bounded + hard-capped decode count checks to prevent malformed-input OOM |
 | **Q-15** | Quality | Low-Med | New | Clarify identical boolean expressions in assembler |
 | **Q-16** | Quality | Medium | New | Extract duplicate label-definition logic |
 | **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
@@ -529,7 +532,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **RO-2** | Coverage | Medium | Closed | Added force_host-vs-opt_in priority tests for expr-eval and expr-parser rollout |
 | **T-2** | Coverage | Low | Partial | Complete unit tests for builder selector helpers |
 | **T-3** | Coverage | Low | Closed | Add hierarchy construction error-path tests |
-| **T-4** | Coverage | Low | Partial | Expand rewrite engine coverage |
+| **T-4** | Coverage | Low | Closed | Added rewrite error-path tests for empty-match, growth-limit, and token-limit failures |
 | **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |
 | **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
 | **Q-6** | Quality | Low | Open | Group native 6502 ABI constants in submodule |
