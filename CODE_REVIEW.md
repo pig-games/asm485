@@ -110,8 +110,10 @@ owner_kind + owner_id → dedup by owner variant. A generic
 ### 2.3 Encode/decode owner-tag pattern
 
 Every `encode_*_chunk` (10 functions) and `decode_*_chunk` (10 functions)
-repeats the same 6-line owner-tag marshal/unmarshal block. Extract as
-`fn encode_owner()` / `ScopedOwner::from_tag()`. **Severity: medium.**
+repeated the same owner-tag marshal/unmarshal block. `package.rs` now uses
+shared `encode_scoped_owner()` / `decode_scoped_owner()` helpers across TOKS,
+REGS, FORM, TABL, MSEL, TKVM, PARS, PRVM, EXPR, and EXPP chunk codecs.
+**Severity: closed.**
 
 ### 2.4 Comma-separated operand splitter in `token_bridge.rs`
 
@@ -524,7 +526,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 |---|---|---|---|---|
 | **D-1** | DRY | **High** | Worse | Extract `ScopedOwner` helper methods (~300 lines saved) |
 | **D-1a** | DRY | Med-High | New | Generic `canonicalize_scoped_descriptors<T>()` helper |
-| **D-1b** | DRY | Medium | New | Extract encode/decode owner-tag marshal helpers |
+| **D-1b** | DRY | Medium | Closed | Shared `encode_scoped_owner` / `decode_scoped_owner` helpers now cover owner-tag marshal/unmarshal across scoped chunk codecs |
 | **D-10** | DRY | High | New | Deduplicate triple rollout gate pattern |
 | **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
 | **D-2** | DRY | Medium | Closed | Unify `encode_expr_*` LE-byte helpers |
