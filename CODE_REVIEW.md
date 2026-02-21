@@ -376,9 +376,10 @@ on `HierarchyExecutionModel` (`encode_portable_instruction`,
 `resolve_expr_contract`, etc.) appear to be called only within the `opthread`
 module. These should be `pub(crate)`. **Severity: low.**
 
-**Q-5. `token_bridge.rs` has zero `///` doc comments** on its 5 `pub(crate)`
-entry points. Key concepts (`VmExprParseContext`, `ParserVmExecContext`,
-`DEFAULT_TOKENIZER_CPU_ID`) are undocumented. **Severity: medium.**
+**Q-5. `token_bridge.rs` entry-point docs are now present.**
+The `pub(crate)` tokenizer/parser bridge entry points now have direct `///`
+documentation describing runtime-model behavior and conversion boundaries.
+**Severity: closed.**
 
 **Q-6. Native 6502 ABI constants are now grouped in a dedicated submodule.**
 `runtime.rs` now places the native ABI constants in `native6502_abi` and
@@ -523,7 +524,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-1** | Quality | **High** | Worse | Split `runtime.rs` (9.4 kLOC → ~3.2 kLOC + 5 modules) |
 | **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
-| **Q-5** | Quality | Medium | New | Add doc comments to `token_bridge.rs` entry points |
+| **Q-5** | Quality | Medium | Closed | Added doc comments for token-bridge `pub(crate)` entry points |
 | **Q-7** | Perf | Medium | New | Fix O(n²) `vm_scan_next_core_token()` |
 | **Q-14** | Security | Medium | Closed | Added bounded + hard-capped decode count checks to prevent malformed-input OOM |
 | **Q-15** | Quality | Low-Med | Closed | Clarified intentional coupling between runtime expression authority and VM-path gate |
