@@ -536,7 +536,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-6** | DRY | Medium | Closed | Runtime test registry setup now consistently uses shared helpers (`mos6502_family_registry()` / `parity_registry()`), removing repeated `ModuleRegistry::new()` + MOS CPU registration boilerplate |
 | **R-2** | Idiom | Medium | Closed | Replaced manual mirror-enum `From` boilerplate with shared macro-based bidirectional mappings for runtime/operator AST mirror enums |
 | **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
-| **Q-1** | Quality | **High** | Worse | Split `runtime.rs` (9.4 kLOC → ~3.2 kLOC + 5 modules) |
+| **Q-1** | Quality | **High** | Partial | Ongoing `runtime.rs` modularization: extracted portable token/AST contract conversions (`runtime/portable_contract.rs`), assembler expression parse/eval bridge (`runtime/expression_bridge.rs`), and tokenizer VM bridge (`runtime/tokenizer_bridge.rs`); `runtime.rs` reduced to 7,491 lines, with orchestration/encoding/test sections still to split |
 | **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
 | **Q-5** | Quality | Medium | Closed | Added doc comments for token-bridge `pub(crate)` entry points |
