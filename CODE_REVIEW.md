@@ -267,10 +267,10 @@ bit bounds, invalid register-code rejection, IM exclusion in generic instruction
 VM compilation, and indexed-memory operand-count bounds.
 **Severity: closed.**
 
-**T-2. Builder selector compilation partially tested.** (Partially addressed.)
-New tests cover M65816 force/long selectors and MOS forms shape, but individual
-`compile_mode_selector`, `selector_priority`, and `selector_width_rank` remain
-untested. **Severity: medium.**
+**T-2. Builder selector helper coverage is now direct and targeted.**
+Tests now explicitly cover `compile_mode_selector`, `selector_priority`, and
+`selector_width_rank` in addition to existing M65816 force/long selector and
+MOS forms coverage. **Severity: closed.**
 
 **T-3. `hierarchy.rs` — no tests for `DuplicateCpuId`, `DuplicateFamilyId`,
 `UnknownCpuInDialectAllowList` error paths.** The happy-path and cross-family
@@ -530,7 +530,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-6** | Coverage | Medium | Closed | Added direct tests for `.use/.place/.pack/.statement` directive parser paths |
 | **T-7** | Coverage | Medium | Closed | Added direct RuntimeExpressionParser negative + precedence tests |
 | **RO-2** | Coverage | Medium | Closed | Added force_host-vs-opt_in priority tests for expr-eval and expr-parser rollout |
-| **T-2** | Coverage | Low | Partial | Complete unit tests for builder selector helpers |
+| **T-2** | Coverage | Low | Closed | Added direct tests for `compile_mode_selector`, `selector_priority`, and `selector_width_rank` |
 | **T-3** | Coverage | Low | Closed | Add hierarchy construction error-path tests |
 | **T-4** | Coverage | Low | Closed | Added rewrite error-path tests for empty-match, growth-limit, and token-limit failures |
 | **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |

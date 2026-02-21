@@ -1633,6 +1633,44 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn compile_mode_selector_builds_expected_descriptor_fields() {
+        let selector = compile_mode_selector(
+            ScopedOwner::Family("mos6502".to_string()),
+            "lda",
+            AddressMode::ZeroPage,
+            false,
+        )
+        .expect("mode selector should compile");
+
+        assert_eq!(selector.owner, ScopedOwner::Family("mos6502".to_string()));
+        assert_eq!(selector.mnemonic, "lda");
+        assert_eq!(selector.shape_key, "direct");
+        assert_eq!(selector.mode_key, "ZeroPage");
+        assert_eq!(selector.operand_plan, "u8");
+        assert_eq!(selector.priority, 10);
+        assert!(selector.unstable_widen);
+        assert_eq!(selector.width_rank, 1);
+    }
+
+    #[test]
+    fn selector_priority_orders_modes_by_specificity() {
+        assert_eq!(selector_priority(AddressMode::Immediate), 0);
+        assert_eq!(selector_priority(AddressMode::Relative), 0);
+        assert_eq!(selector_priority(AddressMode::ZeroPage), 10);
+        assert_eq!(selector_priority(AddressMode::Absolute), 20);
+        assert_eq!(selector_priority(AddressMode::AbsoluteLong), 30);
+        assert_eq!(selector_priority(AddressMode::BlockMove), 40);
+    }
+
+    #[test]
+    fn selector_width_rank_tracks_operand_width_classes() {
+        assert_eq!(selector_width_rank(AddressMode::Immediate), 0);
+        assert_eq!(selector_width_rank(AddressMode::ZeroPage), 1);
+        assert_eq!(selector_width_rank(AddressMode::Absolute), 2);
+        assert_eq!(selector_width_rank(AddressMode::AbsoluteLong), 3);
+    }
+
     fn assert_forms_have_tabl_programs_for_owner(chunks: &HierarchyChunks, owner: &ScopedOwner) {
         let form_mnemonics: std::collections::HashSet<String> = chunks
             .forms
