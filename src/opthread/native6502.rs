@@ -944,6 +944,17 @@ mod tests {
     }
 
     #[test]
+    fn encode_wire_set_pipeline_payload_rejects_nul_bytes() {
+        let cpu_nul = encode_wire_set_pipeline_payload("m65\0c02", None)
+            .expect_err("cpu_id containing NUL should fail");
+        assert!(cpu_nul.contains("cpu_id cannot contain NUL"));
+
+        let dialect_nul = encode_wire_set_pipeline_payload("m6502", Some("zi\0log"))
+            .expect_err("dialect containing NUL should fail");
+        assert!(dialect_nul.contains("dialect_override cannot contain NUL"));
+    }
+
+    #[test]
     fn native6502_harness_smoke_executes_load_set_tokenize_parse_encode_flow() {
         let package_bytes =
             build_hierarchy_package_from_registry(&mos_registry()).expect("package bytes build");
@@ -1121,6 +1132,31 @@ mod tests {
         assert!(message.contains("line number prefix"));
         assert_eq!(cb.status_code(), NATIVE_6502_STATUS_BAD_REQUEST_V1);
         assert!(cb.last_error_len() > 0);
+    }
+
+    #[test]
+    fn native6502_harness_wire_rejects_encode_payload_trailing_bytes() {
+        let mut harness = Native6502Harness::new();
+        let mut cb = Native6502ControlBlockV1::new_v1();
+
+        let mut payload = encode_wire_encode_instruction_payload(
+            "LDA",
+            &[VmEncodeCandidate {
+                mode_key: "immediate".to_string(),
+                operand_bytes: vec![vec![0x42]],
+            }],
+        )
+        .expect("encode payload");
+        payload.push(0xFF);
+
+        let response = harness.invoke_wire_v1(
+            &mut cb,
+            NATIVE_6502_ENTRYPOINT_ENCODE_INSTRUCTION_V1,
+            payload.as_slice(),
+        );
+        assert_eq!(response.status_code, NATIVE_6502_STATUS_BAD_REQUEST_V1);
+        let message = String::from_utf8(response.output_payload).expect("utf8 error message");
+        assert!(message.contains("trailing bytes"));
     }
 
     #[test]

@@ -312,9 +312,10 @@ baseline family-table encoding (`MOV A,B`) in addition to existing RST tests.
 selection and `Expr::Indirect` / `Expr::IndirectLong` compile unwrapping parity.
 **Severity: closed.**
 
-**T-11. Wire codec edge cases (native6502.rs).** NUL-rejection for
-`encode_wire_set_pipeline_payload` and trailing-byte rejection for decode are
-tested implicitly but not with targeted edge-case tests. **Severity: low.**
+**T-11. Wire codec edge cases now have targeted tests (native6502.rs).**
+Direct tests now verify NUL rejection in `encode_wire_set_pipeline_payload`
+and explicit trailing-byte decode rejection for wire encode payloads.
+**Severity: closed.**
 
 **T-12. No MSEL chunk decode-rejection tests.** TOKS and DIAG chunks have
 dedicated malformed-input rejection tests; MSEL does not. **Severity: low.**
