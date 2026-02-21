@@ -5031,10 +5031,10 @@ fn render_diag_template(template: &str, args: &[(&str, &str)]) -> String {
 }
 
 fn input_shape_requires_m65816(shape_key: &str) -> bool {
-    matches!(
-        shape_key.to_ascii_lowercase().as_str(),
-        "stack_relative" | "stack_relative_indirect_y" | "indirect_long" | "indirect_long_y"
-    )
+    shape_key.eq_ignore_ascii_case("stack_relative")
+        || shape_key.eq_ignore_ascii_case("stack_relative_indirect_y")
+        || shape_key.eq_ignore_ascii_case("indirect_long")
+        || shape_key.eq_ignore_ascii_case("indirect_long_y")
 }
 
 fn bank_mismatch_error(
@@ -5072,7 +5072,8 @@ fn selector_to_candidate(
     upper_mnemonic: &str,
     expr_ctx: &SelectorExprContext<'_>,
 ) -> Result<Option<VmEncodeCandidate>, String> {
-    let Some(mode) = parse_mode_key(&selector.mode_key) else {
+    let mode_key = selector.mode_key.to_ascii_lowercase();
+    let Some(mode) = parse_mode_key_lower(mode_key.as_str()) else {
         return Ok(None);
     };
     let operand_bytes = match selector.operand_plan.as_str() {
@@ -5214,13 +5215,13 @@ fn selector_to_candidate(
         return Ok(None);
     }
     Ok(Some(VmEncodeCandidate {
-        mode_key: selector.mode_key.to_ascii_lowercase(),
+        mode_key,
         operand_bytes,
     }))
 }
 
-fn parse_mode_key(mode_key: &str) -> Option<AddressMode> {
-    match mode_key.to_ascii_lowercase().as_str() {
+fn parse_mode_key_lower(mode_key_lower: &str) -> Option<AddressMode> {
+    match mode_key_lower {
         "implied" => Some(AddressMode::Implied),
         "accumulator" => Some(AddressMode::Accumulator),
         "immediate" => Some(AddressMode::Immediate),
