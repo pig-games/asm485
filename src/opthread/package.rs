@@ -852,48 +852,35 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 
     for entry in registers.iter_mut() {
-        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
-        *entry.owner.owner_id_mut() = owner_id;
+        canonicalize_scoped_owner_id(&mut entry.owner);
         entry.id = entry.id.to_ascii_lowercase();
     }
-    registers.sort_by_key(|entry| {
-        (
-            entry.owner.owner_tag(),
-            entry.owner.owner_id().to_ascii_lowercase(),
-            entry.id.to_ascii_lowercase(),
-        )
+    registers.sort_by(|left, right| {
+        compare_scoped_owner(&left.owner, &right.owner).then_with(|| left.id.cmp(&right.id))
     });
     registers.dedup_by(|left, right| left.id == right.id && left.owner.same_scope(&right.owner));
 
     for entry in forms.iter_mut() {
-        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
-        *entry.owner.owner_id_mut() = owner_id;
+        canonicalize_scoped_owner_id(&mut entry.owner);
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
     }
-    forms.sort_by_key(|entry| {
-        (
-            entry.owner.owner_tag(),
-            entry.owner.owner_id().to_ascii_lowercase(),
-            entry.mnemonic.to_ascii_lowercase(),
-        )
+    forms.sort_by(|left, right| {
+        compare_scoped_owner(&left.owner, &right.owner)
+            .then_with(|| left.mnemonic.cmp(&right.mnemonic))
     });
     forms.dedup_by(|left, right| {
         left.mnemonic == right.mnemonic && left.owner.same_scope(&right.owner)
     });
 
     for entry in tables.iter_mut() {
-        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
-        *entry.owner.owner_id_mut() = owner_id;
+        canonicalize_scoped_owner_id(&mut entry.owner);
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
         entry.mode_key = entry.mode_key.to_ascii_lowercase();
     }
-    tables.sort_by_key(|entry| {
-        (
-            entry.owner.owner_tag(),
-            entry.owner.owner_id().to_ascii_lowercase(),
-            entry.mnemonic.to_ascii_lowercase(),
-            entry.mode_key.to_ascii_lowercase(),
-        )
+    tables.sort_by(|left, right| {
+        compare_scoped_owner(&left.owner, &right.owner)
+            .then_with(|| left.mnemonic.cmp(&right.mnemonic))
+            .then_with(|| left.mode_key.cmp(&right.mode_key))
     });
     tables.dedup_by(|left, right| {
         left.mnemonic == right.mnemonic
@@ -902,22 +889,18 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 
     for entry in selectors.iter_mut() {
-        let owner_id = entry.owner.owner_id().to_ascii_lowercase();
-        *entry.owner.owner_id_mut() = owner_id;
+        canonicalize_scoped_owner_id(&mut entry.owner);
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
         entry.shape_key = entry.shape_key.to_ascii_lowercase();
         entry.mode_key = entry.mode_key.to_ascii_lowercase();
         entry.operand_plan = entry.operand_plan.to_ascii_lowercase();
     }
-    selectors.sort_by_key(|entry| {
-        (
-            entry.owner.owner_tag(),
-            entry.owner.owner_id().to_ascii_lowercase(),
-            entry.mnemonic.to_ascii_lowercase(),
-            entry.shape_key.to_ascii_lowercase(),
-            entry.priority,
-            entry.mode_key.to_ascii_lowercase(),
-        )
+    selectors.sort_by(|left, right| {
+        compare_scoped_owner(&left.owner, &right.owner)
+            .then_with(|| left.mnemonic.cmp(&right.mnemonic))
+            .then_with(|| left.shape_key.cmp(&right.shape_key))
+            .then_with(|| left.priority.cmp(&right.priority))
+            .then_with(|| left.mode_key.cmp(&right.mode_key))
     });
     selectors.dedup_by(|left, right| {
         left.priority == right.priority
