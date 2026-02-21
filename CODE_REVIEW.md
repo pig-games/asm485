@@ -307,8 +307,10 @@ Coverage now includes Z80 deferral paths (`JP IX` and two-operand I/O) plus
 baseline family-table encoding (`MOV A,B`) in addition to existing RST tests.
 **Severity: partially addressed.**
 
-**T-10. Expression VM: no test for `SelectTernary` opcode or `Expr::Indirect`
-unwrapping behavior.** **Severity: low.**
+**T-10. Expression VM now has direct coverage for ternary and indirect behavior.**
+`core::expr_vm` tests now include explicit coverage for `SelectTernary` branch
+selection and `Expr::Indirect` / `Expr::IndirectLong` compile unwrapping parity.
+**Severity: closed.**
 
 **T-11. Wire codec edge cases (native6502.rs).** NUL-rejection for
 `encode_wire_set_pipeline_payload` and trailing-byte rejection for decode are
