@@ -533,7 +533,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-10** | DRY | High | New | Deduplicate triple rollout gate pattern |
 | **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
 | **D-2** | DRY | Medium | Closed | Unify `encode_expr_*` LE-byte helpers |
-| **D-6** | DRY | Medium | Partial | Added shared MOS-family registry test helper and replaced repeated setup blocks in runtime execution-model tests |
+| **D-6** | DRY | Medium | Partial | Expanded shared MOS-family registry test helper usage across runtime execution-model budget/encode/tokenizer tests; additional boilerplate remains |
 | **R-2** | Idiom | Medium | Worse | Eliminate mirror enums with macro/derive (~400 lines) |
 | **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
 | **Q-1** | Quality | **High** | Worse | Split `runtime.rs` (9.4 kLOC → ~3.2 kLOC + 5 modules) |
