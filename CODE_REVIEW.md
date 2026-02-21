@@ -527,8 +527,8 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 
 | ID | Area | Severity | Status | Recommendation |
 |---|---|---|---|---|
-| **D-1** | DRY | **High** | Worse | Extract `ScopedOwner` helper methods (~300 lines saved) |
-| **D-1a** | DRY | Med-High | Partial | Added shared scoped-owner normalization/compare helpers in canonicalize paths; full generic `canonicalize_scoped_descriptors<T>()` helper still pending |
+| **D-1** | DRY | **High** | Partial | Added generic `canonicalize_scoped_descriptors<T>()` and migrated scoped package canonicalizers to shared normalize/sort/dedup flow; broader cross-module ScopedOwner helper extraction remains |
+| **D-1a** | DRY | Med-High | Closed | Implemented shared generic `canonicalize_scoped_descriptors<T>()` helper and applied it across scoped package canonicalization paths |
 | **D-1b** | DRY | Medium | Closed | Shared `encode_scoped_owner` / `decode_scoped_owner` helpers now cover owner-tag marshal/unmarshal across scoped chunk codecs |
 | **D-10** | DRY | High | New | Deduplicate triple rollout gate pattern |
 | **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
