@@ -849,20 +849,23 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 
     for entry in registers.iter_mut() {
-        canonicalize_scoped_owner_id(&mut entry.owner);
+        entry.owner.normalize_owner_id_ascii_lowercase();
         entry.id = entry.id.to_ascii_lowercase();
     }
     registers.sort_by(|left, right| {
-        compare_scoped_owner(&left.owner, &right.owner).then_with(|| left.id.cmp(&right.id))
+        left.owner
+            .cmp_scope_key(&right.owner)
+            .then_with(|| left.id.cmp(&right.id))
     });
     registers.dedup_by(|left, right| left.id == right.id && left.owner.same_scope(&right.owner));
 
     for entry in forms.iter_mut() {
-        canonicalize_scoped_owner_id(&mut entry.owner);
+        entry.owner.normalize_owner_id_ascii_lowercase();
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
     }
     forms.sort_by(|left, right| {
-        compare_scoped_owner(&left.owner, &right.owner)
+        left.owner
+            .cmp_scope_key(&right.owner)
             .then_with(|| left.mnemonic.cmp(&right.mnemonic))
     });
     forms.dedup_by(|left, right| {
@@ -870,12 +873,13 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 
     for entry in tables.iter_mut() {
-        canonicalize_scoped_owner_id(&mut entry.owner);
+        entry.owner.normalize_owner_id_ascii_lowercase();
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
         entry.mode_key = entry.mode_key.to_ascii_lowercase();
     }
     tables.sort_by(|left, right| {
-        compare_scoped_owner(&left.owner, &right.owner)
+        left.owner
+            .cmp_scope_key(&right.owner)
             .then_with(|| left.mnemonic.cmp(&right.mnemonic))
             .then_with(|| left.mode_key.cmp(&right.mode_key))
     });
@@ -886,14 +890,15 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     });
 
     for entry in selectors.iter_mut() {
-        canonicalize_scoped_owner_id(&mut entry.owner);
+        entry.owner.normalize_owner_id_ascii_lowercase();
         entry.mnemonic = entry.mnemonic.to_ascii_lowercase();
         entry.shape_key = entry.shape_key.to_ascii_lowercase();
         entry.mode_key = entry.mode_key.to_ascii_lowercase();
         entry.operand_plan = entry.operand_plan.to_ascii_lowercase();
     }
     selectors.sort_by(|left, right| {
-        compare_scoped_owner(&left.owner, &right.owner)
+        left.owner
+            .cmp_scope_key(&right.owner)
             .then_with(|| left.mnemonic.cmp(&right.mnemonic))
             .then_with(|| left.shape_key.cmp(&right.shape_key))
             .then_with(|| left.priority.cmp(&right.priority))
@@ -909,17 +914,6 @@ pub(crate) fn canonicalize_hierarchy_metadata(
             && left.width_rank == right.width_rank
             && left.owner.same_scope(&right.owner)
     });
-}
-
-fn canonicalize_scoped_owner_id(owner: &mut ScopedOwner) {
-    let owner_id = owner.owner_id().to_ascii_lowercase();
-    *owner.owner_id_mut() = owner_id;
-}
-
-fn compare_scoped_owner(left: &ScopedOwner, right: &ScopedOwner) -> std::cmp::Ordering {
-    left.owner_tag()
-        .cmp(&right.owner_tag())
-        .then_with(|| left.owner_id().cmp(right.owner_id()))
 }
 
 fn compare_ascii_case_insensitive(left: &str, right: &str) -> std::cmp::Ordering {
@@ -949,7 +943,7 @@ pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDe
     canonicalize_scoped_descriptors(
         token_policies,
         |entry| {
-            canonicalize_scoped_owner_id(&mut entry.owner);
+            entry.owner.normalize_owner_id_ascii_lowercase();
             entry.punctuation_chars = canonicalize_ascii_char_set(&entry.punctuation_chars);
             entry.quote_chars = canonicalize_ascii_char_set(&entry.quote_chars);
             entry.number_prefix_chars = canonicalize_ascii_char_set(&entry.number_prefix_chars);
@@ -963,7 +957,8 @@ pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDe
             entry.multi_char_operators.dedup();
         },
         |left, right| {
-            compare_scoped_owner(&left.owner, &right.owner)
+            left.owner
+                .cmp_scope_key(&right.owner)
                 .then_with(|| (left.case_rule as u8).cmp(&(right.case_rule as u8)))
                 .then_with(|| {
                     left.identifier_start_class
@@ -1011,10 +1006,11 @@ pub(crate) fn canonicalize_tokenizer_vm_programs(
     canonicalize_scoped_descriptors(
         tokenizer_vm_programs,
         |entry| {
-            canonicalize_scoped_owner_id(&mut entry.owner);
+            entry.owner.normalize_owner_id_ascii_lowercase();
         },
         |left, right| {
-            compare_scoped_owner(&left.owner, &right.owner)
+            left.owner
+                .cmp_scope_key(&right.owner)
                 .then_with(|| left.opcode_version.cmp(&right.opcode_version))
                 .then_with(|| left.start_state.cmp(&right.start_state))
                 .then_with(|| left.state_entry_offsets.cmp(&right.state_entry_offsets))
@@ -1086,12 +1082,13 @@ pub(crate) fn canonicalize_parser_contracts(parser_contracts: &mut Vec<ParserCon
     canonicalize_scoped_descriptors(
         parser_contracts,
         |entry| {
-            canonicalize_scoped_owner_id(&mut entry.owner);
+            entry.owner.normalize_owner_id_ascii_lowercase();
             entry.grammar_id = entry.grammar_id.to_ascii_lowercase();
             entry.ast_schema_id = entry.ast_schema_id.to_ascii_lowercase();
         },
         |left, right| {
-            compare_scoped_owner(&left.owner, &right.owner)
+            left.owner
+                .cmp_scope_key(&right.owner)
                 .then_with(|| left.grammar_id.cmp(&right.grammar_id))
                 .then_with(|| left.ast_schema_id.cmp(&right.ast_schema_id))
                 .then_with(|| left.opcode_version.cmp(&right.opcode_version))
@@ -1137,10 +1134,11 @@ pub(crate) fn canonicalize_parser_vm_programs(
     canonicalize_scoped_descriptors(
         parser_vm_programs,
         |entry| {
-            canonicalize_scoped_owner_id(&mut entry.owner);
+            entry.owner.normalize_owner_id_ascii_lowercase();
         },
         |left, right| {
-            compare_scoped_owner(&left.owner, &right.owner)
+            left.owner
+                .cmp_scope_key(&right.owner)
                 .then_with(|| left.opcode_version.cmp(&right.opcode_version))
                 .then_with(|| left.program.cmp(&right.program))
         },
@@ -1156,10 +1154,11 @@ pub(crate) fn canonicalize_expr_contracts(expr_contracts: &mut Vec<ExprContractD
     canonicalize_scoped_descriptors(
         expr_contracts,
         |entry| {
-            canonicalize_scoped_owner_id(&mut entry.owner);
+            entry.owner.normalize_owner_id_ascii_lowercase();
         },
         |left, right| {
-            compare_scoped_owner(&left.owner, &right.owner)
+            left.owner
+                .cmp_scope_key(&right.owner)
                 .then_with(|| left.opcode_version.cmp(&right.opcode_version))
                 .then_with(|| left.max_program_bytes.cmp(&right.max_program_bytes))
                 .then_with(|| left.max_stack_depth.cmp(&right.max_stack_depth))
@@ -1224,14 +1223,15 @@ pub(crate) fn canonicalize_expr_parser_contracts(
     canonicalize_scoped_descriptors(
         expr_parser_contracts,
         |entry| {
-            canonicalize_scoped_owner_id(&mut entry.owner);
+            entry.owner.normalize_owner_id_ascii_lowercase();
             entry.diagnostics.invalid_expression_program = entry
                 .diagnostics
                 .invalid_expression_program
                 .to_ascii_lowercase();
         },
         |left, right| {
-            compare_scoped_owner(&left.owner, &right.owner)
+            left.owner
+                .cmp_scope_key(&right.owner)
                 .then_with(|| left.opcode_version.cmp(&right.opcode_version))
                 .then_with(|| {
                     left.diagnostics

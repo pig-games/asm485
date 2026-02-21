@@ -87,6 +87,16 @@ impl ScopedOwner {
         (self.owner_tag(), self.owner_id().to_ascii_lowercase())
     }
 
+    pub fn normalize_owner_id_ascii_lowercase(&mut self) {
+        *self.owner_id_mut() = self.owner_id().to_ascii_lowercase();
+    }
+
+    pub fn cmp_scope_key(&self, other: &Self) -> std::cmp::Ordering {
+        self.owner_tag()
+            .cmp(&other.owner_tag())
+            .then_with(|| self.owner_id().cmp(other.owner_id()))
+    }
+
     pub fn same_variant(&self, other: &Self) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
     }
