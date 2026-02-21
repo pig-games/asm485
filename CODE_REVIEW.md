@@ -3,7 +3,7 @@
 **Reviewer:** Oz (AI)
 **Date:** 2026-02-20 (revision 2; prior review 2026-02-15)
 **Scope:** Full codebase (64.6 kLOC across 75 `.rs` files), not limited to branch delta
-**Build status:** `cargo clippy -- -D warnings` clean, 743 tests pass, 0 failures
+**Build status:** `cargo clippy -- -D warnings` clean, 790 tests pass, 0 failures
 
 ### Changes since prior review (2026-02-15)
 
@@ -507,8 +507,8 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-1a** | DRY | Med-High | New | Generic `canonicalize_scoped_descriptors<T>()` helper |
 | **D-1b** | DRY | Medium | New | Extract encode/decode owner-tag marshal helpers |
 | **D-10** | DRY | High | New | Deduplicate triple rollout gate pattern |
-| **D-4** | DRY | Medium | New | Extract comma-operand splitter in `token_bridge.rs` |
-| **D-2** | DRY | Medium | Open | Unify `encode_expr_*` LE-byte helpers |
+| **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
+| **D-2** | DRY | Medium | Closed | Unify `encode_expr_*` LE-byte helpers |
 | **D-6** | DRY | Medium | New | Test registry setup boilerplate (~40 repetitions) |
 | **R-2** | Idiom | Medium | Worse | Eliminate mirror enums with macro/derive (~400 lines) |
 | **R-4** | Idiom | Medium | Worse | Replace `unreachable!()` with fallible return |

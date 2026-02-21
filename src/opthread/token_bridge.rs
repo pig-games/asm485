@@ -51,6 +51,7 @@ pub(crate) fn tokenize_parser_tokens_with_model(
     Ok((core_tokens, end_span, end_token_text))
 }
 
+/// Parse one source line using the default runtime model and canonical bridge CPU.
 pub(crate) fn parse_line_with_default_model(
     line: &str,
     line_num: u32,
