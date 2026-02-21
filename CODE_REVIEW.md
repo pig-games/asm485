@@ -530,7 +530,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-1** | DRY | **High** | Closed | Completed shared ScopedOwner helper extraction: package canonicalization now uses generic `canonicalize_scoped_descriptors<T>()` plus `ScopedOwner::normalize_owner_id_ascii_lowercase()` / `cmp_scope_key()` from hierarchy |
 | **D-1a** | DRY | Med-High | Closed | Implemented shared generic `canonicalize_scoped_descriptors<T>()` helper and applied it across scoped package canonicalization paths |
 | **D-1b** | DRY | Medium | Closed | Shared `encode_scoped_owner` / `decode_scoped_owner` helpers now cover owner-tag marshal/unmarshal across scoped chunk codecs |
-| **D-10** | DRY | High | New | Deduplicate triple rollout gate pattern |
+| **D-10** | DRY | High | Closed | Introduced generic rollout gate plumbing (`RolloutGate<Mode>` + shared mode lookup) and removed structural triplication across Runtime / ExprEval / ExprParser rollout subsystems |
 | **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
 | **D-2** | DRY | Medium | Closed | Unify `encode_expr_*` LE-byte helpers |
 | **D-6** | DRY | Medium | Closed | Runtime test registry setup now consistently uses shared helpers (`mos6502_family_registry()` / `parity_registry()`), removing repeated `ModuleRegistry::new()` + MOS CPU registration boilerplate |

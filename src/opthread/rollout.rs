@@ -10,6 +10,13 @@ trait FamilyRolloutEntry {
     fn migration_checklist(&self) -> &'static str;
 }
 
+trait FamilyRolloutModeEntry: FamilyRolloutEntry {
+    type Mode: Copy;
+
+    fn mode(&self) -> Self::Mode;
+    fn staged_verification_mode() -> Self::Mode;
+}
+
 fn rollout_policy_for_family<T: FamilyRolloutEntry>(
     entries: &'static [T],
     family_id: &str,
@@ -17,6 +24,32 @@ fn rollout_policy_for_family<T: FamilyRolloutEntry>(
     entries
         .iter()
         .find(|entry| entry.family_id().eq_ignore_ascii_case(family_id))
+}
+
+fn rollout_mode_for_family<T: FamilyRolloutModeEntry>(
+    entries: &'static [T],
+    family_id: &str,
+) -> T::Mode {
+    rollout_policy_for_family(entries, family_id)
+        .map(FamilyRolloutModeEntry::mode)
+        .unwrap_or_else(T::staged_verification_mode)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RolloutGate<Mode> {
+    pub family_id: &'static str,
+    pub mode: Mode,
+    pub migration_checklist: &'static str,
+}
+
+impl<Mode: Copy> FamilyRolloutEntry for RolloutGate<Mode> {
+    fn family_id(&self) -> &'static str {
+        self.family_id
+    }
+
+    fn migration_checklist(&self) -> &'static str {
+        self.migration_checklist
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,32 +60,29 @@ pub(crate) enum FamilyRuntimeMode {
     StagedVerification,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FamilyRuntimeRollout {
-    pub family_id: &'static str,
-    pub runtime_mode: FamilyRuntimeMode,
-    pub migration_checklist: &'static str,
-}
+pub(crate) type FamilyRuntimeRollout = RolloutGate<FamilyRuntimeMode>;
 
-impl FamilyRolloutEntry for FamilyRuntimeRollout {
-    fn family_id(&self) -> &'static str {
-        self.family_id
+impl FamilyRolloutModeEntry for FamilyRuntimeRollout {
+    type Mode = FamilyRuntimeMode;
+
+    fn mode(&self) -> Self::Mode {
+        self.mode
     }
 
-    fn migration_checklist(&self) -> &'static str {
-        self.migration_checklist
+    fn staged_verification_mode() -> Self::Mode {
+        FamilyRuntimeMode::StagedVerification
     }
 }
 
 pub(crate) const FAMILY_RUNTIME_ROLLOUT: &[FamilyRuntimeRollout] = &[
     FamilyRuntimeRollout {
         family_id: "mos6502",
-        runtime_mode: FamilyRuntimeMode::Authoritative,
+        mode: FamilyRuntimeMode::Authoritative,
         migration_checklist: "phase6-mos6502-rollout-criteria",
     },
     FamilyRuntimeRollout {
         family_id: "intel8080",
-        runtime_mode: FamilyRuntimeMode::Authoritative,
+        mode: FamilyRuntimeMode::Authoritative,
         migration_checklist: "phase6-intel8080-authoritative",
     },
 ];
@@ -64,9 +94,7 @@ pub(crate) fn family_runtime_rollout_policy(
 }
 
 pub(crate) fn family_runtime_mode(family_id: &str) -> FamilyRuntimeMode {
-    family_runtime_rollout_policy(family_id)
-        .map(|entry| entry.runtime_mode)
-        .unwrap_or(FamilyRuntimeMode::StagedVerification)
+    rollout_mode_for_family(FAMILY_RUNTIME_ROLLOUT, family_id)
 }
 
 pub(crate) fn package_runtime_default_enabled_for_family(family_id: &str) -> bool {
@@ -84,32 +112,29 @@ pub(crate) enum FamilyExprEvalMode {
     StagedVerification,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FamilyExprEvalRollout {
-    pub family_id: &'static str,
-    pub expr_eval_mode: FamilyExprEvalMode,
-    pub migration_checklist: &'static str,
-}
+pub(crate) type FamilyExprEvalRollout = RolloutGate<FamilyExprEvalMode>;
 
-impl FamilyRolloutEntry for FamilyExprEvalRollout {
-    fn family_id(&self) -> &'static str {
-        self.family_id
+impl FamilyRolloutModeEntry for FamilyExprEvalRollout {
+    type Mode = FamilyExprEvalMode;
+
+    fn mode(&self) -> Self::Mode {
+        self.mode
     }
 
-    fn migration_checklist(&self) -> &'static str {
-        self.migration_checklist
+    fn staged_verification_mode() -> Self::Mode {
+        FamilyExprEvalMode::StagedVerification
     }
 }
 
 pub(crate) const FAMILY_EXPR_EVAL_ROLLOUT: &[FamilyExprEvalRollout] = &[
     FamilyExprEvalRollout {
         family_id: "mos6502",
-        expr_eval_mode: FamilyExprEvalMode::Authoritative,
+        mode: FamilyExprEvalMode::Authoritative,
         migration_checklist: "phase7-mos6502-expr-vm-authoritative",
     },
     FamilyExprEvalRollout {
         family_id: "intel8080",
-        expr_eval_mode: FamilyExprEvalMode::Authoritative,
+        mode: FamilyExprEvalMode::Authoritative,
         migration_checklist: "phase7-intel8080-expr-vm-authoritative",
     },
 ];
@@ -122,7 +147,7 @@ pub(crate) fn family_expr_eval_rollout_policy(
 
 pub(crate) fn family_expr_eval_mode(family_id: &str) -> FamilyExprEvalMode {
     family_expr_eval_rollout_policy(family_id)
-        .map(|entry| entry.expr_eval_mode)
+        .map(FamilyRolloutModeEntry::mode)
         .unwrap_or(FamilyExprEvalMode::StagedVerification)
 }
 
@@ -154,32 +179,29 @@ pub(crate) enum FamilyExprParserMode {
     StagedVerification,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FamilyExprParserRollout {
-    pub family_id: &'static str,
-    pub expr_parser_mode: FamilyExprParserMode,
-    pub migration_checklist: &'static str,
-}
+pub(crate) type FamilyExprParserRollout = RolloutGate<FamilyExprParserMode>;
 
-impl FamilyRolloutEntry for FamilyExprParserRollout {
-    fn family_id(&self) -> &'static str {
-        self.family_id
+impl FamilyRolloutModeEntry for FamilyExprParserRollout {
+    type Mode = FamilyExprParserMode;
+
+    fn mode(&self) -> Self::Mode {
+        self.mode
     }
 
-    fn migration_checklist(&self) -> &'static str {
-        self.migration_checklist
+    fn staged_verification_mode() -> Self::Mode {
+        FamilyExprParserMode::StagedVerification
     }
 }
 
 pub(crate) const FAMILY_EXPR_PARSER_ROLLOUT: &[FamilyExprParserRollout] = &[
     FamilyExprParserRollout {
         family_id: "mos6502",
-        expr_parser_mode: FamilyExprParserMode::Authoritative,
+        mode: FamilyExprParserMode::Authoritative,
         migration_checklist: "phase8-mos6502-expr-parser-vm-authoritative",
     },
     FamilyExprParserRollout {
         family_id: "intel8080",
-        expr_parser_mode: FamilyExprParserMode::Authoritative,
+        mode: FamilyExprParserMode::Authoritative,
         migration_checklist: "phase8-intel8080-expr-parser-vm-authoritative",
     },
 ];
@@ -191,9 +213,7 @@ pub(crate) fn family_expr_parser_rollout_policy(
 }
 
 pub(crate) fn family_expr_parser_mode(family_id: &str) -> FamilyExprParserMode {
-    family_expr_parser_rollout_policy(family_id)
-        .map(|entry| entry.expr_parser_mode)
-        .unwrap_or(FamilyExprParserMode::StagedVerification)
+    rollout_mode_for_family(FAMILY_EXPR_PARSER_ROLLOUT, family_id)
 }
 
 pub(crate) fn portable_expr_parser_runtime_default_enabled_for_family(family_id: &str) -> bool {
