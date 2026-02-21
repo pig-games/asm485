@@ -5634,11 +5634,7 @@ fn encode_expr_m65816_immediate(
 }
 
 fn owner_key_parts(owner: &ScopedOwner) -> (u8, String) {
-    match owner {
-        ScopedOwner::Family(id) => (0u8, id.to_ascii_lowercase()),
-        ScopedOwner::Cpu(id) => (1u8, id.to_ascii_lowercase()),
-        ScopedOwner::Dialect(id) => (2u8, id.to_ascii_lowercase()),
-    }
+    owner.key_parts_lowercase()
 }
 
 fn contains_form(map: &HashMap<String, HashSet<String>>, owner_id: &str, mnemonic: &str) -> bool {

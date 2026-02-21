@@ -74,9 +74,25 @@ impl ScopedOwner {
         }
     }
 
-    pub fn same_scope(&self, other: &Self) -> bool {
+    pub fn from_owner_tag(owner_tag: u8, owner_id: String) -> Option<Self> {
+        match owner_tag {
+            0 => Some(Self::Family(owner_id)),
+            1 => Some(Self::Cpu(owner_id)),
+            2 => Some(Self::Dialect(owner_id)),
+            _ => None,
+        }
+    }
+
+    pub fn key_parts_lowercase(&self) -> (u8, String) {
+        (self.owner_tag(), self.owner_id().to_ascii_lowercase())
+    }
+
+    pub fn same_variant(&self, other: &Self) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
-            && self.owner_id() == other.owner_id()
+    }
+
+    pub fn same_scope(&self, other: &Self) -> bool {
+        self.same_variant(other) && self.owner_id() == other.owner_id()
     }
 }
 
@@ -811,5 +827,37 @@ mod tests {
             .resolve_pipeline("8085", Some("InTeL"))
             .expect("mixed-case dialect should resolve");
         assert_eq!(resolved.dialect_id, "intel");
+    }
+
+    #[test]
+    fn scoped_owner_from_owner_tag_maps_all_variants() {
+        assert_eq!(
+            ScopedOwner::from_owner_tag(0, "mos6502".to_string()),
+            Some(ScopedOwner::Family("mos6502".to_string()))
+        );
+        assert_eq!(
+            ScopedOwner::from_owner_tag(1, "m6502".to_string()),
+            Some(ScopedOwner::Cpu("m6502".to_string()))
+        );
+        assert_eq!(
+            ScopedOwner::from_owner_tag(2, "zilog".to_string()),
+            Some(ScopedOwner::Dialect("zilog".to_string()))
+        );
+        assert_eq!(ScopedOwner::from_owner_tag(9, "x".to_string()), None);
+    }
+
+    #[test]
+    fn scoped_owner_key_parts_lowercase_normalizes_owner_id() {
+        let owner = ScopedOwner::Cpu("M6502".to_string());
+        assert_eq!(owner.key_parts_lowercase(), (1u8, "m6502".to_string()));
+    }
+
+    #[test]
+    fn scoped_owner_same_variant_is_variant_only() {
+        let left = ScopedOwner::Family("mos6502".to_string());
+        let right = ScopedOwner::Family("intel8080".to_string());
+        let other = ScopedOwner::Cpu("m6502".to_string());
+        assert!(left.same_variant(&right));
+        assert!(!left.same_variant(&other));
     }
 }

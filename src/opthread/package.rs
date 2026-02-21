@@ -32,6 +32,7 @@ pub const OPCPU_ENDIAN_MARKER: u16 = 0x1234;
 
 const HEADER_SIZE: usize = 12;
 const TOC_ENTRY_SIZE: usize = 12;
+const MAX_DECODE_ENTRY_COUNT: usize = 100_000;
 
 const CHUNK_META: [u8; 4] = *b"META";
 const CHUNK_STRS: [u8; 4] = *b"STRS";
@@ -1681,15 +1682,12 @@ fn decode_scoped_owner(
 ) -> Result<ScopedOwner, OpcpuCodecError> {
     let owner_tag = cur.read_u8()?;
     let owner_id = cur.read_string()?;
-    match owner_tag {
-        0 => Ok(ScopedOwner::Family(owner_id)),
-        1 => Ok(ScopedOwner::Cpu(owner_id)),
-        2 => Ok(ScopedOwner::Dialect(owner_id)),
-        other => Err(OpcpuCodecError::InvalidChunkFormat {
+    ScopedOwner::from_owner_tag(owner_tag, owner_id).ok_or_else(|| {
+        OpcpuCodecError::InvalidChunkFormat {
             chunk: chunk.to_string(),
-            detail: format!("invalid owner tag: {}", other),
-        }),
-    }
+            detail: format!("invalid owner tag: {}", owner_tag),
+        }
+    })
 }
 
 fn encode_toks_chunk(policies: &[TokenPolicyDescriptor]) -> Result<Vec<u8>, OpcpuCodecError> {
@@ -2463,16 +2461,35 @@ fn read_bounded_count(
 ) -> Result<usize, OpcpuCodecError> {
     let count = cur.read_u32()? as usize;
     if min_record_bytes == 0 {
+        if count > MAX_DECODE_ENTRY_COUNT {
+            return Err(OpcpuCodecError::InvalidChunkFormat {
+                chunk: cur.chunk.to_string(),
+                detail: format!(
+                    "{} count {} exceeds hard limit {}",
+                    detail, count, MAX_DECODE_ENTRY_COUNT
+                ),
+            });
+        }
         return Ok(count);
     }
 
-    let max_count = cur.remaining_len() / min_record_bytes;
-    if count > max_count {
+    let max_by_payload = cur.remaining_len() / min_record_bytes;
+    if count > MAX_DECODE_ENTRY_COUNT {
+        return Err(OpcpuCodecError::InvalidChunkFormat {
+            chunk: cur.chunk.to_string(),
+            detail: format!(
+                "{} count {} exceeds hard limit {}",
+                detail, count, MAX_DECODE_ENTRY_COUNT
+            ),
+        });
+    }
+
+    if count > max_by_payload {
         return Err(OpcpuCodecError::InvalidChunkFormat {
             chunk: cur.chunk.to_string(),
             detail: format!(
                 "{} count {} exceeds remaining payload bound {}",
-                detail, count, max_count
+                detail, count, max_by_payload
             ),
         });
     }
@@ -3560,6 +3577,18 @@ mod tests {
             err.to_string().contains("family entry count")
                 || err.to_string().contains("family entry")
         );
+    }
+
+    #[test]
+    fn decode_rejects_hard_limited_count_before_allocation() {
+        let count = MAX_DECODE_ENTRY_COUNT + 1;
+        let mut fams = Vec::new();
+        write_u32(&mut fams, count as u32);
+        fams.resize(4 + (count * 8), 0);
+
+        let err = decode_fams_chunk(&fams).expect_err("hard-limited count should be rejected");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert!(err.to_string().contains("hard limit"));
     }
 
     #[test]
