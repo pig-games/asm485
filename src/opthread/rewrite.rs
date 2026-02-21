@@ -357,4 +357,69 @@ mod tests {
         .expect_err("invalid output token should fail");
         assert!(matches!(err, RewriteError::InvalidOutputToken));
     }
+
+    #[test]
+    fn empty_match_rule_is_rejected() {
+        let rules = vec![RewriteRule {
+            family_id: "intel8080".to_string(),
+            dialect_id: "zilog".to_string(),
+            cpu_allow_list: None,
+            lhs: Vec::new(),
+            rhs: vec!["mov".to_string()],
+        }];
+        let err = rewrite_tokens(
+            &["ld".to_string()],
+            &intel_z80(),
+            &rules,
+            &RewriteLimits::default(),
+        )
+        .expect_err("empty match should fail");
+        assert!(matches!(err, RewriteError::RuleHasEmptyMatch));
+    }
+
+    #[test]
+    fn growth_limit_exceeded_is_reported() {
+        let rules = vec![RewriteRule {
+            family_id: "intel8080".to_string(),
+            dialect_id: "zilog".to_string(),
+            cpu_allow_list: None,
+            lhs: vec!["ld".to_string()],
+            rhs: vec!["ld".to_string(), "x".to_string()],
+        }];
+        let err = rewrite_tokens(
+            &["ld".to_string()],
+            &intel_z80(),
+            &rules,
+            &RewriteLimits {
+                max_passes: 8,
+                max_growth: 1,
+                max_tokens: 256,
+            },
+        )
+        .expect_err("growth limit should fail");
+        assert!(matches!(err, RewriteError::GrowthLimitExceeded { .. }));
+    }
+
+    #[test]
+    fn token_limit_exceeded_is_reported() {
+        let rules = vec![RewriteRule {
+            family_id: "intel8080".to_string(),
+            dialect_id: "zilog".to_string(),
+            cpu_allow_list: None,
+            lhs: vec!["ld".to_string()],
+            rhs: vec!["ld".to_string(), "x".to_string()],
+        }];
+        let err = rewrite_tokens(
+            &["ld".to_string()],
+            &intel_z80(),
+            &rules,
+            &RewriteLimits {
+                max_passes: 8,
+                max_growth: 256,
+                max_tokens: 1,
+            },
+        )
+        .expect_err("token limit should fail");
+        assert!(matches!(err, RewriteError::TokenLimitExceeded { .. }));
+    }
 }
