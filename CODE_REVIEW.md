@@ -3,7 +3,7 @@
 **Reviewer:** Oz (AI)
 **Date:** 2026-02-20 (revision 2; prior review 2026-02-15)
 **Scope:** Full codebase (64.6 kLOC across 75 `.rs` files), not limited to branch delta
-**Build status:** `cargo clippy -- -D warnings` clean, 790 tests pass, 0 failures
+**Build status:** `cargo clippy -- -D warnings` clean, 792 tests pass, 0 failures
 
 ### Changes since prior review (2026-02-15)
 
@@ -528,7 +528,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-7** | Coverage | Medium | Closed | Added direct RuntimeExpressionParser negative + precedence tests |
 | **RO-2** | Coverage | Medium | Closed | Added force_host-vs-opt_in priority tests for expr-eval and expr-parser rollout |
 | **T-2** | Coverage | Low | Partial | Complete unit tests for builder selector helpers |
-| **T-3** | Coverage | Low | Open | Add hierarchy construction error-path tests |
+| **T-3** | Coverage | Low | Closed | Add hierarchy construction error-path tests |
 | **T-4** | Coverage | Low | Open | Expand rewrite engine coverage |
 | **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |
 | **Q-4** | Quality | Low | New | Tighten `pub fn` → `pub(crate) fn` on model methods |

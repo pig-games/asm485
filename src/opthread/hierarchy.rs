@@ -665,6 +665,18 @@ mod tests {
     }
 
     #[test]
+    fn resolve_pipeline_rejects_unknown_cpu_id() {
+        let package =
+            HierarchyPackage::new(vec![base_family()], vec![base_cpu()], vec![base_dialect()])
+                .expect("package should validate");
+
+        let err = package
+            .resolve_pipeline("ghost-cpu", None)
+            .expect_err("unknown cpu should fail resolution");
+        assert!(matches!(err, HierarchyError::MissingCpu { .. }));
+    }
+
+    #[test]
     fn validate_rejects_missing_family_for_cpu() {
         let err = HierarchyPackage::new(
             vec![base_family()],
@@ -702,6 +714,18 @@ mod tests {
         .expect_err("duplicate cpu id should fail validation");
 
         assert!(matches!(err, HierarchyError::DuplicateCpuId { .. }));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_dialect_id_in_same_family() {
+        let err = HierarchyPackage::new(
+            vec![base_family()],
+            vec![base_cpu()],
+            vec![base_dialect(), base_dialect()],
+        )
+        .expect_err("duplicate dialect id should fail validation");
+
+        assert!(matches!(err, HierarchyError::DuplicateDialectId { .. }));
     }
 
     #[test]
