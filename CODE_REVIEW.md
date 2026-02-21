@@ -389,10 +389,11 @@ call sites.
 
 ### 5.4 Concerns — Performance
 
-**Q-7. `vm_scan_next_core_token()` is O(n²).** Creates a new `Tokenizer` on
-every call and scans from the beginning of the line, skipping past `cursor`
-position. For lines with many tokens, this is quadratic. Cache the tokenizer
-or track its position. **Severity: medium.**
+**Q-7. `vm_scan_next_core_token()` now reuses tokenizer state linearly.**
+The VM scan path carries a persistent `Tokenizer` across `ScanCoreToken`
+opcodes, so tokenization advances incrementally instead of reconstructing and
+rescanning from the beginning of the line each step.
+**Severity: closed.**
 
 **Q-8. `to_ascii_lowercase()` called ~67 times** in `runtime.rs`, often
 redundantly on the same identifiers across nested call chains. The interner
@@ -525,7 +526,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
 | **Q-5** | Quality | Medium | Closed | Added doc comments for token-bridge `pub(crate)` entry points |
-| **Q-7** | Perf | Medium | New | Fix O(n²) `vm_scan_next_core_token()` |
+| **Q-7** | Perf | Medium | Closed | `vm_scan_next_core_token()` now reuses tokenizer state and scans incrementally |
 | **Q-14** | Security | Medium | Closed | Added bounded + hard-capped decode count checks to prevent malformed-input OOM |
 | **Q-15** | Quality | Low-Med | Closed | Clarified intentional coupling between runtime expression authority and VM-path gate |
 | **Q-16** | Quality | Medium | Closed | Label-definition flow is centralized via `define_statement_label` |
