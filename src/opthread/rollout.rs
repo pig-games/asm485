@@ -5,6 +5,20 @@
 //!
 //! This keeps staged-enable controls explicit and testable.
 
+trait FamilyRolloutEntry {
+    fn family_id(&self) -> &'static str;
+    fn migration_checklist(&self) -> &'static str;
+}
+
+fn rollout_policy_for_family<T: FamilyRolloutEntry>(
+    entries: &'static [T],
+    family_id: &str,
+) -> Option<&'static T> {
+    entries
+        .iter()
+        .find(|entry| entry.family_id().eq_ignore_ascii_case(family_id))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FamilyRuntimeMode {
     /// Package/runtime path is the default execution mode for the family.
@@ -18,6 +32,16 @@ pub(crate) struct FamilyRuntimeRollout {
     pub family_id: &'static str,
     pub runtime_mode: FamilyRuntimeMode,
     pub migration_checklist: &'static str,
+}
+
+impl FamilyRolloutEntry for FamilyRuntimeRollout {
+    fn family_id(&self) -> &'static str {
+        self.family_id
+    }
+
+    fn migration_checklist(&self) -> &'static str {
+        self.migration_checklist
+    }
 }
 
 pub(crate) const FAMILY_RUNTIME_ROLLOUT: &[FamilyRuntimeRollout] = &[
@@ -36,9 +60,7 @@ pub(crate) const FAMILY_RUNTIME_ROLLOUT: &[FamilyRuntimeRollout] = &[
 pub(crate) fn family_runtime_rollout_policy(
     family_id: &str,
 ) -> Option<&'static FamilyRuntimeRollout> {
-    FAMILY_RUNTIME_ROLLOUT
-        .iter()
-        .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
+    rollout_policy_for_family(FAMILY_RUNTIME_ROLLOUT, family_id)
 }
 
 pub(crate) fn family_runtime_mode(family_id: &str) -> FamilyRuntimeMode {
@@ -69,6 +91,16 @@ pub(crate) struct FamilyExprEvalRollout {
     pub migration_checklist: &'static str,
 }
 
+impl FamilyRolloutEntry for FamilyExprEvalRollout {
+    fn family_id(&self) -> &'static str {
+        self.family_id
+    }
+
+    fn migration_checklist(&self) -> &'static str {
+        self.migration_checklist
+    }
+}
+
 pub(crate) const FAMILY_EXPR_EVAL_ROLLOUT: &[FamilyExprEvalRollout] = &[
     FamilyExprEvalRollout {
         family_id: "mos6502",
@@ -85,9 +117,7 @@ pub(crate) const FAMILY_EXPR_EVAL_ROLLOUT: &[FamilyExprEvalRollout] = &[
 pub(crate) fn family_expr_eval_rollout_policy(
     family_id: &str,
 ) -> Option<&'static FamilyExprEvalRollout> {
-    FAMILY_EXPR_EVAL_ROLLOUT
-        .iter()
-        .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
+    rollout_policy_for_family(FAMILY_EXPR_EVAL_ROLLOUT, family_id)
 }
 
 pub(crate) fn family_expr_eval_mode(family_id: &str) -> FamilyExprEvalMode {
@@ -131,6 +161,16 @@ pub(crate) struct FamilyExprParserRollout {
     pub migration_checklist: &'static str,
 }
 
+impl FamilyRolloutEntry for FamilyExprParserRollout {
+    fn family_id(&self) -> &'static str {
+        self.family_id
+    }
+
+    fn migration_checklist(&self) -> &'static str {
+        self.migration_checklist
+    }
+}
+
 pub(crate) const FAMILY_EXPR_PARSER_ROLLOUT: &[FamilyExprParserRollout] = &[
     FamilyExprParserRollout {
         family_id: "mos6502",
@@ -147,9 +187,7 @@ pub(crate) const FAMILY_EXPR_PARSER_ROLLOUT: &[FamilyExprParserRollout] = &[
 pub(crate) fn family_expr_parser_rollout_policy(
     family_id: &str,
 ) -> Option<&'static FamilyExprParserRollout> {
-    FAMILY_EXPR_PARSER_ROLLOUT
-        .iter()
-        .find(|entry| entry.family_id.eq_ignore_ascii_case(family_id))
+    rollout_policy_for_family(FAMILY_EXPR_PARSER_ROLLOUT, family_id)
 }
 
 pub(crate) fn family_expr_parser_mode(family_id: &str) -> FamilyExprParserMode {
@@ -207,9 +245,9 @@ pub(crate) fn parser_certification_checklists_for_family(
 ) -> ParserCertificationChecklists {
     ParserCertificationChecklists {
         expression_parser_checklist: family_expr_parser_rollout_policy(family_id)
-            .map(|entry| entry.migration_checklist),
+            .map(FamilyRolloutEntry::migration_checklist),
         instruction_parse_encode_checklist: family_runtime_rollout_policy(family_id)
-            .map(|entry| entry.migration_checklist),
+            .map(FamilyRolloutEntry::migration_checklist),
     }
 }
 
