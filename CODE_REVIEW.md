@@ -105,7 +105,10 @@ helper on `HierarchyExecutionModel`. This would eliminate ~300 lines.
 that all follow the same 3-step pattern: lowercase owner IDs → sort by
 owner_kind + owner_id → dedup by owner variant. A generic
 `canonicalize_scoped_descriptors<T>()` with a key extractor would collapse this.
-**Severity: medium-high.**
+Shared `canonicalize_scoped_owner_id()` and `compare_scoped_owner()` helpers
+now remove duplicated owner normalization/sort-key logic in these canonicalize
+paths, but the full generic descriptor canonicalizer is still pending.
+**Severity: partially addressed.**
 
 ### 2.3 Encode/decode owner-tag pattern
 
@@ -525,7 +528,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | ID | Area | Severity | Status | Recommendation |
 |---|---|---|---|---|
 | **D-1** | DRY | **High** | Worse | Extract `ScopedOwner` helper methods (~300 lines saved) |
-| **D-1a** | DRY | Med-High | New | Generic `canonicalize_scoped_descriptors<T>()` helper |
+| **D-1a** | DRY | Med-High | Partial | Added shared scoped-owner normalization/compare helpers in canonicalize paths; full generic `canonicalize_scoped_descriptors<T>()` helper still pending |
 | **D-1b** | DRY | Medium | Closed | Shared `encode_scoped_owner` / `decode_scoped_owner` helpers now cover owner-tag marshal/unmarshal across scoped chunk codecs |
 | **D-10** | DRY | High | New | Deduplicate triple rollout gate pattern |
 | **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
