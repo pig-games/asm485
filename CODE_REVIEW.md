@@ -304,8 +304,9 @@ Tests now cover empty/truncated program input, invalid opcode reporting, and
 
 **T-9. Intel 8080 `handler.rs` now has direct unit tests for family encode behavior.**
 Coverage now includes Z80 deferral paths (`JP IX` and two-operand I/O) plus
-baseline family-table encoding (`MOV A,B`) in addition to existing RST tests.
-**Severity: partially addressed.**
+baseline family-table encoding (`MOV A,B`) in addition to existing RST tests,
+half-index deferral (`IXH`/`IYH`) and indexed-memory deferral (`(IX+d)/(IY+d)`).
+**Severity: closed.**
 
 **T-10. Expression VM now has direct coverage for ternary and indirect behavior.**
 `core::expr_vm` tests now include explicit coverage for `SelectTernary` branch
@@ -537,7 +538,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-16** | Quality | Medium | Closed | Label-definition flow is centralized via `define_statement_label` |
 | **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
 | **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |
-| **T-9** | Coverage | Medium | Partial | Added direct Intel 8080 handler tests for Z80 deferral + baseline MOV encode |
+| **T-9** | Coverage | Medium | Closed | Added direct Intel 8080 handler tests for RST validation plus Z80 deferral branches (`JP IX`, two-op I/O, half-index, indexed-memory) and baseline `MOV A,B` encode |
 | **T-5** | Coverage | Medium | Open | Add fuzz/property-based testing for binary codec |
 | **T-6** | Coverage | Medium | Closed | Added direct tests for `.use/.place/.pack/.statement` directive parser paths |
 | **T-7** | Coverage | Medium | Closed | Added direct RuntimeExpressionParser negative + precedence tests |

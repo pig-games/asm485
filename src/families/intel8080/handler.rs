@@ -987,6 +987,36 @@ mod tests {
     }
 
     #[test]
+    fn encode_instruction_defers_z80_half_index_register_forms() {
+        let handler = Intel8080FamilyHandler;
+        let ctx = DummyCtx::new();
+        let operands = vec![
+            Operand::Register("A".to_string(), span()),
+            Operand::Register("IXH".to_string(), span()),
+        ];
+
+        let encoded = handler.encode_instruction("MOV", &operands, &ctx);
+        assert!(matches!(encoded, EncodeResult::NotFound));
+    }
+
+    #[test]
+    fn encode_instruction_defers_z80_indexed_memory_forms() {
+        let handler = Intel8080FamilyHandler;
+        let ctx = DummyCtx::new();
+        let operands = vec![
+            Operand::Register("A".to_string(), span()),
+            Operand::Indexed {
+                base: "IX".to_string(),
+                offset: 0,
+                span: span(),
+            },
+        ];
+
+        let encoded = handler.encode_instruction("MOV", &operands, &ctx);
+        assert!(matches!(encoded, EncodeResult::NotFound));
+    }
+
+    #[test]
     fn encode_instruction_encodes_basic_mov() {
         let handler = Intel8080FamilyHandler;
         let ctx = DummyCtx::new();
