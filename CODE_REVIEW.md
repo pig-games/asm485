@@ -442,9 +442,11 @@ VM-path enabling, with an explicit comment that they are intentionally coupled
 today and may diverge under future rollout policy changes.
 **Severity: closed.**
 
-**Q-16. Duplicate label-definition logic.** `assembler/mod.rs` L2772–2810 (label
-only) vs L2816–2851 (label + mnemonic) contain ~40 duplicated lines. Extract
-a `define_label_symbol()` helper. **Severity: medium.**
+**Q-16. Label-definition logic is already centralized.**
+`assembler/mod.rs` uses the shared `define_statement_label` helper for both
+label-only and label+mnemonic statement paths, removing the prior duplicated
+symbol-definition flow.
+**Severity: closed.**
 
 **Q-17. Authoritative-runtime model guard deduplicated.**
 The duplicate "runtime model unavailable for authoritative family" check in the
@@ -525,7 +527,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-7** | Perf | Medium | New | Fix O(n²) `vm_scan_next_core_token()` |
 | **Q-14** | Security | Medium | Closed | Added bounded + hard-capped decode count checks to prevent malformed-input OOM |
 | **Q-15** | Quality | Low-Med | Closed | Clarified intentional coupling between runtime expression authority and VM-path gate |
-| **Q-16** | Quality | Medium | New | Extract duplicate label-definition logic |
+| **Q-16** | Quality | Medium | Closed | Label-definition flow is centralized via `define_statement_label` |
 | **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
 | **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |
 | **T-9** | Coverage | Medium | Partial | Added direct Intel 8080 handler tests for Z80 deferral + baseline MOV encode |
