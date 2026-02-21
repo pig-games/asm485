@@ -284,14 +284,17 @@ unchanged.) The 24 package tests are deterministic fixtures. `proptest` or
 `cargo fuzz` for the decode path would catch malformed-input edge cases.
 **Severity: medium.**
 
-**T-6. `token_bridge.rs` directive parsers untested.** `.use`, `.place`, `.pack`,
-`.statement` envelope parsers account for ~400 lines with zero direct tests. Only
-the parser VM opcode paths and expression parsing are tested. **Severity: medium.**
+**T-6. `token_bridge.rs` directive parser coverage is now direct and targeted.**
+Direct tests now exercise `.use` selective+alias+with parsing, wildcard-alias
+rejection, `.place` unknown-option rejection, `.pack` missing-section rejection,
+and `.statement` envelope definition parsing.
+**Severity: closed.**
 
-**T-7. `RuntimeExpressionParser` has no direct negative tests.** The parser is
-~560 lines with precedence-climbing logic, tested only indirectly through
-parity corpus tests. No tests for malformed expressions, unclosed parens, or
-operator precedence edge cases specific to the *runtime* parser. **Severity: medium.**
+**T-7. `RuntimeExpressionParser` now has direct negative/precedence tests.**
+Direct tests now cover malformed ternary expressions (missing `:`), unexpected
+primary-token failures, and explicit precedence shape (`1+2*3`) through the
+runtime parser itself in addition to execution-model rejection tests.
+**Severity: closed.**
 
 **T-8. `vm.rs` has only 2 tests for 3 opcodes + 3 error paths.** No test for
 empty program, invalid opcode, or `OP_END`-only program. **Severity: low.**
@@ -521,8 +524,8 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |
 | **T-9** | Coverage | Medium | Partial | Added direct Intel 8080 handler tests for Z80 deferral + baseline MOV encode |
 | **T-5** | Coverage | Medium | Open | Add fuzz/property-based testing for binary codec |
-| **T-6** | Coverage | Medium | New | Add tests for `token_bridge.rs` directive parsers |
-| **T-7** | Coverage | Medium | New | Add negative tests for `RuntimeExpressionParser` |
+| **T-6** | Coverage | Medium | Closed | Added direct tests for `.use/.place/.pack/.statement` directive parser paths |
+| **T-7** | Coverage | Medium | Closed | Added direct RuntimeExpressionParser negative + precedence tests |
 | **RO-2** | Coverage | Medium | Closed | Added force_host-vs-opt_in priority tests for expr-eval and expr-parser rollout |
 | **T-2** | Coverage | Low | Partial | Complete unit tests for builder selector helpers |
 | **T-3** | Coverage | Low | Open | Add hierarchy construction error-path tests |

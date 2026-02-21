@@ -7434,6 +7434,60 @@ mod tests {
     }
 
     #[test]
+    fn runtime_expression_parser_rejects_missing_ternary_colon_directly() {
+        let (tokens, end_span) = tokenize_core_expr_tokens("1 ? 2", 1);
+        let err = RuntimeExpressionParser::new(tokens, end_span, None)
+            .parse_expr_from_tokens()
+            .expect_err("missing ternary ':' should fail");
+        assert!(
+            err.message
+                .contains("Missing ':' in conditional expression"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn runtime_expression_parser_rejects_unexpected_primary_token_directly() {
+        let (tokens, end_span) = tokenize_core_expr_tokens(",1", 1);
+        let err = RuntimeExpressionParser::new(tokens, end_span, None)
+            .parse_expr_from_tokens()
+            .expect_err("unexpected leading comma should fail");
+        assert!(
+            err.message.contains("Unexpected token in expression"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn runtime_expression_parser_honors_operator_precedence_directly() {
+        let (tokens, end_span) = tokenize_core_expr_tokens("1+2*3", 1);
+        let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+            .parse_expr_from_tokens()
+            .expect("direct runtime parser should parse expression");
+
+        match expr {
+            Expr::Binary {
+                op: BinaryOp::Add,
+                left,
+                right,
+                ..
+            } => {
+                assert!(matches!(*left, Expr::Number(_, _)));
+                assert!(matches!(
+                    *right,
+                    Expr::Binary {
+                        op: BinaryOp::Multiply,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected add-with-multiply-right AST, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(MOS6502FamilyModule));

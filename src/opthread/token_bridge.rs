@@ -2071,6 +2071,202 @@ mod tests {
     }
 
     #[test]
+    fn parse_use_directive_from_tokens_parses_selective_alias_and_params() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    .use math(foo as f,bar) with(width=1+2, mask=$ff)";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let mut cursor = 2;
+        let expr_parse_ctx = VmExprParseContext {
+            model,
+            cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+            dialect_override: None,
+        };
+
+        let parsed = parse_use_directive_from_tokens(
+            &tokens,
+            &mut cursor,
+            tokens[1].span,
+            end_span,
+            end_token_text,
+            &expr_parse_ctx,
+        )
+        .expect(".use directive parse should succeed");
+
+        match parsed {
+            LineAst::Use {
+                module_id,
+                alias,
+                items,
+                params,
+                ..
+            } => {
+                assert_eq!(module_id, "math");
+                assert_eq!(alias, None);
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].name, "foo");
+                assert_eq!(items[0].alias.as_deref(), Some("f"));
+                assert_eq!(items[1].name, "bar");
+                assert_eq!(items[1].alias, None);
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].name, "width");
+                assert_eq!(params[1].name, "mask");
+                assert!(!matches!(params[0].value, Expr::Error(_, _)));
+                assert!(!matches!(params[1].value, Expr::Error(_, _)));
+            }
+            other => panic!("expected .use AST, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_use_directive_from_tokens_rejects_wildcard_alias() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    .use math(* as all)";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let mut cursor = 2;
+        let expr_parse_ctx = VmExprParseContext {
+            model,
+            cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+            dialect_override: None,
+        };
+
+        let err = parse_use_directive_from_tokens(
+            &tokens,
+            &mut cursor,
+            tokens[1].span,
+            end_span,
+            end_token_text,
+            &expr_parse_ctx,
+        )
+        .expect_err("wildcard alias should be rejected");
+
+        assert!(
+            err.message.contains("Wildcard import cannot have an alias"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_place_directive_from_tokens_rejects_unknown_option_key() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    .place code in ram, wrong=16";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let mut cursor = 2;
+        let expr_parse_ctx = VmExprParseContext {
+            model,
+            cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+            dialect_override: None,
+        };
+
+        let err = parse_place_directive_from_tokens(
+            &tokens,
+            &mut cursor,
+            tokens[1].span,
+            end_span,
+            end_token_text,
+            &expr_parse_ctx,
+        )
+        .expect_err("unknown option should be rejected");
+
+        assert!(
+            err.message.contains("Unknown .place option key"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_pack_directive_from_tokens_requires_at_least_one_section() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    .pack in rom:";
+        let (tokens, end_span, _) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let mut cursor = 2;
+
+        let err = parse_pack_directive_from_tokens(&tokens, &mut cursor, tokens[1].span, end_span)
+            .expect_err("missing section list should be rejected");
+
+        assert!(
+            err.message
+                .contains("Expected at least one section in .pack directive"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_statement_envelope_from_tokens_supports_statement_definition() {
+        let model = default_runtime_model().expect("default runtime model should be available");
+        let register_checker = register_checker_none();
+        let source = "    .statement move.b char:dst \",\" char:src";
+        let (tokens, end_span, end_token_text) = tokenize_parser_tokens_with_model(
+            model,
+            DEFAULT_TOKENIZER_CPU_ID,
+            None,
+            source,
+            1,
+            &register_checker,
+        )
+        .expect("tokenization should succeed");
+        let expr_parse_ctx = VmExprParseContext {
+            model,
+            cpu_id: DEFAULT_TOKENIZER_CPU_ID,
+            dialect_override: None,
+        };
+
+        let parsed = parse_statement_envelope_from_tokens(
+            &tokens,
+            end_span,
+            end_token_text,
+            &expr_parse_ctx,
+        )
+        .expect("vm statement envelope parse should succeed")
+        .to_core_line_ast();
+
+        match parsed {
+            LineAst::StatementDef {
+                keyword, signature, ..
+            } => {
+                assert_eq!(keyword, "move.b");
+                assert_eq!(signature.atoms.len(), 3);
+            }
+            other => panic!("expected statement definition AST, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_statement_envelope_from_tokens_handles_instruction_line() {
         let model = default_runtime_model().expect("default runtime model should be available");
         let register_checker = register_checker_none();
