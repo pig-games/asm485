@@ -8782,11 +8782,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_forced_long_from_expr_operands() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8804,11 +8800,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_forced_data_bank_from_expr_operands() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8826,11 +8818,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_forced_program_bank_from_expr_operands() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8848,11 +8836,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_forced_direct_page_from_expr_operands() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8875,11 +8859,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_forced_long_unresolved_symbol_on_pass1() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8898,11 +8878,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_unresolved_symbol_as_absolute_when_bank_is_stable() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8918,11 +8894,7 @@ mod tests {
 
     #[test]
     fn execution_model_encodes_m65816_unresolved_symbol_as_long_when_bank_unknown() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8940,11 +8912,7 @@ mod tests {
 
     #[test]
     fn execution_model_folds_m65816_high_bank_literal_to_absolute_when_bank_matches() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8965,11 +8933,7 @@ mod tests {
 
     #[test]
     fn execution_model_keeps_m65816_high_bank_literal_long_when_bank_mismatches() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -8984,11 +8948,7 @@ mod tests {
 
     #[test]
     fn execution_model_reports_m65816_invalid_force_override_without_fallback() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -9009,11 +8969,7 @@ mod tests {
 
     #[test]
     fn execution_model_reports_m65816_force_data_bank_unknown() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -9034,11 +8990,7 @@ mod tests {
 
     #[test]
     fn m6502_expr_candidates_prefer_absolute_for_unstable_symbols() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -9063,11 +9015,7 @@ mod tests {
 
     #[test]
     fn m6502_expr_candidates_use_portable_eval_under_rollout_gate() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -9090,11 +9038,7 @@ mod tests {
 
     #[test]
     fn execution_model_vm_encode_supports_m65c02_bit_branch_tables() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let model =
             HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
@@ -9110,11 +9054,7 @@ mod tests {
 
     #[test]
     fn execution_model_uses_package_tabl_programs_for_vm_encode() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let mut chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
@@ -9146,11 +9086,7 @@ mod tests {
 
     #[test]
     fn execution_model_loads_from_encoded_package_bytes() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let package_bytes =
             build_hierarchy_package_from_registry(&registry).expect("package bytes build");
@@ -9166,11 +9102,7 @@ mod tests {
 
     #[test]
     fn ultimate64_abi_runtime_model_owns_package_bytes_after_load() {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
+        let registry = mos6502_family_registry();
 
         let mut package_bytes =
             build_hierarchy_package_from_registry(&registry).expect("package bytes build");
