@@ -1798,7 +1798,7 @@ impl HierarchyExecutionModel {
                             resolved.family_id
                         ))
                     })?;
-                let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
+                let tokens = self.tokenize_with_vm_core(&request, vm_program)?;
                 if tokens.is_empty()
                     && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
                 {
@@ -1851,7 +1851,7 @@ impl HierarchyExecutionModel {
                     resolved.family_id
                 ))
             })?;
-        let tokens = self.tokenize_with_vm_core(&request, &vm_program)?;
+        let tokens = self.tokenize_with_vm_core(&request, vm_program)?;
         if tokens.is_empty()
             && !source_line_can_tokenize_to_empty(source_line, &request.token_policy)
         {
@@ -1869,7 +1869,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
     ) -> Result<Option<RuntimeTokenizerVmProgram>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        Ok(self.tokenizer_vm_program_for_resolved(&resolved))
+        Ok(self.tokenizer_vm_program_for_resolved(&resolved).cloned())
     }
 
     pub fn resolve_tokenizer_vm_limits(
@@ -1890,7 +1890,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
     ) -> Result<Option<RuntimeParserContract>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        Ok(self.parser_contract_for_resolved(&resolved))
+        Ok(self.parser_contract_for_resolved(&resolved).cloned())
     }
 
     pub fn validate_parser_contract_for_assembler(
@@ -1908,8 +1908,8 @@ impl HierarchyExecutionModel {
                     resolved.family_id
                 ))
             })?;
-        self.ensure_parser_contract_compatible_for_assembler(&contract)?;
-        let error_code = parser_contract_error_code(&contract);
+        self.ensure_parser_contract_compatible_for_assembler(contract)?;
+        let error_code = parser_contract_error_code(contract);
         let parser_token_budget = self.budget_limits.max_parser_tokens_per_line;
         if estimated_ast_nodes > parser_token_budget {
             return Err(RuntimeBridgeError::Resolve(format!(
@@ -1925,7 +1925,7 @@ impl HierarchyExecutionModel {
                 error_code, estimated_ast_nodes, max_nodes
             )));
         }
-        Ok(contract)
+        Ok(contract.clone())
     }
 
     pub fn resolve_parser_vm_program(
@@ -1934,7 +1934,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
     ) -> Result<Option<RuntimeParserVmProgram>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        Ok(self.parser_vm_program_for_resolved(&resolved))
+        Ok(self.parser_vm_program_for_resolved(&resolved).cloned())
     }
 
     pub fn resolve_expr_contract(
@@ -1943,7 +1943,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
     ) -> Result<Option<RuntimeExprContract>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        Ok(self.expr_contract_for_resolved(&resolved))
+        Ok(self.expr_contract_for_resolved(&resolved).cloned())
     }
 
     pub fn resolve_expr_parser_contract(
@@ -1952,7 +1952,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
     ) -> Result<Option<RuntimeExprParserContract>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        Ok(self.expr_parser_contract_for_resolved(&resolved))
+        Ok(self.expr_parser_contract_for_resolved(&resolved).cloned())
     }
 
     pub fn resolve_expr_budgets(
@@ -2466,7 +2466,8 @@ impl HierarchyExecutionModel {
     }
 
     fn token_policy_for_resolved(&self, resolved: &ResolvedHierarchy) -> RuntimeTokenPolicy {
-        self.lookup_scoped_cloned(&self.token_policies, resolved)
+        self.lookup_scoped(&self.token_policies, resolved)
+            .cloned()
             .unwrap_or_default()
     }
 
@@ -2480,36 +2481,36 @@ impl HierarchyExecutionModel {
     fn tokenizer_vm_program_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
-    ) -> Option<RuntimeTokenizerVmProgram> {
-        self.lookup_scoped_cloned(&self.tokenizer_vm_programs, resolved)
+    ) -> Option<&RuntimeTokenizerVmProgram> {
+        self.lookup_scoped(&self.tokenizer_vm_programs, resolved)
     }
 
     fn parser_contract_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
-    ) -> Option<RuntimeParserContract> {
-        self.lookup_scoped_cloned(&self.parser_contracts, resolved)
+    ) -> Option<&RuntimeParserContract> {
+        self.lookup_scoped(&self.parser_contracts, resolved)
     }
 
     fn parser_vm_program_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
-    ) -> Option<RuntimeParserVmProgram> {
-        self.lookup_scoped_cloned(&self.parser_vm_programs, resolved)
+    ) -> Option<&RuntimeParserVmProgram> {
+        self.lookup_scoped(&self.parser_vm_programs, resolved)
     }
 
     fn expr_contract_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
-    ) -> Option<RuntimeExprContract> {
-        self.lookup_scoped_cloned(&self.expr_contracts, resolved)
+    ) -> Option<&RuntimeExprContract> {
+        self.lookup_scoped(&self.expr_contracts, resolved)
     }
 
     fn expr_parser_contract_for_resolved(
         &self,
         resolved: &ResolvedHierarchy,
-    ) -> Option<RuntimeExprParserContract> {
-        self.lookup_scoped_cloned(&self.expr_parser_contracts, resolved)
+    ) -> Option<&RuntimeExprParserContract> {
+        self.lookup_scoped(&self.expr_parser_contracts, resolved)
     }
 
     fn ensure_parser_contract_compatible_for_assembler(
@@ -3013,17 +3014,17 @@ impl HierarchyExecutionModel {
         ]
     }
 
-    fn lookup_scoped_cloned<T: Clone>(
+    fn lookup_scoped<'a, T>(
         &self,
-        map: &HashMap<(u8, u32), T>,
+        map: &'a HashMap<(u8, u32), T>,
         resolved: &ResolvedHierarchy,
-    ) -> Option<T> {
+    ) -> Option<&'a T> {
         for (owner_tag, owner_id) in self.scoped_owner_lookup_order(resolved) {
             let Some(owner_id) = owner_id else {
                 continue;
             };
             if let Some(value) = map.get(&(owner_tag, owner_id)) {
-                return Some(value.clone());
+                return Some(value);
             }
         }
         None
