@@ -5272,14 +5272,17 @@ fn encode_expr_fixed_width(
     if !(0..=max_value).contains(&value) {
         return Err(error_message.to_string());
     }
+    Ok(encode_le_bytes(value as u32, byte_count))
+}
 
+fn encode_le_bytes(value: u32, byte_count: usize) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(byte_count);
-    let mut remaining = value as u32;
+    let mut remaining = value;
     for _ in 0..byte_count {
         bytes.push((remaining & 0xFF) as u8);
         remaining >>= 8;
     }
-    Ok(bytes)
+    bytes
 }
 
 fn encode_expr_force_d_u8(
@@ -5324,11 +5327,7 @@ fn encode_expr_force_u24(
             value
         ));
     }
-    Ok(vec![
-        (value as u32 & 0xFF) as u8,
-        ((value as u32 >> 8) & 0xFF) as u8,
-        ((value as u32 >> 16) & 0xFF) as u8,
-    ])
+    Ok(encode_le_bytes(value as u32, 3))
 }
 
 fn prefer_long_for_expr(
@@ -5389,10 +5388,7 @@ fn encode_expr_abs16_bank_fold(
     }
     if value <= 0xFFFF {
         let absolute = value as u16;
-        return Ok(vec![
-            (absolute & 0xFF) as u8,
-            ((absolute >> 8) & 0xFF) as u8,
-        ]);
+        return Ok(encode_le_bytes(absolute as u32, 2));
     }
 
     let (assumed_bank, assumed_known) = assumed_bank_state(upper_mnemonic, expr_ctx.assembler_ctx);
@@ -5414,10 +5410,7 @@ fn encode_expr_abs16_bank_fold(
         ));
     }
     let absolute = (value as u32 & 0xFFFF) as u16;
-    Ok(vec![
-        (absolute & 0xFF) as u8,
-        ((absolute >> 8) & 0xFF) as u8,
-    ])
+    Ok(encode_le_bytes(absolute as u32, 2))
 }
 
 fn assumed_bank_state(upper_mnemonic: &str, ctx: &dyn AssemblerContext) -> (u8, bool) {
@@ -5465,10 +5458,7 @@ fn encode_expr_force_abs16(
     }
     let value = expr_ctx.eval_expr(expr)?;
     if (0..=65535).contains(&value) {
-        return Ok(vec![
-            (value as u16 & 0xFF) as u8,
-            ((value as u16 >> 8) & 0xFF) as u8,
-        ]);
+        return Ok(encode_le_bytes(value as u32, 2));
     }
     if !(0..=0xFF_FFFF).contains(&value) {
         return Err(format!(
