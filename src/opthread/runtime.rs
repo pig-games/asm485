@@ -2391,18 +2391,18 @@ impl HierarchyExecutionModel {
     ///
     /// Strict means `encode_instruction_from_exprs(..)` returning `Ok(None)` should
     /// be treated by callers as a hard runtime parse/resolve failure, not a fallback signal.
-    pub fn expr_resolution_is_strict_for_family(&self, family_id: &str) -> bool {
+    pub(crate) fn expr_resolution_is_strict_for_family(&self, family_id: &str) -> bool {
         self.expr_resolvers
             .get(&family_id.to_ascii_lowercase())
             .map(|entry| entry.strict)
             .unwrap_or(false)
     }
 
-    pub fn defer_native_diagnostics_on_expr_none(&self, family_id: &str) -> bool {
+    pub(crate) fn defer_native_diagnostics_on_expr_none(&self, family_id: &str) -> bool {
         family_id.eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str())
     }
 
-    pub fn selector_gate_only_expr_runtime_for_cpu(&self, cpu_id: &str) -> bool {
+    pub(crate) fn selector_gate_only_expr_runtime_for_cpu(&self, cpu_id: &str) -> bool {
         cpu_id.eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str())
     }
 

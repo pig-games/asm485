@@ -531,7 +531,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-3** | Coverage | Low | Closed | Add hierarchy construction error-path tests |
 | **T-4** | Coverage | Low | Open | Expand rewrite engine coverage |
 | **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |
-| **Q-4** | Quality | Low | New | Tighten `pub fn` → `pub(crate) fn` on model methods |
+| **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
 | **Q-6** | Quality | Low | Open | Group native 6502 ABI constants in submodule |
 | **Q-8** | Perf | Low | Partial | Reduce redundant `to_ascii_lowercase()` calls |
 | **Q-9** | Perf | Low | New | Return `&T` from scoped-lookup methods instead of cloning |
