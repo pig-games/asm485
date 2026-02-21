@@ -329,6 +329,17 @@ mod tests {
     }
 
     #[test]
+    fn expr_eval_rollout_force_host_overrides_opt_in_for_unknown_family() {
+        let opt_in = vec!["experimental-cpu".to_string()];
+        let force_host = vec!["EXPERIMENTAL-CPU".to_string()];
+        assert!(!portable_expr_runtime_enabled_for_family(
+            "experimental-cpu",
+            &opt_in,
+            &force_host
+        ));
+    }
+
+    #[test]
     fn expr_parser_rollout_marks_mos_family_as_authoritative() {
         assert_eq!(
             family_expr_parser_mode("mos6502"),

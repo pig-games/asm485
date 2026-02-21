@@ -876,7 +876,47 @@ fn needs_16bit_immediate(mnemonic: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::family::{AssemblerContext, EncodeResult, FamilyHandler};
+    use crate::core::symbol_table::SymbolTable;
     use crate::core::tokenizer::Span;
+
+    struct DummyCtx {
+        symbols: SymbolTable,
+    }
+
+    impl DummyCtx {
+        fn new() -> Self {
+            Self {
+                symbols: SymbolTable::new(),
+            }
+        }
+    }
+
+    impl AssemblerContext for DummyCtx {
+        fn eval_expr(&self, _expr: &Expr) -> Result<i64, String> {
+            Err("not used in this test".to_string())
+        }
+
+        fn symbols(&self) -> &SymbolTable {
+            &self.symbols
+        }
+
+        fn has_symbol(&self, _name: &str) -> bool {
+            false
+        }
+
+        fn symbol_is_finalized(&self, _name: &str) -> Option<bool> {
+            None
+        }
+
+        fn current_address(&self) -> u32 {
+            0
+        }
+
+        fn pass(&self) -> u8 {
+            2
+        }
+    }
 
     fn span() -> Span {
         Span {
@@ -920,6 +960,45 @@ mod tests {
                 assert!(message.contains("Found extra arguments after RST instruction"));
             }
             other => panic!("expected extra-argument failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_instruction_defers_z80_jp_index_register_form() {
+        let handler = Intel8080FamilyHandler;
+        let ctx = DummyCtx::new();
+        let operands = vec![Operand::Register("IX".to_string(), span())];
+
+        let encoded = handler.encode_instruction("JP", &operands, &ctx);
+        assert!(matches!(encoded, EncodeResult::NotFound));
+    }
+
+    #[test]
+    fn encode_instruction_defers_z80_two_operand_io_forms() {
+        let handler = Intel8080FamilyHandler;
+        let ctx = DummyCtx::new();
+        let operands = vec![
+            Operand::Register("A".to_string(), span()),
+            Operand::Port(0x10, span()),
+        ];
+
+        let encoded = handler.encode_instruction("IN", &operands, &ctx);
+        assert!(matches!(encoded, EncodeResult::NotFound));
+    }
+
+    #[test]
+    fn encode_instruction_encodes_basic_mov() {
+        let handler = Intel8080FamilyHandler;
+        let ctx = DummyCtx::new();
+        let operands = vec![
+            Operand::Register("A".to_string(), span()),
+            Operand::Register("B".to_string(), span()),
+        ];
+
+        let encoded = handler.encode_instruction("MOV", &operands, &ctx);
+        match encoded {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x78]),
+            other => panic!("expected MOV encoding, got {other:?}"),
         }
     }
 }

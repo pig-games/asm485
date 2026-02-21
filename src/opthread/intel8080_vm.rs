@@ -416,6 +416,19 @@ mod tests {
     }
 
     #[test]
+    fn cb_register_program_rejects_bit_out_of_range() {
+        assert_eq!(
+            compile_vm_program_for_z80_cb_register("BIT", Some(8), "A"),
+            None
+        );
+    }
+
+    #[test]
+    fn cb_opcode_rejects_invalid_register_code() {
+        assert_eq!(z80_cb_opcode_with_reg("BIT", Some(1), 8), None);
+    }
+
+    #[test]
     fn compile_instruction_vm_skips_im_mode_entries() {
         let entry = InstructionEntry {
             mnemonic: "IM",

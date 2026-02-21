@@ -1,4 +1,4 @@
-# Code Review — opForge `opthread-vm-family-impl` branch
+# Code Review — opForge main
 
 **Reviewer:** Oz (AI)
 **Date:** 2026-02-20 (revision 2; prior review 2026-02-15)
@@ -261,11 +261,11 @@ opthread submodule breakdown:
 
 ### 4.3 Remaining gaps
 
-**T-1. `intel8080_vm.rs` has zero unit tests.** (Carried forward, unchanged.)
-402 lines, 18 public functions, all coverage indirect through builder/runtime.
-Direct unit tests for `z80_cb_opcode_with_reg(bit > 7)`,
-`mode_key_for_z80_interrupt_mode(3)`, and register edge cases are needed.
-**Severity: high.**
+**T-1. `intel8080_vm.rs` direct unit coverage was added.**
+The module now includes direct tests for interrupt-mode bounds, CB register
+bit bounds, invalid register-code rejection, IM exclusion in generic instruction
+VM compilation, and indexed-memory operand-count bounds.
+**Severity: closed.**
 
 **T-2. Builder selector compilation partially tested.** (Partially addressed.)
 New tests cover M65816 force/long selectors and MOS forms shape, but individual
@@ -296,9 +296,10 @@ operator precedence edge cases specific to the *runtime* parser. **Severity: med
 **T-8. `vm.rs` has only 2 tests for 3 opcodes + 3 error paths.** No test for
 empty program, invalid opcode, or `OP_END`-only program. **Severity: low.**
 
-**T-9. Intel 8080 `handler.rs` has zero unit tests.** 867 lines of encoding
-logic (RST, Z80 deferral, operand resolution) with all coverage via integration
-tests. **Severity: medium.**
+**T-9. Intel 8080 `handler.rs` now has direct unit tests for family encode behavior.**
+Coverage now includes Z80 deferral paths (`JP IX` and two-operand I/O) plus
+baseline family-table encoding (`MOV A,B`) in addition to existing RST tests.
+**Severity: partially addressed.**
 
 **T-10. Expression VM: no test for `SelectTernary` opcode or `Expr::Indirect`
 unwrapping behavior.** **Severity: low.**
@@ -476,9 +477,11 @@ but is undocumented.
 
 **RO-1.** Rollout gate triplication — see D-10 in §2.
 
-**RO-2. No test for force_host + opt_in interaction.** The implementation
-correctly checks force_host first (L119, L184), but no test verifies this
-priority ordering when both lists contain the same family. **Severity: medium.**
+**RO-2. force_host + opt_in precedence is now tested.**
+Both expr-eval and expr-parser rollout paths include explicit tests that
+`force_host` wins when both lists include the same family id; expr-eval now
+also includes an unknown-family precedence test.
+**Severity: closed.**
 
 **RO-3. `pub` fields on `pub(crate)` structs.** The rollout table entry structs
 expose `pub` fields but are themselves `pub(crate)`. Either make fields
@@ -515,12 +518,12 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-15** | Quality | Low-Med | New | Clarify identical boolean expressions in assembler |
 | **Q-16** | Quality | Medium | New | Extract duplicate label-definition logic |
 | **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
-| **T-1** | Coverage | **High** | Open | Add unit tests for `intel8080_vm.rs` (402 LOC, 0 tests) |
-| **T-9** | Coverage | Medium | New | Add unit tests for Intel 8080 `handler.rs` (867 LOC, 0 tests) |
+| **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |
+| **T-9** | Coverage | Medium | Partial | Added direct Intel 8080 handler tests for Z80 deferral + baseline MOV encode |
 | **T-5** | Coverage | Medium | Open | Add fuzz/property-based testing for binary codec |
 | **T-6** | Coverage | Medium | New | Add tests for `token_bridge.rs` directive parsers |
 | **T-7** | Coverage | Medium | New | Add negative tests for `RuntimeExpressionParser` |
-| **RO-2** | Coverage | Medium | New | Test force_host + opt_in priority ordering |
+| **RO-2** | Coverage | Medium | Closed | Added force_host-vs-opt_in priority tests for expr-eval and expr-parser rollout |
 | **T-2** | Coverage | Low | Partial | Complete unit tests for builder selector helpers |
 | **T-3** | Coverage | Low | Open | Add hierarchy construction error-path tests |
 | **T-4** | Coverage | Low | Open | Expand rewrite engine coverage |
