@@ -469,9 +469,10 @@ implementations (`mode()`, `span()`, `value_bytes()`). Consider a struct-based
 design with `(AddressMode, value, span)` tuple to reduce per-variant
 maintenance. **Severity: low.**
 
-**Q-19. Intel 8080 `handler.rs` RST validation** (L590) uses a single `.unwrap()`
-— the only non-test `unwrap()` in family handlers. It's reachable via a
-`len() > 1` guard but would be more robust as `if let`. **Severity: low.**
+**Q-19. Intel 8080 `handler.rs` RST validation no longer uses production `unwrap()`.**
+RST validation now uses fallible branches (`if let`/pattern matching), and the
+family handler has direct tests for vector bounds, extra-argument rejection, and
+Z80 deferral paths. **Severity: closed.**
 
 **Q-20. MOS 6502 ZP/Absolute ambiguity** in multi-pass assembly: when
 `expr_has_unstable_symbols` is true and the value fits 0–255, the handler
@@ -552,6 +553,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-8** | Perf | Low | Partial | Reduce redundant `to_ascii_lowercase()` calls |
 | **Q-9** | Perf | Low | Closed | Scoped resolved-lookup helpers now return borrowed entries (`Option<&T>`) |
 | **Q-10** | Quality | Low | Closed | Replaced conditional-stack `last_mut().unwrap()` with explicit `let Some(...) else` handling |
+| **Q-19** | Quality | Low | Closed | Intel 8080 RST validation now uses fallible matching without production `unwrap()` |
 | **S-2** | Spec | Low | Closed | Document feature flags in `Cargo.toml` |
 
 ### Closed items from prior review
