@@ -3877,4 +3877,54 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn decode_mutated_container_deterministic_fuzz_never_panics() {
+        let baseline = encode_hierarchy_chunks(
+            &sample_families(),
+            &sample_cpus(),
+            &sample_dialects(),
+            &sample_registers(),
+            &sample_forms(),
+            &sample_tables(),
+        )
+        .expect("baseline encode should succeed");
+
+        let mut seed = 0xD1CE_BA11u32;
+        for _ in 0..256 {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let mut mutated = baseline.clone();
+            let index = (seed as usize) % mutated.len();
+
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let mask = ((seed as u8) | 1).wrapping_add(0x3d);
+            mutated[index] ^= mask;
+
+            if mutated.len() > 12 && (seed & 1) == 0 {
+                let trim = (seed as usize % 8) + 1;
+                mutated.truncate(mutated.len().saturating_sub(trim));
+            }
+
+            let first = decode_hierarchy_chunks(&mutated);
+            let second = decode_hierarchy_chunks(&mutated);
+
+            match (first, second) {
+                (Ok(left), Ok(right)) => {
+                    assert_eq!(left.families.len(), right.families.len());
+                    assert_eq!(left.cpus.len(), right.cpus.len());
+                    assert_eq!(left.dialects.len(), right.dialects.len());
+                    assert_eq!(left.forms.len(), right.forms.len());
+                    assert_eq!(left.tables.len(), right.tables.len());
+                }
+                (Err(left), Err(right)) => {
+                    assert_eq!(left.code(), right.code());
+                }
+                (left, right) => {
+                    panic!(
+                        "decode outcome changed for same bytes: first={left:?}, second={right:?}"
+                    )
+                }
+            }
+        }
+    }
 }

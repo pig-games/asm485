@@ -281,10 +281,12 @@ Coverage now includes targeted checks for `RuleHasEmptyMatch`,
 deterministic mapping, filtering, overflow, and invalid-output paths.
 **Severity: closed.**
 
-**T-5. No fuzz/property-based testing for binary codec.** (Carried forward,
-unchanged.) The 24 package tests are deterministic fixtures. `proptest` or
-`cargo fuzz` for the decode path would catch malformed-input edge cases.
-**Severity: medium.**
+**T-5. Binary codec now has deterministic mutation-fuzz decode coverage.**
+`opthread/package.rs` now includes a seeded mutation-fuzz regression test that
+bit-flips/truncates encoded container bytes and asserts deterministic decode
+outcomes without panics across 256 malformed inputs.
+`proptest`/`cargo fuzz` harnessing is still not present.
+**Severity: partially addressed.**
 
 **T-6. `token_bridge.rs` directive parser coverage is now direct and targeted.**
 Direct tests now exercise `.use` selective+alias+with parsing, wildcard-alias
@@ -540,7 +542,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
 | **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |
 | **T-9** | Coverage | Medium | Closed | Added direct Intel 8080 handler tests for RST validation plus Z80 deferral branches (`JP IX`, two-op I/O, half-index, indexed-memory) and baseline `MOV A,B` encode |
-| **T-5** | Coverage | Medium | Open | Add fuzz/property-based testing for binary codec |
+| **T-5** | Coverage | Medium | Partial | Added deterministic mutation-fuzz decode coverage for binary codec; dedicated `cargo fuzz`/property harness still pending |
 | **T-6** | Coverage | Medium | Closed | Added direct tests for `.use/.place/.pack/.statement` directive parser paths |
 | **T-7** | Coverage | Medium | Closed | Added direct RuntimeExpressionParser negative + precedence tests |
 | **RO-2** | Coverage | Medium | Closed | Added force_host-vs-opt_in priority tests for expr-eval and expr-parser rollout |
