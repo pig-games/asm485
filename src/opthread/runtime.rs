@@ -353,63 +353,50 @@ pub enum PortableOperatorKind {
     Lt,
 }
 
-impl From<OperatorKind> for PortableOperatorKind {
-    fn from(value: OperatorKind) -> Self {
-        match value {
-            OperatorKind::Plus => Self::Plus,
-            OperatorKind::Minus => Self::Minus,
-            OperatorKind::Multiply => Self::Multiply,
-            OperatorKind::Power => Self::Power,
-            OperatorKind::Divide => Self::Divide,
-            OperatorKind::Mod => Self::Mod,
-            OperatorKind::Shl => Self::Shl,
-            OperatorKind::Shr => Self::Shr,
-            OperatorKind::BitNot => Self::BitNot,
-            OperatorKind::LogicNot => Self::LogicNot,
-            OperatorKind::BitAnd => Self::BitAnd,
-            OperatorKind::BitOr => Self::BitOr,
-            OperatorKind::BitXor => Self::BitXor,
-            OperatorKind::LogicAnd => Self::LogicAnd,
-            OperatorKind::LogicOr => Self::LogicOr,
-            OperatorKind::LogicXor => Self::LogicXor,
-            OperatorKind::Eq => Self::Eq,
-            OperatorKind::Ne => Self::Ne,
-            OperatorKind::Ge => Self::Ge,
-            OperatorKind::Gt => Self::Gt,
-            OperatorKind::Le => Self::Le,
-            OperatorKind::Lt => Self::Lt,
+macro_rules! impl_enum_mirror_froms {
+    ($left:ty, $right:ty, { $($variant:ident),+ $(,)? }) => {
+        impl From<$left> for $right {
+            fn from(value: $left) -> Self {
+                match value {
+                    $(<$left>::$variant => <$right>::$variant,)+
+                }
+            }
         }
-    }
+
+        impl From<$right> for $left {
+            fn from(value: $right) -> Self {
+                match value {
+                    $(<$right>::$variant => <$left>::$variant,)+
+                }
+            }
+        }
+    };
 }
 
-impl From<PortableOperatorKind> for OperatorKind {
-    fn from(value: PortableOperatorKind) -> Self {
-        match value {
-            PortableOperatorKind::Plus => Self::Plus,
-            PortableOperatorKind::Minus => Self::Minus,
-            PortableOperatorKind::Multiply => Self::Multiply,
-            PortableOperatorKind::Power => Self::Power,
-            PortableOperatorKind::Divide => Self::Divide,
-            PortableOperatorKind::Mod => Self::Mod,
-            PortableOperatorKind::Shl => Self::Shl,
-            PortableOperatorKind::Shr => Self::Shr,
-            PortableOperatorKind::BitNot => Self::BitNot,
-            PortableOperatorKind::LogicNot => Self::LogicNot,
-            PortableOperatorKind::BitAnd => Self::BitAnd,
-            PortableOperatorKind::BitOr => Self::BitOr,
-            PortableOperatorKind::BitXor => Self::BitXor,
-            PortableOperatorKind::LogicAnd => Self::LogicAnd,
-            PortableOperatorKind::LogicOr => Self::LogicOr,
-            PortableOperatorKind::LogicXor => Self::LogicXor,
-            PortableOperatorKind::Eq => Self::Eq,
-            PortableOperatorKind::Ne => Self::Ne,
-            PortableOperatorKind::Ge => Self::Ge,
-            PortableOperatorKind::Gt => Self::Gt,
-            PortableOperatorKind::Le => Self::Le,
-            PortableOperatorKind::Lt => Self::Lt,
-        }
-    }
-}
+impl_enum_mirror_froms!(OperatorKind, PortableOperatorKind, {
+    Plus,
+    Minus,
+    Multiply,
+    Power,
+    Divide,
+    Mod,
+    Shl,
+    Shr,
+    BitNot,
+    LogicNot,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LogicAnd,
+    LogicOr,
+    LogicXor,
+    Eq,
+    Ne,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PortableTokenKind {
@@ -535,31 +522,14 @@ pub enum PortableAstUnaryOp {
     Low,
 }
 
-impl From<UnaryOp> for PortableAstUnaryOp {
-    fn from(value: UnaryOp) -> Self {
-        match value {
-            UnaryOp::Plus => Self::Plus,
-            UnaryOp::Minus => Self::Minus,
-            UnaryOp::BitNot => Self::BitNot,
-            UnaryOp::LogicNot => Self::LogicNot,
-            UnaryOp::High => Self::High,
-            UnaryOp::Low => Self::Low,
-        }
-    }
-}
-
-impl From<PortableAstUnaryOp> for UnaryOp {
-    fn from(value: PortableAstUnaryOp) -> Self {
-        match value {
-            PortableAstUnaryOp::Plus => Self::Plus,
-            PortableAstUnaryOp::Minus => Self::Minus,
-            PortableAstUnaryOp::BitNot => Self::BitNot,
-            PortableAstUnaryOp::LogicNot => Self::LogicNot,
-            PortableAstUnaryOp::High => Self::High,
-            PortableAstUnaryOp::Low => Self::Low,
-        }
-    }
-}
+impl_enum_mirror_froms!(UnaryOp, PortableAstUnaryOp, {
+    Plus,
+    Minus,
+    BitNot,
+    LogicNot,
+    High,
+    Low,
+});
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortableAstBinaryOp {
@@ -585,59 +555,28 @@ pub enum PortableAstBinaryOp {
     LogicXor,
 }
 
-impl From<BinaryOp> for PortableAstBinaryOp {
-    fn from(value: BinaryOp) -> Self {
-        match value {
-            BinaryOp::Multiply => Self::Multiply,
-            BinaryOp::Divide => Self::Divide,
-            BinaryOp::Mod => Self::Mod,
-            BinaryOp::Power => Self::Power,
-            BinaryOp::Shl => Self::Shl,
-            BinaryOp::Shr => Self::Shr,
-            BinaryOp::Add => Self::Add,
-            BinaryOp::Subtract => Self::Subtract,
-            BinaryOp::Eq => Self::Eq,
-            BinaryOp::Ne => Self::Ne,
-            BinaryOp::Ge => Self::Ge,
-            BinaryOp::Gt => Self::Gt,
-            BinaryOp::Le => Self::Le,
-            BinaryOp::Lt => Self::Lt,
-            BinaryOp::BitAnd => Self::BitAnd,
-            BinaryOp::BitOr => Self::BitOr,
-            BinaryOp::BitXor => Self::BitXor,
-            BinaryOp::LogicAnd => Self::LogicAnd,
-            BinaryOp::LogicOr => Self::LogicOr,
-            BinaryOp::LogicXor => Self::LogicXor,
-        }
-    }
-}
-
-impl From<PortableAstBinaryOp> for BinaryOp {
-    fn from(value: PortableAstBinaryOp) -> Self {
-        match value {
-            PortableAstBinaryOp::Multiply => Self::Multiply,
-            PortableAstBinaryOp::Divide => Self::Divide,
-            PortableAstBinaryOp::Mod => Self::Mod,
-            PortableAstBinaryOp::Power => Self::Power,
-            PortableAstBinaryOp::Shl => Self::Shl,
-            PortableAstBinaryOp::Shr => Self::Shr,
-            PortableAstBinaryOp::Add => Self::Add,
-            PortableAstBinaryOp::Subtract => Self::Subtract,
-            PortableAstBinaryOp::Eq => Self::Eq,
-            PortableAstBinaryOp::Ne => Self::Ne,
-            PortableAstBinaryOp::Ge => Self::Ge,
-            PortableAstBinaryOp::Gt => Self::Gt,
-            PortableAstBinaryOp::Le => Self::Le,
-            PortableAstBinaryOp::Lt => Self::Lt,
-            PortableAstBinaryOp::BitAnd => Self::BitAnd,
-            PortableAstBinaryOp::BitOr => Self::BitOr,
-            PortableAstBinaryOp::BitXor => Self::BitXor,
-            PortableAstBinaryOp::LogicAnd => Self::LogicAnd,
-            PortableAstBinaryOp::LogicOr => Self::LogicOr,
-            PortableAstBinaryOp::LogicXor => Self::LogicXor,
-        }
-    }
-}
+impl_enum_mirror_froms!(BinaryOp, PortableAstBinaryOp, {
+    Multiply,
+    Divide,
+    Mod,
+    Power,
+    Shl,
+    Shr,
+    Add,
+    Subtract,
+    Eq,
+    Ne,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LogicAnd,
+    LogicOr,
+    LogicXor,
+});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PortableAstExpr {

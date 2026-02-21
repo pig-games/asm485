@@ -534,7 +534,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-4** | DRY | Medium | Closed | Extract comma-operand splitter in `token_bridge.rs` |
 | **D-2** | DRY | Medium | Closed | Unify `encode_expr_*` LE-byte helpers |
 | **D-6** | DRY | Medium | Closed | Runtime test registry setup now consistently uses shared helpers (`mos6502_family_registry()` / `parity_registry()`), removing repeated `ModuleRegistry::new()` + MOS CPU registration boilerplate |
-| **R-2** | Idiom | Medium | Worse | Eliminate mirror enums with macro/derive (~400 lines) |
+| **R-2** | Idiom | Medium | Closed | Replaced manual mirror-enum `From` boilerplate with shared macro-based bidirectional mappings for runtime/operator AST mirror enums |
 | **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
 | **Q-1** | Quality | **High** | Worse | Split `runtime.rs` (9.4 kLOC → ~3.2 kLOC + 5 modules) |
 | **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
