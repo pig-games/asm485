@@ -629,11 +629,20 @@ fn expected_example_error(base: &str) -> Option<&'static str> {
         "linker_regions_phase6_emit_overflow" => Some(
             "Assembly failed: Value $100 (256) does not fit in 1-byte unit (max $FF)",
         ),
-        "linker_regions_phase6_fill_in_bss" => {
+        "linker_regions_phase6_fill_in_bss_error" => {
             Some("Assembly failed: .fill is not allowed in kind=bss section (current kind=bss)")
         }
         _ => None,
     }
+}
+
+fn is_explicit_error_example_name(base: &str) -> bool {
+    const ERROR_NAME_MARKERS: &[&str] = &[
+        "error", "invalid", "overflow", "unknown", "conflict", "missing", "overlap", "gap", "fail",
+    ];
+    ERROR_NAME_MARKERS
+        .iter()
+        .any(|marker| base.contains(marker))
 }
 
 fn read_example_error_reference(reference_dir: &Path, base: &str) -> Option<String> {
@@ -686,6 +695,10 @@ fn examples_match_reference_outputs() {
         let expected_error = read_example_error_reference(&reference_dir, base)
             .or_else(|| expected_example_error(base).map(|value| value.to_string()));
         if let Some(expected) = expected_error {
+            assert!(
+                is_explicit_error_example_name(base),
+                "Error reference exists for non-explicit example name '{base}'. Rename the example to include an error marker (e.g. '*_error')."
+            );
             if let Some(err) = assemble_example_error(&asm_path) {
                 if update_reference {
                     fs::write(&ref_err_path, format!("{err}\n")).unwrap_or_else(|write_err| {
