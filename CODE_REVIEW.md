@@ -32,10 +32,9 @@ three rollout gates (runtime, expr eval, expr parser).
 
 - **Error types are well-structured.** Every subsystem defines its own error enum
   with `Display`, `Error`, and `From` impls. Error propagation via `?` flows naturally.
-- **Zero `unwrap()` in production code** across the opthread module — all error
-  handling is `Result`-based. The only production `.unwrap()` is a guarded
-  conditional-stack access in `assembler/mod.rs` (5 occurrences, all behind
-  `is_empty()` checks — see Q-10).
+- **Zero `unwrap()` in production code** across the opthread module and
+  conditional-stack handling in `assembler/mod.rs` — error paths are now
+  consistently `Result`-based (Q-10 addressed).
 - **Feature flags are used appropriately.** `opthread-runtime-opcpu-artifact` and
   `opthread-parity` gate optional code paths. The prior `opthread-runtime` and
   `opthread-runtime-intel8080-scaffold` flags have been removed; all opthread code
@@ -404,12 +403,11 @@ clone explicitly. **Severity: low.**
 
 ### 5.5 Concerns — Error Handling
 
-**Q-10. 5× `.unwrap()` on conditional-stack `last_mut()`.** In
-`assembler/mod.rs` (L2990, L3109, L3156, L3185, L3216), the conditional-block
-stack is accessed via `.unwrap()` after an `is_empty()` guard 5–20 lines above.
-These are logically safe but fragile if the conditional logic changes. Use
-`let Some(ctx) = stack.last_mut() else { … }` for documentation and safety.
-**Severity: low.**
+**Q-10. Conditional-stack access now avoids `.unwrap()` in production paths.**
+The guarded `last_mut().unwrap()` sites in `assembler/mod.rs` were converted to
+explicit `let Some(ctx) = ... else { ... }` handling, preserving diagnostics and
+making the safety invariant local to each use site.
+**Severity: closed.**
 
 **Q-11. `token_bridge.rs` `EmitDiag` handler does not advance `pc` past its
 slot operand.** Because `EmitDiag` always returns `Err(…)` this is currently
@@ -538,7 +536,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-6** | Quality | Low | Open | Group native 6502 ABI constants in submodule |
 | **Q-8** | Perf | Low | Partial | Reduce redundant `to_ascii_lowercase()` calls |
 | **Q-9** | Perf | Low | New | Return `&T` from scoped-lookup methods instead of cloning |
-| **Q-10** | Quality | Low | New | Replace conditional-stack `.unwrap()` with `let Some` |
+| **Q-10** | Quality | Low | Closed | Replaced conditional-stack `last_mut().unwrap()` with explicit `let Some(...) else` handling |
 | **S-2** | Spec | Low | Closed | Document feature flags in `Cargo.toml` |
 
 ### Closed items from prior review
