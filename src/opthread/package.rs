@@ -3628,6 +3628,74 @@ mod tests {
     }
 
     #[test]
+    fn decode_rejects_truncated_msel_payload() {
+        let mut msel = Vec::new();
+        write_u32(&mut msel, 1);
+        msel.push(0);
+        write_string(&mut msel, "MSEL", "mos6502").expect("owner");
+
+        let chunks = vec![
+            (CHUNK_MSEL, msel),
+            (
+                CHUNK_FAMS,
+                encode_fams_chunk(&sample_families()).expect("fams"),
+            ),
+            (CHUNK_CPUS, encode_cpus_chunk(&sample_cpus()).expect("cpus")),
+            (
+                CHUNK_DIAL,
+                encode_dial_chunk(&sample_dialects()).expect("dial"),
+            ),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+
+        let err = decode_hierarchy_chunks(&bytes).expect_err("truncated MSEL should fail");
+        assert!(matches!(
+            err,
+            OpcpuCodecError::InvalidChunkFormat { .. } | OpcpuCodecError::UnexpectedEof { .. }
+        ));
+        assert!(err.to_string().contains("MSEL"));
+    }
+
+    #[test]
+    fn decode_rejects_invalid_msel_owner_tag() {
+        let mut msel = Vec::new();
+        write_u32(&mut msel, 1);
+        msel.push(9);
+        write_string(&mut msel, "MSEL", "mos6502").expect("owner");
+        write_string(&mut msel, "MSEL", "lda").expect("mnemonic");
+        write_string(&mut msel, "MSEL", "shape").expect("shape");
+        write_string(&mut msel, "MSEL", "mode").expect("mode");
+        write_string(&mut msel, "MSEL", "plan").expect("plan");
+        msel.extend_from_slice(&0u16.to_le_bytes());
+        msel.push(0);
+        msel.push(0);
+
+        let chunks = vec![
+            (CHUNK_MSEL, msel),
+            (
+                CHUNK_FAMS,
+                encode_fams_chunk(&sample_families()).expect("fams"),
+            ),
+            (CHUNK_CPUS, encode_cpus_chunk(&sample_cpus()).expect("cpus")),
+            (
+                CHUNK_DIAL,
+                encode_dial_chunk(&sample_dialects()).expect("dial"),
+            ),
+            (CHUNK_REGS, encode_regs_chunk(&[]).expect("regs")),
+            (CHUNK_FORM, encode_form_chunk(&[]).expect("form")),
+            (CHUNK_TABL, encode_tabl_chunk(&[]).expect("tabl")),
+        ];
+        let bytes = encode_container(&chunks).expect("container");
+
+        let err = decode_hierarchy_chunks(&bytes).expect_err("invalid MSEL owner tag should fail");
+        assert!(matches!(err, OpcpuCodecError::InvalidChunkFormat { .. }));
+        assert!(err.to_string().contains("owner tag"));
+    }
+
+    #[test]
     fn decode_legacy_toks_entries_default_extended_fields() {
         let families = sample_families();
         let cpus = sample_cpus();

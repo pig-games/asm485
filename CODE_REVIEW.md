@@ -317,8 +317,10 @@ Direct tests now verify NUL rejection in `encode_wire_set_pipeline_payload`
 and explicit trailing-byte decode rejection for wire encode payloads.
 **Severity: closed.**
 
-**T-12. No MSEL chunk decode-rejection tests.** TOKS and DIAG chunks have
-dedicated malformed-input rejection tests; MSEL does not. **Severity: low.**
+**T-12. MSEL chunk decode-rejection coverage is now explicit.**
+Targeted tests now cover invalid `unstable_widen` flags, truncated MSEL payload
+decoding, and invalid owner-tag rejection paths.
+**Severity: closed.**
 
 ---
 
