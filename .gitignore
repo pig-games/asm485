@@ -44,3 +44,7 @@ AGENTS.md
 /scripts/route_workflow.sh
 /.tmp_yaml/
 .vscode/settings.json
+
+# Local workspace-only content (temporary)
+/skills/
+/worktrees/
