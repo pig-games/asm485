@@ -3646,17 +3646,6 @@ impl<'a> AsmLine<'a> {
             }
         }
 
-        if self.opthread_execution_model.is_none() && family_runtime_authoritative {
-            return self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Instruction,
-                &format!(
-                    "opThread runtime model unavailable for authoritative family '{}'",
-                    pipeline.family_id.as_str()
-                ),
-                None,
-            );
-        }
         if let Some(model) = self.opthread_execution_model.as_ref() {
             let strict_runtime_vm_programs = family_runtime_authoritative
                 || model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());

@@ -443,8 +443,11 @@ today and may diverge under future rollout policy changes.
 only) vs L2816–2851 (label + mnemonic) contain ~40 duplicated lines. Extract
 a `define_label_symbol()` helper. **Severity: medium.**
 
-**Q-17. Duplicate "model unavailable for authoritative family" guard** at L3444
-and L3634 in the same function. Extract a common guard. **Severity: low.**
+**Q-17. Authoritative-runtime model guard deduplicated.**
+The duplicate "runtime model unavailable for authoritative family" check in the
+same instruction path was reduced to a single early guard, removing redundant
+logic while preserving the existing diagnostic behavior.
+**Severity: closed.**
 
 ### 5.8 Concerns — Family Modules
 
