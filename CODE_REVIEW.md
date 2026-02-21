@@ -398,10 +398,11 @@ redundantly on the same identifiers across nested call chains. The interner
 normalizes on insert, but call sites still lowercase before lookup.
 **Severity: low.**
 
-**Q-9. Scoped-lookup methods clone returned values.** All `*_for_resolved()`
-methods call `.clone()` on stored `Vec<u8>` programs and contract structs.
-Returning `Option<&T>` would avoid allocation; callers that need ownership can
-clone explicitly. **Severity: low.**
+**Q-9. Scoped-lookup helpers now return borrowed entries.**
+Resolved lookup helpers in `runtime.rs` return `Option<&T>` for tokenizer/parser
+programs and contracts, avoiding per-call cloning; cloning is now explicit only
+where ownership is required.
+**Severity: closed.**
 
 ### 5.5 Concerns — Error Handling
 
@@ -539,7 +540,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
 | **Q-6** | Quality | Low | Closed | Grouped native 6502 ABI constants in `runtime::native6502_abi` and kept compatibility via re-export |
 | **Q-8** | Perf | Low | Partial | Reduce redundant `to_ascii_lowercase()` calls |
-| **Q-9** | Perf | Low | New | Return `&T` from scoped-lookup methods instead of cloning |
+| **Q-9** | Perf | Low | Closed | Scoped resolved-lookup helpers now return borrowed entries (`Option<&T>`) |
 | **Q-10** | Quality | Low | Closed | Replaced conditional-stack `last_mut().unwrap()` with explicit `let Some(...) else` handling |
 | **S-2** | Spec | Low | Closed | Document feature flags in `Cargo.toml` |
 
