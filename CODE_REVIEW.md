@@ -380,9 +380,11 @@ module. These should be `pub(crate)`. **Severity: low.**
 entry points. Key concepts (`VmExprParseContext`, `ParserVmExecContext`,
 `DEFAULT_TOKENIZER_CPU_ID`) are undocumented. **Severity: medium.**
 
-**Q-6. Native 6502 ABI constants** (30+ `pub const` in `runtime.rs` L1331–1470)
-should be grouped in a `native_abi` submodule since they're irrelevant to the
-general assembler. **Severity: low.**
+**Q-6. Native 6502 ABI constants are now grouped in a dedicated submodule.**
+`runtime.rs` now places the native ABI constants in `native6502_abi` and
+re-exports them, reducing top-level clutter while preserving existing external
+call sites.
+**Severity: closed.**
 
 ### 5.4 Concerns — Performance
 
@@ -535,7 +537,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-4** | Coverage | Low | Closed | Added rewrite error-path tests for empty-match, growth-limit, and token-limit failures |
 | **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |
 | **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
-| **Q-6** | Quality | Low | Open | Group native 6502 ABI constants in submodule |
+| **Q-6** | Quality | Low | Closed | Grouped native 6502 ABI constants in `runtime::native6502_abi` and kept compatibility via re-export |
 | **Q-8** | Perf | Low | Partial | Reduce redundant `to_ascii_lowercase()` calls |
 | **Q-9** | Perf | Low | New | Return `&T` from scoped-lookup methods instead of cloning |
 | **Q-10** | Quality | Low | Closed | Replaced conditional-stack `last_mut().unwrap()` with explicit `let Some(...) else` handling |
