@@ -73,6 +73,10 @@ Optional on-disk runtime package artifact mode:
 - Runtime then loads/writes `.opcpu` bytes at `target/opthread/opforge-runtime.opcpu` with registry-build fallback.
 - Rust-table-driven package generation remains the supported authoring path for new families/CPUs (`build_hierarchy_package_from_registry`).
 
+Cargo feature flags:
+- `opthread-runtime-opcpu-artifact`: enables on-disk runtime package artifact mode (`target/opthread/opforge-runtime.opcpu`) with registry fallback.
+- `opthread-parity`: enables parity-focused opThread test lanes and CI checks.
+
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
     make reference

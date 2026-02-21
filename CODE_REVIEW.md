@@ -536,7 +536,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-8** | Perf | Low | Open | Reduce redundant `to_ascii_lowercase()` calls |
 | **Q-9** | Perf | Low | New | Return `&T` from scoped-lookup methods instead of cloning |
 | **Q-10** | Quality | Low | New | Replace conditional-stack `.unwrap()` with `let Some` |
-| **S-2** | Spec | Low | Open | Document feature flags in `Cargo.toml` |
+| **S-2** | Spec | Low | Closed | Document feature flags in `Cargo.toml` |
 
 ### Closed items from prior review
 
