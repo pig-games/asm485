@@ -812,11 +812,10 @@ fn canonicalize_package_support_chunks(
     strings.sort();
     strings.dedup();
 
-    diagnostics.sort_by_key(|entry| {
-        (
-            entry.code.to_ascii_lowercase(),
-            entry.message_template.to_ascii_lowercase(),
-        )
+    diagnostics.sort_by(|left, right| {
+        compare_ascii_case_insensitive(&left.code, &right.code).then_with(|| {
+            compare_ascii_case_insensitive(&left.message_template, &right.message_template)
+        })
     });
     diagnostics.dedup_by(|left, right| {
         left.code.eq_ignore_ascii_case(&right.code)
@@ -835,20 +834,18 @@ pub(crate) fn canonicalize_hierarchy_metadata(
     tables: &mut Vec<VmProgramDescriptor>,
     selectors: &mut Vec<ModeSelectorDescriptor>,
 ) {
-    families.sort_by_key(|entry| entry.id.to_ascii_lowercase());
-    cpus.sort_by_key(|entry| entry.id.to_ascii_lowercase());
+    families.sort_by(|left, right| compare_ascii_case_insensitive(&left.id, &right.id));
+    cpus.sort_by(|left, right| compare_ascii_case_insensitive(&left.id, &right.id));
 
     for entry in dialects.iter_mut() {
         if let Some(allow) = entry.cpu_allow_list.as_mut() {
-            allow.sort_by_key(|cpu| cpu.to_ascii_lowercase());
+            allow.sort_by(|left, right| compare_ascii_case_insensitive(left, right));
             allow.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
         }
     }
-    dialects.sort_by_key(|entry| {
-        (
-            entry.family_id.to_ascii_lowercase(),
-            entry.id.to_ascii_lowercase(),
-        )
+    dialects.sort_by(|left, right| {
+        compare_ascii_case_insensitive(&left.family_id, &right.family_id)
+            .then_with(|| compare_ascii_case_insensitive(&left.id, &right.id))
     });
 
     for entry in registers.iter_mut() {
@@ -923,6 +920,12 @@ fn compare_scoped_owner(left: &ScopedOwner, right: &ScopedOwner) -> std::cmp::Or
     left.owner_tag()
         .cmp(&right.owner_tag())
         .then_with(|| left.owner_id().cmp(right.owner_id()))
+}
+
+fn compare_ascii_case_insensitive(left: &str, right: &str) -> std::cmp::Ordering {
+    left.bytes()
+        .map(|value| value.to_ascii_lowercase())
+        .cmp(right.bytes().map(|value| value.to_ascii_lowercase()))
 }
 
 pub(crate) fn canonicalize_token_policies(token_policies: &mut Vec<TokenPolicyDescriptor>) {

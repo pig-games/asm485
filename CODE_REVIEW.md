@@ -557,7 +557,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |
 | **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
 | **Q-6** | Quality | Low | Closed | Grouped native 6502 ABI constants in `runtime::native6502_abi` and kept compatibility via re-export |
-| **Q-8** | Perf | Low | Partial | Reduce redundant `to_ascii_lowercase()` calls |
+| **Q-8** | Perf | Low | Partial | Reduced allocation-heavy lowercase sort keys in package canonicalization via allocation-free case-insensitive comparators; additional call-site cleanup remains |
 | **Q-9** | Perf | Low | Closed | Scoped resolved-lookup helpers now return borrowed entries (`Option<&T>`) |
 | **Q-10** | Quality | Low | Closed | Replaced conditional-stack `last_mut().unwrap()` with explicit `let Some(...) else` handling |
 | **Q-19** | Quality | Low | Closed | Intel 8080 RST validation now uses fallible matching without production `unwrap()` |
