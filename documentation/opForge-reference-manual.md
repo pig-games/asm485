@@ -639,16 +639,25 @@ Expansion model:
 Syntax:
 
 ```
-opForge [OPTIONS]
+opForge [OPTIONS] [INPUT]
 ```
 
-Inputs (required):
+Inputs:
+- `[INPUT]...`: optional migration-friendly positional input. Exactly one positional input is accepted and treated like `-i INPUT`; multiple positional inputs require explicit `-i/--infile`.
 - `-i, --infile <FILE|FOLDER>`: input `.asm` file or folder (repeatable). Folder inputs must contain exactly one `main.*` root module.
+- `-I, --include-path <DIR>`: additional include search roots (repeatable). Include resolution order: including-file directory, then include roots in CLI order.
+- `-M, --module-path <DIR>`: additional module search roots (repeatable). Module resolution order: input root directory, then module roots in CLI order.
 
 Outputs:
 - `-l, --list [FILE]`: listing output (optional filename).
 - `-x, --hex [FILE]`: Intel HEX output (optional filename).
 - `-b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]`: binary image with optional range(s), repeatable (`ssss`/`eeee` are 4-8 hex digits).
+- `--dependencies <FILE>`: write Makefile-compatible dependency rules.
+- `--dependencies-append`: append dependency rules to an existing dependency file.
+- `--make-phony`: emit phony targets for dependency paths.
+- `--labels <FILE>`: write symbol labels.
+- `--vice-labels`: write `--labels` output in VICE-compatible format.
+- `--ctags-labels`: write `--labels` output in ctags-compatible format.
 
 Other options:
 - `-o, --outfile <BASE>`: output base name if output filename omitted.
@@ -656,7 +665,22 @@ Other options:
 - `-g, --go <aaaa>`: execution start address in HEX output (4-8 hex digits). Requires HEX output.
 - `-D, --define <NAME[=VAL]>`: predefine macro (repeatable).
 - `-c, --cond-debug`: include conditional state in listing.
+- `--line-numbers`: listing compatibility flag for line-number column (enabled by default).
+- `--tab-size <N>`: expand tab characters in listing source column.
+- `--verbose-list`: listing compatibility flag (reserved for expanded listing sections).
+- `-q, --quiet`: suppress diagnostics for successful assembly runs.
+- `-E, --error <FILE>`: route diagnostics to file instead of stderr.
+- `--error-append`: append diagnostics to `--error` file.
+- `--no-error`: disable diagnostic routing.
+- `-w, --no-warn`: suppress warning diagnostics.
+- `--Wall`: enable all warning classes (reserved for future groups).
+- `--Werror`: treat warnings as errors.
+- `--cpu <ID>`: select initial CPU before source parsing (`.cpu` in source can still override later).
+- `--print-capabilities`: print deterministic capability metadata and exit.
+- `--print-cpusupport`: print deterministic CPU support metadata and exit.
 - `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default `64`, minimum `1`).
+- `--input-asm-ext <EXT>`: additional accepted source-file extension for direct file inputs.
+- `--input-inc-ext <EXT>`: additional accepted root-module extension for folder inputs.
 - `-h, --help`: print help.
 - `-V, --version`: print version.
 

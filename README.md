@@ -88,12 +88,27 @@ expressions).
 ## Usage
 Syntax is:
 
-    opForge [ARGUMENTS]
+    opForge [OPTIONS] [INPUT]
 
 Arguments:
 
+    [INPUT]...                    Optional migration-friendly positional input.
+                                 Exactly one positional INPUT is accepted and
+                                 treated like -i INPUT. Multiple positional
+                                 inputs require explicit -i/--infile.
+
     -i, --infile <FILE|FOLDER>   Input assembly file or folder (repeatable). Files must end with .asm.
                                 Folder inputs must contain exactly one main.* root module.
+
+    -I, --include-path <DIR>     Additional include search root (repeatable).
+                                 Include resolution order is: including file
+                                 directory, then include roots in command-line
+                                 order.
+
+    -M, --module-path <DIR>      Additional module search root (repeatable).
+                                 Module roots are searched in this order: input
+                                 root directory, then module roots in
+                                 command-line order.
 
     -l, --list [FILE]            Emit a listing file. FILE is optional; when omitted, the
                                  output base is used and a .lst extension is added.
@@ -104,6 +119,12 @@ Arguments:
     -o, --outfile <BASE>         Output filename base when -l/-x are used without a filename.
                                  Also used for -b outputs that omit a filename. Defaults to the
                                  input filename base.
+    --dependencies <FILE>        Write Makefile-compatible dependency rules to FILE.
+    --dependencies-append        Append dependency rules to --dependencies FILE.
+    --make-phony                 Emit phony targets for each dependency path in generated dependency output.
+    --labels <FILE>              Write assembled symbol labels to FILE.
+    --vice-labels                Write --labels output in VICE-compatible format.
+    --ctags-labels               Write --labels output in ctags-compatible format.
     -b, --bin [FILE:ssss:eeee|ssss:eeee|FILE]
                                  Emit a binary image file (repeatable). A range is optional.
                                  Use ssss:eeee to use the output base, FILE:ssss:eeee to
@@ -118,6 +139,22 @@ Arguments:
     -D, --define <NAME[=VAL]>    Predefine a macro (repeatable). If VAL is omitted, it
                                  defaults to 1.
     -c, --cond-debug             Append conditional state to listing lines.
+    --line-numbers               Compatibility flag for listing line-number column (enabled by default).
+    --tab-size <N>               Expand tab characters in listing source text using N spaces.
+    --verbose-list               Compatibility flag reserved for expanded listing sections.
+    -q, --quiet                  Suppress diagnostics for successful runs.
+    -E, --error <FILE>           Write diagnostics to FILE instead of stderr.
+    --error-append               Append diagnostics to --error FILE.
+    --no-error                   Disable diagnostic output routing.
+    -w, --no-warn                Suppress warning diagnostics.
+    --Wall                       Enable all warning classes (reserved for future groups).
+    --Werror                     Treat warnings as errors.
+    --cpu <ID>                   Set initial CPU before parsing source directives.
+    --print-capabilities         Print deterministic capability metadata and exit.
+    --print-cpusupport           Print deterministic CPU support metadata and exit.
+    --pp-macro-depth <N>         Maximum preprocessor macro expansion depth (default 64, minimum 1).
+    --input-asm-ext <EXT>        Additional accepted source-file extension for direct file inputs.
+    --input-inc-ext <EXT>        Additional accepted root-module extension for folder inputs.
     -h, --help                   Print help.
     -V, --version                Print version.
 
