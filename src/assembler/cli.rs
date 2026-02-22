@@ -183,6 +183,20 @@ pub struct Cli {
         long_help = "Maximum preprocessor macro expansion depth. Defaults to 64."
     )]
     pub pp_macro_depth: usize,
+    #[arg(
+        long = "input-asm-ext",
+        value_name = "EXT",
+        action = ArgAction::Append,
+        long_help = "Additional accepted source-file extension for direct file inputs (repeatable). Defaults to asm."
+    )]
+    pub input_asm_exts: Vec<String>,
+    #[arg(
+        long = "input-inc-ext",
+        value_name = "EXT",
+        action = ArgAction::Append,
+        long_help = "Additional accepted root-module extension for folder inputs (repeatable). Defaults to inc."
+    )]
+    pub input_inc_exts: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -210,6 +224,12 @@ pub struct WarningPolicy {
     pub emit_warnings: bool,
     pub enable_all_warnings: bool,
     pub treat_warnings_as_errors: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InputExtensionPolicy {
+    pub asm_exts: Vec<String>,
+    pub inc_exts: Vec<String>,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -378,7 +398,10 @@ pub fn resolve_bin_path(
     name
 }
 
-pub fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError> {
+pub fn input_base_from_path(
+    path: &Path,
+    ext_policy: &InputExtensionPolicy,
+) -> Result<(String, String), AsmRunError> {
     let file_name = match path.file_name().and_then(|s| s.to_str()) {
         Some(name) => name,
         None => {
@@ -390,12 +413,17 @@ pub fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError
         }
     };
 
-    if file_name.ends_with(".asm") {
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    if ext_policy
+        .asm_exts
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+    {
         if path.is_dir() {
             return Err(AsmRunError::new(
                 AsmError::new(
                     AsmErrorKind::Cli,
-                    "Input path ends with .asm but is a folder",
+                    "Input path has an accepted source extension but is a folder",
                     None,
                 ),
                 Vec::new(),
@@ -404,23 +432,36 @@ pub fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError
         }
         if !path.is_file() {
             return Err(AsmRunError::new(
-                AsmError::new(AsmErrorKind::Cli, "Input .asm file not found", None),
+                AsmError::new(AsmErrorKind::Cli, "Input source file not found", None),
                 Vec::new(),
                 Vec::new(),
             ));
         }
         let asm_name = path.to_string_lossy().to_string();
-        let base = file_name.strip_suffix(".asm").unwrap_or(file_name);
+        let base = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(file_name);
         return Ok((asm_name, base.to_string()));
     }
 
     if path.is_dir() {
-        return resolve_root_module_from_dir(path);
+        return resolve_root_module_from_dir(path, ext_policy);
     }
 
     if path.is_file() || !path.exists() {
+        let accepted = ext_policy
+            .asm_exts
+            .iter()
+            .map(|ext| format!(".{ext}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(AsmRunError::new(
-            AsmError::new(AsmErrorKind::Cli, "Input file must end with .asm", None),
+            AsmError::new(
+                AsmErrorKind::Cli,
+                &format!("Input file must use one of these source extensions: {accepted}"),
+                None,
+            ),
             Vec::new(),
             Vec::new(),
         ));
@@ -433,7 +474,10 @@ pub fn input_base_from_path(path: &Path) -> Result<(String, String), AsmRunError
     ))
 }
 
-fn resolve_root_module_from_dir(path: &Path) -> Result<(String, String), AsmRunError> {
+fn resolve_root_module_from_dir(
+    path: &Path,
+    ext_policy: &InputExtensionPolicy,
+) -> Result<(String, String), AsmRunError> {
     let dir_name = path
         .file_name()
         .and_then(|s| s.to_str())
@@ -471,7 +515,12 @@ fn resolve_root_module_from_dir(path: &Path) -> Result<(String, String), AsmRunE
             continue;
         }
         let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if !matches!(ext.to_ascii_lowercase().as_str(), "asm" | "inc") {
+        let is_allowed = ext_policy
+            .asm_exts
+            .iter()
+            .chain(ext_policy.inc_exts.iter())
+            .any(|allowed| allowed.eq_ignore_ascii_case(ext));
+        if !is_allowed {
             continue;
         }
         matches.push(path);
@@ -504,8 +553,45 @@ fn resolve_root_module_from_dir(path: &Path) -> Result<(String, String), AsmRunE
     Ok((asm_name, dir_name))
 }
 
+fn normalize_extension_list(
+    input: &[String],
+    default: &[&str],
+    flag_name: &str,
+) -> Result<Vec<String>, AsmRunError> {
+    let raw_values: Vec<String> = if input.is_empty() {
+        default.iter().map(|value| value.to_string()).collect()
+    } else {
+        input.to_vec()
+    };
+
+    let mut normalized = Vec::new();
+    for value in raw_values {
+        let value = value.trim().trim_start_matches('.').to_ascii_lowercase();
+        if value.is_empty() {
+            return Err(AsmRunError::new(
+                AsmError::new(
+                    AsmErrorKind::Cli,
+                    &format!("{flag_name} expects a non-empty extension"),
+                    None,
+                ),
+                Vec::new(),
+                Vec::new(),
+            ));
+        }
+        if !normalized.iter().any(|ext: &String| ext == &value) {
+            normalized.push(value);
+        }
+    }
+    Ok(normalized)
+}
+
 /// Validate CLI arguments and return parsed configuration.
 pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
+    let input_extensions = InputExtensionPolicy {
+        asm_exts: normalize_extension_list(&cli.input_asm_exts, &["asm"], "--input-asm-ext")?,
+        inc_exts: normalize_extension_list(&cli.input_inc_exts, &["inc"], "--input-inc-ext")?,
+    };
+
     let input_paths = if !cli.infiles.is_empty() {
         if !cli.positional_inputs.is_empty() {
             return Err(AsmRunError::new(
@@ -705,6 +791,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 
     Ok(CliConfig {
         input_paths,
+        input_extensions,
         go_addr,
         bin_specs,
         fill_byte,
@@ -737,6 +824,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 #[derive(Debug)]
 pub struct CliConfig {
     pub input_paths: Vec<PathBuf>,
+    pub input_extensions: InputExtensionPolicy,
     pub go_addr: Option<String>,
     pub bin_specs: Vec<BinOutputSpec>,
     pub fill_byte: u8,
@@ -761,6 +849,13 @@ mod tests {
 
     fn range_0000_ffff() -> BinRange {
         parse_bin_range_str("0000:ffff").expect("valid range")
+    }
+
+    fn default_input_extensions() -> InputExtensionPolicy {
+        InputExtensionPolicy {
+            asm_exts: vec!["asm".to_string()],
+            inc_exts: vec!["inc".to_string()],
+        }
     }
 
     #[test]
@@ -1019,14 +1114,19 @@ mod tests {
 
     #[test]
     fn input_base_from_path_requires_asm_extension() {
-        let err = input_base_from_path(&PathBuf::from("prog.txt")).unwrap_err();
-        assert_eq!(err.to_string(), "Input file must end with .asm");
+        let err = input_base_from_path(&PathBuf::from("prog.txt"), &default_input_extensions())
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Input file must use one of these source extensions: .asm"
+        );
     }
 
     #[test]
     fn input_base_from_path_requires_existing_asm_file() {
-        let err = input_base_from_path(&PathBuf::from("missing.asm")).unwrap_err();
-        assert_eq!(err.to_string(), "Input .asm file not found");
+        let err = input_base_from_path(&PathBuf::from("missing.asm"), &default_input_extensions())
+            .unwrap_err();
+        assert_eq!(err.to_string(), "Input source file not found");
     }
 
     #[test]
@@ -1034,15 +1134,18 @@ mod tests {
         let dir = create_temp_dir("input-folder-named-asm");
         let fake_file_dir = dir.join("my.asm");
         fs::create_dir_all(&fake_file_dir).expect("create folder named .asm");
-        let err = input_base_from_path(&fake_file_dir).unwrap_err();
-        assert_eq!(err.to_string(), "Input path ends with .asm but is a folder");
+        let err = input_base_from_path(&fake_file_dir, &default_input_extensions()).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Input path has an accepted source extension but is a folder"
+        );
     }
 
     #[test]
     fn input_base_from_dir_requires_main_module() {
         let dir = create_temp_dir("input-dir-missing");
         fs::write(dir.join("util.asm"), "; util").expect("write file");
-        let err = input_base_from_path(&dir).unwrap_err();
+        let err = input_base_from_path(&dir, &default_input_extensions()).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Input folder must contain exactly one main.* root module"
@@ -1054,7 +1157,7 @@ mod tests {
         let dir = create_temp_dir("input-dir-multiple");
         fs::write(dir.join("main.asm"), "; main").expect("write file");
         fs::write(dir.join("main.inc"), "; main inc").expect("write file");
-        let err = input_base_from_path(&dir).unwrap_err();
+        let err = input_base_from_path(&dir, &default_input_extensions()).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Input folder contains multiple main.* root modules"
@@ -1066,7 +1169,39 @@ mod tests {
         let dir = create_temp_dir("input-dir-ok");
         let main_path = dir.join("main.asm");
         fs::write(&main_path, "; main").expect("write file");
-        let (asm_name, base) = input_base_from_path(&dir).expect("resolve main");
+        let (asm_name, base) =
+            input_base_from_path(&dir, &default_input_extensions()).expect("resolve main");
+        assert_eq!(PathBuf::from(asm_name), main_path);
+        assert_eq!(base, dir.file_name().unwrap().to_string_lossy());
+    }
+
+    #[test]
+    fn input_base_from_path_accepts_configured_asm_extensions_case_insensitive() {
+        let dir = create_temp_dir("input-ext-custom");
+        let src = dir.join("prog.S");
+        fs::write(&src, "; src").expect("write custom extension file");
+        let ext_policy = InputExtensionPolicy {
+            asm_exts: vec!["asm".to_string(), "s".to_string()],
+            inc_exts: vec!["inc".to_string(), "h".to_string()],
+        };
+
+        let (asm_name, base) = input_base_from_path(&src, &ext_policy).expect("resolve custom");
+        assert_eq!(PathBuf::from(asm_name), src);
+        assert_eq!(base, "prog");
+    }
+
+    #[test]
+    fn input_base_from_dir_accepts_configured_inc_extensions_case_insensitive() {
+        let dir = create_temp_dir("input-dir-custom-inc");
+        let main_path = dir.join("main.H");
+        fs::write(&main_path, "; main header style root").expect("write custom root");
+        let ext_policy = InputExtensionPolicy {
+            asm_exts: vec!["asm".to_string(), "s".to_string()],
+            inc_exts: vec!["inc".to_string(), "h".to_string()],
+        };
+
+        let (asm_name, base) =
+            input_base_from_path(&dir, &ext_policy).expect("resolve custom root module");
         assert_eq!(PathBuf::from(asm_name), main_path);
         assert_eq!(base, dir.file_name().unwrap().to_string_lossy());
     }

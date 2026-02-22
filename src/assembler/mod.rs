@@ -104,7 +104,7 @@ pub fn run_with_cli(cli: &Cli) -> Result<Vec<AsmRunReport>, AsmRunError> {
 
     let mut reports = Vec::new();
     for asm_path in &config.input_paths {
-        let (asm_name, input_base) = input_base_from_path(asm_path)?;
+        let (asm_name, input_base) = input_base_from_path(asm_path, &config.input_extensions)?;
         let report = run_one(&cli, &asm_name, &input_base, &config)?;
         reports.push(report);
     }
