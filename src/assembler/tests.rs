@@ -763,6 +763,47 @@ fn run_with_cli_reports_unknown_cpu_override() {
     assert!(err.to_string().contains("Unknown CPU: nope999"));
 }
 
+#[test]
+fn run_with_cli_writes_make_dependencies_file() {
+    let dir = create_temp_dir("dependencies-file");
+    let input = dir.join("main.asm");
+    let include = dir.join("defs.inc");
+    let list = dir.join("main.lst");
+    let deps = dir.join("deps.mk");
+    write_file(&include, "; include dependency fixture\n");
+    write_file(&input, ".include \"defs.inc\"\n    nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--dependencies",
+        deps.to_string_lossy().as_ref(),
+        "--make-phony",
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with dependency output");
+
+    let content = fs::read_to_string(&deps).expect("read dependency file");
+    assert!(
+        content.contains(list.to_string_lossy().as_ref()),
+        "dependency target missing list output: {content}"
+    );
+    assert!(
+        content.contains(input.to_string_lossy().as_ref()),
+        "dependency source missing root file: {content}"
+    );
+    assert!(
+        content.contains(include.to_string_lossy().as_ref()),
+        "dependency source missing include file: {content}"
+    );
+    assert!(
+        content.contains(":"),
+        "dependency rule missing colon: {content}"
+    );
+}
+
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
     let expected_lines: Vec<&str> = expected.split('\n').collect();
     let actual_lines: Vec<&str> = actual.split('\n').collect();

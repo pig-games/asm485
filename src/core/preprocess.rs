@@ -3,7 +3,7 @@
 
 // Preprocessor for .IFDEF/.IFNDEF/.ELSE/.ELSEIF/.ENDIF/.INCLUDE directives.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -421,6 +421,7 @@ pub struct Preprocessor {
     lines: Vec<String>,
     in_asm_macro: bool,
     include_roots: Vec<PathBuf>,
+    seen_files: HashSet<PathBuf>,
     max_depth: usize,
 }
 
@@ -436,6 +437,7 @@ impl Preprocessor {
             lines: Vec::new(),
             in_asm_macro: false,
             include_roots: Vec::new(),
+            seen_files: HashSet::new(),
             max_depth,
         }
     }
@@ -457,6 +459,7 @@ impl Preprocessor {
         self.lines.clear();
         self.cond_state.clear();
         self.in_asm_macro = false;
+        self.seen_files.clear();
         self.process_file_internal(path)
     }
 
@@ -464,7 +467,14 @@ impl Preprocessor {
         &self.lines
     }
 
+    pub fn seen_files(&self) -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = self.seen_files.iter().cloned().collect();
+        files.sort();
+        files
+    }
+
     fn process_file_internal(&mut self, path: &str) -> Result<(), PreprocessError> {
+        self.seen_files.insert(PathBuf::from(path));
         let file = match File::open(path) {
             Ok(f) => f,
             Err(_) => return Err(PreprocessError::new(format!("Error opening file: {path}"))),
@@ -711,6 +721,7 @@ impl Default for Preprocessor {
             lines: Vec::new(),
             in_asm_macro: false,
             include_roots: Vec::new(),
+            seen_files: HashSet::new(),
             max_depth: 64,
         }
     }

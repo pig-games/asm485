@@ -114,6 +114,26 @@ pub struct Cli {
     )]
     pub outfile: Option<String>,
     #[arg(
+        long = "dependencies",
+        value_name = "FILE",
+        long_help = "Write Makefile-compatible dependency rules to FILE."
+    )]
+    pub dependencies_file: Option<PathBuf>,
+    #[arg(
+        long = "dependencies-append",
+        action = ArgAction::SetTrue,
+        requires = "dependencies_file",
+        long_help = "Append dependency rules to --dependencies FILE instead of truncating it."
+    )]
+    pub dependencies_append: bool,
+    #[arg(
+        long = "make-phony",
+        action = ArgAction::SetTrue,
+        requires = "dependencies_file",
+        long_help = "Emit phony targets for each dependency path in the generated dependency file."
+    )]
+    pub make_phony: bool,
+    #[arg(
         short = 'b',
         long = "bin",
         value_name = "[FILE:]ssss:eeee|FILE",
@@ -236,6 +256,13 @@ pub struct WarningPolicy {
 pub struct InputExtensionPolicy {
     pub asm_exts: Vec<String>,
     pub inc_exts: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DependencyOutputPolicy {
+    pub path: PathBuf,
+    pub append: bool,
+    pub make_phony: bool,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -822,6 +849,14 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             enable_all_warnings: cli.warn_all,
             treat_warnings_as_errors: cli.warn_error,
         },
+        dependency_output: cli
+            .dependencies_file
+            .as_ref()
+            .map(|path| DependencyOutputPolicy {
+                path: path.clone(),
+                append: cli.dependencies_append,
+                make_phony: cli.make_phony,
+            }),
         pp_macro_depth: cli.pp_macro_depth,
         default_outputs,
     })
@@ -843,6 +878,7 @@ pub struct CliConfig {
     pub quiet: bool,
     pub diagnostics_sink: DiagnosticsSinkConfig,
     pub warning_policy: WarningPolicy,
+    pub dependency_output: Option<DependencyOutputPolicy>,
     pub pp_macro_depth: usize,
     pub default_outputs: bool,
 }
@@ -883,6 +919,10 @@ mod tests {
             "--Wall",
             "--cpu",
             "m6502",
+            "--dependencies",
+            "deps.mk",
+            "--dependencies-append",
+            "--make-phony",
             "--pp-macro-depth",
             "80",
             "-l",
@@ -902,6 +942,9 @@ mod tests {
         assert!(cli.error_append);
         assert!(cli.warn_all);
         assert_eq!(cli.cpu.as_deref(), Some("m6502"));
+        assert_eq!(cli.dependencies_file, Some(PathBuf::from("deps.mk")));
+        assert!(cli.dependencies_append);
+        assert!(cli.make_phony);
         assert_eq!(cli.list_name, Some(String::new()));
         assert_eq!(cli.hex_name, Some(String::new()));
         assert_eq!(cli.outfile, Some("out".to_string()));
@@ -956,6 +999,10 @@ mod tests {
             "-E",
             "diag.log",
             "--error-append",
+            "--dependencies",
+            "deps.mk",
+            "--dependencies-append",
+            "--make-phony",
             "--Werror",
         ]);
         let config = validate_cli(&cli).expect("validate cli");
@@ -969,6 +1016,13 @@ mod tests {
         }
         assert!(config.warning_policy.emit_warnings);
         assert!(config.warning_policy.treat_warnings_as_errors);
+        let dep = config
+            .dependency_output
+            .as_ref()
+            .expect("dependency policy present");
+        assert_eq!(dep.path, PathBuf::from("deps.mk"));
+        assert!(dep.append);
+        assert!(dep.make_phony);
     }
 
     #[test]

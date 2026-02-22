@@ -147,7 +147,7 @@ fn run_one(
     config: &cli::CliConfig,
 ) -> Result<AsmRunReport, AsmRunError> {
     let root_path = Path::new(asm_name);
-    let root_lines = expand_source_file(
+    let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
         root_path,
         &cli.defines,
         &config.include_paths,
@@ -163,6 +163,10 @@ fn run_one(
         config.pp_macro_depth,
     )?;
     let expanded_lines = Arc::new(graph.lines);
+    let mut dependency_files: HashSet<PathBuf> = root_dependency_files.into_iter().collect();
+    for path in graph.dependency_files {
+        dependency_files.insert(path);
+    }
 
     let mut assembler = Assembler::new();
     if let Some(cpu_name) = config.cpu_override.as_deref() {
@@ -260,6 +264,14 @@ fn run_one(
             Vec::new(),
             expanded_lines.clone(),
         ));
+    }
+
+    let mut dependency_targets = Vec::new();
+    if let Some(path) = &list_path {
+        dependency_targets.push(path.clone());
+    }
+    if let Some(path) = &hex_path {
+        dependency_targets.push(path.clone());
     }
 
     let mut list_output: Box<dyn Write> = if let Some(path) = &list_path {
@@ -394,6 +406,7 @@ fn run_one(
             bin_count,
             index,
         );
+        dependency_targets.push(bin_name.clone());
         bin_outputs.push((bin_name, range));
     }
 
@@ -464,6 +477,15 @@ fn run_one(
         ));
     }
 
+    if let Some(policy) = &config.dependency_output {
+        emit_dependency_file(
+            policy,
+            &dependency_targets,
+            dependency_files.into_iter().collect(),
+            expanded_lines.clone(),
+        )?;
+    }
+
     Ok(AsmRunReport::new(
         assembler.take_diagnostics(),
         expanded_lines,
@@ -485,6 +507,79 @@ fn format_addr(addr: u32) -> String {
     } else {
         format!("{addr:08X}")
     }
+}
+
+fn make_escape_path(path: &str) -> String {
+    path.replace(' ', "\\ ")
+}
+
+fn emit_dependency_file(
+    policy: &cli::DependencyOutputPolicy,
+    targets: &[String],
+    dependencies: Vec<PathBuf>,
+    source_lines: Arc<Vec<String>>,
+) -> Result<(), AsmRunError> {
+    let mut targets: Vec<String> = targets
+        .iter()
+        .filter(|target| !target.is_empty())
+        .map(|target| make_escape_path(target))
+        .collect();
+    targets.sort();
+    targets.dedup();
+    if targets.is_empty() {
+        return Ok(());
+    }
+
+    let mut dependencies: Vec<String> = dependencies
+        .into_iter()
+        .map(|path| make_escape_path(path.to_string_lossy().as_ref()))
+        .collect();
+    dependencies.sort();
+    dependencies.dedup();
+
+    let mut body = String::new();
+    body.push_str(&format!(
+        "{}: {}\n",
+        targets.join(" "),
+        dependencies.join(" ")
+    ));
+    if policy.make_phony {
+        for dependency in &dependencies {
+            body.push_str(&format!("{dependency}:\n"));
+        }
+    }
+
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).write(true);
+    if policy.append {
+        options.append(true);
+    } else {
+        options.truncate(true);
+    }
+    let mut file = options.open(&policy.path).map_err(|err| {
+        AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Io,
+                &format!("Error opening dependency file: {err}"),
+                Some(policy.path.to_string_lossy().as_ref()),
+            ),
+            Vec::new(),
+            source_lines.clone(),
+        )
+    })?;
+    file.write_all(body.as_bytes()).map_err(|err| {
+        AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Io,
+                &format!("Error writing dependency file: {err}"),
+                Some(policy.path.to_string_lossy().as_ref()),
+            ),
+            Vec::new(),
+            source_lines,
+        )
+    })?;
+
+    Ok(())
 }
 
 fn collect_linker_sections(

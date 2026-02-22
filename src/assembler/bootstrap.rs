@@ -25,6 +25,7 @@ struct ModuleLoadContext<'a> {
     stack: &'a mut Vec<String>,
     defines: &'a [String],
     include_roots: &'a [PathBuf],
+    dependency_files: &'a mut HashSet<PathBuf>,
     pp_macro_depth: usize,
 }
 
@@ -285,12 +286,24 @@ pub(crate) fn resolve_output_base(
     base
 }
 
+#[allow(dead_code)]
 pub(crate) fn expand_source_file(
     path: &Path,
     defines: &[String],
     include_roots: &[PathBuf],
     pp_macro_depth: usize,
 ) -> Result<Vec<String>, AsmRunError> {
+    let (lines, _) =
+        expand_source_file_with_dependencies(path, defines, include_roots, pp_macro_depth)?;
+    Ok(lines)
+}
+
+pub(crate) fn expand_source_file_with_dependencies(
+    path: &Path,
+    defines: &[String],
+    include_roots: &[PathBuf],
+    pp_macro_depth: usize,
+) -> Result<(Vec<String>, Vec<PathBuf>), AsmRunError> {
     let mut pp = Preprocessor::with_max_depth(pp_macro_depth);
     for root in include_roots {
         pp.add_include_root(root.clone());
@@ -324,7 +337,7 @@ pub(crate) fn expand_source_file(
         }
         return Err(AsmRunError::new(err_msg, diagnostics, source_lines));
     }
-    Ok(pp.lines().to_vec())
+    Ok((pp.lines().to_vec(), pp.seen_files()))
 }
 
 fn expand_with_processor(
@@ -619,12 +632,15 @@ fn load_module_recursive(
     let info = &infos[0];
 
     ctx.stack.push(module_id.to_string());
-    let source_lines = expand_source_file(
+    let (source_lines, dependency_files) = expand_source_file_with_dependencies(
         &info.path,
         ctx.defines,
         ctx.include_roots,
         ctx.pp_macro_depth,
     )?;
+    for path in dependency_files {
+        ctx.dependency_files.insert(path);
+    }
     let module_lines = if info.has_explicit_modules {
         extract_module_block(&source_lines, module_id).ok_or_else(|| {
             AsmRunError::new(
@@ -654,6 +670,7 @@ fn load_module_recursive(
 #[derive(Debug)]
 pub(crate) struct ModuleGraphResult {
     pub(crate) lines: Vec<String>,
+    pub(crate) dependency_files: Vec<PathBuf>,
     /// Compile-time symbol visibility map (canonical module ID → name → visibility).
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
 }
@@ -695,6 +712,7 @@ pub(crate) fn load_module_graph(
     let mut loaded = HashSet::new();
     let mut order = Vec::new();
     let mut stack = Vec::new();
+    let mut dependency_files = HashSet::new();
     let mut ctx = ModuleLoadContext {
         index: &index,
         loaded: &mut loaded,
@@ -703,6 +721,7 @@ pub(crate) fn load_module_graph(
         stack: &mut stack,
         defines,
         include_roots,
+        dependency_files: &mut dependency_files,
         pp_macro_depth,
     };
     for dep in collect_use_directives(&root_lines) {
@@ -788,6 +807,11 @@ pub(crate) fn load_module_graph(
 
     Ok(ModuleGraphResult {
         lines: combined,
+        dependency_files: {
+            let mut files: Vec<PathBuf> = dependency_files.into_iter().collect();
+            files.sort();
+            files
+        },
         module_macro_names,
     })
 }
