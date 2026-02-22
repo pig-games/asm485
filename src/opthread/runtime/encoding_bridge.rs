@@ -42,10 +42,7 @@ impl HierarchyExecutionModel {
         ctx: &dyn AssemblerContext,
     ) -> Result<Option<Vec<u8>>, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        let Some(resolver) = self
-            .expr_resolvers
-            .get(&resolved.family_id.to_ascii_lowercase())
-        else {
+        let Some(resolver) = self.expr_resolver_entry(resolved.family_id.as_str()) else {
             return Ok(None);
         };
         let Some(candidates) = resolver
@@ -71,27 +68,27 @@ impl HierarchyExecutionModel {
     }
 
     pub fn supports_expr_resolution_for_family(&self, family_id: &str) -> bool {
-        self.expr_resolvers
-            .contains_key(&family_id.to_ascii_lowercase())
+        self.expr_resolver_entry(family_id).is_some()
     }
 
     pub(crate) fn expr_resolution_is_strict_for_family(&self, family_id: &str) -> bool {
-        self.expr_resolvers
-            .get(&family_id.to_ascii_lowercase())
+        self.expr_resolver_entry(family_id)
             .map(|entry| entry.strict)
             .unwrap_or(false)
     }
 
     pub(crate) fn defer_native_diagnostics_on_expr_none(&self, family_id: &str) -> bool {
-        self.expr_resolvers
-            .get(&family_id.to_ascii_lowercase())
+        self.expr_resolver_entry(family_id)
             .map(|entry| entry.defer_native_diagnostics_on_none)
             .unwrap_or(false)
     }
 
     pub(crate) fn selector_gate_only_expr_runtime_for_cpu(&self, cpu_id: &str) -> bool {
+        if self.selector_gate_only_expr_runtime_cpus.contains(cpu_id) {
+            return true;
+        }
         self.selector_gate_only_expr_runtime_cpus
-            .contains(&cpu_id.to_ascii_lowercase())
+            .contains(cpu_id.to_ascii_lowercase().as_str())
     }
 
     pub fn register_expr_resolver_for_family(
@@ -147,5 +144,13 @@ impl HierarchyExecutionModel {
                 },
             )
             .map(|entry| entry.resolver)
+    }
+
+    fn expr_resolver_entry(&self, family_id: &str) -> Option<&ExprResolverEntry> {
+        if let Some(entry) = self.expr_resolvers.get(family_id) {
+            return Some(entry);
+        }
+        self.expr_resolvers
+            .get(family_id.to_ascii_lowercase().as_str())
     }
 }
