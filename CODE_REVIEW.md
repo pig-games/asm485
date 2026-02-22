@@ -356,20 +356,18 @@ decoding, and invalid owner-tag rejection paths.
 
 ### 5.2 Concerns — File Size
 
-**Q-1. `runtime.rs` is 9,367 lines.** (Carried forward, now critical.)
-This file grew 157% from 3,639 lines. It contains 5 independent subsystems
-that should be extracted:
+**Q-1. `runtime.rs` modularization is complete.**
+The runtime bridge has been split into focused submodules for portable
+contracts, expression bridge/runtime parser, tokenizer VM bridge + helpers,
+selector bridge + selector encoding, encoding bridge, contract bridge, and
+shared model helpers. Runtime tests were moved to `runtime/tests.rs`.
 
-| Proposed module | Lines | Content |
-|---|---|---|
-| `portable_types.rs` | ~770 | PortableSpan, PortableOperatorKind, PortableTokenKind, PortableToken, PortableAstExpr, PortableLineAst, etc. |
-| `runtime_expr_parser.rs` | ~560 | RuntimeExpressionParser (standalone precedence-climbing parser) |
-| `intel8080_resolver.rs` | ~600 | select_candidates_from_exprs_intel8080, half-index/CB/indexed memory helpers |
-| `mos6502_selector.rs` | ~1,400 | selector_input_from_family_operands, selector_to_candidate, encode_expr_*, M65816 bank-aware encoding |
-| `tokenizer_vm_interp.rs` | ~380 | tokenize_with_vm_core, vm_read_*, vm_build_token, vm_char_class_matches |
+Current size after completion:
+- `runtime.rs`: **1,269** lines
+- `runtime/tests.rs`: **3,357** lines
 
-Splitting these would reduce `runtime.rs` from 9,367 to ~3,200 lines (tests
-remain in `runtime.rs` or move to per-module test files). **Severity: high.**
+This resolves the prior monolithic-file concern while preserving behavior and
+test coverage. **Severity: closed.**
 
 **Q-2. `package.rs` is 4,025 lines.** (Carried forward, now urgent.)
 Grew 41% from 2,843 lines. Natural split into `package/types.rs`,
@@ -536,7 +534,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **D-6** | DRY | Medium | Closed | Runtime test registry setup now consistently uses shared helpers (`mos6502_family_registry()` / `parity_registry()`), removing repeated `ModuleRegistry::new()` + MOS CPU registration boilerplate |
 | **R-2** | Idiom | Medium | Closed | Replaced manual mirror-enum `From` boilerplate with shared macro-based bidirectional mappings for runtime/operator AST mirror enums |
 | **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
-| **Q-1** | Quality | **High** | Partial | Ongoing `runtime.rs` modularization: extracted portable token/AST contract conversions (`runtime/portable_contract.rs`), assembler expression parse/eval bridge (`runtime/expression_bridge.rs`), tokenizer VM bridge (`runtime/tokenizer_bridge.rs`) with VM decode/token-policy helper cluster now co-located, instruction encoding/expr-resolver bridge (`runtime/encoding_bridge.rs`), parser/expr contract lookup+compatibility helpers (`runtime/contract_bridge.rs`), shared scoped-lookup/encoding-budget model helpers (`runtime/model_core_helpers.rs`), standalone runtime expression parser (`runtime/runtime_expr_parser.rs`), selector/candidate bridge scaffolding (`runtime/selector_bridge.rs`) including MOS/Intel candidate-resolution entry paths plus Intel-specific candidate helpers, and selector-addressing/relative/bank-fold encoding helpers (`runtime/selector_encoding.rs`); `runtime.rs` reduced to 4,707 lines, with remaining orchestration/runtime-tests sections still to split |
+| **Q-1** | Quality | **High** | Closed | Completed `runtime.rs` modularization across focused submodules (`runtime/portable_contract.rs`, `runtime/expression_bridge.rs`, `runtime/tokenizer_bridge.rs`, `runtime/encoding_bridge.rs`, `runtime/contract_bridge.rs`, `runtime/model_core_helpers.rs`, `runtime/runtime_expr_parser.rs`, `runtime/selector_bridge.rs`, `runtime/selector_encoding.rs`) and moved runtime tests into `runtime/tests.rs`; `runtime.rs` is now 1,269 lines |
 | **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
 | **Q-5** | Quality | Medium | Closed | Added doc comments for token-bridge `pub(crate)` entry points |
