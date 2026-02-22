@@ -83,11 +83,15 @@ impl HierarchyExecutionModel {
     }
 
     pub(crate) fn defer_native_diagnostics_on_expr_none(&self, family_id: &str) -> bool {
-        family_id.eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str())
+        self.expr_resolvers
+            .get(&family_id.to_ascii_lowercase())
+            .map(|entry| entry.defer_native_diagnostics_on_none)
+            .unwrap_or(false)
     }
 
     pub(crate) fn selector_gate_only_expr_runtime_for_cpu(&self, cpu_id: &str) -> bool {
-        cpu_id.eq_ignore_ascii_case(crate::m65816::module::CPU_ID.as_str())
+        self.selector_gate_only_expr_runtime_cpus
+            .contains(&cpu_id.to_ascii_lowercase())
     }
 
     pub fn register_expr_resolver_for_family(
@@ -121,6 +125,7 @@ impl HierarchyExecutionModel {
                         resolver,
                     }),
                     strict,
+                    defer_native_diagnostics_on_none: false,
                 },
             )
             .map(|entry| entry.resolver)
@@ -133,7 +138,14 @@ impl HierarchyExecutionModel {
     ) -> Option<Box<dyn FamilyExprResolver>> {
         let key = resolver.family_id().to_ascii_lowercase();
         self.expr_resolvers
-            .insert(key, ExprResolverEntry { resolver, strict })
+            .insert(
+                key,
+                ExprResolverEntry {
+                    resolver,
+                    strict,
+                    defer_native_diagnostics_on_none: false,
+                },
+            )
             .map(|entry| entry.resolver)
     }
 }

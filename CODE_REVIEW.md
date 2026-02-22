@@ -550,7 +550,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **Q-14** | Security | Medium | Closed | Added bounded + hard-capped decode count checks to prevent malformed-input OOM |
 | **Q-15** | Quality | Low-Med | Closed | Clarified intentional coupling between runtime expression authority and VM-path gate |
 | **Q-16** | Quality | Medium | Closed | Label-definition flow is centralized via `define_statement_label` |
-| **S-1** | Spec | Medium | New | Hardcoded family/CPU checks should use capabilities |
+| **S-1** | Spec | Medium | Closed | Replaced hardcoded family/CPU identity checks with runtime capabilities: expr-none diagnostic deferral now comes from resolver entry metadata, and selector-gate VM behavior is derived from selector force-capability discovered from package selectors |
 | **T-1** | Coverage | **High** | Closed | Added direct `intel8080_vm.rs` unit tests for CB/IM/operand-count edge cases |
 | **T-9** | Coverage | Medium | Closed | Added direct Intel 8080 handler tests for RST validation plus Z80 deferral branches (`JP IX`, two-op I/O, half-index, indexed-memory) and baseline `MOV A,B` encode |
 | **T-5** | Coverage | Medium | Partial | Added deterministic mutation-fuzz decode coverage for binary codec; dedicated `cargo fuzz`/property harness still pending |

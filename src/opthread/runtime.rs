@@ -132,6 +132,7 @@ pub enum RuntimeTokenizerMode {
 struct ExprResolverEntry {
     resolver: Box<dyn FamilyExprResolver>,
     strict: bool,
+    defer_native_diagnostics_on_none: bool,
 }
 
 fn register_fn_resolver(
@@ -139,6 +140,7 @@ fn register_fn_resolver(
     family_id: &str,
     resolver: ExprResolverFn,
     strict: bool,
+    defer_native_diagnostics_on_none: bool,
 ) {
     let key = family_id.to_ascii_lowercase();
     map.insert(
@@ -149,6 +151,7 @@ fn register_fn_resolver(
                 resolver,
             }),
             strict,
+            defer_native_diagnostics_on_none,
         },
     );
 }
@@ -611,6 +614,7 @@ pub struct HierarchyExecutionModel {
     expr_parser_contracts: HashMap<ParserContractKey, RuntimeExprParserContract>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
+    selector_gate_only_expr_runtime_cpus: HashSet<String>,
     diag_templates: HashMap<String, String>,
     tokenizer_mode: RuntimeTokenizerMode,
     budget_profile: RuntimeBudgetProfile,
@@ -659,7 +663,12 @@ impl HierarchyExecutionModel {
         }
         let mut mode_selectors: HashMap<ModeSelectorKey, Vec<ModeSelectorDescriptor>> =
             HashMap::new();
+        let mut selector_gate_only_expr_runtime_cpus: HashSet<String> = HashSet::new();
         for entry in selectors {
+            if matches!(entry.owner, ScopedOwner::Cpu(_)) && entry.shape_key.contains("force_") {
+                let (_, owner_id) = owner_key_parts(&entry.owner);
+                selector_gate_only_expr_runtime_cpus.insert(owner_id.to_ascii_lowercase());
+            }
             let (owner_tag, owner_id) = owner_key_parts(&entry.owner);
             let owner_id = interner.intern(owner_id.as_str());
             let mnemonic_id = interner.intern(entry.mnemonic.as_str());
@@ -822,11 +831,13 @@ impl HierarchyExecutionModel {
             "mos6502",
             HierarchyExecutionModel::select_candidates_from_exprs_mos6502,
             true,
+            false,
         );
         register_fn_resolver(
             &mut expr_resolvers,
             "intel8080",
             HierarchyExecutionModel::select_candidates_from_exprs_intel8080,
+            true,
             true,
         );
         let mut diag_templates = HashMap::new();
@@ -852,6 +863,7 @@ impl HierarchyExecutionModel {
             expr_parser_contracts: scoped_expr_parser_contracts,
             interned_ids: interner.into_ids(),
             expr_resolvers,
+            selector_gate_only_expr_runtime_cpus,
             diag_templates,
             tokenizer_mode: RuntimeTokenizerMode::Auto,
             budget_profile: RuntimeBudgetProfile::HostDefault,

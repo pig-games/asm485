@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::core::family::AssemblerContext;
 use crate::core::parser::{
@@ -2870,6 +2869,25 @@ fn execution_model_intel_expr_resolver_is_strict() {
         HierarchyExecutionModel::from_chunks(intel_only_chunks()).expect("execution model build");
     assert!(model.supports_expr_resolution_for_family("intel8080"));
     assert!(model.expr_resolution_is_strict_for_family("intel8080"));
+}
+
+#[test]
+fn execution_model_defer_native_diagnostics_uses_resolver_capability() {
+    let registry = parity_registry();
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+    assert!(model.defer_native_diagnostics_on_expr_none("intel8080"));
+    assert!(!model.defer_native_diagnostics_on_expr_none("mos6502"));
+    assert!(!model.defer_native_diagnostics_on_expr_none("unknown"));
+}
+
+#[test]
+fn execution_model_selector_gate_only_uses_cpu_capability() {
+    let registry = parity_registry();
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+
+    assert!(model.selector_gate_only_expr_runtime_for_cpu("65816"));
+    assert!(!model.selector_gate_only_expr_runtime_for_cpu("6502"));
 }
 
 #[test]
