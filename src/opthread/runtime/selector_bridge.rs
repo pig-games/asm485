@@ -13,10 +13,8 @@ use crate::i8085::handler::I8085CpuHandler;
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
 use crate::z80::handler::Z80CpuHandler;
 
-use super::{
-    force_suffix, input_shape_requires_m65816, selector_to_candidate, HierarchyExecutionModel,
-    ResolvedHierarchy, RuntimeBridgeError,
-};
+use super::selector_encoding::{input_shape_requires_m65816, selector_to_candidate};
+use super::{force_suffix, HierarchyExecutionModel, ResolvedHierarchy, RuntimeBridgeError};
 
 pub(super) fn intel8080_candidate_from_resolved(
     mnemonic: &str,
