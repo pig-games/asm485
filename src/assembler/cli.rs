@@ -83,6 +83,18 @@ pub struct Cli {
     )]
     pub warn_error: bool,
     #[arg(
+        long = "print-capabilities",
+        action = ArgAction::SetTrue,
+        long_help = "Print deterministic capability metadata and exit."
+    )]
+    pub print_capabilities: bool,
+    #[arg(
+        long = "print-cpusupport",
+        action = ArgAction::SetTrue,
+        long_help = "Print deterministic CPU support metadata and exit."
+    )]
+    pub print_cpusupport: bool,
+    #[arg(
         long = "cpu",
         value_name = "ID",
         long_help = "Select initial CPU profile before parsing source directives. In-source .cpu directives can still override later."
@@ -941,6 +953,8 @@ mod tests {
         assert_eq!(cli.error_file, Some(PathBuf::from("diag.log")));
         assert!(cli.error_append);
         assert!(cli.warn_all);
+        assert!(!cli.print_capabilities);
+        assert!(!cli.print_cpusupport);
         assert_eq!(cli.cpu.as_deref(), Some("m6502"));
         assert_eq!(cli.dependencies_file, Some(PathBuf::from("deps.mk")));
         assert!(cli.dependencies_append);
@@ -958,6 +972,13 @@ mod tests {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
         assert_eq!(cli.pp_macro_depth, 64);
         assert!(cli.positional_inputs.is_empty());
+    }
+
+    #[test]
+    fn cli_parses_capability_introspection_flags() {
+        let cli = Cli::parse_from(["opForge", "--print-capabilities", "--print-cpusupport"]);
+        assert!(cli.print_capabilities);
+        assert!(cli.print_cpusupport);
     }
 
     #[test]

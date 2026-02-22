@@ -93,6 +93,55 @@ fn default_cpu() -> CpuType {
     crate::i8085::module::CPU_ID
 }
 
+pub fn capabilities_report() -> String {
+    let assembler = Assembler::new();
+    let registry = &assembler.registry;
+    let mut lines = vec![
+        "opforge-capabilities-v1".to_string(),
+        format!("version={VERSION}"),
+        "feature=include-path".to_string(),
+        "feature=module-path".to_string(),
+        "feature=input-extension-policy".to_string(),
+        "feature=diagnostics-routing".to_string(),
+        "feature=warning-policy".to_string(),
+        "feature=cpu-override".to_string(),
+        "feature=dependency-output".to_string(),
+    ];
+
+    let mut family_ids = registry.family_ids();
+    family_ids.sort_by_key(|family| family.as_str());
+    for family in family_ids {
+        lines.push(format!("family={}", family.as_str()));
+    }
+
+    lines.extend(cpusupport_report().lines().map(|line| line.to_string()));
+    format!("{}\n", lines.join("\n"))
+}
+
+pub fn cpusupport_report() -> String {
+    let assembler = Assembler::new();
+    let registry = &assembler.registry;
+    let mut lines = vec!["opforge-cpusupport-v1".to_string()];
+    let mut cpu_ids = registry.cpu_ids();
+    cpu_ids.sort_by_key(|cpu| cpu.as_str());
+
+    for cpu in cpu_ids {
+        let family = registry
+            .cpu_family_id(cpu)
+            .map(|id| id.as_str().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let dialect = registry.cpu_default_dialect(cpu).unwrap_or("none");
+        lines.push(format!(
+            "cpu={};family={};default_dialect={}",
+            cpu.as_str(),
+            family,
+            dialect
+        ));
+    }
+
+    lines.join("\n")
+}
+
 /// Run the assembler with command-line arguments.
 pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
     let cli = Cli::parse();

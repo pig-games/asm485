@@ -1,9 +1,10 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
-    expand_source_file, load_module_graph, root_module_id_from_lines, run_with_cli,
-    set_host_expr_eval_failpoint_for_tests, AsmErrorKind, AsmLine, Assembler, ExportSectionsFormat,
-    ExportSectionsInclude, LineStatus, LinkerOutputDirective, LinkerOutputFormat, ListingWriter,
-    MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
+    capabilities_report, cpusupport_report, expand_source_file, load_module_graph,
+    root_module_id_from_lines, run_with_cli, set_host_expr_eval_failpoint_for_tests, AsmErrorKind,
+    AsmLine, Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus,
+    LinkerOutputDirective, LinkerOutputFormat, ListingWriter, MapFileDirective, MapSymbolsMode,
+    RegionState, RootMetadata, SectionState, Severity,
 };
 use crate::assembler::cli::Cli;
 use crate::core::macro_processor::MacroProcessor;
@@ -802,6 +803,23 @@ fn run_with_cli_writes_make_dependencies_file() {
         content.contains(":"),
         "dependency rule missing colon: {content}"
     );
+}
+
+#[test]
+fn capabilities_report_has_stable_header_and_features() {
+    let text = capabilities_report();
+    assert!(text.starts_with("opforge-capabilities-v1\n"));
+    assert!(text.contains("feature=include-path"));
+    assert!(text.contains("feature=dependency-output"));
+    assert!(text.contains("opforge-cpusupport-v1"));
+}
+
+#[test]
+fn cpusupport_report_has_stable_shape() {
+    let text = cpusupport_report();
+    assert!(text.starts_with("opforge-cpusupport-v1\n"));
+    assert!(text.lines().any(|line| line.starts_with("cpu=8085;")));
+    assert!(text.lines().any(|line| line.starts_with("cpu=m6502;")));
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {

@@ -69,6 +69,14 @@ impl DiagnosticsSink {
 
 fn main() {
     let cli = Cli::parse();
+    if cli.print_cpusupport {
+        println!("{}", opforge::assembler::cpusupport_report());
+        return;
+    }
+    if cli.print_capabilities {
+        println!("{}", opforge::assembler::capabilities_report());
+        return;
+    }
     let cli_config = match validate_cli(&cli) {
         Ok(config) => config,
         Err(err) => {
