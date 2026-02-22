@@ -83,6 +83,12 @@ pub struct Cli {
     )]
     pub warn_error: bool,
     #[arg(
+        long = "cpu",
+        value_name = "ID",
+        long_help = "Select initial CPU profile before parsing source directives. In-source .cpu directives can still override later."
+    )]
+    pub cpu: Option<String>,
+    #[arg(
         short = 'l',
         long = "list",
         value_name = "FILE",
@@ -792,6 +798,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
     Ok(CliConfig {
         input_paths,
         input_extensions,
+        cpu_override: cli.cpu.clone(),
         go_addr,
         bin_specs,
         fill_byte,
@@ -825,6 +832,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 pub struct CliConfig {
     pub input_paths: Vec<PathBuf>,
     pub input_extensions: InputExtensionPolicy,
+    pub cpu_override: Option<String>,
     pub go_addr: Option<String>,
     pub bin_specs: Vec<BinOutputSpec>,
     pub fill_byte: u8,
@@ -873,6 +881,8 @@ mod tests {
             "diag.log",
             "--error-append",
             "--Wall",
+            "--cpu",
+            "m6502",
             "--pp-macro-depth",
             "80",
             "-l",
@@ -891,6 +901,7 @@ mod tests {
         assert_eq!(cli.error_file, Some(PathBuf::from("diag.log")));
         assert!(cli.error_append);
         assert!(cli.warn_all);
+        assert_eq!(cli.cpu.as_deref(), Some("m6502"));
         assert_eq!(cli.list_name, Some(String::new()));
         assert_eq!(cli.hex_name, Some(String::new()));
         assert_eq!(cli.outfile, Some("out".to_string()));
@@ -940,12 +951,15 @@ mod tests {
             "-i",
             "prog.asm",
             "-l",
+            "--cpu",
+            "m6502",
             "-E",
             "diag.log",
             "--error-append",
             "--Werror",
         ]);
         let config = validate_cli(&cli).expect("validate cli");
+        assert_eq!(config.cpu_override.as_deref(), Some("m6502"));
         match config.diagnostics_sink {
             DiagnosticsSinkConfig::File { path, append } => {
                 assert_eq!(path, PathBuf::from("diag.log"));

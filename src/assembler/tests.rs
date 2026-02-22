@@ -708,6 +708,61 @@ fn run_with_cli_werror_fails_when_warning_is_emitted() {
     assert_eq!(err.to_string(), "Warnings treated as errors (-Werror)");
 }
 
+#[test]
+fn run_with_cli_cpu_override_enables_non_default_instruction_set() {
+    let dir = create_temp_dir("cpu-override");
+    let input = dir.join("cpu.asm");
+    let list = dir.join("cpu.lst");
+    write_file(&input, "    rts\n");
+
+    let default_cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+    ]);
+    assert!(
+        run_with_cli(&default_cli).is_err(),
+        "default CPU should reject 6502 mnemonic"
+    );
+
+    let override_cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--cpu",
+        "m6502",
+    ]);
+    let report = run_with_cli(&override_cli).expect("cpu override should succeed");
+    assert_eq!(report.len(), 1);
+}
+
+#[test]
+fn run_with_cli_reports_unknown_cpu_override() {
+    let dir = create_temp_dir("cpu-override-unknown");
+    let input = dir.join("cpu.asm");
+    let list = dir.join("cpu.lst");
+    write_file(&input, "nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--cpu",
+        "nope999",
+    ]);
+    let err = match run_with_cli(&cli) {
+        Ok(_) => panic!("unknown cpu should fail"),
+        Err(err) => err,
+    };
+    assert!(err.to_string().contains("Unknown CPU: nope999"));
+}
+
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
     let expected_lines: Vec<&str> = expected.split('\n').collect();
     let actual_lines: Vec<&str> = actual.split('\n').collect();

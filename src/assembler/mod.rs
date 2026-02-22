@@ -165,6 +165,24 @@ fn run_one(
     let expanded_lines = Arc::new(graph.lines);
 
     let mut assembler = Assembler::new();
+    if let Some(cpu_name) = config.cpu_override.as_deref() {
+        let resolved = assembler
+            .registry
+            .resolve_cpu_name(cpu_name)
+            .ok_or_else(|| {
+                let known = assembler.registry.cpu_name_list().join(", ");
+                AsmRunError::new(
+                    AsmError::new(
+                        AsmErrorKind::Cli,
+                        &format!("Unknown CPU: {cpu_name}. Known CPUs: {known}"),
+                        None,
+                    ),
+                    Vec::new(),
+                    expanded_lines.clone(),
+                )
+            })?;
+        assembler.cpu = resolved;
+    }
     assembler.root_metadata.root_module_id = Some(root_module_id);
     assembler.module_macro_names = graph.module_macro_names;
     assembler.clear_diagnostics();
