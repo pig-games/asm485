@@ -806,6 +806,32 @@ fn run_with_cli_writes_make_dependencies_file() {
 }
 
 #[test]
+fn run_with_cli_writes_labels_file() {
+    let dir = create_temp_dir("labels-file");
+    let input = dir.join("labels.asm");
+    let list = dir.join("labels.lst");
+    let labels = dir.join("labels.lbl");
+    write_file(&input, "START: nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--labels",
+        labels.to_string_lossy().as_ref(),
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with labels output");
+
+    let content = fs::read_to_string(&labels).expect("read labels file");
+    assert!(
+        content.contains("START = $0000"),
+        "missing label export: {content}"
+    );
+}
+
+#[test]
 fn capabilities_report_has_stable_header_and_features() {
     let text = capabilities_report();
     assert!(text.starts_with("opforge-capabilities-v1\n"));

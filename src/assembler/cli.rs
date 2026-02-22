@@ -132,6 +132,12 @@ pub struct Cli {
     )]
     pub dependencies_file: Option<PathBuf>,
     #[arg(
+        long = "labels",
+        value_name = "FILE",
+        long_help = "Write assembled symbol labels to FILE."
+    )]
+    pub labels_file: Option<PathBuf>,
+    #[arg(
         long = "dependencies-append",
         action = ArgAction::SetTrue,
         requires = "dependencies_file",
@@ -861,6 +867,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             enable_all_warnings: cli.warn_all,
             treat_warnings_as_errors: cli.warn_error,
         },
+        labels_file: cli.labels_file.clone(),
         dependency_output: cli
             .dependencies_file
             .as_ref()
@@ -890,6 +897,7 @@ pub struct CliConfig {
     pub quiet: bool,
     pub diagnostics_sink: DiagnosticsSinkConfig,
     pub warning_policy: WarningPolicy,
+    pub labels_file: Option<PathBuf>,
     pub dependency_output: Option<DependencyOutputPolicy>,
     pub pp_macro_depth: usize,
     pub default_outputs: bool,
@@ -931,6 +939,8 @@ mod tests {
             "--Wall",
             "--cpu",
             "m6502",
+            "--labels",
+            "symbols.lbl",
             "--dependencies",
             "deps.mk",
             "--dependencies-append",
@@ -956,6 +966,7 @@ mod tests {
         assert!(!cli.print_capabilities);
         assert!(!cli.print_cpusupport);
         assert_eq!(cli.cpu.as_deref(), Some("m6502"));
+        assert_eq!(cli.labels_file, Some(PathBuf::from("symbols.lbl")));
         assert_eq!(cli.dependencies_file, Some(PathBuf::from("deps.mk")));
         assert!(cli.dependencies_append);
         assert!(cli.make_phony);
@@ -1017,6 +1028,8 @@ mod tests {
             "-l",
             "--cpu",
             "m6502",
+            "--labels",
+            "symbols.lbl",
             "-E",
             "diag.log",
             "--error-append",
@@ -1028,6 +1041,7 @@ mod tests {
         ]);
         let config = validate_cli(&cli).expect("validate cli");
         assert_eq!(config.cpu_override.as_deref(), Some("m6502"));
+        assert_eq!(config.labels_file, Some(PathBuf::from("symbols.lbl")));
         match config.diagnostics_sink {
             DiagnosticsSinkConfig::File { path, append } => {
                 assert_eq!(path, PathBuf::from("diag.log"));

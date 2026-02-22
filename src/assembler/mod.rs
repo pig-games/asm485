@@ -526,6 +526,10 @@ fn run_one(
         ));
     }
 
+    if let Some(path) = &config.labels_file {
+        emit_labels_file(path, assembler.symbols(), expanded_lines.clone())?;
+    }
+
     if let Some(policy) = &config.dependency_output {
         emit_dependency_file(
             policy,
@@ -560,6 +564,36 @@ fn format_addr(addr: u32) -> String {
 
 fn make_escape_path(path: &str) -> String {
     path.replace(' ', "\\ ")
+}
+
+fn emit_labels_file(
+    path: &Path,
+    symbols: &SymbolTable,
+    source_lines: Arc<Vec<String>>,
+) -> Result<(), AsmRunError> {
+    let mut entries = symbols.entries().to_vec();
+    entries.sort_by(|left, right| {
+        left.name
+            .to_ascii_lowercase()
+            .cmp(&right.name.to_ascii_lowercase())
+    });
+
+    let mut output = String::new();
+    for entry in entries {
+        output.push_str(&format!("{} = ${}\n", entry.name, format_addr(entry.val)));
+    }
+
+    fs::write(path, output).map_err(|err| {
+        AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Io,
+                &format!("Error writing labels file: {err}"),
+                Some(path.to_string_lossy().as_ref()),
+            ),
+            Vec::new(),
+            source_lines,
+        )
+    })
 }
 
 fn emit_dependency_file(
