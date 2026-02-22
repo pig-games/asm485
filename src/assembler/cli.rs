@@ -113,6 +113,14 @@ pub struct Cli {
     )]
     pub include_paths: Vec<PathBuf>,
     #[arg(
+        short = 'M',
+        long = "module-path",
+        value_name = "DIR",
+        action = ArgAction::Append,
+        long_help = "Additional module search root (repeatable). Module roots are searched in this order: input root directory, then module roots in command-line order."
+    )]
+    pub module_paths: Vec<PathBuf>,
+    #[arg(
         long = "pp-macro-depth",
         value_name = "N",
         default_value_t = 64,
@@ -607,6 +615,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         fill_byte_set,
         out_dir,
         include_paths: cli.include_paths.clone(),
+        module_paths: cli.module_paths.clone(),
         pp_macro_depth: cli.pp_macro_depth,
         default_outputs,
     })
@@ -621,6 +630,7 @@ pub struct CliConfig {
     pub fill_byte_set: bool,
     pub out_dir: Option<PathBuf>,
     pub include_paths: Vec<PathBuf>,
+    pub module_paths: Vec<PathBuf>,
     pub pp_macro_depth: usize,
     pub default_outputs: bool,
 }
@@ -645,6 +655,8 @@ mod tests {
             "prog.asm",
             "-I",
             "inc",
+            "-M",
+            "modules",
             "-l",
             "-x",
             "-b",
@@ -658,6 +670,7 @@ mod tests {
         ]);
         assert_eq!(cli.infiles, vec![PathBuf::from("prog.asm")]);
         assert_eq!(cli.include_paths, vec![PathBuf::from("inc")]);
+        assert_eq!(cli.module_paths, vec![PathBuf::from("modules")]);
         assert_eq!(cli.list_name, Some(String::new()));
         assert_eq!(cli.hex_name, Some(String::new()));
         assert_eq!(cli.outfile, Some("out".to_string()));

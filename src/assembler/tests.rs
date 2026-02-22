@@ -304,7 +304,7 @@ fn assemble_example_with_base(
     let root_path = asm_path;
     let root_lines = expand_source_file(root_path, &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
-    let graph = load_module_graph(root_path, root_lines.clone(), &[], &[], 64)
+    let graph = load_module_graph(root_path, root_lines.clone(), &[], &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
     let expanded_lines = graph.lines;
 
@@ -371,7 +371,7 @@ fn assemble_example_entries_with_runtime_mode(
 ) -> AssembleEntriesResult {
     let root_lines = expand_source_file(asm_path, &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
-    let graph = load_module_graph(asm_path, root_lines.clone(), &[], &[], 64)
+    let graph = load_module_graph(asm_path, root_lines.clone(), &[], &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
     let expanded_lines = graph.lines;
 
@@ -465,7 +465,7 @@ fn assemble_example_error(asm_path: &Path) -> Option<String> {
         Err(err) => return Some(format!("Preprocess failed: {err}")),
     };
     let (expanded_lines, module_macro_names) =
-        match load_module_graph(root_path, root_lines.clone(), &[], &[], 64) {
+        match load_module_graph(root_path, root_lines.clone(), &[], &[], &[], 64) {
             Ok(graph) => (graph.lines, graph.module_macro_names),
             Err(err) => return Some(format!("Preprocess failed: {err}")),
         };
@@ -506,7 +506,7 @@ fn module_loader_orders_dependencies_before_root() {
     );
 
     let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
-    let combined = load_module_graph(&root_path, root_lines, &[], &[], 32)
+    let combined = load_module_graph(&root_path, root_lines, &[], &[], &[], 32)
         .expect("load graph")
         .lines;
 
@@ -533,7 +533,7 @@ fn module_loader_reports_missing_module() {
     );
 
     let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
-    let err = load_module_graph(&root_path, root_lines, &[], &[], 32)
+    let err = load_module_graph(&root_path, root_lines, &[], &[], &[], 32)
         .expect_err("expected missing module error");
     assert!(
         err.to_string().contains("Missing module"),
@@ -551,7 +551,7 @@ fn module_loader_missing_module_includes_import_stack() {
     write_file(&lib_path, ".module lib\n    .use missing\n.endmodule\n");
 
     let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
-    let err = load_module_graph(&root_path, root_lines, &[], &[], 32)
+    let err = load_module_graph(&root_path, root_lines, &[], &[], &[], 32)
         .expect_err("expected missing module error");
     let message = err.to_string();
     assert!(
@@ -573,11 +573,81 @@ fn module_loader_reports_ambiguous_module_id() {
     write_file(&b_path, ".module lib\n.endmodule\n");
 
     let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
-    let err = load_module_graph(&root_path, root_lines, &[], &[], 32)
+    let err = load_module_graph(&root_path, root_lines, &[], &[], &[], 32)
         .expect_err("expected ambiguous module id");
     assert!(
         err.to_string().contains("Ambiguous module"),
         "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn module_loader_resolves_dependency_from_external_module_path() {
+    let dir = create_temp_dir("module-path-external");
+    let root_path = dir.join("main.asm");
+    let ext_root = dir.join("extmods");
+    fs::create_dir_all(&ext_root).expect("create external module root");
+
+    write_file(&root_path, ".module app\n    .use lib\n.endmodule\n");
+    write_file(&ext_root.join("lib.asm"), ".module lib\n.endmodule\n");
+
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let combined = load_module_graph(&root_path, root_lines, &[], &[], &[ext_root], 32)
+        .expect("load graph from external module root")
+        .lines;
+
+    assert!(
+        combined
+            .iter()
+            .any(|line| line.trim().eq_ignore_ascii_case(".module lib")),
+        "external module should be loaded"
+    );
+}
+
+#[test]
+fn module_loader_ambiguity_reports_candidate_paths_and_roots() {
+    let dir = create_temp_dir("module-path-ambiguous");
+    let root_path = dir.join("main.asm");
+    let ext_a = dir.join("ext_a");
+    let ext_b = dir.join("ext_b");
+    fs::create_dir_all(&ext_a).expect("create external root a");
+    fs::create_dir_all(&ext_b).expect("create external root b");
+
+    write_file(&root_path, ".module app\n    .use lib\n.endmodule\n");
+    write_file(&ext_a.join("lib.asm"), ".module lib\n.endmodule\n");
+    write_file(&ext_b.join("lib.asm"), ".module lib\n.endmodule\n");
+
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let err = load_module_graph(
+        &root_path,
+        root_lines,
+        &[],
+        &[],
+        &[ext_a.clone(), ext_b.clone()],
+        32,
+    )
+    .expect_err("expected module ambiguity");
+
+    let message = err.to_string();
+    assert!(
+        message.contains("candidates:"),
+        "missing candidates: {message}"
+    );
+    assert!(
+        message.contains(ext_a.join("lib.asm").to_string_lossy().as_ref()),
+        "missing candidate path for ext_a: {message}"
+    );
+    assert!(
+        message.contains(ext_b.join("lib.asm").to_string_lossy().as_ref()),
+        "missing candidate path for ext_b: {message}"
+    );
+    assert!(
+        message.contains(ext_a.to_string_lossy().as_ref()),
+        "missing root provenance for ext_a: {message}"
+    );
+    assert!(
+        message.contains(ext_b.to_string_lossy().as_ref()),
+        "missing root provenance for ext_b: {message}"
     );
 }
 

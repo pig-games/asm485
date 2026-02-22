@@ -127,6 +127,7 @@ fn run_one(
         root_lines,
         &cli.defines,
         &config.include_paths,
+        &config.module_paths,
         config.pp_macro_depth,
     )?;
     let expanded_lines = Arc::new(graph.lines);

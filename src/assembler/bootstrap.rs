@@ -8,6 +8,7 @@ use super::*;
 #[derive(Debug, Clone)]
 struct ModuleFileInfo {
     path: PathBuf,
+    source_root: PathBuf,
     has_explicit_modules: bool,
 }
 
@@ -489,9 +490,14 @@ fn collect_source_files(root: &Path, extensions: &[&str]) -> io::Result<Vec<Path
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(dir)? {
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&dir)? {
             let entry = entry?;
-            let path = entry.path();
+            entries.push(entry.path());
+        }
+        entries.sort();
+
+        for path in entries {
             if path.is_dir() {
                 stack.push(path);
                 continue;
@@ -508,51 +514,61 @@ fn collect_source_files(root: &Path, extensions: &[&str]) -> io::Result<Vec<Path
     Ok(files)
 }
 
-fn build_module_index(root: &Path) -> Result<ModuleIndex, AsmRunError> {
-    let files = collect_source_files(root, DEFAULT_MODULE_EXTENSIONS).map_err(|err| {
-        AsmRunError::new(
-            AsmError::new(AsmErrorKind::Io, "Error reading module roots", None),
-            vec![],
-            vec![err.to_string()],
-        )
-    })?;
-
+fn build_module_index(roots: &[PathBuf]) -> Result<ModuleIndex, AsmRunError> {
     let mut index = ModuleIndex::default();
-    for path in files {
-        let contents = fs::read_to_string(&path).map_err(|err| {
+    for root in roots {
+        let files = collect_source_files(root, DEFAULT_MODULE_EXTENSIONS).map_err(|err| {
             AsmRunError::new(
-                AsmError::new(AsmErrorKind::Io, "Error reading module source", None),
+                AsmError::new(AsmErrorKind::Io, "Error reading module roots", None),
                 vec![],
                 vec![err.to_string()],
             )
         })?;
-        let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
-        let explicit_modules = scan_module_ids(&lines);
-        if explicit_modules.is_empty() {
-            let implicit_id = module_id_from_path(&path)?;
-            let canonical = canonical_module_id(&implicit_id);
-            index
-                .modules
-                .entry(canonical)
-                .or_default()
-                .push(ModuleFileInfo {
-                    path,
-                    has_explicit_modules: false,
-                });
-            continue;
-        }
-        for module_id in explicit_modules {
-            let canonical = canonical_module_id(&module_id);
-            index
-                .modules
-                .entry(canonical)
-                .or_default()
-                .push(ModuleFileInfo {
-                    path: path.clone(),
-                    has_explicit_modules: true,
-                });
+
+        for path in files {
+            let contents = fs::read_to_string(&path).map_err(|err| {
+                AsmRunError::new(
+                    AsmError::new(AsmErrorKind::Io, "Error reading module source", None),
+                    vec![],
+                    vec![err.to_string()],
+                )
+            })?;
+            let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
+            let explicit_modules = scan_module_ids(&lines);
+            if explicit_modules.is_empty() {
+                let implicit_id = module_id_from_path(&path)?;
+                let canonical = canonical_module_id(&implicit_id);
+                index
+                    .modules
+                    .entry(canonical)
+                    .or_default()
+                    .push(ModuleFileInfo {
+                        path,
+                        source_root: root.clone(),
+                        has_explicit_modules: false,
+                    });
+                continue;
+            }
+            for module_id in explicit_modules {
+                let canonical = canonical_module_id(&module_id);
+                index
+                    .modules
+                    .entry(canonical)
+                    .or_default()
+                    .push(ModuleFileInfo {
+                        path: path.clone(),
+                        source_root: root.clone(),
+                        has_explicit_modules: true,
+                    });
+            }
         }
     }
+
+    for infos in index.modules.values_mut() {
+        infos.sort_by(|left, right| left.path.cmp(&right.path));
+        infos.dedup_by(|left, right| left.path == right.path);
+    }
+
     Ok(index)
 }
 
@@ -582,6 +598,18 @@ fn load_module_recursive(
             let chain = ctx.stack.join(" -> ");
             message.push_str(&format!(" (import stack: {chain})"));
         }
+        let candidates = infos
+            .iter()
+            .map(|info| {
+                format!(
+                    "{} [root: {}]",
+                    info.path.to_string_lossy(),
+                    info.source_root.to_string_lossy()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        message.push_str(&format!("; candidates: {candidates}"));
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Directive, &message, None),
             vec![],
@@ -642,10 +670,18 @@ pub(crate) fn load_module_graph(
     root_lines: Vec<String>,
     defines: &[String],
     include_roots: &[PathBuf],
+    module_roots: &[PathBuf],
     pp_macro_depth: usize,
 ) -> Result<ModuleGraphResult, AsmRunError> {
     let root_dir = module_search_root(root_path);
-    let index = build_module_index(&root_dir)?;
+    let mut search_roots = Vec::with_capacity(module_roots.len() + 1);
+    search_roots.push(root_dir);
+    for root in module_roots {
+        if !search_roots.iter().any(|existing| existing == root) {
+            search_roots.push(root.clone());
+        }
+    }
+    let index = build_module_index(&search_roots)?;
 
     let mut preloaded = HashSet::new();
     let mut explicit_modules = scan_module_ids(&root_lines);
