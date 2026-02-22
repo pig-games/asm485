@@ -66,7 +66,7 @@ struct StatementDef {
 #[derive(Debug, Clone)]
 struct MacroInvocation {
     label: Option<String>,
-    name: String,
+    resolved_key: String,
     args: Vec<String>,
     full_list: String,
     indent: String,
@@ -141,6 +141,7 @@ pub struct MacroProcessor {
     statements: HashMap<String, Vec<StatementDef>>,
     injected_names: HashSet<String>,
     visibility_stack: Vec<CompileTimeVisibility>,
+    namespace_stack: Vec<Option<String>>,
     max_depth: usize,
 }
 
@@ -157,6 +158,7 @@ impl MacroProcessor {
             statements: HashMap::new(),
             injected_names: HashSet::new(),
             visibility_stack: vec![CompileTimeVisibility::Private],
+            namespace_stack: Vec::new(),
             max_depth: 64,
         }
     }
@@ -275,6 +277,33 @@ impl MacroProcessor {
         }
     }
 
+    fn push_namespace_scope(&mut self, name: Option<String>) {
+        self.namespace_stack
+            .push(name.map(|part| part.to_ascii_uppercase()));
+    }
+
+    fn pop_namespace_scope(&mut self) {
+        self.namespace_stack.pop();
+    }
+
+    fn current_namespace_parts(&self) -> Vec<&str> {
+        self.namespace_stack
+            .iter()
+            .filter_map(|part| part.as_deref())
+            .collect()
+    }
+
+    fn qualify_macro_name(&self, name: &str) -> String {
+        let mut parts = self.current_namespace_parts();
+        let macro_name = name.to_ascii_uppercase();
+        if parts.is_empty() {
+            macro_name
+        } else {
+            parts.push(macro_name.as_str());
+            parts.join(".")
+        }
+    }
+
     fn apply_visibility_directive(&mut self, directive: VisibilityDirective) {
         match directive {
             VisibilityDirective::SetPublic => self.set_visibility(CompileTimeVisibility::Public),
@@ -306,6 +335,12 @@ impl MacroProcessor {
                 if let Some(directive) = parse_visibility_directive(code) {
                     self.apply_visibility_directive(directive);
                 }
+                if let Some(namespace_directive) = parse_namespace_directive(code) {
+                    match namespace_directive {
+                        NamespaceDirective::Push(name) => self.push_namespace_scope(name),
+                        NamespaceDirective::Pop => self.pop_namespace_scope(),
+                    }
+                }
             }
 
             if let Some((name, params, kind)) = parse_macro_def_line(code, line_num)? {
@@ -330,7 +365,8 @@ impl MacroProcessor {
                         Some(1),
                     ));
                 }
-                if self.macros.contains_key(&to_upper(&name)) {
+                let macro_key = self.qualify_macro_name(&name);
+                if self.macros.contains_key(&macro_key) {
                     return Err(MacroError::new(
                         "Macro already defined",
                         Some(line_num),
@@ -340,7 +376,7 @@ impl MacroProcessor {
                 let param_defs = parse_macro_params(&params, line_num)?;
                 let wrap_scope = kind == MacroKind::Macro;
                 current = Some((
-                    name,
+                    macro_key,
                     MacroDef {
                         params: param_defs,
                         body: Vec::new(),
@@ -367,7 +403,7 @@ impl MacroProcessor {
                     };
                     return Err(MacroError::new(message, Some(line_num), Some(1)));
                 }
-                self.macros.insert(to_upper(&name), def);
+                self.macros.insert(name, def);
                 continue;
             }
 
@@ -433,10 +469,12 @@ impl MacroProcessor {
                 continue;
             }
 
-            if let Some(inv) = parse_macro_invocation(code, &self.macros, line_num)? {
+            if let Some(inv) =
+                parse_macro_invocation(code, &self.macros, &self.namespace_stack, line_num)?
+            {
                 let def = self
                     .macros
-                    .get(&to_upper(&inv.name))
+                    .get(&inv.resolved_key)
                     .cloned()
                     .ok_or_else(|| MacroError::new("Unknown macro", Some(line_num), Some(1)))?;
                 let args = build_macro_args(&def, &inv);
@@ -508,6 +546,12 @@ enum VisibilityDirective {
     PopScope,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NamespaceDirective {
+    Push(Option<String>),
+    Pop,
+}
+
 fn parse_visibility_directive(code: &str) -> Option<VisibilityDirective> {
     let (_, idx, _) = parse_label(code);
     let mut cursor = Cursor::with_pos(code, idx);
@@ -525,6 +569,31 @@ fn parse_visibility_directive(code: &str) -> Option<VisibilityDirective> {
         "ENDBLOCK" | "BEND" | "ENDMODULE" | "ENDN" | "ENDNAMESPACE" => {
             Some(VisibilityDirective::PopScope)
         }
+        _ => None,
+    }
+}
+
+fn parse_namespace_directive(code: &str) -> Option<NamespaceDirective> {
+    let (label, idx, _) = parse_label(code);
+    let mut cursor = Cursor::with_pos(code, idx);
+    cursor.skip_ws();
+    if cursor.peek() != Some(b'.') {
+        return None;
+    }
+    cursor.next();
+    cursor.skip_ws();
+    let directive = cursor.take_ident()?.to_ascii_uppercase();
+    match directive.as_str() {
+        "NAMESPACE" => {
+            cursor.skip_ws();
+            let name = if let Some(name) = cursor.take_ident() {
+                Some(name)
+            } else {
+                label
+            };
+            Some(NamespaceDirective::Push(name))
+        }
+        "ENDN" | "ENDNAMESPACE" => Some(NamespaceDirective::Pop),
         _ => None,
     }
 }
@@ -853,6 +922,7 @@ fn parse_macro_end_line(code: &str) -> Option<MacroKind> {
 fn parse_macro_invocation(
     code: &str,
     macros: &HashMap<String, MacroDef>,
+    namespace_stack: &[Option<String>],
     line_num: u32,
 ) -> Result<Option<MacroInvocation>, MacroError> {
     let (label, idx, indent) = parse_label(code);
@@ -873,10 +943,10 @@ fn parse_macro_invocation(
     let Some(name) = cursor.take_ident() else {
         return Ok(None);
     };
-    if !macros.contains_key(&to_upper(&name)) {
+    let Some(resolved_key) = resolve_macro_lookup_key(&name, namespace_stack, macros) else {
         // If macro doesn't exist, return None to let the line pass through.
         return Ok(None);
-    }
+    };
 
     let mut pos = cursor.pos();
     while code.as_bytes().get(pos).is_some_and(|c| is_space(*c)) {
@@ -912,11 +982,41 @@ fn parse_macro_invocation(
     let args = parse_macro_args(&full_list, line_num)?;
     Ok(Some(MacroInvocation {
         label,
-        name,
+        resolved_key,
         args,
         full_list,
         indent,
     }))
+}
+
+fn resolve_macro_lookup_key(
+    name: &str,
+    namespace_stack: &[Option<String>],
+    macros: &HashMap<String, MacroDef>,
+) -> Option<String> {
+    let exact = to_upper(name);
+    if macros.contains_key(&exact) {
+        return Some(exact);
+    }
+    if name.contains('.') {
+        return None;
+    }
+    let namespace_parts: Vec<&str> = namespace_stack
+        .iter()
+        .filter_map(|part| part.as_deref())
+        .collect();
+    if namespace_parts.is_empty() {
+        return None;
+    }
+    for depth in (1..=namespace_parts.len()).rev() {
+        let mut qualified = namespace_parts[..depth].join(".");
+        qualified.push('.');
+        qualified.push_str(&exact);
+        if macros.contains_key(&qualified) {
+            return Some(qualified);
+        }
+    }
+    None
 }
 
 fn build_macro_args(def: &MacroDef, inv: &MacroInvocation) -> MacroArgs {
@@ -1481,5 +1581,69 @@ mod tests {
         assert!(out.contains(&"    .byte $AB".to_string()), "missing $AB");
         assert!(out.contains(&"    .byte $0B".to_string()), "missing $0B");
         assert!(out.contains(&"    .byte $FB".to_string()), "missing $FB");
+    }
+
+    #[test]
+    fn resolves_same_macro_name_by_nearest_namespace_scope() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            ".namespace outer".to_string(),
+            "BEGIN .macro".to_string(),
+            "    .byte 1".to_string(),
+            ".endmacro".to_string(),
+            "    .BEGIN".to_string(),
+            "    .namespace inner".to_string(),
+            "BEGIN .macro".to_string(),
+            "    .byte 2".to_string(),
+            ".endmacro".to_string(),
+            "    .BEGIN".to_string(),
+            "    .endn".to_string(),
+            "    .BEGIN".to_string(),
+            ".endn".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        let rendered = out.join("\n");
+        assert!(
+            rendered.contains(".byte 1\n") || rendered.contains(".byte 1\r\n"),
+            "expected outer namespace expansion: {rendered}"
+        );
+        assert!(
+            rendered.contains(".byte 2\n") || rendered.contains(".byte 2\r\n"),
+            "expected inner namespace expansion: {rendered}"
+        );
+        let one_count = out.iter().filter(|line| line.trim() == ".byte 1").count();
+        let two_count = out.iter().filter(|line| line.trim() == ".byte 2").count();
+        assert_eq!(one_count, 2, "outer macro should be selected twice");
+        assert_eq!(two_count, 1, "inner macro should be selected once");
+    }
+
+    #[test]
+    fn falls_back_to_global_macro_when_namespace_local_not_found() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            "GLOBAL .macro".to_string(),
+            "    .byte 9".to_string(),
+            ".endmacro".to_string(),
+            ".namespace outer".to_string(),
+            "    .GLOBAL".to_string(),
+            ".endn".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.iter().any(|line| line.trim() == ".byte 9"));
+    }
+
+    #[test]
+    fn supports_name_first_namespace_spelling_for_macro_resolution() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            "outer .namespace".to_string(),
+            "BEGIN .macro".to_string(),
+            "    .byte 3".to_string(),
+            ".endmacro".to_string(),
+            "    .BEGIN".to_string(),
+            ".endn".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.iter().any(|line| line.trim() == ".byte 3"));
     }
 }
