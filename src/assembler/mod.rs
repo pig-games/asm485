@@ -96,13 +96,45 @@ fn default_cpu() -> CpuType {
 /// Run the assembler with command-line arguments.
 pub fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
     let cli = Cli::parse();
-    let config = validate_cli(&cli)?;
+    run_with_cli(&cli)
+}
+
+pub fn run_with_cli(cli: &Cli) -> Result<Vec<AsmRunReport>, AsmRunError> {
+    let config = validate_cli(cli)?;
 
     let mut reports = Vec::new();
-    for asm_path in &cli.infiles {
+    for asm_path in &config.input_paths {
         let (asm_name, input_base) = input_base_from_path(asm_path)?;
         let report = run_one(&cli, &asm_name, &input_base, &config)?;
         reports.push(report);
+    }
+
+    if config.warning_policy.treat_warnings_as_errors {
+        let mut warning_diags = Vec::new();
+        let mut source_lines = Vec::new();
+        for report in &reports {
+            if source_lines.is_empty() {
+                source_lines = report.source_lines().to_vec();
+            }
+            for diag in report.diagnostics() {
+                if diag.severity == Severity::Warning {
+                    let mut warning = diag.clone();
+                    warning.severity = Severity::Error;
+                    warning_diags.push(warning);
+                }
+            }
+        }
+        if !warning_diags.is_empty() {
+            return Err(AsmRunError::new(
+                AsmError::new(
+                    AsmErrorKind::Assembler,
+                    "Warnings treated as errors (-Werror)",
+                    None,
+                ),
+                warning_diags,
+                source_lines,
+            ));
+        }
     }
 
     Ok(reports)

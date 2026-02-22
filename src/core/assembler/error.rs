@@ -160,6 +160,10 @@ impl Diagnostic {
         out.push_str(&format!("{sev}: {}", self.error.message()));
         out
     }
+
+    pub fn severity(&self) -> Severity {
+        self.severity
+    }
 }
 
 /// Report from a successful assembly run.

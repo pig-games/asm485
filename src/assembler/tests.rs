@@ -1,10 +1,11 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
-    expand_source_file, load_module_graph, root_module_id_from_lines,
+    expand_source_file, load_module_graph, root_module_id_from_lines, run_with_cli,
     set_host_expr_eval_failpoint_for_tests, AsmErrorKind, AsmLine, Assembler, ExportSectionsFormat,
     ExportSectionsInclude, LineStatus, LinkerOutputDirective, LinkerOutputFormat, ListingWriter,
     MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
 };
+use crate::assembler::cli::Cli;
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
 use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
@@ -36,6 +37,7 @@ use crate::opthread::runtime::{
 };
 use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
+use clap::Parser;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
@@ -681,6 +683,29 @@ fn expand_source_file_uses_include_roots_in_cli_order() {
             .any(|line| line.contains("VALUE .const 20")),
         "include resolution should follow command-line order"
     );
+}
+
+#[test]
+fn run_with_cli_werror_fails_when_warning_is_emitted() {
+    let dir = create_temp_dir("werror-warning");
+    let input = dir.join("warn.asm");
+    let list = dir.join("warn.lst");
+    write_file(&input, ".byte 300\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--Werror",
+    ]);
+
+    let err = match run_with_cli(&cli) {
+        Ok(_) => panic!("warnings should fail under --Werror"),
+        Err(err) => err,
+    };
+    assert_eq!(err.to_string(), "Warnings treated as errors (-Werror)");
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {

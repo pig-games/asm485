@@ -33,6 +33,56 @@ With multiple inputs, -o must be a directory and explicit output filenames are n
 )]
 pub struct Cli {
     #[arg(
+        short = 'q',
+        long = "quiet",
+        action = ArgAction::SetTrue,
+        long_help = "Suppress diagnostic output for successful assembly runs. Errors are still reported unless --no-error is set."
+    )]
+    pub quiet: bool,
+    #[arg(
+        short = 'E',
+        long = "error",
+        value_name = "FILE",
+        long_help = "Write diagnostics to FILE instead of stderr."
+    )]
+    pub error_file: Option<PathBuf>,
+    #[arg(
+        long = "error-append",
+        action = ArgAction::SetTrue,
+        requires = "error_file",
+        long_help = "Append diagnostics to --error FILE instead of truncating it."
+    )]
+    pub error_append: bool,
+    #[arg(
+        long = "no-error",
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["error_file", "error_append"],
+        long_help = "Disable all diagnostic output routing."
+    )]
+    pub no_error: bool,
+    #[arg(
+        short = 'w',
+        long = "no-warn",
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["warn_all", "warn_error"],
+        long_help = "Suppress warning diagnostics."
+    )]
+    pub no_warn: bool,
+    #[arg(
+        long = "Wall",
+        action = ArgAction::SetTrue,
+        conflicts_with = "no_warn",
+        long_help = "Enable all warning classes (reserved for future warning groups)."
+    )]
+    pub warn_all: bool,
+    #[arg(
+        long = "Werror",
+        action = ArgAction::SetTrue,
+        conflicts_with = "no_warn",
+        long_help = "Treat warnings as errors (non-zero exit status)."
+    )]
+    pub warn_error: bool,
+    #[arg(
         short = 'l',
         long = "list",
         value_name = "FILE",
@@ -105,6 +155,12 @@ pub struct Cli {
     )]
     pub infiles: Vec<PathBuf>,
     #[arg(
+        value_name = "INPUT",
+        action = ArgAction::Append,
+        long_help = "Optional migration-friendly positional input. Exactly one positional INPUT is accepted and treated like -i INPUT. Multiple positional inputs require explicit -i/--infile."
+    )]
+    pub positional_inputs: Vec<PathBuf>,
+    #[arg(
         short = 'I',
         long = "include-path",
         value_name = "DIR",
@@ -140,6 +196,20 @@ pub struct BinRange {
 pub struct BinOutputSpec {
     pub name: Option<String>,
     pub range: Option<BinRange>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DiagnosticsSinkConfig {
+    Stderr,
+    File { path: PathBuf, append: bool },
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WarningPolicy {
+    pub emit_warnings: bool,
+    pub enable_all_warnings: bool,
+    pub treat_warnings_as_errors: bool,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -436,7 +506,32 @@ fn resolve_root_module_from_dir(path: &Path) -> Result<(String, String), AsmRunE
 
 /// Validate CLI arguments and return parsed configuration.
 pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
-    if cli.infiles.is_empty() {
+    let input_paths = if !cli.infiles.is_empty() {
+        if !cli.positional_inputs.is_empty() {
+            return Err(AsmRunError::new(
+                AsmError::new(
+                    AsmErrorKind::Cli,
+                    "Do not mix positional input with -i/--infile; use one style",
+                    None,
+                ),
+                Vec::new(),
+                Vec::new(),
+            ));
+        }
+        cli.infiles.clone()
+    } else if cli.positional_inputs.len() == 1 {
+        cli.positional_inputs.clone()
+    } else if cli.positional_inputs.len() > 1 {
+        return Err(AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Cli,
+                "Multiple positional inputs are not supported; use repeatable -i/--infile",
+                None,
+            ),
+            Vec::new(),
+            Vec::new(),
+        ));
+    } else {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -446,14 +541,14 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             Vec::new(),
             Vec::new(),
         ));
-    }
+    };
 
     let list_requested = cli.list_name.is_some();
     let hex_requested = cli.hex_name.is_some();
     let bin_requested = !cli.bin_outputs.is_empty();
 
     let default_outputs = !list_requested && !hex_requested && !bin_requested;
-    if default_outputs && cli.infiles.len() > 1 {
+    if default_outputs && input_paths.len() > 1 {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -465,7 +560,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         ));
     }
 
-    if cli.infiles.len() > 1 {
+    if input_paths.len() > 1 {
         if let Some(list_name) = cli.list_name.as_deref() {
             if !list_name.is_empty() {
                 return Err(AsmRunError::new(
@@ -523,7 +618,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         })?;
         bin_specs.push(spec);
     }
-    if cli.infiles.len() > 1 && bin_specs.iter().any(|spec| spec.name.is_some()) {
+    if input_paths.len() > 1 && bin_specs.iter().any(|spec| spec.name.is_some()) {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -567,7 +662,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         None => 0xff,
     };
 
-    let out_dir = if cli.infiles.len() > 1 {
+    let out_dir = if input_paths.len() > 1 {
         if let Some(out) = cli.outfile.as_deref() {
             let out_path = PathBuf::from(out);
             if out_path.exists() && !out_path.is_dir() {
@@ -609,6 +704,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
     }
 
     Ok(CliConfig {
+        input_paths,
         go_addr,
         bin_specs,
         fill_byte,
@@ -616,6 +712,22 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         out_dir,
         include_paths: cli.include_paths.clone(),
         module_paths: cli.module_paths.clone(),
+        quiet: cli.quiet,
+        diagnostics_sink: if cli.no_error {
+            DiagnosticsSinkConfig::Disabled
+        } else if let Some(path) = &cli.error_file {
+            DiagnosticsSinkConfig::File {
+                path: path.clone(),
+                append: cli.error_append,
+            }
+        } else {
+            DiagnosticsSinkConfig::Stderr
+        },
+        warning_policy: WarningPolicy {
+            emit_warnings: !cli.no_warn,
+            enable_all_warnings: cli.warn_all,
+            treat_warnings_as_errors: cli.warn_error,
+        },
         pp_macro_depth: cli.pp_macro_depth,
         default_outputs,
     })
@@ -624,6 +736,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 /// Validated CLI configuration.
 #[derive(Debug)]
 pub struct CliConfig {
+    pub input_paths: Vec<PathBuf>,
     pub go_addr: Option<String>,
     pub bin_specs: Vec<BinOutputSpec>,
     pub fill_byte: u8,
@@ -631,6 +744,9 @@ pub struct CliConfig {
     pub out_dir: Option<PathBuf>,
     pub include_paths: Vec<PathBuf>,
     pub module_paths: Vec<PathBuf>,
+    pub quiet: bool,
+    pub diagnostics_sink: DiagnosticsSinkConfig,
+    pub warning_policy: WarningPolicy,
     pub pp_macro_depth: usize,
     pub default_outputs: bool,
 }
@@ -657,6 +773,13 @@ mod tests {
             "inc",
             "-M",
             "modules",
+            "-q",
+            "-E",
+            "diag.log",
+            "--error-append",
+            "--Wall",
+            "--pp-macro-depth",
+            "80",
             "-l",
             "-x",
             "-b",
@@ -665,12 +788,14 @@ mod tests {
             "out",
             "-f",
             "aa",
-            "--pp-macro-depth",
-            "80",
         ]);
         assert_eq!(cli.infiles, vec![PathBuf::from("prog.asm")]);
         assert_eq!(cli.include_paths, vec![PathBuf::from("inc")]);
         assert_eq!(cli.module_paths, vec![PathBuf::from("modules")]);
+        assert!(cli.quiet);
+        assert_eq!(cli.error_file, Some(PathBuf::from("diag.log")));
+        assert!(cli.error_append);
+        assert!(cli.warn_all);
         assert_eq!(cli.list_name, Some(String::new()));
         assert_eq!(cli.hex_name, Some(String::new()));
         assert_eq!(cli.outfile, Some("out".to_string()));
@@ -683,6 +808,65 @@ mod tests {
     fn cli_defaults_pp_macro_depth() {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
         assert_eq!(cli.pp_macro_depth, 64);
+        assert!(cli.positional_inputs.is_empty());
+    }
+
+    #[test]
+    fn validate_cli_accepts_single_positional_input() {
+        let cli = Cli::parse_from(["opForge", "prog.asm", "-l"]);
+        let config = validate_cli(&cli).expect("validate cli");
+        assert_eq!(config.input_paths, vec![PathBuf::from("prog.asm")]);
+    }
+
+    #[test]
+    fn validate_cli_rejects_multiple_positional_inputs() {
+        let cli = Cli::parse_from(["opForge", "a.asm", "b.asm", "-l"]);
+        let err = validate_cli(&cli).expect_err("should reject multiple positionals");
+        assert_eq!(
+            err.to_string(),
+            "Multiple positional inputs are not supported; use repeatable -i/--infile"
+        );
+    }
+
+    #[test]
+    fn validate_cli_rejects_mixed_positional_and_infile() {
+        let cli = Cli::parse_from(["opForge", "legacy.asm", "-i", "modern.asm", "-l"]);
+        let err = validate_cli(&cli).expect_err("should reject mixed input styles");
+        assert_eq!(
+            err.to_string(),
+            "Do not mix positional input with -i/--infile; use one style"
+        );
+    }
+
+    #[test]
+    fn validate_cli_sets_diagnostics_and_warning_policy() {
+        let cli = Cli::parse_from([
+            "opForge",
+            "-i",
+            "prog.asm",
+            "-l",
+            "-E",
+            "diag.log",
+            "--error-append",
+            "--Werror",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        match config.diagnostics_sink {
+            DiagnosticsSinkConfig::File { path, append } => {
+                assert_eq!(path, PathBuf::from("diag.log"));
+                assert!(append);
+            }
+            other => panic!("unexpected diagnostics sink: {other:?}"),
+        }
+        assert!(config.warning_policy.emit_warnings);
+        assert!(config.warning_policy.treat_warnings_as_errors);
+    }
+
+    #[test]
+    fn validate_cli_no_warn_disables_warnings() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l", "-w"]);
+        let config = validate_cli(&cli).expect("validate cli");
+        assert!(!config.warning_policy.emit_warnings);
     }
 
     #[test]
