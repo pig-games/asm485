@@ -560,7 +560,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-2** | Coverage | Low | Closed | Added direct tests for `compile_mode_selector`, `selector_priority`, and `selector_width_rank` |
 | **T-3** | Coverage | Low | Closed | Add hierarchy construction error-path tests |
 | **T-4** | Coverage | Low | Closed | Added rewrite error-path tests for empty-match, growth-limit, and token-limit failures |
-| **R-1** | Idiom | Low | Open | Consider `Result<Option<T>>` over `EncodeResult` |
+| **R-1** | Idiom | Low | Closed | Introduced idiomatic `EncodeOutcome<T> = Result<Option<T>, EncodeError>` with bidirectional conversion helpers and migrated assembler encode dispatch to the `Result<Option<_>>` flow while preserving `EncodeResult` compatibility at handler boundaries |
 | **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
 | **Q-6** | Quality | Low | Closed | Grouped native 6502 ABI constants in `runtime::native6502_abi` and kept compatibility via re-export |
 | **Q-8** | Perf | Low | Partial | Reduced allocation-heavy lowercase sort keys in package canonicalization via allocation-free case-insensitive comparators; additional call-site cleanup remains |

@@ -47,6 +47,31 @@ impl std::fmt::Display for FamilyParseError {
 
 impl std::error::Error for FamilyParseError {}
 
+#[derive(Debug, Clone)]
+pub struct EncodeError {
+    pub message: String,
+    pub span: Option<Span>,
+}
+
+impl EncodeError {
+    pub fn new(message: impl Into<String>, span: Option<Span>) -> Self {
+        Self {
+            message: message.into(),
+            span,
+        }
+    }
+}
+
+impl std::fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for EncodeError {}
+
+pub type EncodeOutcome<T> = Result<Option<T>, EncodeError>;
+
 /// Error returned when encoding fails.
 #[derive(Debug, Clone)]
 pub enum EncodeResult<T> {
@@ -59,12 +84,48 @@ pub enum EncodeResult<T> {
 }
 
 impl<T> EncodeResult<T> {
+    pub fn ok(value: T) -> Self {
+        EncodeResult::Ok(value)
+    }
+
+    pub fn not_found() -> Self {
+        EncodeResult::NotFound
+    }
+
     pub fn error(message: impl Into<String>) -> Self {
         EncodeResult::Error(message.into(), None)
     }
 
     pub fn error_with_span(message: impl Into<String>, span: Span) -> Self {
         EncodeResult::Error(message.into(), Some(span))
+    }
+
+    pub fn into_outcome(self) -> EncodeOutcome<T> {
+        self.into()
+    }
+
+    pub fn from_outcome(outcome: EncodeOutcome<T>) -> Self {
+        outcome.into()
+    }
+}
+
+impl<T> From<EncodeResult<T>> for EncodeOutcome<T> {
+    fn from(value: EncodeResult<T>) -> Self {
+        match value {
+            EncodeResult::Ok(bytes) => Ok(Some(bytes)),
+            EncodeResult::NotFound => Ok(None),
+            EncodeResult::Error(message, span) => Err(EncodeError::new(message, span)),
+        }
+    }
+}
+
+impl<T> From<EncodeOutcome<T>> for EncodeResult<T> {
+    fn from(value: EncodeOutcome<T>) -> Self {
+        match value {
+            Ok(Some(bytes)) => EncodeResult::Ok(bytes),
+            Ok(None) => EncodeResult::NotFound,
+            Err(err) => EncodeResult::Error(err.message, err.span),
+        }
     }
 }
 

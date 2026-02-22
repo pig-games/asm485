@@ -37,7 +37,7 @@ use crate::core::assembler::listing::{ListingLine, ListingWriter};
 use crate::core::assembler::scope::ScopeStack;
 use crate::core::cpu::CpuType;
 use crate::core::expr_vm::compile_core_expr_to_portable_program;
-use crate::core::family::{AssemblerContext, EncodeResult};
+use crate::core::family::AssemblerContext;
 use crate::core::imagestore::ImageStore;
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::parser as asm_parser;
@@ -3720,8 +3720,9 @@ impl<'a> AsmLine<'a> {
         match pipeline
             .family
             .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
+            .into_outcome()
         {
-            EncodeResult::Ok(bytes) => {
+            Ok(Some(bytes)) => {
                 if let Err(err) =
                     self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
                 {
@@ -3741,25 +3742,30 @@ impl<'a> AsmLine<'a> {
                 );
                 LineStatus::Ok
             }
-            EncodeResult::Error(msg, span_opt) => {
-                if let Some(span) = span_opt {
+            Err(err) => {
+                if let Some(span) = err.span {
                     self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Instruction,
-                        &msg,
+                        &err.message,
                         None,
                         span,
                     )
                 } else {
-                    self.failure(LineStatus::Error, AsmErrorKind::Instruction, &msg, None)
+                    self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &err.message,
+                        None,
+                    )
                 }
             }
-            EncodeResult::NotFound => match pipeline.cpu.encode_instruction(
-                &mapped_mnemonic,
-                resolved_operands.as_ref(),
-                self,
-            ) {
-                EncodeResult::Ok(bytes) => {
+            Ok(None) => match pipeline
+                .cpu
+                .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
+                .into_outcome()
+            {
+                Ok(Some(bytes)) => {
                     if let Err(err) =
                         self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
                     {
@@ -3779,20 +3785,25 @@ impl<'a> AsmLine<'a> {
                     );
                     LineStatus::Ok
                 }
-                EncodeResult::Error(msg, span_opt) => {
-                    if let Some(span) = span_opt {
+                Err(err) => {
+                    if let Some(span) = err.span {
                         self.failure_at_span(
                             LineStatus::Error,
                             AsmErrorKind::Instruction,
-                            &msg,
+                            &err.message,
                             None,
                             span,
                         )
                     } else {
-                        self.failure(LineStatus::Error, AsmErrorKind::Instruction, &msg, None)
+                        self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err.message,
+                            None,
+                        )
                     }
                 }
-                EncodeResult::NotFound => self.failure(
+                Ok(None) => self.failure(
                     LineStatus::Error,
                     AsmErrorKind::Instruction,
                     &format!("No instruction found for {}", mnemonic.to_ascii_uppercase()),
