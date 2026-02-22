@@ -531,6 +531,12 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 - **Partial** — partially addressed since prior review
 - **Closed** — resolved since prior review
 
+### Final status (2026-02-22)
+
+All tracked items in this review table and carried-forward prior items are now
+**Closed**. Follow-up work from this point should be tracked as new review
+items rather than as carry-forward debt from this report.
+
 | ID | Area | Severity | Status | Recommendation |
 |---|---|---|---|---|
 | **D-1** | DRY | **High** | Closed | Completed shared ScopedOwner helper extraction: package canonicalization now uses generic `canonicalize_scoped_descriptors<T>()` plus `ScopedOwner::normalize_owner_id_ascii_lowercase()` / `cmp_scope_key()` from hierarchy |
