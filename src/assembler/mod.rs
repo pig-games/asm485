@@ -115,9 +115,20 @@ fn run_one(
     config: &cli::CliConfig,
 ) -> Result<AsmRunReport, AsmRunError> {
     let root_path = Path::new(asm_name);
-    let root_lines = expand_source_file(root_path, &cli.defines, config.pp_macro_depth)?;
+    let root_lines = expand_source_file(
+        root_path,
+        &cli.defines,
+        &config.include_paths,
+        config.pp_macro_depth,
+    )?;
     let root_module_id = root_module_id_from_lines(root_path, &root_lines)?;
-    let graph = load_module_graph(root_path, root_lines, &cli.defines, config.pp_macro_depth)?;
+    let graph = load_module_graph(
+        root_path,
+        root_lines,
+        &cli.defines,
+        &config.include_paths,
+        config.pp_macro_depth,
+    )?;
     let expanded_lines = Arc::new(graph.lines);
 
     let mut assembler = Assembler::new();

@@ -23,6 +23,7 @@ struct ModuleLoadContext<'a> {
     order: &'a mut Vec<(String, Vec<String>)>,
     stack: &'a mut Vec<String>,
     defines: &'a [String],
+    include_roots: &'a [PathBuf],
     pp_macro_depth: usize,
 }
 
@@ -286,9 +287,13 @@ pub(crate) fn resolve_output_base(
 pub(crate) fn expand_source_file(
     path: &Path,
     defines: &[String],
+    include_roots: &[PathBuf],
     pp_macro_depth: usize,
 ) -> Result<Vec<String>, AsmRunError> {
     let mut pp = Preprocessor::with_max_depth(pp_macro_depth);
+    for root in include_roots {
+        pp.add_include_root(root.clone());
+    }
     for def in defines {
         if let Some((name, value)) = def.split_once('=') {
             pp.define(name, value);
@@ -586,7 +591,12 @@ fn load_module_recursive(
     let info = &infos[0];
 
     ctx.stack.push(module_id.to_string());
-    let source_lines = expand_source_file(&info.path, ctx.defines, ctx.pp_macro_depth)?;
+    let source_lines = expand_source_file(
+        &info.path,
+        ctx.defines,
+        ctx.include_roots,
+        ctx.pp_macro_depth,
+    )?;
     let module_lines = if info.has_explicit_modules {
         extract_module_block(&source_lines, module_id).ok_or_else(|| {
             AsmRunError::new(
@@ -631,6 +641,7 @@ pub(crate) fn load_module_graph(
     root_path: &Path,
     root_lines: Vec<String>,
     defines: &[String],
+    include_roots: &[PathBuf],
     pp_macro_depth: usize,
 ) -> Result<ModuleGraphResult, AsmRunError> {
     let root_dir = module_search_root(root_path);
@@ -655,6 +666,7 @@ pub(crate) fn load_module_graph(
         order: &mut order,
         stack: &mut stack,
         defines,
+        include_roots,
         pp_macro_depth,
     };
     for dep in collect_use_directives(&root_lines) {

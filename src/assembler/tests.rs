@@ -302,9 +302,9 @@ fn assemble_example_with_base(
     let mut hex_file = File::create(&hex_path).map_err(|err| format!("Create hex file: {err}"))?;
 
     let root_path = asm_path;
-    let root_lines = expand_source_file(root_path, &[], 64)
+    let root_lines = expand_source_file(root_path, &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
-    let graph = load_module_graph(root_path, root_lines.clone(), &[], 64)
+    let graph = load_module_graph(root_path, root_lines.clone(), &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
     let expanded_lines = graph.lines;
 
@@ -369,9 +369,9 @@ fn assemble_example_entries_with_runtime_mode(
     asm_path: &Path,
     _enable_opthread_runtime: bool,
 ) -> AssembleEntriesResult {
-    let root_lines =
-        expand_source_file(asm_path, &[], 64).map_err(|err| format!("Preprocess failed: {err}"))?;
-    let graph = load_module_graph(asm_path, root_lines.clone(), &[], 64)
+    let root_lines = expand_source_file(asm_path, &[], &[], 64)
+        .map_err(|err| format!("Preprocess failed: {err}"))?;
+    let graph = load_module_graph(asm_path, root_lines.clone(), &[], &[], 64)
         .map_err(|err| format!("Preprocess failed: {err}"))?;
     let expanded_lines = graph.lines;
 
@@ -460,12 +460,12 @@ fn assemble_example_error(asm_path: &Path) -> Option<String> {
     let asm_name = asm_path.to_string_lossy().to_string();
 
     let root_path = Path::new(&asm_name);
-    let root_lines = match expand_source_file(root_path, &[], 64) {
+    let root_lines = match expand_source_file(root_path, &[], &[], 64) {
         Ok(lines) => lines,
         Err(err) => return Some(format!("Preprocess failed: {err}")),
     };
     let (expanded_lines, module_macro_names) =
-        match load_module_graph(root_path, root_lines.clone(), &[], 64) {
+        match load_module_graph(root_path, root_lines.clone(), &[], &[], 64) {
             Ok(graph) => (graph.lines, graph.module_macro_names),
             Err(err) => return Some(format!("Preprocess failed: {err}")),
         };
@@ -505,8 +505,8 @@ fn module_loader_orders_dependencies_before_root() {
         ".module lib\n    .pub\nVAL .const 2\n.endmodule\n",
     );
 
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let combined = load_module_graph(&root_path, root_lines, &[], 32)
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let combined = load_module_graph(&root_path, root_lines, &[], &[], 32)
         .expect("load graph")
         .lines;
 
@@ -532,8 +532,8 @@ fn module_loader_reports_missing_module() {
         ".module app\n    .use missing.mod\n.endmodule\n",
     );
 
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let err = load_module_graph(&root_path, root_lines, &[], 32)
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let err = load_module_graph(&root_path, root_lines, &[], &[], 32)
         .expect_err("expected missing module error");
     assert!(
         err.to_string().contains("Missing module"),
@@ -550,8 +550,8 @@ fn module_loader_missing_module_includes_import_stack() {
     write_file(&root_path, ".module app\n    .use lib\n.endmodule\n");
     write_file(&lib_path, ".module lib\n    .use missing\n.endmodule\n");
 
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let err = load_module_graph(&root_path, root_lines, &[], 32)
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let err = load_module_graph(&root_path, root_lines, &[], &[], 32)
         .expect_err("expected missing module error");
     let message = err.to_string();
     assert!(
@@ -572,12 +572,44 @@ fn module_loader_reports_ambiguous_module_id() {
     write_file(&a_path, ".module lib\n.endmodule\n");
     write_file(&b_path, ".module lib\n.endmodule\n");
 
-    let root_lines = expand_source_file(&root_path, &[], 32).expect("expand root");
-    let err = load_module_graph(&root_path, root_lines, &[], 32)
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let err = load_module_graph(&root_path, root_lines, &[], &[], 32)
         .expect_err("expected ambiguous module id");
     assert!(
         err.to_string().contains("Ambiguous module"),
         "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn expand_source_file_uses_include_roots_in_cli_order() {
+    let dir = create_temp_dir("include-roots-order");
+    let root_path = dir.join("main.asm");
+    let inc_a = dir.join("inc_a");
+    let inc_b = dir.join("inc_b");
+
+    fs::create_dir_all(&inc_a).expect("create include root a");
+    fs::create_dir_all(&inc_b).expect("create include root b");
+    write_file(&root_path, ".include \"defs.inc\"\n.byte VALUE\n");
+    write_file(&inc_a.join("defs.inc"), "VALUE .const 10\n");
+    write_file(&inc_b.join("defs.inc"), "VALUE .const 20\n");
+
+    let lines_a_then_b = expand_source_file(&root_path, &[], &[inc_a.clone(), inc_b.clone()], 32)
+        .expect("expand with include roots");
+    assert!(
+        lines_a_then_b
+            .iter()
+            .any(|line| line.contains("VALUE .const 10")),
+        "first include root should win"
+    );
+
+    let lines_b_then_a = expand_source_file(&root_path, &[], &[inc_b, inc_a], 32)
+        .expect("expand with swapped roots");
+    assert!(
+        lines_b_then_a
+            .iter()
+            .any(|line| line.contains("VALUE .const 20")),
+        "include resolution should follow command-line order"
     );
 }
 

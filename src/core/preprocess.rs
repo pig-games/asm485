@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::core::text_utils::{is_ident_char, is_ident_start, split_comment, to_upper, Cursor};
 
@@ -420,6 +420,7 @@ pub struct Preprocessor {
     cond_state: ConditionalState,
     lines: Vec<String>,
     in_asm_macro: bool,
+    include_roots: Vec<PathBuf>,
     max_depth: usize,
 }
 
@@ -434,8 +435,13 @@ impl Preprocessor {
             cond_state: ConditionalState::default(),
             lines: Vec::new(),
             in_asm_macro: false,
+            include_roots: Vec::new(),
             max_depth,
         }
+    }
+
+    pub fn add_include_root(&mut self, root: PathBuf) {
+        self.include_roots.push(root);
     }
 
     pub fn define(&mut self, name: &str, value: &str) {
@@ -644,8 +650,48 @@ impl Preprocessor {
         if r.is_empty() {
             return Err(PreprocessError::new("INCLUDE missing file"));
         }
-        let path = join_path(base_dir, r);
-        self.process_file_internal(&path)
+        let (path, searched) = self.resolve_include_path(base_dir, r);
+        if let Some(path) = path {
+            return self.process_file_internal(path.to_string_lossy().as_ref());
+        }
+
+        let searched_text = searched
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(PreprocessError::new(format!(
+            "INCLUDE file not found: {r} (searched: {searched_text})"
+        )))
+    }
+
+    fn resolve_include_path(
+        &self,
+        base_dir: &str,
+        include: &str,
+    ) -> (Option<PathBuf>, Vec<PathBuf>) {
+        let include_path = Path::new(include);
+        if include_path.is_absolute() {
+            let absolute = include_path.to_path_buf();
+            let found = if absolute.is_file() {
+                Some(absolute.clone())
+            } else {
+                None
+            };
+            return (found, vec![absolute]);
+        }
+
+        let mut candidates = Vec::new();
+        candidates.push(Path::new(base_dir).join(include));
+        for root in &self.include_roots {
+            candidates.push(root.join(include));
+        }
+
+        let found = candidates
+            .iter()
+            .find(|candidate| candidate.is_file())
+            .cloned();
+        (found, candidates)
     }
 
     fn is_active(&self) -> bool {
@@ -664,6 +710,7 @@ impl Default for Preprocessor {
             cond_state: ConditionalState::default(),
             lines: Vec::new(),
             in_asm_macro: false,
+            include_roots: Vec::new(),
             max_depth: 64,
         }
     }
@@ -760,17 +807,6 @@ fn dirname(path: &str) -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
-fn join_path(base: &str, rel: &str) -> String {
-    if rel.is_empty() {
-        return base.to_string();
-    }
-    let rel_path = Path::new(rel);
-    if rel_path.is_absolute() || base.is_empty() {
-        return rel.to_string();
-    }
-    Path::new(base).join(rel).to_string_lossy().into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{MacroDef, MacroExpander, Preprocessor};
@@ -780,6 +816,13 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_file(name: &str, contents: &str) -> PathBuf {
+        let dir = temp_dir();
+        let path = dir.join(name);
+        fs::write(&path, contents).unwrap();
+        path
+    }
+
+    fn temp_dir() -> PathBuf {
         let mut dir = std::env::temp_dir();
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -787,9 +830,7 @@ mod tests {
             .as_nanos();
         dir.push(format!("opForge-preproc-{}", nanos));
         fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(name);
-        fs::write(&path, contents).unwrap();
-        path
+        dir
     }
 
     #[test]
@@ -877,5 +918,48 @@ mod tests {
         pp.define("X", "X\\X");
         let err = pp.process_file(path.to_str().unwrap()).unwrap_err();
         assert!(err.message().contains("maximum depth"));
+    }
+
+    #[test]
+    fn include_prefers_including_file_directory_before_include_roots() {
+        let project = temp_dir();
+        let local = project.join("defs.inc");
+        let root = project.join("root");
+        fs::create_dir_all(&root).unwrap();
+        let root_defs = root.join("defs.inc");
+        let main = root.join("main.asm");
+
+        fs::write(&local, "VALUE .const 99\n").unwrap();
+        fs::write(&root_defs, "VALUE .const 42\n").unwrap();
+        fs::write(&main, ".include \"defs.inc\"\n.byte VALUE\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        pp.add_include_root(project);
+        pp.process_file(main.to_str().unwrap()).unwrap();
+        let lines = pp.lines();
+        assert!(lines.iter().any(|line| line.contains("VALUE .const 42")));
+        assert!(!lines.iter().any(|line| line.contains("VALUE .const 99")));
+    }
+
+    #[test]
+    fn include_missing_reports_all_searched_paths() {
+        let project = temp_dir();
+        let inc_a = project.join("inc-a");
+        let inc_b = project.join("inc-b");
+        fs::create_dir_all(&inc_a).unwrap();
+        fs::create_dir_all(&inc_b).unwrap();
+        let main = project.join("main.asm");
+        fs::write(&main, ".include \"missing.inc\"\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        pp.add_include_root(inc_a.clone());
+        pp.add_include_root(inc_b.clone());
+        let err = pp.process_file(main.to_str().unwrap()).unwrap_err();
+        let message = err.message();
+
+        assert!(message.contains("INCLUDE file not found: missing.inc"));
+        assert!(message.contains(project.join("missing.inc").to_string_lossy().as_ref()));
+        assert!(message.contains(inc_a.join("missing.inc").to_string_lossy().as_ref()));
+        assert!(message.contains(inc_b.join("missing.inc").to_string_lossy().as_ref()));
     }
 }
