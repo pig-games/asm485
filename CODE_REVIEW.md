@@ -561,7 +561,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **T-3** | Coverage | Low | Closed | Add hierarchy construction error-path tests |
 | **T-4** | Coverage | Low | Closed | Added rewrite error-path tests for empty-match, growth-limit, and token-limit failures |
 | **R-1** | Idiom | Low | Closed | Introduced idiomatic `EncodeOutcome<T> = Result<Option<T>, EncodeError>` with bidirectional conversion helpers and migrated assembler encode dispatch to the `Result<Option<_>>` flow while preserving `EncodeResult` compatibility at handler boundaries |
-| **Q-4** | Quality | Low | Partial | Tighten `pub fn` → `pub(crate) fn` on model methods |
+| **Q-4** | Quality | Low | Closed | Tightened internal `HierarchyExecutionModel` helper visibility to `pub(crate)` for assembler/runtime-internal paths (parser contract/program/budget + expr parser contract/budgets + portable-line parse), while preserving externally consumed policy/checklist surfaces as `pub` |
 | **Q-6** | Quality | Low | Closed | Grouped native 6502 ABI constants in `runtime::native6502_abi` and kept compatibility via re-export |
 | **Q-8** | Perf | Low | Partial | Reduced allocation-heavy lowercase sort keys in package canonicalization via allocation-free case-insensitive comparators; additional call-site cleanup remains |
 | **Q-9** | Perf | Low | Closed | Scoped resolved-lookup helpers now return borrowed entries (`Option<&T>`) |

@@ -940,7 +940,7 @@ impl HierarchyExecutionModel {
         Ok(self.token_policy_for_resolved(&resolved))
     }
 
-    pub fn resolve_parser_contract(
+    pub(crate) fn resolve_parser_contract(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
@@ -949,7 +949,7 @@ impl HierarchyExecutionModel {
         Ok(self.parser_contract_for_resolved(&resolved).cloned())
     }
 
-    pub fn validate_parser_contract_for_assembler(
+    pub(crate) fn validate_parser_contract_for_assembler(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
@@ -984,7 +984,7 @@ impl HierarchyExecutionModel {
         Ok(contract.clone())
     }
 
-    pub fn resolve_parser_vm_program(
+    pub(crate) fn resolve_parser_vm_program(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
@@ -1002,7 +1002,7 @@ impl HierarchyExecutionModel {
         Ok(self.expr_contract_for_resolved(&resolved).cloned())
     }
 
-    pub fn resolve_expr_parser_contract(
+    pub(crate) fn resolve_expr_parser_contract(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
@@ -1011,7 +1011,7 @@ impl HierarchyExecutionModel {
         Ok(self.expr_parser_contract_for_resolved(&resolved).cloned())
     }
 
-    pub fn resolve_expr_budgets(
+    pub(crate) fn resolve_expr_budgets(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
@@ -1034,7 +1034,7 @@ impl HierarchyExecutionModel {
         })
     }
 
-    pub fn enforce_parser_vm_program_budget_for_assembler(
+    pub(crate) fn enforce_parser_vm_program_budget_for_assembler(
         &self,
         parser_contract: &RuntimeParserContract,
         parser_vm_program: &RuntimeParserVmProgram,
@@ -1052,7 +1052,7 @@ impl HierarchyExecutionModel {
         Ok(())
     }
 
-    pub fn parse_portable_line_for_assembler(
+    pub(crate) fn parse_portable_line_for_assembler(
         &self,
         cpu_id: &str,
         dialect_override: Option<&str>,
