@@ -24,6 +24,9 @@ evaluation, parser VM interpreter, and native 6502 ABI + wire protocol.
 Both MOS 6502 and Intel 8080 families now default to `Authoritative` for all
 three rollout gates (runtime, expr eval, expr parser).
 
+Final closure update: see [7. Summary of Recommendations](#7-summary-of-recommendations),
+section **Final status (2026-02-22)**.
+
 ---
 
 ## 1. Rust Idiom
