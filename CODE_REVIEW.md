@@ -369,10 +369,18 @@ Current size after completion:
 This resolves the prior monolithic-file concern while preserving behavior and
 test coverage. **Severity: closed.**
 
-**Q-2. `package.rs` is 4,025 lines.** (Carried forward, now urgent.)
-Grew 41% from 2,843 lines. Natural split into `package/types.rs`,
-`package/encode.rs`, `package/decode.rs`, `package/canonicalize.rs`,
-`package/validate.rs`, `package/tests.rs`. **Severity: high.**
+**Q-2. `package.rs` modularization is complete.**
+The package codec/canonicalization/test surface is now split into focused
+submodules while preserving the existing package public API entry points.
+
+Current size after completion:
+- `package.rs`: **647** lines
+- `package/canonicalize.rs`: **450** lines
+- `package/codec.rs`: **1,575** lines
+- `package/tests.rs`: **1,341** lines
+
+This resolves the previous monolithic-file concern for package encoding/decoding
+and related support logic. **Severity: closed.**
 
 **Q-3. `token_bridge.rs` is 3,124 lines** (new file, born large).
 Split candidates: parser VM interpreter (~200 lines), directive parsers
@@ -535,7 +543,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **R-2** | Idiom | Medium | Closed | Replaced manual mirror-enum `From` boilerplate with shared macro-based bidirectional mappings for runtime/operator AST mirror enums |
 | **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
 | **Q-1** | Quality | **High** | Closed | Completed `runtime.rs` modularization across focused submodules (`runtime/portable_contract.rs`, `runtime/expression_bridge.rs`, `runtime/tokenizer_bridge.rs`, `runtime/encoding_bridge.rs`, `runtime/contract_bridge.rs`, `runtime/model_core_helpers.rs`, `runtime/runtime_expr_parser.rs`, `runtime/selector_bridge.rs`, `runtime/selector_encoding.rs`) and moved runtime tests into `runtime/tests.rs`; `runtime.rs` is now 1,269 lines |
-| **Q-2** | Quality | **High** | Partial | In progress: extracted inline package tests to `package/tests.rs` and moved package canonicalization logic into `package/canonicalize.rs` (preserving `pub(crate)` canonicalize API surface for builder/runtime callers); `package.rs` reduced to 2,126 lines, with codec encode/decode split still pending |
+| **Q-2** | Quality | **High** | Closed | Completed package modularization by extracting canonicalization (`package/canonicalize.rs`), codec/container + chunk encode/decode implementation (`package/codec.rs`), and tests (`package/tests.rs`) while keeping package public APIs (`encode_*`, `decode_hierarchy_chunks`, `load_hierarchy_package`, diagnostic catalog) stable via wrappers; `package.rs` is now 647 lines |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
 | **Q-5** | Quality | Medium | Closed | Added doc comments for token-bridge `pub(crate)` entry points |
 | **Q-7** | Perf | Medium | Closed | `vm_scan_next_core_token()` now reuses tokenizer state and scans incrementally |
