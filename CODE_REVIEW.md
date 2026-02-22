@@ -535,7 +535,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | **R-2** | Idiom | Medium | Closed | Replaced manual mirror-enum `From` boilerplate with shared macro-based bidirectional mappings for runtime/operator AST mirror enums |
 | **R-4** | Idiom | Medium | Closed | Replace `unreachable!()` with fallible return |
 | **Q-1** | Quality | **High** | Closed | Completed `runtime.rs` modularization across focused submodules (`runtime/portable_contract.rs`, `runtime/expression_bridge.rs`, `runtime/tokenizer_bridge.rs`, `runtime/encoding_bridge.rs`, `runtime/contract_bridge.rs`, `runtime/model_core_helpers.rs`, `runtime/runtime_expr_parser.rs`, `runtime/selector_bridge.rs`, `runtime/selector_encoding.rs`) and moved runtime tests into `runtime/tests.rs`; `runtime.rs` is now 1,269 lines |
-| **Q-2** | Quality | **High** | Worse | Split `package.rs` (4.0 kLOC → 6 submodules) |
+| **Q-2** | Quality | **High** | Partial | In progress: extracted inline package tests to `package/tests.rs`; `package.rs` reduced to 2,566 lines, remaining codec/canonicalization implementation split pending |
 | **Q-3** | Quality | Medium | New | Split `token_bridge.rs` (3.1 kLOC) |
 | **Q-5** | Quality | Medium | Closed | Added doc comments for token-bridge `pub(crate)` entry points |
 | **Q-7** | Perf | Medium | Closed | `vm_scan_next_core_token()` now reuses tokenizer state and scans incrementally |
