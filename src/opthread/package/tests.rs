@@ -1,4 +1,5 @@
 use super::*;
+use proptest::prelude::*;
 
 fn sample_families() -> Vec<FamilyDescriptor> {
     vec![
@@ -1335,6 +1336,41 @@ fn decode_mutated_container_deterministic_fuzz_never_panics() {
             }
             (left, right) => {
                 panic!("decode outcome changed for same bytes: first={left:?}, second={right:?}")
+            }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 96,
+        .. ProptestConfig::default()
+    })]
+
+    #[test]
+    fn decode_property_harness_is_deterministic_for_arbitrary_bytes(
+        bytes in proptest::collection::vec(any::<u8>(), 0..4096)
+    ) {
+        let first = decode_hierarchy_chunks(&bytes);
+        let second = decode_hierarchy_chunks(&bytes);
+
+        match (first, second) {
+            (Ok(left), Ok(right)) => {
+                prop_assert_eq!(left.families.len(), right.families.len());
+                prop_assert_eq!(left.cpus.len(), right.cpus.len());
+                prop_assert_eq!(left.dialects.len(), right.dialects.len());
+                prop_assert_eq!(left.forms.len(), right.forms.len());
+                prop_assert_eq!(left.tables.len(), right.tables.len());
+                prop_assert_eq!(left.selectors.len(), right.selectors.len());
+            }
+            (Err(left), Err(right)) => {
+                prop_assert_eq!(left.code(), right.code());
+            }
+            (left, right) => {
+                prop_assert!(
+                    false,
+                    "decode outcome changed for same bytes: first={left:?}, second={right:?}"
+                );
             }
         }
     }

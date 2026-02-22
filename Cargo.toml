@@ -9,6 +9,9 @@ repository = "https://github.com/pig-games/opForge"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 
+[dev-dependencies]
+proptest = "1"
+
 [features]
 default = []
 # Enables loading/writing opThread runtime package bytes as an on-disk artifact
