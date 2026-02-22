@@ -334,7 +334,8 @@ fn run_one(
     } else {
         Box::new(io::sink())
     };
-    let mut listing = ListingWriter::new(&mut *list_output, cli.debug_conditionals);
+    let mut listing =
+        ListingWriter::new_with_options(&mut *list_output, cli.debug_conditionals, config.tab_size);
     let cpu_name = assembler
         .registry
         .cpu_display_name(assembler.cpu())
@@ -527,7 +528,12 @@ fn run_one(
     }
 
     if let Some(path) = &config.labels_file {
-        emit_labels_file(path, assembler.symbols(), expanded_lines.clone())?;
+        emit_labels_file(
+            path,
+            config.label_output_format,
+            assembler.symbols(),
+            expanded_lines.clone(),
+        )?;
     }
 
     if let Some(policy) = &config.dependency_output {
@@ -568,6 +574,7 @@ fn make_escape_path(path: &str) -> String {
 
 fn emit_labels_file(
     path: &Path,
+    format: cli::LabelOutputFormat,
     symbols: &SymbolTable,
     source_lines: Arc<Vec<String>>,
 ) -> Result<(), AsmRunError> {
@@ -580,7 +587,21 @@ fn emit_labels_file(
 
     let mut output = String::new();
     for entry in entries {
-        output.push_str(&format!("{} = ${}\n", entry.name, format_addr(entry.val)));
+        let address = format_addr(entry.val);
+        match format {
+            cli::LabelOutputFormat::Default => {
+                output.push_str(&format!("{} = ${address}\n", entry.name));
+            }
+            cli::LabelOutputFormat::Vice => {
+                output.push_str(&format!("al C:${address} .{}\n", entry.name));
+            }
+            cli::LabelOutputFormat::Ctags => {
+                output.push_str(&format!(
+                    "{}\tlabels\t/^{}$/;\"\tv\n",
+                    entry.name, entry.name
+                ));
+            }
+        }
     }
 
     fs::write(path, output).map_err(|err| {

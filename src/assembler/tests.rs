@@ -832,6 +832,85 @@ fn run_with_cli_writes_labels_file() {
 }
 
 #[test]
+fn run_with_cli_writes_vice_labels_file() {
+    let dir = create_temp_dir("labels-file-vice");
+    let input = dir.join("labels.asm");
+    let list = dir.join("labels.lst");
+    let labels = dir.join("labels.lbl");
+    write_file(&input, "START: nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--labels",
+        labels.to_string_lossy().as_ref(),
+        "--vice-labels",
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with vice labels output");
+
+    let content = fs::read_to_string(&labels).expect("read labels file");
+    assert!(
+        content.contains("al C:$0000 .START"),
+        "missing vice label export: {content}"
+    );
+}
+
+#[test]
+fn run_with_cli_writes_ctags_labels_file() {
+    let dir = create_temp_dir("labels-file-ctags");
+    let input = dir.join("labels.asm");
+    let list = dir.join("labels.lst");
+    let labels = dir.join("labels.tags");
+    write_file(&input, "START: nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--labels",
+        labels.to_string_lossy().as_ref(),
+        "--ctags-labels",
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with ctags labels output");
+
+    let content = fs::read_to_string(&labels).expect("read labels file");
+    assert!(
+        content.contains("START\tlabels\t/^START$/;\"\tv"),
+        "missing ctags label export: {content}"
+    );
+}
+
+#[test]
+fn run_with_cli_tab_size_expands_listing_tabs() {
+    let dir = create_temp_dir("listing-tab-size");
+    let input = dir.join("tabbed.asm");
+    let list = dir.join("tabbed.lst");
+    write_file(&input, "\tlda\t#1\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--tab-size",
+        "4",
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with tab-size output");
+
+    let content = fs::read_to_string(&list).expect("read listing file");
+    assert!(
+        content.contains("    lda #1"),
+        "listing source tabs were not expanded: {content}"
+    );
+}
+
+#[test]
 fn capabilities_report_has_stable_header_and_features() {
     let text = capabilities_report();
     assert!(text.starts_with("opforge-capabilities-v1\n"));

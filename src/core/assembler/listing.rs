@@ -29,11 +29,24 @@ pub struct ListingLine<'a> {
 pub struct ListingWriter<W: Write> {
     out: W,
     show_cond: bool,
+    tab_size: Option<usize>,
 }
 
 impl<W: Write> ListingWriter<W> {
     pub fn new(out: W, show_cond: bool) -> Self {
-        Self { out, show_cond }
+        Self {
+            out,
+            show_cond,
+            tab_size: None,
+        }
+    }
+
+    pub fn new_with_options(out: W, show_cond: bool, tab_size: Option<usize>) -> Self {
+        Self {
+            out,
+            show_cond,
+            tab_size,
+        }
     }
 
     pub fn header(&mut self, title: &str) -> std::io::Result<()> {
@@ -73,6 +86,11 @@ impl<W: Write> ListingWriter<W> {
         } else {
             String::new()
         };
+        let source = if let Some(tab_size) = self.tab_size {
+            expand_tabs(line.source, tab_size)
+        } else {
+            line.source.to_string()
+        };
 
         writeln!(
             self.out,
@@ -80,7 +98,7 @@ impl<W: Write> ListingWriter<W> {
             loc,
             bytes_col,
             line.line_num,
-            line.source,
+            source,
             format_args!("{section_suffix}{cond_str}")
         )
     }
@@ -203,6 +221,25 @@ fn format_addr(addr: u32) -> String {
     }
 }
 
+fn expand_tabs(source: &str, tab_size: usize) -> String {
+    if tab_size == 0 {
+        return source.to_string();
+    }
+    let mut expanded = String::new();
+    let mut column = 0usize;
+    for ch in source.chars() {
+        if ch == '\t' {
+            let spaces = tab_size - (column % tab_size);
+            expanded.push_str(&" ".repeat(spaces));
+            column += spaces;
+        } else {
+            expanded.push(ch);
+            column += 1;
+        }
+    }
+    expanded
+}
+
 /// Format bytes as hex string for listing.
 pub fn format_bytes(bytes: &[u8]) -> String {
     bytes
@@ -266,5 +303,25 @@ mod tests {
         let text = String::from_utf8(out).expect("utf8");
         assert!(text.contains("010000"));
         assert!(text.contains("+123456"));
+    }
+
+    #[test]
+    fn listing_tab_size_expands_tabs_when_configured() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new_with_options(&mut out, false, Some(4));
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::Ok,
+                aux: 0,
+                line_num: 1,
+                source: "\tlda\t#1",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("    lda #1"));
     }
 }

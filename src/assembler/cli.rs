@@ -138,6 +138,22 @@ pub struct Cli {
     )]
     pub labels_file: Option<PathBuf>,
     #[arg(
+        long = "vice-labels",
+        action = ArgAction::SetTrue,
+        requires = "labels_file",
+        conflicts_with = "ctags_labels",
+        long_help = "Write --labels output in VICE-compatible format."
+    )]
+    pub vice_labels: bool,
+    #[arg(
+        long = "ctags-labels",
+        action = ArgAction::SetTrue,
+        requires = "labels_file",
+        conflicts_with = "vice_labels",
+        long_help = "Write --labels output in ctags-compatible format."
+    )]
+    pub ctags_labels: bool,
+    #[arg(
         long = "dependencies-append",
         action = ArgAction::SetTrue,
         requires = "dependencies_file",
@@ -182,6 +198,24 @@ pub struct Cli {
         long_help = "Append conditional assembly state to listing lines."
     )]
     pub debug_conditionals: bool,
+    #[arg(
+        long = "line-numbers",
+        action = ArgAction::SetTrue,
+        long_help = "Compatibility flag for listing output line-number column (enabled by default)."
+    )]
+    pub line_numbers: bool,
+    #[arg(
+        long = "tab-size",
+        value_name = "N",
+        long_help = "Expand tab characters in listing source text using N spaces."
+    )]
+    pub tab_size: Option<usize>,
+    #[arg(
+        long = "verbose-list",
+        action = ArgAction::SetTrue,
+        long_help = "Enable verbose listing mode (compatibility flag; reserved for expanded listing sections)."
+    )]
+    pub verbose_list: bool,
     #[arg(
         short = 'D',
         long = "define",
@@ -281,6 +315,14 @@ pub struct DependencyOutputPolicy {
     pub path: PathBuf,
     pub append: bool,
     pub make_phony: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LabelOutputFormat {
+    #[default]
+    Default,
+    Vice,
+    Ctags,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -840,6 +882,14 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         ));
     }
 
+    if matches!(cli.tab_size, Some(0)) {
+        return Err(AsmRunError::new(
+            AsmError::new(AsmErrorKind::Cli, "--tab-size must be at least 1", None),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
+
     Ok(CliConfig {
         input_paths,
         input_extensions,
@@ -852,6 +902,9 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         include_paths: cli.include_paths.clone(),
         module_paths: cli.module_paths.clone(),
         quiet: cli.quiet,
+        line_numbers: true,
+        tab_size: cli.tab_size,
+        verbose_list: cli.verbose_list,
         diagnostics_sink: if cli.no_error {
             DiagnosticsSinkConfig::Disabled
         } else if let Some(path) = &cli.error_file {
@@ -868,6 +921,13 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             treat_warnings_as_errors: cli.warn_error,
         },
         labels_file: cli.labels_file.clone(),
+        label_output_format: if cli.vice_labels {
+            LabelOutputFormat::Vice
+        } else if cli.ctags_labels {
+            LabelOutputFormat::Ctags
+        } else {
+            LabelOutputFormat::Default
+        },
         dependency_output: cli
             .dependencies_file
             .as_ref()
@@ -895,9 +955,13 @@ pub struct CliConfig {
     pub include_paths: Vec<PathBuf>,
     pub module_paths: Vec<PathBuf>,
     pub quiet: bool,
+    pub line_numbers: bool,
+    pub tab_size: Option<usize>,
+    pub verbose_list: bool,
     pub diagnostics_sink: DiagnosticsSinkConfig,
     pub warning_policy: WarningPolicy,
     pub labels_file: Option<PathBuf>,
+    pub label_output_format: LabelOutputFormat,
     pub dependency_output: Option<DependencyOutputPolicy>,
     pub pp_macro_depth: usize,
     pub default_outputs: bool,
@@ -945,6 +1009,10 @@ mod tests {
             "deps.mk",
             "--dependencies-append",
             "--make-phony",
+            "--line-numbers",
+            "--tab-size",
+            "4",
+            "--verbose-list",
             "--pp-macro-depth",
             "80",
             "-l",
@@ -966,6 +1034,9 @@ mod tests {
         assert!(!cli.print_capabilities);
         assert!(!cli.print_cpusupport);
         assert_eq!(cli.cpu.as_deref(), Some("m6502"));
+        assert!(cli.line_numbers);
+        assert_eq!(cli.tab_size, Some(4));
+        assert!(cli.verbose_list);
         assert_eq!(cli.labels_file, Some(PathBuf::from("symbols.lbl")));
         assert_eq!(cli.dependencies_file, Some(PathBuf::from("deps.mk")));
         assert!(cli.dependencies_append);
@@ -1079,6 +1150,13 @@ mod tests {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l", "--pp-macro-depth", "0"]);
         let err = validate_cli(&cli).unwrap_err();
         assert_eq!(err.to_string(), "--pp-macro-depth must be at least 1");
+    }
+
+    #[test]
+    fn validate_cli_rejects_zero_tab_size() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l", "--tab-size", "0"]);
+        let err = validate_cli(&cli).unwrap_err();
+        assert_eq!(err.to_string(), "--tab-size must be at least 1");
     }
 
     #[test]
