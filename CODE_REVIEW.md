@@ -576,7 +576,7 @@ expose `pub` fields but are themselves `pub(crate)`. Either make fields
 | S-1 (prior) | Track realized vs. planned spec sections | **Closed** — spec rewritten with boundary matrix + traceability appendix |
 | R-3.5 (prior) | Intel8080 `StagedVerification` vs docs | **Closed** — both families now `Authoritative` |
 | Q-6 (prior) | Feature flag auditing | **Closed** — prior feature flags removed; all opthread code unconditionally compiled |
-| D-3 (prior) | Builder table iteration boilerplate | **Open** — not addressed but lower priority now |
+| D-3 (prior) | Builder table iteration boilerplate | **Closed** — extracted shared MOS-style table emission helper and applied it to the four duplicated family/CPU table loops in `builder.rs` |
 | D-4 (prior) | `token_policy_for_test` / `default_family_token_policy` dup | Subsumed by D-6 |
 
 ---

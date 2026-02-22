@@ -570,111 +570,72 @@ pub fn build_hierarchy_chunks_from_registry(
     }
 
     if registered_family_ids.contains(MOS6502_FAMILY_ID.as_str()) {
-        for entry in FAMILY_INSTRUCTION_TABLE {
-            tables.push(VmProgramDescriptor {
-                owner: ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
-                mnemonic: entry.mnemonic.to_string(),
-                mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(
-                    entry.opcode,
-                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
-                ),
-            });
-            if let Some(selector) = compile_mode_selector(
-                ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
-                entry.mnemonic,
-                entry.mode,
-                false,
-            ) {
-                selectors.push(selector);
-            }
-            if has_m65816 {
-                if let Some(selector) =
-                    compile_m65816_immediate_width_selector(entry.mnemonic, entry.mode)
-                {
-                    selectors.push(selector);
-                }
-                selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
-            }
-        }
+        emit_mos_style_table_programs(
+            FAMILY_INSTRUCTION_TABLE,
+            ScopedOwner::Family(MOS6502_FAMILY_ID.as_str().to_string()),
+            &mut tables,
+            &mut selectors,
+            false,
+            has_m65816,
+            has_m65816,
+            false,
+            |_| true,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode,
+        );
     }
     if registered_cpu_ids.contains(M65C02_CPU_ID.as_str()) {
-        for entry in M65C02_CPU_INSTRUCTION_TABLE {
-            tables.push(VmProgramDescriptor {
-                owner: ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
-                mnemonic: entry.mnemonic.to_string(),
-                mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(
-                    entry.opcode,
-                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
-                ),
-            });
-            if let Some(selector) = compile_mode_selector(
-                ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
-                entry.mnemonic,
-                entry.mode,
-                false,
-            ) {
-                selectors.push(selector);
-            }
-        }
+        emit_mos_style_table_programs(
+            M65C02_CPU_INSTRUCTION_TABLE,
+            ScopedOwner::Cpu(M65C02_CPU_ID.as_str().to_string()),
+            &mut tables,
+            &mut selectors,
+            false,
+            false,
+            false,
+            false,
+            |_| true,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode,
+        );
         tables.extend(compile_m65c02_bit_branch_programs());
         selectors.extend(compile_m65c02_bit_branch_selectors());
     }
     if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
         let m65816_handler = M65816CpuHandler::new();
-        for entry in M65816_CPU_INSTRUCTION_TABLE {
-            tables.push(VmProgramDescriptor {
-                owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
-                mnemonic: entry.mnemonic.to_string(),
-                mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(
-                    entry.opcode,
-                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
-                ),
-            });
-            if let Some(selector) = compile_mode_selector(
-                ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
-                entry.mnemonic,
-                entry.mode,
-                true,
-            ) {
-                selectors.push(selector);
-            }
-            selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
-            selectors.extend(compile_m65816_long_mode_selectors(
-                entry.mnemonic,
-                entry.mode,
-            ));
-        }
-        for entry in M65C02_CPU_INSTRUCTION_TABLE {
-            if !<M65816CpuHandler as CpuHandler>::supports_mnemonic(&m65816_handler, entry.mnemonic)
-            {
-                continue;
-            }
-            tables.push(VmProgramDescriptor {
-                owner: ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
-                mnemonic: entry.mnemonic.to_string(),
-                mode_key: format!("{:?}", entry.mode),
-                program: compile_opcode_program(
-                    entry.opcode,
-                    if entry.mode.operand_size() > 0 { 1 } else { 0 },
-                ),
-            });
-            if let Some(selector) = compile_mode_selector(
-                ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string()),
-                entry.mnemonic,
-                entry.mode,
-                true,
-            ) {
-                selectors.push(selector);
-            }
-            selectors.extend(compile_m65816_force_selectors(entry.mnemonic, entry.mode));
-            selectors.extend(compile_m65816_long_mode_selectors(
-                entry.mnemonic,
-                entry.mode,
-            ));
-        }
+        let m65816_owner = ScopedOwner::Cpu(M65816_CPU_ID.as_str().to_string());
+        emit_mos_style_table_programs(
+            M65816_CPU_INSTRUCTION_TABLE,
+            m65816_owner.clone(),
+            &mut tables,
+            &mut selectors,
+            true,
+            false,
+            true,
+            true,
+            |_| true,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode,
+        );
+        emit_mos_style_table_programs(
+            M65C02_CPU_INSTRUCTION_TABLE,
+            m65816_owner,
+            &mut tables,
+            &mut selectors,
+            true,
+            false,
+            true,
+            true,
+            |entry| {
+                <M65816CpuHandler as CpuHandler>::supports_mnemonic(&m65816_handler, entry.mnemonic)
+            },
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode,
+        );
     }
 
     canonicalize_hierarchy_metadata(
@@ -875,6 +836,61 @@ fn compile_opcode_program(opcode: u8, operand_count: usize) -> Vec<u8> {
     }
     program.push(OP_END);
     program
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_mos_style_table_programs<T, I, FFilter, FMnemonic, FMode, FOpcode>(
+    entries: I,
+    owner: ScopedOwner,
+    tables: &mut Vec<VmProgramDescriptor>,
+    selectors: &mut Vec<ModeSelectorDescriptor>,
+    is_m65816: bool,
+    include_m65816_immediate_width_selectors: bool,
+    include_m65816_force_selectors_flag: bool,
+    include_m65816_long_mode_selectors_flag: bool,
+    include_entry: FFilter,
+    mnemonic_of: FMnemonic,
+    mode_of: FMode,
+    opcode_of: FOpcode,
+) where
+    I: IntoIterator<Item = T>,
+    FFilter: Fn(&T) -> bool,
+    FMnemonic: Fn(&T) -> &str,
+    FMode: Fn(&T) -> AddressMode,
+    FOpcode: Fn(&T) -> u8,
+{
+    for entry in entries {
+        if !include_entry(&entry) {
+            continue;
+        }
+
+        let mnemonic = mnemonic_of(&entry);
+        let mode = mode_of(&entry);
+        let opcode = opcode_of(&entry);
+
+        tables.push(VmProgramDescriptor {
+            owner: owner.clone(),
+            mnemonic: mnemonic.to_string(),
+            mode_key: format!("{:?}", mode),
+            program: compile_opcode_program(opcode, if mode.operand_size() > 0 { 1 } else { 0 }),
+        });
+
+        if let Some(selector) = compile_mode_selector(owner.clone(), mnemonic, mode, is_m65816) {
+            selectors.push(selector);
+        }
+
+        if include_m65816_immediate_width_selectors {
+            if let Some(selector) = compile_m65816_immediate_width_selector(mnemonic, mode) {
+                selectors.push(selector);
+            }
+        }
+        if include_m65816_force_selectors_flag {
+            selectors.extend(compile_m65816_force_selectors(mnemonic, mode));
+        }
+        if include_m65816_long_mode_selectors_flag {
+            selectors.extend(compile_m65816_long_mode_selectors(mnemonic, mode));
+        }
+    }
 }
 
 fn compile_mode_selector(
