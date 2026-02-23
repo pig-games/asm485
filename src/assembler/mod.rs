@@ -198,7 +198,7 @@ fn run_one(
     let root_path = Path::new(asm_name);
     let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
         root_path,
-        &cli.defines,
+        &config.defines,
         &config.include_paths,
         config.pp_macro_depth,
     )?;
@@ -206,7 +206,7 @@ fn run_one(
     let graph = load_module_graph(
         root_path,
         root_lines,
-        &cli.defines,
+        &config.defines,
         &config.include_paths,
         &config.module_paths,
         config.pp_macro_depth,
@@ -334,8 +334,11 @@ fn run_one(
     } else {
         Box::new(io::sink())
     };
-    let mut listing =
-        ListingWriter::new_with_options(&mut *list_output, cli.debug_conditionals, config.tab_size);
+    let mut listing = ListingWriter::new_with_options(
+        &mut *list_output,
+        config.debug_conditionals,
+        config.tab_size,
+    );
     let cpu_name = assembler
         .registry
         .cpu_display_name(assembler.cpu())

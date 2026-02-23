@@ -3,6 +3,7 @@
 
 //! Command-line interface parsing and argument validation.
 
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -678,11 +679,273 @@ fn normalize_extension_list(
     Ok(normalized)
 }
 
+fn cli_error(message: impl Into<String>) -> AsmRunError {
+    AsmRunError::new(
+        AsmError::new(AsmErrorKind::Cli, &message.into(), None),
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+fn parse_env_bool(var_name: &str) -> Result<Option<bool>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(None);
+    };
+    let value = raw.to_string_lossy().trim().to_ascii_lowercase();
+    let parsed = match value.as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        "" => None,
+        _ => {
+            return Err(cli_error(format!(
+                "Invalid boolean value for {var_name}: {value}"
+            )))
+        }
+    };
+    Ok(parsed)
+}
+
+fn parse_env_path(var_name: &str) -> Result<Option<PathBuf>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(None);
+    };
+    let value = raw.to_string_lossy().trim().to_string();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(PathBuf::from(value)))
+}
+
+fn parse_env_path_list(var_name: &str) -> Result<Vec<PathBuf>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(Vec::new());
+    };
+    let values: Vec<PathBuf> = env::split_paths(&raw)
+        .filter(|path| !path.as_os_str().is_empty())
+        .collect();
+    Ok(values)
+}
+
+fn parse_env_csv_list(var_name: &str) -> Result<Vec<String>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(Vec::new());
+    };
+    let value = raw.to_string_lossy();
+    Ok(value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect())
+}
+
+fn parse_env_usize(var_name: &str) -> Result<Option<usize>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(None);
+    };
+    let value = raw.to_string_lossy().trim().to_string();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<usize>()
+        .map(Some)
+        .map_err(|_| cli_error(format!("Invalid integer value for {var_name}: {value}")))
+}
+
+fn parse_env_string(var_name: &str) -> Result<Option<String>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(None);
+    };
+    let value = raw.to_string_lossy().trim().to_string();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(value))
+}
+
 /// Validate CLI arguments and return parsed configuration.
 pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
+    let env_cpu = parse_env_string("OPFORGE_CPU")?;
+    let env_include_paths = parse_env_path_list("OPFORGE_INCLUDE_PATHS")?;
+    let env_module_paths = parse_env_path_list("OPFORGE_MODULE_PATHS")?;
+    let env_input_asm_exts = parse_env_csv_list("OPFORGE_INPUT_ASM_EXTS")?;
+    let env_input_inc_exts = parse_env_csv_list("OPFORGE_INPUT_INC_EXTS")?;
+    let env_defines = parse_env_csv_list("OPFORGE_DEFINES")?;
+
+    let env_quiet = parse_env_bool("OPFORGE_QUIET")?;
+    let env_no_warn = parse_env_bool("OPFORGE_NO_WARN")?;
+    let env_warn_all = parse_env_bool("OPFORGE_WALL")?;
+    let env_warn_error = parse_env_bool("OPFORGE_WERROR")?;
+
+    let env_error_file = parse_env_path("OPFORGE_ERROR_FILE")?;
+    let env_error_append = parse_env_bool("OPFORGE_ERROR_APPEND")?;
+    let env_no_error = parse_env_bool("OPFORGE_NO_ERROR")?;
+
+    let env_dependencies_file = parse_env_path("OPFORGE_DEPENDENCIES_FILE")?;
+    let env_dependencies_append = parse_env_bool("OPFORGE_DEPENDENCIES_APPEND")?;
+    let env_make_phony = parse_env_bool("OPFORGE_MAKE_PHONY")?;
+
+    let env_labels_file = parse_env_path("OPFORGE_LABELS_FILE")?;
+    let env_labels_format = parse_env_string("OPFORGE_LABELS_FORMAT")?;
+
+    let env_tab_size = parse_env_usize("OPFORGE_TAB_SIZE")?;
+    let env_line_numbers = parse_env_bool("OPFORGE_LINE_NUMBERS")?;
+    let env_verbose_list = parse_env_bool("OPFORGE_VERBOSE_LIST")?;
+    let env_cond_debug = parse_env_bool("OPFORGE_COND_DEBUG")?;
+
+    let env_fill_byte = parse_env_string("OPFORGE_FILL_BYTE")?;
+    let env_pp_macro_depth = parse_env_usize("OPFORGE_PP_MACRO_DEPTH")?;
+
+    let mut effective_asm_exts = env_input_asm_exts;
+    effective_asm_exts.extend(cli.input_asm_exts.clone());
+    let mut effective_inc_exts = env_input_inc_exts;
+    effective_inc_exts.extend(cli.input_inc_exts.clone());
+
+    let mut effective_include_paths = env_include_paths;
+    effective_include_paths.extend(cli.include_paths.clone());
+    let mut effective_module_paths = env_module_paths;
+    effective_module_paths.extend(cli.module_paths.clone());
+
+    let mut effective_defines = env_defines;
+    effective_defines.extend(cli.defines.clone());
+
+    let effective_cpu = cli.cpu.clone().or(env_cpu);
+
+    let effective_quiet = if cli.quiet {
+        true
+    } else {
+        env_quiet.unwrap_or(false)
+    };
+
+    let effective_no_warn = if cli.no_warn {
+        true
+    } else if cli.warn_all || cli.warn_error {
+        false
+    } else {
+        env_no_warn.unwrap_or(false)
+    };
+
+    let effective_warn_all = if cli.warn_all {
+        true
+    } else if effective_no_warn {
+        false
+    } else {
+        env_warn_all.unwrap_or(false)
+    };
+
+    let effective_warn_error = if cli.warn_error {
+        true
+    } else if effective_no_warn {
+        false
+    } else {
+        env_warn_error.unwrap_or(false)
+    };
+
+    let effective_error_file = if cli.error_file.is_some() {
+        cli.error_file.clone()
+    } else {
+        env_error_file
+    };
+
+    let effective_error_append = if cli.error_append {
+        true
+    } else {
+        env_error_append.unwrap_or(false)
+    };
+
+    let effective_no_error = if cli.no_error {
+        true
+    } else if cli.error_file.is_some() {
+        false
+    } else {
+        env_no_error.unwrap_or(false)
+    };
+
+    let effective_dependencies_file = if cli.dependencies_file.is_some() {
+        cli.dependencies_file.clone()
+    } else {
+        env_dependencies_file
+    };
+
+    let effective_dependencies_append = if cli.dependencies_append {
+        true
+    } else {
+        env_dependencies_append.unwrap_or(false)
+    };
+
+    let effective_make_phony = if cli.make_phony {
+        true
+    } else {
+        env_make_phony.unwrap_or(false)
+    };
+
+    let effective_labels_file = if cli.labels_file.is_some() {
+        cli.labels_file.clone()
+    } else {
+        env_labels_file
+    };
+
+    let env_label_output_format = match env_labels_format
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("default") | None => LabelOutputFormat::Default,
+        Some("vice") => LabelOutputFormat::Vice,
+        Some("ctags") => LabelOutputFormat::Ctags,
+        Some(other) => return Err(cli_error(format!(
+            "Invalid OPFORGE_LABELS_FORMAT value: {other}. Expected one of: default, vice, ctags"
+        ))),
+    };
+
+    let effective_label_output_format = if cli.vice_labels {
+        LabelOutputFormat::Vice
+    } else if cli.ctags_labels {
+        LabelOutputFormat::Ctags
+    } else {
+        env_label_output_format
+    };
+
+    let effective_tab_size = if cli.tab_size.is_some() {
+        cli.tab_size
+    } else {
+        env_tab_size
+    };
+
+    let effective_line_numbers = if cli.line_numbers {
+        true
+    } else {
+        env_line_numbers.unwrap_or(true)
+    };
+
+    let effective_verbose_list = if cli.verbose_list {
+        true
+    } else {
+        env_verbose_list.unwrap_or(false)
+    };
+
+    let effective_cond_debug = if cli.debug_conditionals {
+        true
+    } else {
+        env_cond_debug.unwrap_or(false)
+    };
+
+    let effective_fill_byte = if cli.fill_byte.is_some() {
+        cli.fill_byte.clone()
+    } else {
+        env_fill_byte
+    };
+
+    let effective_pp_macro_depth = if cli.pp_macro_depth != 64 {
+        cli.pp_macro_depth
+    } else {
+        env_pp_macro_depth.unwrap_or(cli.pp_macro_depth)
+    };
+
     let input_extensions = InputExtensionPolicy {
-        asm_exts: normalize_extension_list(&cli.input_asm_exts, &["asm"], "--input-asm-ext")?,
-        inc_exts: normalize_extension_list(&cli.input_inc_exts, &["inc"], "--input-inc-ext")?,
+        asm_exts: normalize_extension_list(&effective_asm_exts, &["asm"], "--input-asm-ext")?,
+        inc_exts: normalize_extension_list(&effective_inc_exts, &["inc"], "--input-inc-ext")?,
     };
 
     let input_paths = if !cli.infiles.is_empty() {
@@ -809,8 +1072,8 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         ));
     }
 
-    let fill_byte_set = cli.fill_byte.is_some();
-    let fill_byte = match cli.fill_byte.as_deref() {
+    let fill_byte_set = effective_fill_byte.is_some();
+    let fill_byte = match effective_fill_byte.as_deref() {
         Some(fill) => {
             if !is_valid_hex_2(fill) {
                 return Err(AsmRunError::new(
@@ -870,7 +1133,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         None
     };
 
-    if cli.pp_macro_depth == 0 {
+    if effective_pp_macro_depth == 0 {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -882,7 +1145,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         ));
     }
 
-    if matches!(cli.tab_size, Some(0)) {
+    if matches!(effective_tab_size, Some(0)) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Cli, "--tab-size must be at least 1", None),
             Vec::new(),
@@ -890,53 +1153,62 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         ));
     }
 
+    if (effective_dependencies_append || effective_make_phony)
+        && effective_dependencies_file.is_none()
+    {
+        return Err(cli_error(
+            "--dependencies-append/--make-phony requires --dependencies",
+        ));
+    }
+
+    if effective_label_output_format != LabelOutputFormat::Default
+        && effective_labels_file.is_none()
+    {
+        return Err(cli_error("--vice-labels/--ctags-labels requires --labels"));
+    }
+
     Ok(CliConfig {
         input_paths,
         input_extensions,
-        cpu_override: cli.cpu.clone(),
+        cpu_override: effective_cpu,
         go_addr,
         bin_specs,
         fill_byte,
         fill_byte_set,
         out_dir,
-        include_paths: cli.include_paths.clone(),
-        module_paths: cli.module_paths.clone(),
-        quiet: cli.quiet,
-        line_numbers: true,
-        tab_size: cli.tab_size,
-        verbose_list: cli.verbose_list,
-        diagnostics_sink: if cli.no_error {
+        defines: effective_defines,
+        include_paths: effective_include_paths,
+        module_paths: effective_module_paths,
+        quiet: effective_quiet,
+        line_numbers: effective_line_numbers,
+        tab_size: effective_tab_size,
+        verbose_list: effective_verbose_list,
+        debug_conditionals: effective_cond_debug,
+        diagnostics_sink: if effective_no_error {
             DiagnosticsSinkConfig::Disabled
-        } else if let Some(path) = &cli.error_file {
+        } else if let Some(path) = &effective_error_file {
             DiagnosticsSinkConfig::File {
                 path: path.clone(),
-                append: cli.error_append,
+                append: effective_error_append,
             }
         } else {
             DiagnosticsSinkConfig::Stderr
         },
         warning_policy: WarningPolicy {
-            emit_warnings: !cli.no_warn,
-            enable_all_warnings: cli.warn_all,
-            treat_warnings_as_errors: cli.warn_error,
+            emit_warnings: !effective_no_warn,
+            enable_all_warnings: effective_warn_all,
+            treat_warnings_as_errors: effective_warn_error,
         },
-        labels_file: cli.labels_file.clone(),
-        label_output_format: if cli.vice_labels {
-            LabelOutputFormat::Vice
-        } else if cli.ctags_labels {
-            LabelOutputFormat::Ctags
-        } else {
-            LabelOutputFormat::Default
-        },
-        dependency_output: cli
-            .dependencies_file
-            .as_ref()
-            .map(|path| DependencyOutputPolicy {
+        labels_file: effective_labels_file,
+        label_output_format: effective_label_output_format,
+        dependency_output: effective_dependencies_file.as_ref().map(|path| {
+            DependencyOutputPolicy {
                 path: path.clone(),
-                append: cli.dependencies_append,
-                make_phony: cli.make_phony,
-            }),
-        pp_macro_depth: cli.pp_macro_depth,
+                append: effective_dependencies_append,
+                make_phony: effective_make_phony,
+            }
+        }),
+        pp_macro_depth: effective_pp_macro_depth,
         default_outputs,
     })
 }
@@ -947,6 +1219,7 @@ pub struct CliConfig {
     pub input_paths: Vec<PathBuf>,
     pub input_extensions: InputExtensionPolicy,
     pub cpu_override: Option<String>,
+    pub defines: Vec<String>,
     pub go_addr: Option<String>,
     pub bin_specs: Vec<BinOutputSpec>,
     pub fill_byte: u8,
@@ -958,6 +1231,7 @@ pub struct CliConfig {
     pub line_numbers: bool,
     pub tab_size: Option<usize>,
     pub verbose_list: bool,
+    pub debug_conditionals: bool,
     pub diagnostics_sink: DiagnosticsSinkConfig,
     pub warning_policy: WarningPolicy,
     pub labels_file: Option<PathBuf>,
@@ -971,8 +1245,11 @@ pub struct CliConfig {
 mod tests {
     use super::*;
     use clap::Parser;
+    use std::env;
+    use std::ffi::OsString;
     use std::fs;
     use std::process;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn range_0000_ffff() -> BinRange {
@@ -983,6 +1260,47 @@ mod tests {
         InputExtensionPolicy {
             asm_exts: vec!["asm".to_string()],
             inc_exts: vec!["inc".to_string()],
+        }
+    }
+
+    fn with_env_vars(vars: &[(&str, Option<&str>)], test: impl FnOnce()) {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("lock env mutex");
+
+        let saved: Vec<(String, Option<OsString>)> = vars
+            .iter()
+            .map(|(key, _)| (key.to_string(), env::var_os(key)))
+            .collect();
+
+        for (key, value) in vars {
+            match value {
+                Some(value) => {
+                    // SAFETY: tests serialize env access via ENV_LOCK.
+                    unsafe { env::set_var(key, value) }
+                }
+                None => {
+                    // SAFETY: tests serialize env access via ENV_LOCK.
+                    unsafe { env::remove_var(key) }
+                }
+            }
+        }
+
+        test();
+
+        for (key, value) in saved {
+            match value {
+                Some(value) => {
+                    // SAFETY: tests serialize env access via ENV_LOCK.
+                    unsafe { env::set_var(key, value) }
+                }
+                None => {
+                    // SAFETY: tests serialize env access via ENV_LOCK.
+                    unsafe { env::remove_var(key) }
+                }
+            }
         }
     }
 
@@ -1157,6 +1475,98 @@ mod tests {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l", "--tab-size", "0"]);
         let err = validate_cli(&cli).unwrap_err();
         assert_eq!(err.to_string(), "--tab-size must be at least 1");
+    }
+
+    #[test]
+    fn validate_cli_applies_env_defaults_when_cli_not_set() {
+        with_env_vars(
+            &[
+                ("OPFORGE_CPU", Some("m65816")),
+                ("OPFORGE_INCLUDE_PATHS", Some("inc:shared")),
+                ("OPFORGE_MODULE_PATHS", Some("mods")),
+                ("OPFORGE_DEFINES", Some("BUILD=1,MODE=test")),
+                ("OPFORGE_TAB_SIZE", Some("8")),
+                ("OPFORGE_COND_DEBUG", Some("true")),
+            ],
+            || {
+                let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
+                let config = validate_cli(&cli).expect("validate cli");
+                assert_eq!(config.cpu_override.as_deref(), Some("m65816"));
+                assert_eq!(
+                    config.include_paths,
+                    vec![PathBuf::from("inc"), PathBuf::from("shared")]
+                );
+                assert_eq!(config.module_paths, vec![PathBuf::from("mods")]);
+                assert_eq!(
+                    config.defines,
+                    vec!["BUILD=1".to_string(), "MODE=test".to_string()]
+                );
+                assert_eq!(config.tab_size, Some(8));
+                assert!(config.debug_conditionals);
+            },
+        );
+    }
+
+    #[test]
+    fn validate_cli_cli_values_override_env_values() {
+        with_env_vars(
+            &[
+                ("OPFORGE_CPU", Some("m65816")),
+                ("OPFORGE_QUIET", Some("true")),
+                ("OPFORGE_TAB_SIZE", Some("8")),
+            ],
+            || {
+                let cli = Cli::parse_from([
+                    "opForge",
+                    "-i",
+                    "prog.asm",
+                    "-l",
+                    "--cpu",
+                    "m6502",
+                    "--tab-size",
+                    "4",
+                ]);
+                let config = validate_cli(&cli).expect("validate cli");
+                assert_eq!(config.cpu_override.as_deref(), Some("m6502"));
+                assert_eq!(config.tab_size, Some(4));
+                assert!(config.quiet);
+            },
+        );
+    }
+
+    #[test]
+    fn validate_cli_rejects_invalid_env_boolean_value() {
+        with_env_vars(&[("OPFORGE_WERROR", Some("maybe"))], || {
+            let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
+            let err = validate_cli(&cli).expect_err("invalid env bool should fail");
+            assert!(err
+                .to_string()
+                .contains("Invalid boolean value for OPFORGE_WERROR"));
+        });
+    }
+
+    #[test]
+    fn validate_cli_rejects_label_format_without_labels_file() {
+        with_env_vars(&[("OPFORGE_LABELS_FORMAT", Some("vice"))], || {
+            let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
+            let err = validate_cli(&cli).expect_err("labels format without labels should fail");
+            assert_eq!(
+                err.to_string(),
+                "--vice-labels/--ctags-labels requires --labels"
+            );
+        });
+    }
+
+    #[test]
+    fn validate_cli_rejects_dependency_append_without_dependency_file() {
+        with_env_vars(&[("OPFORGE_DEPENDENCIES_APPEND", Some("1"))], || {
+            let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
+            let err = validate_cli(&cli).expect_err("dependency append without file should fail");
+            assert_eq!(
+                err.to_string(),
+                "--dependencies-append/--make-phony requires --dependencies"
+            );
+        });
     }
 
     #[test]
