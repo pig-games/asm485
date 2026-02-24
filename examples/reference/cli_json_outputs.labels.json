@@ -1,0 +1,19 @@
+{
+  "labels": [
+    {
+      "address": "002A",
+      "name": "INIT_VALUE",
+      "value": 42
+    },
+    {
+      "address": "2000",
+      "name": "START",
+      "value": 8192
+    },
+    {
+      "address": "2001",
+      "name": "VALUE",
+      "value": 8193
+    }
+  ]
+}

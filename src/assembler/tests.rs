@@ -1067,6 +1067,152 @@ fn run_with_cli_writes_dependencies_as_json_line_in_json_mode() {
     assert!(value["phony_targets"].is_array());
 }
 
+fn json_array_as_sorted_filenames(value: &serde_json::Value, key: &str) -> Vec<String> {
+    let mut names: Vec<String> = value[key]
+        .as_array()
+        .unwrap_or_else(|| panic!("{key} should be an array"))
+        .iter()
+        .map(|entry| {
+            let raw = entry
+                .as_str()
+                .unwrap_or_else(|| panic!("{key} entry should be a string"));
+            let unescaped = raw.replace("\\ ", " ");
+            Path::new(&unescaped)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(unescaped.as_str())
+                .to_string()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn cli_json_outputs_example_matches_reference() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let examples_dir = repo_root.join("examples");
+    let reference_dir = examples_dir.join("reference");
+    let update_reference = std::env::var("opForge_UPDATE_REFERENCE").is_ok();
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let out_dir =
+        repo_root
+            .join("target")
+            .join(format!("json-output-example-{}-{}", process::id(), nanos));
+    fs::create_dir_all(&out_dir).expect("create json output test directory");
+    if update_reference {
+        fs::create_dir_all(&reference_dir).expect("create reference directory");
+    }
+
+    let input = examples_dir.join("cli_json_outputs.asm");
+    let list = out_dir.join("cli_json_outputs.lst");
+    let hex = out_dir.join("cli_json_outputs.hex");
+    let labels = out_dir.join("cli_json_outputs.labels.json");
+    let deps = out_dir.join("cli_json_outputs.dependencies.jsonl");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "--format",
+        "json",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "-x",
+        hex.to_string_lossy().as_ref(),
+        "--labels",
+        labels.to_string_lossy().as_ref(),
+        "--dependencies",
+        deps.to_string_lossy().as_ref(),
+        "--make-phony",
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds for json output fixture");
+
+    let labels_content = fs::read_to_string(&labels).expect("read labels json output");
+    let labels_value: serde_json::Value =
+        serde_json::from_str(&labels_content).expect("parse labels json output");
+
+    let deps_content = fs::read_to_string(&deps).expect("read dependencies jsonl output");
+    let deps_line = deps_content
+        .lines()
+        .next()
+        .expect("dependencies json output should have one line");
+    let deps_value: serde_json::Value =
+        serde_json::from_str(deps_line).expect("parse dependencies json output");
+
+    let normalized_deps = serde_json::json!({
+        "targets": json_array_as_sorted_filenames(&deps_value, "targets"),
+        "dependencies": json_array_as_sorted_filenames(&deps_value, "dependencies"),
+        "make_phony": deps_value["make_phony"],
+        "phony_targets": json_array_as_sorted_filenames(&deps_value, "phony_targets"),
+    });
+
+    let labels_ref_path = reference_dir.join("cli_json_outputs.labels.json");
+    let deps_ref_path = reference_dir.join("cli_json_outputs.dependencies.json");
+
+    if update_reference {
+        let labels_text =
+            serde_json::to_string_pretty(&labels_value).expect("serialize labels reference") + "\n";
+        fs::write(&labels_ref_path, labels_text).unwrap_or_else(|err| {
+            panic!(
+                "Failed to write labels reference {}: {err}",
+                labels_ref_path.display()
+            )
+        });
+
+        let deps_text = serde_json::to_string_pretty(&normalized_deps)
+            .expect("serialize dependencies reference")
+            + "\n";
+        fs::write(&deps_ref_path, deps_text).unwrap_or_else(|err| {
+            panic!(
+                "Failed to write dependencies reference {}: {err}",
+                deps_ref_path.display()
+            )
+        });
+        return;
+    }
+
+    let expected_labels: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&labels_ref_path).unwrap_or_else(|err| {
+            panic!(
+                "Missing labels reference {}: {err}",
+                labels_ref_path.display()
+            )
+        }))
+        .unwrap_or_else(|err| {
+            panic!(
+                "Invalid labels reference JSON {}: {err}",
+                labels_ref_path.display()
+            )
+        });
+    assert_eq!(
+        labels_value, expected_labels,
+        "labels JSON reference mismatch"
+    );
+
+    let expected_deps: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&deps_ref_path).unwrap_or_else(|err| {
+            panic!(
+                "Missing dependencies reference {}: {err}",
+                deps_ref_path.display()
+            )
+        }))
+        .unwrap_or_else(|err| {
+            panic!(
+                "Invalid dependencies reference JSON {}: {err}",
+                deps_ref_path.display()
+            )
+        });
+    assert_eq!(
+        normalized_deps, expected_deps,
+        "dependencies JSON reference mismatch"
+    );
+}
+
 #[test]
 fn default_native_diagnostic_codes_are_declared_in_vm_catalog() {
     let package = build_hierarchy_package_from_registry(&default_registry())
@@ -1108,9 +1254,21 @@ fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
-    assert_eq!(native_diag.severity(), runtime_diag.severity(), "severity parity mismatch");
-    assert_eq!(native_diag.line(), runtime_diag.line(), "line parity mismatch");
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
     assert_eq!(
         native_diag.column(),
         runtime_diag.column(),
@@ -1133,9 +1291,21 @@ fn vm_native_diagnostic_parity_for_instruction_error_code_severity_span() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
-    assert_eq!(native_diag.severity(), runtime_diag.severity(), "severity parity mismatch");
-    assert_eq!(native_diag.line(), runtime_diag.line(), "line parity mismatch");
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
     assert_eq!(
         native_diag.column(),
         runtime_diag.column(),

@@ -1,0 +1,15 @@
+{
+  "dependencies": [
+    "cli_json_outputs.asm",
+    "cli_json_outputs.inc"
+  ],
+  "make_phony": true,
+  "phony_targets": [
+    "cli_json_outputs.asm",
+    "cli_json_outputs.inc"
+  ],
+  "targets": [
+    "cli_json_outputs.hex",
+    "cli_json_outputs.lst"
+  ]
+}

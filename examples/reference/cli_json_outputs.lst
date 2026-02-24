@@ -1,0 +1,25 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; CLI JSON output fixture for labels/dependencies
+----    EQU 002A                    2  INIT_VALUE .const $2A
+----                                3  
+----    EQU 2000                    4  .org $2000
+2000    00                          5  START  nop
+2001    2A                          6  VALUE  .byte INIT_VALUE
+
+Lines: 6  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+INIT_VALUE      : 002a (42)
+START           : 2000 (8192)
+VALUE           : 2001 (8193)
+
+Total memory is 2 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    00 2A
