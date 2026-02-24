@@ -1,0 +1,7 @@
+Assembly failed:
+5: ERROR [asm202]
+    5 |         .endsectio
+        ^
+help: did you mean .endsection?
+suggestion: replace 5:9-19 with ".ENDSECTION"
+ERROR: Unknown directive .ENDSECTIO

@@ -1,0 +1,7 @@
+Assembly failed:
+4: ERROR [asm202]
+    4 |         .enidf
+        ^
+help: did you mean .endif?
+suggestion: replace 4:9-15 with ".ENDIF"
+ERROR: Unknown directive .ENIDF
