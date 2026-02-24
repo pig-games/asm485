@@ -55,6 +55,13 @@ impl M45GS02CpuHandler {
             (mnemonic, false)
         }
     }
+
+    fn supports_relfar_branch(mnemonic: &str) -> bool {
+        matches!(
+            mnemonic,
+            "BPL" | "BMI" | "BVC" | "BSR" | "BVS" | "BRA" | "BCC" | "BCS" | "BNE" | "BEQ"
+        )
+    }
 }
 
 impl CpuHandler for M45GS02CpuHandler {
@@ -70,6 +77,53 @@ impl CpuHandler for M45GS02CpuHandler {
         family_operands: &[FamilyOperand],
         ctx: &dyn AssemblerContext,
     ) -> Result<Vec<Operand>, String> {
+        let upper_mnemonic = Self::upper_mnemonic(mnemonic);
+
+        if family_operands.len() == 1
+            && Self::supports_relfar_branch(&upper_mnemonic)
+            && matches!(family_operands[0], FamilyOperand::Direct(_))
+        {
+            let expr = match &family_operands[0] {
+                FamilyOperand::Direct(expr) => expr,
+                _ => unreachable!(),
+            };
+
+            let target = ctx.eval_expr(expr)?;
+            let span = expr_span(expr);
+
+            if upper_mnemonic == "BSR" {
+                let far_offset = target - (ctx.current_address() as i64 + 3);
+                if !(-32768..=32767).contains(&far_offset) {
+                    if ctx.pass() > 1 {
+                        return Err(format!(
+                            "Far branch target out of range: offset {}",
+                            far_offset
+                        ));
+                    }
+                    return Ok(vec![Operand::RelativeLong(0, span)]);
+                }
+                return Ok(vec![Operand::RelativeLong(far_offset as i16, span)]);
+            }
+
+            let short_offset = target - (ctx.current_address() as i64 + 2);
+            if (-128..=127).contains(&short_offset) {
+                return Ok(vec![Operand::Relative(short_offset as i8, span)]);
+            }
+
+            let far_offset = target - (ctx.current_address() as i64 + 3);
+            if !(-32768..=32767).contains(&far_offset) {
+                if ctx.pass() > 1 {
+                    return Err(format!(
+                        "Far branch target out of range: offset {}",
+                        far_offset
+                    ));
+                }
+                return Ok(vec![Operand::RelativeLong(0, span)]);
+            }
+
+            return Ok(vec![Operand::RelativeLong(far_offset as i16, span)]);
+        }
+
         if family_operands.is_empty() {
             return Ok(vec![Operand::Implied]);
         }
@@ -129,7 +183,11 @@ impl CpuHandler for M45GS02CpuHandler {
         };
 
         if let Some(entry) = lookup_instruction(&upper, mode) {
-            return EncodeResult::Ok(vec![entry.opcode]);
+            let mut bytes = vec![entry.opcode];
+            if let Some(operand) = operands.first() {
+                bytes.extend(operand.value_bytes());
+            }
+            return EncodeResult::Ok(bytes);
         }
 
         let (mapped_mnemonic, q_prefix) = Self::map_mnemonic(&upper);
@@ -306,6 +364,57 @@ mod tests {
         match &resolved[0] {
             Operand::IndirectIndexedZ(value, _) => assert_eq!(*value, 32),
             other => panic!("unexpected operand: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolves_relfar_when_short_branch_is_out_of_range() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+        let family_operands = vec![FamilyOperand::Direct(Expr::Number(
+            "256".to_string(),
+            Span::default(),
+        ))];
+
+        let resolved = handler
+            .resolve_operands("bpl", &family_operands, &ctx)
+            .expect("resolve relfar branch");
+        assert_eq!(resolved.len(), 1);
+        match &resolved[0] {
+            Operand::RelativeLong(value, _) => assert_eq!(*value, 253),
+            other => panic!("expected RelativeLong, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolves_short_branch_when_offset_fits() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+        let family_operands = vec![FamilyOperand::Direct(Expr::Number(
+            "5".to_string(),
+            Span::default(),
+        ))];
+
+        let resolved = handler
+            .resolve_operands("bpl", &family_operands, &ctx)
+            .expect("resolve short branch");
+        assert_eq!(resolved.len(), 1);
+        match &resolved[0] {
+            Operand::Relative(value, _) => assert_eq!(*value, 3),
+            other => panic!("expected Relative, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encodes_relfar_branch_operand() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+        let operand = Operand::RelativeLong(253, Span::default());
+
+        match handler.encode_instruction("bpl", &[operand], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x13, 0xFD, 0x00]),
+            EncodeResult::NotFound => panic!("bpl relfar encoding not found"),
+            EncodeResult::Error(message, _span) => panic!("bpl relfar encoding failed: {message}"),
         }
     }
 }
