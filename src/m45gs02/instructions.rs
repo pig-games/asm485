@@ -157,6 +157,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mode: AddressMode::Absolute,
         opcode: 0xCC,
     },
+    CpuInstructionEntry {
+        mnemonic: "PHW",
+        mode: AddressMode::Immediate,
+        opcode: 0xF4,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PHW",
+        mode: AddressMode::Absolute,
+        opcode: 0xEC,
+    },
 ];
 
 pub fn lookup_instruction(

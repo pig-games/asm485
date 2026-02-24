@@ -139,6 +139,13 @@ impl CpuHandler for M45GS02CpuHandler {
 
         if family_operands.len() == 1 {
             match &family_operands[0] {
+                FamilyOperand::Immediate(expr) if upper_mnemonic == "PHW" => {
+                    let value = ctx.eval_expr(expr)?;
+                    if !(0..=65535).contains(&value) {
+                        return Err(format!("Immediate value {} out of range (0-65535)", value));
+                    }
+                    return Ok(vec![Operand::ImmediateWord(value as u16, expr_span(expr))]);
+                }
                 FamilyOperand::IndirectIndexedZ(expr) => {
                     let value = ctx.eval_expr(expr)?;
                     if !(0..=255).contains(&value) {
@@ -166,6 +173,14 @@ impl CpuHandler for M45GS02CpuHandler {
                     )]);
                 }
                 FamilyOperand::Direct(expr) => {
+                    if upper_mnemonic == "PHW" {
+                        let value = ctx.eval_expr(expr)?;
+                        if !(0..=65535).contains(&value) {
+                            return Err(format!("Address {} out of 16-bit range", value));
+                        }
+                        return Ok(vec![Operand::Absolute(value as u16, expr_span(expr))]);
+                    }
+
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute)
                     {
@@ -648,6 +663,60 @@ mod tests {
         match &resolved[0] {
             Operand::Absolute(value, _) => assert_eq!(*value, 32),
             other => panic!("expected Absolute, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolves_phw_immediate_and_absolute_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let immediate_operands = vec![FamilyOperand::Immediate(Expr::Number(
+            "4660".to_string(),
+            Span::default(),
+        ))];
+        let resolved_imm = handler
+            .resolve_operands("phw", &immediate_operands, &ctx)
+            .expect("resolve phw immediate");
+        match &resolved_imm[0] {
+            Operand::ImmediateWord(value, _) => assert_eq!(*value, 4660),
+            other => panic!("expected ImmediateWord, got {other:?}"),
+        }
+
+        let absolute_operands = vec![FamilyOperand::Direct(Expr::Number(
+            "8192".to_string(),
+            Span::default(),
+        ))];
+        let resolved_abs = handler
+            .resolve_operands("phw", &absolute_operands, &ctx)
+            .expect("resolve phw absolute");
+        match &resolved_abs[0] {
+            Operand::Absolute(value, _) => assert_eq!(*value, 8192),
+            other => panic!("expected Absolute, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encodes_phw_immediate_and_absolute_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let phw_imm = Operand::ImmediateWord(0x1234, Span::default());
+        match handler.encode_instruction("phw", &[phw_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xF4, 0x34, 0x12]),
+            EncodeResult::NotFound => panic!("phw immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("phw immediate encoding failed: {message}")
+            }
+        }
+
+        let phw_abs = Operand::Absolute(0x2000, Span::default());
+        match handler.encode_instruction("phw", &[phw_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xEC, 0x00, 0x20]),
+            EncodeResult::NotFound => panic!("phw absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("phw absolute encoding failed: {message}")
+            }
         }
     }
 }
