@@ -4,7 +4,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                1          .module demo
 ----    EQU 2000                    2          .org 2000h
 2000    3E 11                       3  start   mvi a,11h
-    4 | <source unavailable>
+    4 | <end of file>
 ERROR: Found .module without .endmodule
 
 Lines: 3  Errors: 1  Warnings: 0

@@ -5,9 +5,9 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                2          .section code  ; [section code]
 ----    EQU 2000                    3          .org 2000h  ; [section code]
 2000    3E 11                       4  start   mvi a,11h  ; [section code]
-    5 | <source unavailable>
+    5 | <end of file>
 ERROR: Found .module without .endmodule
-    5 | <source unavailable>
+    5 | <end of file>
 ERROR: Found .section without .endsection
 
 Lines: 4  Errors: 2  Warnings: 0

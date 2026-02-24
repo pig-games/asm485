@@ -452,7 +452,12 @@ pub fn build_context_lines(
     };
 
     if line_idx >= lines.len() {
-        out.push(format!("{:>5} | <source unavailable>", line_num));
+        let marker = if line_idx == lines.len() {
+            "<end of file>"
+        } else {
+            "<source unavailable>"
+        };
+        out.push(format!("{:>5} | {marker}", line_num));
         return out;
     }
 
