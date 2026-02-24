@@ -1675,6 +1675,12 @@ fn vm_native_parity_for_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
+    assert_eq!(
         native_diag.fixits().len(),
         runtime_diag.fixits().len(),
         "fixit count parity mismatch"
@@ -1719,6 +1725,12 @@ fn vm_native_parity_for_endmod_directive_typo_fixit_payload() {
         runtime_diag.code(),
         "code parity mismatch"
     );
+    assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
     assert_eq!(
         native_diag.fixits().len(),
         runtime_diag.fixits().len(),
@@ -1765,6 +1777,12 @@ fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
+    assert_eq!(
         native_diag.fixits().len(),
         runtime_diag.fixits().len(),
         "fixit count parity mismatch"
@@ -1810,6 +1828,12 @@ fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
+    assert_eq!(
         native_diag.fixits().len(),
         runtime_diag.fixits().len(),
         "fixit count parity mismatch"
@@ -1854,6 +1878,12 @@ fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
         runtime_diag.code(),
         "code parity mismatch"
     );
+    assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
     assert_eq!(
         native_diag.fixits().len(),
         runtime_diag.fixits().len(),
