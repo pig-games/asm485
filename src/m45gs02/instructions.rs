@@ -98,6 +98,41 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xF3,
     },
     CpuInstructionEntry {
+        mnemonic: "CLC",
+        mode: AddressMode::Implied,
+        opcode: 0x08,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SEC",
+        mode: AddressMode::Implied,
+        opcode: 0x28,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLI",
+        mode: AddressMode::Implied,
+        opcode: 0x48,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SEI",
+        mode: AddressMode::Implied,
+        opcode: 0x68,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLV",
+        mode: AddressMode::Implied,
+        opcode: 0xA8,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLD",
+        mode: AddressMode::Implied,
+        opcode: 0xC8,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SED",
+        mode: AddressMode::Implied,
+        opcode: 0xE8,
+    },
+    CpuInstructionEntry {
         mnemonic: "DEY",
         mode: AddressMode::Implied,
         opcode: 0x78,
