@@ -4,7 +4,9 @@
 //! 45GS02 CPU handler implementation.
 
 use crate::core::assembler::expression::expr_span;
-use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler};
+use crate::core::family::{
+    expr_has_unstable_symbols, AssemblerContext, CpuHandler, EncodeResult, FamilyHandler,
+};
 use crate::families::mos6502::{AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand};
 use crate::m45gs02::instructions::{has_mnemonic, lookup_instruction};
 
@@ -61,6 +63,10 @@ impl M45GS02CpuHandler {
             mnemonic,
             "BPL" | "BMI" | "BVC" | "BSR" | "BVS" | "BRA" | "BCC" | "BCS" | "BNE" | "BEQ"
         )
+    }
+
+    fn has_cpu_mode(mnemonic: &str, mode: AddressMode) -> bool {
+        lookup_instruction(mnemonic, mode).is_some()
     }
 }
 
@@ -128,6 +134,9 @@ impl CpuHandler for M45GS02CpuHandler {
             return Ok(vec![Operand::Implied]);
         }
 
+        let (mapped_mnemonic, _is_q_mode) = Self::map_mnemonic(mnemonic);
+        let mapped_upper = Self::upper_mnemonic(mapped_mnemonic);
+
         if family_operands.len() == 1 {
             match &family_operands[0] {
                 FamilyOperand::IndirectIndexedZ(expr) => {
@@ -156,11 +165,97 @@ impl CpuHandler for M45GS02CpuHandler {
                         expr_span(expr),
                     )]);
                 }
+                FamilyOperand::Direct(expr) => {
+                    if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage)
+                        || Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute)
+                    {
+                        let value = ctx.eval_expr(expr)?;
+                        let span = expr_span(expr);
+
+                        if !(0..=65535).contains(&value) {
+                            return Err(format!("Address {} out of 16-bit range", value));
+                        }
+
+                        let has_zp = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage);
+                        let has_abs = Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute);
+                        let unstable = expr_has_unstable_symbols(expr, ctx);
+
+                        if (0..=255).contains(&value) {
+                            if (!has_zp || unstable) && has_abs {
+                                return Ok(vec![Operand::Absolute(value as u16, span)]);
+                            }
+                            if has_zp {
+                                return Ok(vec![Operand::ZeroPage(value as u8, span)]);
+                            }
+                        }
+
+                        if has_abs {
+                            return Ok(vec![Operand::Absolute(value as u16, span)]);
+                        }
+                    }
+                }
+                FamilyOperand::DirectX(expr) => {
+                    if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageX)
+                        || Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteX)
+                    {
+                        let value = ctx.eval_expr(expr)?;
+                        let span = expr_span(expr);
+
+                        if !(0..=65535).contains(&value) {
+                            return Err(format!("Address {} out of 16-bit range", value));
+                        }
+
+                        let has_zp_x = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageX);
+                        let has_abs_x = Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteX);
+                        let unstable = expr_has_unstable_symbols(expr, ctx);
+
+                        if (0..=255).contains(&value) {
+                            if (!has_zp_x || unstable) && has_abs_x {
+                                return Ok(vec![Operand::AbsoluteX(value as u16, span)]);
+                            }
+                            if has_zp_x {
+                                return Ok(vec![Operand::ZeroPageX(value as u8, span)]);
+                            }
+                        }
+
+                        if has_abs_x {
+                            return Ok(vec![Operand::AbsoluteX(value as u16, span)]);
+                        }
+                    }
+                }
+                FamilyOperand::DirectY(expr) => {
+                    if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageY)
+                        || Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteY)
+                    {
+                        let value = ctx.eval_expr(expr)?;
+                        let span = expr_span(expr);
+
+                        if !(0..=65535).contains(&value) {
+                            return Err(format!("Address {} out of 16-bit range", value));
+                        }
+
+                        let has_zp_y = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageY);
+                        let has_abs_y = Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteY);
+                        let unstable = expr_has_unstable_symbols(expr, ctx);
+
+                        if (0..=255).contains(&value) {
+                            if (!has_zp_y || unstable) && has_abs_y {
+                                return Ok(vec![Operand::AbsoluteY(value as u16, span)]);
+                            }
+                            if has_zp_y {
+                                return Ok(vec![Operand::ZeroPageY(value as u8, span)]);
+                            }
+                        }
+
+                        if has_abs_y {
+                            return Ok(vec![Operand::AbsoluteY(value as u16, span)]);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
 
-        let (mapped_mnemonic, _is_q_mode) = Self::map_mnemonic(mnemonic);
         <crate::m65c02::M65C02CpuHandler as CpuHandler>::resolve_operands(
             &self.baseline,
             mapped_mnemonic,
@@ -477,6 +572,82 @@ mod tests {
             EncodeResult::Error(message, _span) => {
                 panic!("cpz zero-page encoding failed: {message}")
             }
+        }
+    }
+
+    #[test]
+    fn resolves_ldz_directx_to_absolutex_when_zero_page_x_mode_is_unavailable() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+        let family_operands = vec![FamilyOperand::DirectX(Expr::Number(
+            "32".to_string(),
+            Span::default(),
+        ))];
+
+        let resolved = handler
+            .resolve_operands("ldz", &family_operands, &ctx)
+            .expect("resolve ldz directx");
+        assert_eq!(resolved.len(), 1);
+        match &resolved[0] {
+            Operand::AbsoluteX(value, _) => assert_eq!(*value, 32),
+            other => panic!("expected AbsoluteX, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolves_cpz_direct_to_absolute_for_unstable_symbol() {
+        struct UnstableSymbolContext {
+            symbols: SymbolTable,
+        }
+
+        impl AssemblerContext for UnstableSymbolContext {
+            fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+                match expr {
+                    Expr::Identifier(name, _) if name.eq_ignore_ascii_case("target") => Ok(32),
+                    Expr::Number(text, _) => text
+                        .parse::<i64>()
+                        .map_err(|_| format!("unable to parse numeric literal '{text}'")),
+                    _ => Err("unsupported expression for test context".to_string()),
+                }
+            }
+
+            fn symbols(&self) -> &SymbolTable {
+                &self.symbols
+            }
+
+            fn has_symbol(&self, _name: &str) -> bool {
+                false
+            }
+
+            fn symbol_is_finalized(&self, _name: &str) -> Option<bool> {
+                None
+            }
+
+            fn current_address(&self) -> u32 {
+                0
+            }
+
+            fn pass(&self) -> u8 {
+                1
+            }
+        }
+
+        let handler = M45GS02CpuHandler::new();
+        let ctx = UnstableSymbolContext {
+            symbols: SymbolTable::new(),
+        };
+        let family_operands = vec![FamilyOperand::Direct(Expr::Identifier(
+            "target".to_string(),
+            Span::default(),
+        ))];
+
+        let resolved = handler
+            .resolve_operands("cpz", &family_operands, &ctx)
+            .expect("resolve cpz direct unstable");
+        assert_eq!(resolved.len(), 1);
+        match &resolved[0] {
+            Operand::Absolute(value, _) => assert_eq!(*value, 32),
+            other => panic!("expected Absolute, got {other:?}"),
         }
     }
 }
