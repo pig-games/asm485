@@ -98,6 +98,26 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xF3,
     },
     CpuInstructionEntry {
+        mnemonic: "STY",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x7B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STY",
+        mode: AddressMode::Absolute,
+        opcode: 0x7C,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STX",
+        mode: AddressMode::Absolute,
+        opcode: 0x7E,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STX",
+        mode: AddressMode::AbsoluteY,
+        opcode: 0x8B,
+    },
+    CpuInstructionEntry {
         mnemonic: "ORA",
         mode: AddressMode::AbsoluteX,
         opcode: 0x0D,

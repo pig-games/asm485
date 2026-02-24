@@ -919,6 +919,48 @@ mod tests {
     }
 
     #[test]
+    fn encodes_sty_stx_absolute_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let sty_abs_x = Operand::AbsoluteX(0x3000, Span::default());
+        match handler.encode_instruction("sty", &[sty_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x7B, 0x00, 0x30]),
+            EncodeResult::NotFound => panic!("sty absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sty absolute x encoding failed: {message}")
+            }
+        }
+
+        let sty_abs = Operand::Absolute(0x3002, Span::default());
+        match handler.encode_instruction("sty", &[sty_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x7C, 0x02, 0x30]),
+            EncodeResult::NotFound => panic!("sty absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sty absolute encoding failed: {message}")
+            }
+        }
+
+        let stx_abs = Operand::Absolute(0x3004, Span::default());
+        match handler.encode_instruction("stx", &[stx_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x7E, 0x04, 0x30]),
+            EncodeResult::NotFound => panic!("stx absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("stx absolute encoding failed: {message}")
+            }
+        }
+
+        let stx_abs_y = Operand::AbsoluteY(0x3006, Span::default());
+        match handler.encode_instruction("stx", &[stx_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x8B, 0x06, 0x30]),
+            EncodeResult::NotFound => panic!("stx absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("stx absolute y encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();
