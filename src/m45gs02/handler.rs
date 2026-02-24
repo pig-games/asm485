@@ -841,6 +841,84 @@ mod tests {
     }
 
     #[test]
+    fn encodes_absolute_x_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let ora_abs_x = Operand::AbsoluteX(0x2100, Span::default());
+        match handler.encode_instruction("ora", &[ora_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x0D, 0x00, 0x21]),
+            EncodeResult::NotFound => panic!("ora absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("ora absolute x encoding failed: {message}")
+            }
+        }
+
+        let and_abs_x = Operand::AbsoluteX(0x2102, Span::default());
+        match handler.encode_instruction("and", &[and_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x2D, 0x02, 0x21]),
+            EncodeResult::NotFound => panic!("and absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("and absolute x encoding failed: {message}")
+            }
+        }
+
+        let eor_abs_x = Operand::AbsoluteX(0x2104, Span::default());
+        match handler.encode_instruction("eor", &[eor_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x4D, 0x04, 0x21]),
+            EncodeResult::NotFound => panic!("eor absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("eor absolute x encoding failed: {message}")
+            }
+        }
+
+        let adc_abs_x = Operand::AbsoluteX(0x2106, Span::default());
+        match handler.encode_instruction("adc", &[adc_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x6D, 0x06, 0x21]),
+            EncodeResult::NotFound => panic!("adc absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("adc absolute x encoding failed: {message}")
+            }
+        }
+
+        let sta_abs_x = Operand::AbsoluteX(0x2108, Span::default());
+        match handler.encode_instruction("sta", &[sta_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x8D, 0x08, 0x21]),
+            EncodeResult::NotFound => panic!("sta absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sta absolute x encoding failed: {message}")
+            }
+        }
+
+        let lda_abs_x = Operand::AbsoluteX(0x210A, Span::default());
+        match handler.encode_instruction("lda", &[lda_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xAD, 0x0A, 0x21]),
+            EncodeResult::NotFound => panic!("lda absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("lda absolute x encoding failed: {message}")
+            }
+        }
+
+        let cmp_abs_x = Operand::AbsoluteX(0x210C, Span::default());
+        match handler.encode_instruction("cmp", &[cmp_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xCD, 0x0C, 0x21]),
+            EncodeResult::NotFound => panic!("cmp absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("cmp absolute x encoding failed: {message}")
+            }
+        }
+
+        let sbc_abs_x = Operand::AbsoluteX(0x210E, Span::default());
+        match handler.encode_instruction("sbc", &[sbc_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xED, 0x0E, 0x21]),
+            EncodeResult::NotFound => panic!("sbc absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sbc absolute x encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();
