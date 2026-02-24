@@ -1,0 +1,24 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1          .cpu 8085
+----    EQU 2000                    2          .org 2000h
+----                                3  
+2000    3E 11                       4          mvi a,11h
+----                                5          .endif
+    5 |         .endif
+              ^
+ERROR: .endif found without matching .if
+
+Lines: 5  Errors: 1  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 2 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    3E 11

@@ -1,0 +1,23 @@
+opForge 8085 Assembler v1.0
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1          .module demo
+----                                2          .section code  ; [section code]
+----    EQU 2000                    3          .org 2000h  ; [section code]
+2000    3E 11                       4  start   mvi a,11h  ; [section code]
+    5 | <source unavailable>
+ERROR: Found .module without .endmodule
+    5 | <source unavailable>
+ERROR: Found .section without .endsection
+
+Lines: 4  Errors: 2  Warnings: 0
+
+SYMBOL TABLE
+
+demo.start      : 2000 (8192)
+
+Total memory is 0 bytes
+
+GENERATED OUTPUT
+
+(none)
