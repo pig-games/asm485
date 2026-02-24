@@ -58,6 +58,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0x73,
     },
     CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0x82,
+    },
+    CpuInstructionEntry {
         mnemonic: "BRA",
         mode: AddressMode::RelativeLong,
         opcode: 0x83,
@@ -191,6 +196,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mnemonic: "INW",
         mode: AddressMode::ZeroPage,
         opcode: 0xE3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::StackRelativeIndirectIndexedY,
+        opcode: 0xE2,
     },
     CpuInstructionEntry {
         mnemonic: "ASW",
