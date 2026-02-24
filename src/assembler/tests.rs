@@ -1384,7 +1384,11 @@ fn default_native_diagnostic_codes_are_declared_in_vm_catalog() {
 }
 
 fn assert_vm_native_diagnostic_core_parity(native_diag: &Diagnostic, runtime_diag: &Diagnostic) {
-    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
     assert_eq!(
         native_diag.notes(),
         runtime_diag.notes(),
@@ -1400,7 +1404,11 @@ fn assert_vm_native_diagnostic_core_parity(native_diag: &Diagnostic, runtime_dia
         runtime_diag.severity(),
         "severity parity mismatch"
     );
-    assert_eq!(native_diag.line(), runtime_diag.line(), "line parity mismatch");
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
     assert_eq!(
         native_diag.column(),
         runtime_diag.column(),
@@ -1438,7 +1446,10 @@ fn assert_vm_native_first_fixit_parity(native_diag: &Diagnostic, runtime_diag: &
         native_fixit.applicability, runtime_fixit.applicability,
         "fixit applicability parity mismatch"
     );
-    assert_eq!(native_fixit.line, runtime_fixit.line, "fixit line parity mismatch");
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
     assert_eq!(
         native_fixit.col_start, runtime_fixit.col_start,
         "fixit column start parity mismatch"
@@ -1455,7 +1466,11 @@ fn assert_vm_native_help_parity(native_diag: &Diagnostic, runtime_diag: &Diagnos
         runtime_diag.help().len(),
         "help count parity mismatch"
     );
-    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
+    assert_eq!(
+        native_diag.help(),
+        runtime_diag.help(),
+        "help text parity mismatch"
+    );
 }
 
 #[test]
@@ -1524,8 +1539,7 @@ fn vm_native_parity_for_dialect_fixit_payload() {
 
 #[test]
 fn intel8085_parser_error_with_z80_mnemonic_emits_dialect_fixit_hint() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, "LD A,", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, "LD A,", true);
     assert_eq!(status, LineStatus::Error, "expected parser error");
 
     let diag = diag.expect("diagnostic expected");
@@ -1608,8 +1622,7 @@ fn unknown_directive_endsect_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn unknown_directive_endsec_typo_emits_machine_applicable_fixit() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endsec", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endsec", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
 
     let diag = diag.expect("diagnostic expected");
@@ -1655,8 +1668,7 @@ fn unknown_directive_esleif_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn unknown_directive_elsif_typo_emits_machine_applicable_fixit() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elsif 1", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elsif 1", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
 
     let diag = diag.expect("diagnostic expected");
@@ -1671,8 +1683,7 @@ fn unknown_directive_elsif_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn unknown_directive_elif_typo_emits_machine_applicable_fixit() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elif 1", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elif 1", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
 
     let diag = diag.expect("diagnostic expected");
@@ -1687,8 +1698,7 @@ fn unknown_directive_elif_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn unknown_directive_elsfi_typo_emits_machine_applicable_fixit() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elsfi 1", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elsfi 1", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
 
     let diag = diag.expect("diagnostic expected");
@@ -1719,8 +1729,7 @@ fn unknown_directive_endmodle_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn unknown_directive_enidf_typo_emits_machine_applicable_fixit() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".enidf", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".enidf", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
 
     let diag = diag.expect("diagnostic expected");
@@ -1783,8 +1792,7 @@ fn unknown_directive_endsectio_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn unknown_directive_endmatc_typo_emits_machine_applicable_fixit() {
-    let (status, diag) =
-        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endmatc", true);
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endmatc", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
 
     let diag = diag.expect("diagnostic expected");

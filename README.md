@@ -15,7 +15,7 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 
 For full documentation on features and syntax, read the [opForge Reference Manual](documentation/opForge-reference-manual.md).
 For VM host/boundary semantics, see [VM Boundary & Protocol Specification (v1)](documentation/vm-boundary-protocol-v1.md).
-For version-specific 65816 implementation scope and limits, see [RELEASE_NOTES_v0.9.1.md](RELEASE_NOTES_v0.9.1.md).
+For version-specific 65816 implementation scope and limits, see [RELEASE_NOTES_v0.9.2.md](RELEASE_NOTES_v0.9.2.md).
 
 Build:
 
