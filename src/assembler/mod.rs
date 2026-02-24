@@ -4452,7 +4452,7 @@ impl<'a> AsmLine<'a> {
             ".EDIF" | ".ENDFI" | ".ENIDF" => ".ENDIF",
             ".ESLEIF" | ".ELSIEF" | ".ELSIF" | ".ELIF" | ".ELSFI" | ".ELSEFI" => ".ELSEIF",
             ".ENDMOD" | ".ENDMODUL" | ".ENDMODLE" | ".ENDMODUEL" => ".ENDMODULE",
-            ".ENDSECT" | ".ENDSECTON" | ".ENDSEC" => ".ENDSECTION",
+            ".ENDSECT" | ".ENDSECTON" | ".ENDSEC" | ".ENDSECTIO" => ".ENDSECTION",
             ".ENDMACH" | ".ENDMTACH" => ".ENDMATCH",
             _ => return None,
         };
