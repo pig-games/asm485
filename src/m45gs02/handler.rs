@@ -543,6 +543,8 @@ mod tests {
             ("tab", 0x4B),
             ("tza", 0x5B),
             ("tba", 0x6B),
+            ("phz", 0xCB),
+            ("plz", 0xEB),
             ("tsy", 0xFB),
         ];
 

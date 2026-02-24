@@ -128,6 +128,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xFB,
     },
     CpuInstructionEntry {
+        mnemonic: "PHZ",
+        mode: AddressMode::Implied,
+        opcode: 0xCB,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PLZ",
+        mode: AddressMode::Implied,
+        opcode: 0xEB,
+    },
+    CpuInstructionEntry {
         mnemonic: "LDZ",
         mode: AddressMode::Immediate,
         opcode: 0xA3,
