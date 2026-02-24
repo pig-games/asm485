@@ -7,7 +7,7 @@
         .region bank12, $123400, $12341f
 
         .section code
-start:
+start
         rep #$30
         sep #$10
         lda $123456

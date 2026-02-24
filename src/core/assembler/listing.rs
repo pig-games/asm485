@@ -9,6 +9,7 @@ use std::io::Write;
 use crate::core::parser::ParseError;
 use crate::core::parser_reporter::format_parse_error_listing;
 use crate::core::symbol_table::SymbolTable;
+use crate::core::text_utils::{is_ident_start, split_comment, Cursor};
 
 use super::conditional::ConditionalContext;
 use super::error::{build_context_lines, LineStatus, PassCounts};
@@ -86,10 +87,11 @@ impl<W: Write> ListingWriter<W> {
         } else {
             String::new()
         };
+        let normalized_source = normalize_leading_label_colon(line.source);
         let source = if let Some(tab_size) = self.tab_size {
-            expand_tabs(line.source, tab_size)
+            expand_tabs(&normalized_source, tab_size)
         } else {
-            line.source.to_string()
+            normalized_source
         };
 
         writeln!(
@@ -211,6 +213,43 @@ impl<W: Write> ListingWriter<W> {
     }
 }
 
+fn normalize_leading_label_colon(source: &str) -> String {
+    let (code, comment) = split_comment(source);
+    let mut cursor = Cursor::new(code);
+    cursor.skip_ws();
+    let indent_end = cursor.pos();
+    let Some(first) = cursor.peek() else {
+        return source.to_string();
+    };
+    if matches!(first, b'.' | b'*' | b';' | b'#') {
+        return source.to_string();
+    }
+    if !is_ident_start(first) {
+        return source.to_string();
+    }
+    let Some(label) = cursor.take_ident() else {
+        return source.to_string();
+    };
+    if cursor.peek() != Some(b':') {
+        return source.to_string();
+    }
+    cursor.next();
+
+    let remainder = &code[cursor.pos()..];
+    let mut normalized = String::with_capacity(source.len() + 1);
+    normalized.push_str(&code[..indent_end]);
+    normalized.push_str(&label);
+    if !remainder.is_empty() {
+        let needs_space = !remainder.starts_with(' ') && !remainder.starts_with('\t');
+        if needs_space {
+            normalized.push(' ');
+        }
+        normalized.push_str(remainder);
+    }
+    normalized.push_str(comment);
+    normalized
+}
+
 fn format_addr(addr: u32) -> String {
     if addr <= 0xFFFF {
         format!("{addr:04X}")
@@ -323,5 +362,47 @@ mod tests {
             .expect("write listing line");
         let text = String::from_utf8(out).expect("utf8");
         assert!(text.contains("    lda #1"));
+    }
+
+    #[test]
+    fn listing_normalizes_leading_label_colon() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::Ok,
+                aux: 0,
+                line_num: 1,
+                source: "label: nop",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("label nop"));
+        assert!(!text.contains("label: nop"));
+    }
+
+    #[test]
+    fn listing_normalizes_tight_label_colon() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::Ok,
+                aux: 0,
+                line_num: 1,
+                source: "label:nop",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("label nop"));
+        assert!(!text.contains("label:nop"));
     }
 }

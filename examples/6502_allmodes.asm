@@ -169,7 +169,7 @@
 ; ========================================
 ; RELATIVE MODE: Branches
 ; ========================================
-branch_test:
+branch_test
         bcc branch_test ; 90 FE (branch to self)
         bcs $+2         ; B0 00
         beq $+4         ; F0 02
@@ -178,7 +178,7 @@ branch_test:
         bpl $+2         ; 10 00
         bvc $+2         ; 50 00
         bvs $+2         ; 70 00
-forward:
+forward
 
 ; ========================================
 ; IMPLIED MODE: No operand

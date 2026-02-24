@@ -38,7 +38,7 @@
         jp nz, 2000h    ; conditional jump
         jr skip         ; relative jump
         jr nc, skip     ; conditional relative
-skip:
+skip
         nop
 
 ; Z80-specific

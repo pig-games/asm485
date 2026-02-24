@@ -41,7 +41,7 @@ ADDR    BYTES                    LINE  SOURCE
 002D    C2 00 20                   38          jp nz, 2000h    ; conditional jump
 0030    18 02                      39          jr skip         ; relative jump
 0032    30 00                      40          jr nc, skip     ; conditional relative
-----                               41  skip:
+----                               41  skip
 0034    00                         42          nop
 ----                               43  
 ----                               44  ; Z80-specific

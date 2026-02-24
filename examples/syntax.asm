@@ -15,11 +15,11 @@
 ; Labels can be up to 32 characters and must start with an alpha.  
 ; Numbers and the underscore character are permitted in a label.
 ; Labels can end with a colon, but the colon is optional.
-LABEL1: .byte      123             ; labels can be on the same line as code
+LABEL1 .byte      123             ; labels can be on the same line as code
 LABEL2
         POP     PSW             ; or the label can be before the code
-NOSPACE:push    D               ; a space is not required after a label
-VeryVeryVeryLongLabel:
+NOSPACE push    D               ; a space is not required after a label
+VeryVeryVeryLongLabel
     .byte  "Labels can be up to 32 characters && must start with an alpha."
 
 ; Expression operators are symbolic, so names like HIGH, LOW, AND, or OR can be
@@ -45,17 +45,17 @@ num6    .const     1357o           ; Octal with trailing 'o'
 num7    .const     1011Q           ; Octal with trailing 'q'
 
 ; The .byte directive places one or more bytes of data in the output.
-d1:     .byte      5               ; single byte
-d2:     .byte      12h,34h,56h,78h ; multiple bytes
-d3:     .byte      5, 02Ah, 1011B  ; Mixed decimal, hex, and binary
+d1     .byte      5               ; single byte
+d2     .byte      12h,34h,56h,78h ; multiple bytes
+d3     .byte      5, 02Ah, 1011B  ; Mixed decimal, hex, and binary
 
 ; The .byte directive can also be used with strings.  Each octet in the string
 ; generates one octet of output.  Strings and numeric constants can be mixed
 ; in a single directive.
-str1:   .byte      'T'             ; Single character constant
-str2:   .byte      "Welcome"       ; String constant
-str3:   .byte      "red","green"   ; Multiple strings
-str4:   .byte      3,"red",4,"blue"; Mixed strings and numerics
+str1   .byte      'T'             ; Single character constant
+str2   .byte      "Welcome"       ; String constant
+str3   .byte      "red","green"   ; Multiple strings
+str4   .byte      3,"red",4,"blue"; Mixed strings and numerics
 
 ; Note that a single character string can also be used anywhere a numeric
 ; would be allowed.  It evaluates to the ASCII value of the single character.
@@ -96,11 +96,11 @@ LF  .const '\n'
     .byte  "ABC",31h,32h,"3",'\r',LF
 
 ; The .word directive stores one or more 16 bit values.
-words1: .word      0203h           ; One word value in hex
-words2: .word      num4            ; One word value in decimal
-words3: .word      1010101001010101B ; One word value in binary
-words4: .word      02h, 03h        ; Two word values
-words5: .word      02h, 03, 04ffh  ; Three word values
+words1 .word      0203h           ; One word value in hex
+words2 .word      num4            ; One word value in decimal
+words3 .word      1010101001010101B ; One word value in binary
+words4 .word      02h, 03h        ; Two word values
+words5 .word      02h, 03, 04ffh  ; Three word values
 
 ; Note that .word stores the two octet values in intel (little endian) order, so
 ; the following two declarations are equivalent:
@@ -110,10 +110,10 @@ words5: .word      02h, 03, 04ffh  ; Three word values
 ; The .ds directive reserves space, but does not generate any output.  It
 ; simply advances the target address for the next code or data.
 StrSize .const     32
-buffer: .ds  StrSize * 4     ; Reserve space for 4 strings
+buffer .ds  StrSize * 4     ; Reserve space for 4 strings
 
 ; Expressions can be used in place of any numeric constant.
-t:      .word      1024 * 3
+t      .word      1024 * 3
         LXI     SP, 32 * 4 + 2
         lxi     h, str4 + 5
         lxi     d, buffer + StrSize
@@ -131,7 +131,7 @@ t:      .word      1024 * 3
 ;   bitwise: & ^ |
 ;   logical: && ^^ ||
 ;   ternary: ?:
-PREC:
+PREC
         .word      (8+7)           ; Parenthesis have highest precedence
         .word      -1              ; unary plus/minus
         .byte      >512            ; high byte
@@ -157,10 +157,10 @@ PREC:
 ; Address
 ; The $ symbol is used in an expression to represent the current address.
 ; This is useful for calculating the size of objects
-hello:  .byte  "Hello, world"
+hello  .byte  "Hello, world"
 strLen  .const     $ - hello       ; Length of the string
 
-jump_tab:                       ; Jump table.  Each entry is 3 octets.
+jump_tab                       ; Jump table.  Each entry is 3 octets.
         .byte      'a'             ; ADD command
         .word      0100h           ; Handler address
         .byte      'e'             ; EXAMINE command
@@ -180,7 +180,7 @@ entries .const     ($-jump_tab) / 3 ; Number of entries in the table
 ; of these have any relation to the SP register.
 ; Labels that match registers are not permitted in Intel85, but this change was
 ; added to support some code that was developed with a different assembler.
-SP:     .word      256             ; define a word at location named SP
+SP     .word      256             ; define a word at location named SP
         LXI     H,SP            ; laod address of "SP" word into HL pair
         LXI     H,SP+0
         LXI     H,0+SP
@@ -196,14 +196,14 @@ FALSE       .const 0
         .if TRUE                        ; match - all code in this block is included
                 .org 4000h               ; all labels, directives, and code included
 EX1AVAR         .const 1234h
-EX1ADATA:       .word  EX1AVAR
-EX1A:           mov a,b
+EX1ADATA       .word  EX1AVAR
+EX1A           mov a,b
 
         .else                           ; skip - no code in this block is included
                 .org 8000h               ; all labels, directives, and code skipped
 EX1BVAR         .const 5678h
-EX1BDATA:       .word  EX1VAR
-EX1B:           mov a,c
+EX1BDATA       .word  EX1VAR
+EX1B           mov a,c
         .endif                          ; END conditional block
 
 
@@ -237,10 +237,10 @@ EX1B:           mov a,c
                 .org 0f000h
         .if FALSE                       ; level 1 - skip
           .if 0 != 1                    ; level 2 - skip
-LABEL1:         ori 03h                 ; label and code skipped
+LABEL1         ori 03h                 ; label and code skipped
                 jmp 45
           .elseif FALSE                 ; level 2 - skip
-LABEL1:         ori 30h                 ; label and code included
+LABEL1         ori 30h                 ; label and code included
                 jmp 67
           .else                         ; level 2 - skip
                 jmp 12
@@ -278,12 +278,12 @@ LABEL1:         ori 30h                 ; label and code included
 ; A label will not be included in the symbol table if the directive is nested
 ; within another .if block that is false because the nested directive is not
 ; evaluated in that case.
-IFLAB:  .if TRUE                        ; label included
+IFLAB  .if TRUE                        ; label included
                 jmp 6666
-ELSELAB:.else                           ; label included
+ELSELAB .else                           ; label included
                 mov c,a
-NOLAB1:         jmp 3333                ; labels ignored because they are nested in
-NOLAB2:   .if YES                       ; the .else above that did not match
-NOLAB3:         jmp 1111
-NOLAB4:   .endif
-ENDLAB: .endif                          ; label included
+NOLAB1         jmp 3333                ; labels ignored because they are nested in
+NOLAB2   .if YES                       ; the .else above that did not match
+NOLAB3         jmp 1111
+NOLAB4   .endif
+ENDLAB .endif                          ; label included

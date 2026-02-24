@@ -7,7 +7,7 @@
 wide_value = $123456
 
 .section scratch, kind=bss
-buffer:
+buffer
     .res byte, $123456
 .endsection
 

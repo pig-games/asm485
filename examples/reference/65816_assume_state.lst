@@ -7,7 +7,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                4          .cpu 65816
 ----    EQU 123400                  5          .org $123400
 ----                                6  
-----                                7  start:
+----                                7  start
 ----                                8          .assume e=native, m=16, x=16, dp=$2000, dbr=$12, pbr=auto
 ----                                9  
 123400  A9 34 12                   10          lda #$1234          ; A9 34 12 (A is 16-bit)

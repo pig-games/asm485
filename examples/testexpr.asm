@@ -2,8 +2,8 @@
         nop	
         JMP  EXEC
 
-EXEC:   nop
-CHKIO:  ret
+EXEC   nop
+CHKIO  ret
 
-TAB2:   .byte      'abcd'
+TAB2   .byte      'abcd'
 

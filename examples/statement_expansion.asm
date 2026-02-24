@@ -20,7 +20,7 @@
     .byte '.src', .srcnum
 .endstatement
 
-start:
+start
     LOAD 7
     LOAD $ff
     LOAD %1010

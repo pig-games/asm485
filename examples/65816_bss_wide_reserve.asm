@@ -6,9 +6,9 @@
 .region ram, $010000, $04ffff
 
 .section vars, kind=bss
-start:
+start
     .res long, 20000
-end_label:
+end_label
 .endsection
 
 .place vars in ram

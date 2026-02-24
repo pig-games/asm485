@@ -7,19 +7,19 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                4          .cpu 6502
 ----    EQU 00FD                    5          .org $00FD
 ----                                6  
-----                                7  m6502_start:
+----                                7  m6502_start
 00FD    AD 01 01                    8          lda m6502_target   ; must encode absolute: AD 01 01
 0100    EA                          9          nop
-----                               10  m6502_target:
+----                               10  m6502_target
 0101    60                         11          rts
 ----                               12  
 ----                               13          .cpu 65c02
 ----    EQU 01FD                   14          .org $01FD
 ----                               15  
-----                               16  m65c02_start:
+----                               16  m65c02_start
 01FD    9C 01 02                   17          stz m65c02_target  ; must encode absolute: 9C 01 02
 0200    EA                         18          nop
-----                               19  m65c02_target:
+----                               19  m65c02_target
 0201    60                         20          rts
 ----                               21  
 ----                               22          .end

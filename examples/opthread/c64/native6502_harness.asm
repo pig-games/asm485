@@ -81,7 +81,7 @@ UNIMPL_ERROR_LEN         .const 12
 .section basic, align=1
 ; 10 SYS 2062
 ; code starts immediately after BASIC line terminator/footer.
-basic_stub:
+basic_stub
     .byte $0c, $08
     .byte $0a, $00
     .byte $9e, $20
@@ -91,7 +91,7 @@ basic_stub:
 .endsection
 
 .section code, align=1
-start:
+start
     sei
     cld
 
@@ -107,10 +107,10 @@ start:
     jsr entry_last_error
     jsr apply_status_color
 
-idle_forever:
+idle_forever
     jmp idle_forever
 
-entry_init:
+entry_init
     lda #ENTRY_ORD_INIT
     sta current_entry
     lda #0
@@ -119,7 +119,7 @@ entry_init:
     jsr handle_init
     rts
 
-entry_load_package:
+entry_load_package
     lda #ENTRY_ORD_LOAD_PACKAGE
     sta current_entry
     lda #<sample_opcpu_header
@@ -132,7 +132,7 @@ entry_load_package:
     jsr handle_load_package
     rts
 
-entry_set_pipeline:
+entry_set_pipeline
     lda #ENTRY_ORD_SET_PIPELINE
     sta current_entry
     lda #<set_pipeline_payload
@@ -145,7 +145,7 @@ entry_set_pipeline:
     jsr handle_set_pipeline
     rts
 
-entry_tokenize_line:
+entry_tokenize_line
     lda #ENTRY_ORD_TOKENIZE_LINE
     sta current_entry
     lda #0
@@ -154,7 +154,7 @@ entry_tokenize_line:
     jsr handle_tokenize
     rts
 
-entry_parse_line:
+entry_parse_line
     lda #ENTRY_ORD_PARSE_LINE
     sta current_entry
     lda #0
@@ -163,7 +163,7 @@ entry_parse_line:
     jsr handle_parse
     rts
 
-entry_encode_instruction:
+entry_encode_instruction
     lda #ENTRY_ORD_ENCODE_INSTRUCTION
     sta current_entry
     lda #0
@@ -172,7 +172,7 @@ entry_encode_instruction:
     jsr handle_encode
     rts
 
-entry_last_error:
+entry_last_error
     lda #ENTRY_ORD_LAST_ERROR
     sta current_entry
     lda #0
@@ -181,7 +181,7 @@ entry_last_error:
     jsr handle_last_error
     rts
 
-prepare_request:
+prepare_request
     ; request id++
     clc
     lda control_block + CB_REQUEST_ID_LO
@@ -198,7 +198,7 @@ prepare_request:
     sta control_block + CB_INPUT_LEN_HI
     rts
 
-handle_init:
+handle_init
     lda #$4f ; O
     sta control_block + CB_MAGIC_0
     lda #$54 ; T
@@ -234,7 +234,7 @@ handle_init:
     jsr clear_last_error_len
     rts
 
-handle_load_package:
+handle_load_package
     lda control_block + CB_INPUT_PTR_LO
     sta ZP_INPUT_PTR_LO
     sta loaded_pkg_ptr_lo
@@ -262,7 +262,7 @@ handle_load_package:
     cmp #OPCPU_HEADER_LEN
     bcc load_package_bad_request
 
-load_package_check_header:
+load_package_check_header
     ; header must be:
     ; 0..3  "OPCP"
     ; 4..5  version 0x0001 (little-endian)
@@ -311,24 +311,24 @@ load_package_check_header:
     jsr clear_last_error_len
     rts
 
-load_package_bad_request:
+load_package_bad_request
     lda #OTR_BAD_REQ_ERROR_LEN
     jsr set_bad_request_len
     rts
 
-load_package_bad_header:
+load_package_bad_header
     lda #OPC_BAD_HEADER_LEN
     jsr set_runtime_error_len
     rts
 
-handle_set_pipeline:
+handle_set_pipeline
     lda package_is_loaded
     bne set_pipeline_check_ptr
     lda #OTR_NO_PACKAGE_ERROR_LEN
     jsr set_runtime_error_len
     rts
 
-set_pipeline_check_ptr:
+set_pipeline_check_ptr
     lda control_block + CB_INPUT_PTR_LO
     sta ZP_INPUT_PTR_LO
     lda control_block + CB_INPUT_PTR_HI
@@ -340,20 +340,20 @@ set_pipeline_check_ptr:
     jsr set_bad_request_len
     rts
 
-set_pipeline_check_len:
+set_pipeline_check_len
     lda control_block + CB_INPUT_LEN_HI
     bne set_pipeline_bad_request
     lda control_block + CB_INPUT_LEN_LO
     cmp #SET_PIPELINE_MIN_LEN
     bcs set_pipeline_find_separator
-set_pipeline_bad_request:
+set_pipeline_bad_request
     lda #OTR_BAD_REQ_ERROR_LEN
     jsr set_bad_request_len
     rts
 
-set_pipeline_find_separator:
+set_pipeline_find_separator
     ldy #0
-set_pipeline_find_separator_loop:
+set_pipeline_find_separator_loop
     cpy control_block + CB_INPUT_LEN_LO
     beq set_pipeline_bad_request
     lda (ZP_INPUT_PTR_LO), y
@@ -362,7 +362,7 @@ set_pipeline_find_separator_loop:
     bne set_pipeline_find_separator_loop
     beq set_pipeline_bad_request
 
-set_pipeline_separator_found:
+set_pipeline_separator_found
     ; y contains cpu_id byte length.
     cpy #0
     beq set_pipeline_bad_request
@@ -370,7 +370,7 @@ set_pipeline_separator_found:
     bne set_pipeline_unsupported
 
     ldy #0
-set_pipeline_compare_cpu_loop:
+set_pipeline_compare_cpu_loop
     lda (ZP_INPUT_PTR_LO), y
     cmp set_pipeline_payload, y
     bne set_pipeline_unsupported
@@ -392,24 +392,24 @@ set_pipeline_compare_cpu_loop:
     jsr clear_last_error_len
     rts
 
-set_pipeline_unsupported:
+set_pipeline_unsupported
     lda #OTR_BAD_PIPELINE_LEN
     jsr set_runtime_error_len
     rts
 
-handle_tokenize:
+handle_tokenize
     jsr set_unimplemented_runtime_error
     rts
 
-handle_parse:
+handle_parse
     jsr set_unimplemented_runtime_error
     rts
 
-handle_encode:
+handle_encode
     jsr set_unimplemented_runtime_error
     rts
 
-handle_last_error:
+handle_last_error
     lda #STATUS_OK
     ldy #0
     jsr set_status
@@ -419,12 +419,12 @@ handle_last_error:
     sta control_block + CB_OUTPUT_LEN_HI
     rts
 
-set_unimplemented_runtime_error:
+set_unimplemented_runtime_error
     lda #UNIMPL_ERROR_LEN
     jsr set_runtime_error_len
     rts
 
-set_runtime_error_len:
+set_runtime_error_len
     tax
     lda #STATUS_RUNTIME_ERROR
     ldy #0
@@ -436,7 +436,7 @@ set_runtime_error_len:
     sta control_block + CB_LAST_ERROR_LEN_HI
     rts
 
-set_bad_request_len:
+set_bad_request_len
     tax
     lda #STATUS_BAD_REQUEST
     ldy #0
@@ -448,31 +448,31 @@ set_bad_request_len:
     sta control_block + CB_LAST_ERROR_LEN_HI
     rts
 
-clear_output_len:
+clear_output_len
     lda #0
     sta control_block + CB_OUTPUT_LEN_LO
     sta control_block + CB_OUTPUT_LEN_HI
     rts
 
-clear_last_error_len:
+clear_last_error_len
     lda #0
     sta control_block + CB_LAST_ERROR_LEN_LO
     sta control_block + CB_LAST_ERROR_LEN_HI
     rts
 
-set_status:
+set_status
     ; in: A=lo, Y=hi
     sta control_block + CB_STATUS_LO
     sty control_block + CB_STATUS_HI
     rts
 
-snapshot_last_status:
+snapshot_last_status
     lda control_block + CB_STATUS_LO
     and #$03
     sta last_status_snapshot
     rts
 
-apply_status_color:
+apply_status_color
     ldx last_status_snapshot
     lda status_color_table, x
     sta C64_BORDERCOLOR
@@ -500,55 +500,55 @@ apply_status_color:
 .endsection
 
 .section data, align=1
-control_block:
+control_block
     .byte $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00
 
-current_entry:
+current_entry
     .byte 0
-current_input_len:
+current_input_len
     .byte 0
-last_status_snapshot:
+last_status_snapshot
     .byte 0
-package_is_loaded:
+package_is_loaded
     .byte 0
-pipeline_is_set:
+pipeline_is_set
     .byte 0
-loaded_pkg_ptr_lo:
+loaded_pkg_ptr_lo
     .byte 0
-loaded_pkg_ptr_hi:
+loaded_pkg_ptr_hi
     .byte 0
-loaded_pkg_len_lo:
+loaded_pkg_len_lo
     .byte 0
-loaded_pkg_len_hi:
+loaded_pkg_len_hi
     .byte 0
 
-set_pipeline_payload:
+set_pipeline_payload
     .byte $6d, $36, $35, $30, $32, $00
 
-sample_opcpu_header:
+sample_opcpu_header
     ; OPCP + version 0x0001 + endian marker 0x1234 (little-endian)
     .byte $4f, $50, $43, $50, $01, $00, $34, $12
 
-otr_bad_req_error:
+otr_bad_req_error
     ; "OTR_BAD_REQ"
     .byte $4f, $54, $52, $5f, $42, $41, $44, $5f, $52, $45, $51
-otr_no_package_error:
+otr_no_package_error
     ; "OTR_NO_PKG"
     .byte $4f, $54, $52, $5f, $4e, $4f, $5f, $50, $4b, $47
-otr_bad_pipeline_error:
+otr_bad_pipeline_error
     ; "OTR_BAD_CPU"
     .byte $4f, $54, $52, $5f, $42, $41, $44, $5f, $43, $50, $55
-opc_bad_header_error:
+opc_bad_header_error
     ; "OPC_BAD_HDR"
     .byte $4f, $50, $43, $5f, $42, $41, $44, $5f, $48, $44, $52
-unimpl_error_ascii:
+unimpl_error_ascii
     ; "NOT_IMPL_OTR"
     .byte $4e, $4f, $54, $5f, $49, $4d, $50, $4c, $5f, $4f, $54, $52
 
-status_color_table:
+status_color_table
     ; STATUS_OK / STATUS_BAD_CONTROL_BLOCK / STATUS_BAD_REQUEST / STATUS_RUNTIME_ERROR
     .byte $05, $07, $08, $02
 .endsection

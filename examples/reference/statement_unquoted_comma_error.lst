@@ -7,7 +7,7 @@ ADDR    BYTES                    LINE  SOURCE
     3 | .statement move.b char:dst[31m,[0m char:src
 ERROR: Commas must be quoted in statement signatures
 ----                                4  
-----                                5  start:
+----                                5  start
 0000    00                          6      nop
 
 Lines: 6  Errors: 1  Warnings: 0

@@ -5,7 +5,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                2  
 ----                                3  
 ----                                4  
-----                                5  start:
+----                                5  start
 0000    00                          6      nop
 
 Lines: 6  Errors: 0  Warnings: 0

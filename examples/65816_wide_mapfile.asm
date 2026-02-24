@@ -8,7 +8,7 @@
 wide_const .const $89ABCDEF
 
 .section code
-entry:
+entry
     .byte $ea
 .endsection
 

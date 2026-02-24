@@ -6,7 +6,7 @@
 .region ram, $010001, $02ffff, align=$20000
 
 .section code, align=$10000
-start:
+start
     .byte $aa
 .endsection
 

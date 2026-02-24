@@ -4,7 +4,7 @@
         .cpu 65816
         .org $0400
 
-start:
+start
         rep #$30        ; C2 30
         sep #$20        ; E2 20
         xce             ; FB
@@ -15,7 +15,7 @@ start:
         per near_label  ; 62 xx xx
         brl far_label   ; 82 xx xx
 
-near_label:
+near_label
         phb             ; 8B
         plb             ; AB
         phd             ; 0B
@@ -35,7 +35,7 @@ near_label:
         jsl $123456     ; 22 56 34 12
         jml [$2345]     ; DC 45 23
 
-far_label:
+far_label
         rtl             ; 6B
         rts             ; 60
 

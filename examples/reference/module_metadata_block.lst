@@ -16,7 +16,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               13      .endmeta
 ----                               14  
 ----    EQU 0000                   15      .org 0000h
-----                               16  START:
+----                               16  START
 0000    01 02 03 04                17      .byte 01h, 02h, 03h, 04h
 ----                               18  .endmodule
 

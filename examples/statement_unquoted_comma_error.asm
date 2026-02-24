@@ -4,5 +4,4 @@
     nop
 .endstatement
 
-start:
-    nop
+start nop

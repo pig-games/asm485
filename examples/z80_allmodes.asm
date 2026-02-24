@@ -237,7 +237,7 @@
 ; ========================================
 ; RELATIVE JUMPS
 ; ========================================
-loop:   jr loop         ; 18 FE  (self-loop)
+loop   jr loop         ; 18 FE  (self-loop)
         jr z, loop      ; 28 FC  (backward)
         jr nz, $        ; 20 FE  (self-loop via $)
         jr c, $         ; 38 FE

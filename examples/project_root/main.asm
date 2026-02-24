@@ -3,7 +3,7 @@
 .module main
     .use util
     .org 0000h
-START:
+START
     .byte 01h, 02h
     .word util.VALUE
 .endmodule

@@ -6451,6 +6451,16 @@ fn label_without_colon_defines_symbol() {
 }
 
 #[test]
+fn label_with_colon_is_still_supported() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "LABEL: NOP", 0x1200, 1);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.symbols().lookup("LABEL"), Some(0x1200));
+}
+
+#[test]
 fn set_without_dot_is_not_directive() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

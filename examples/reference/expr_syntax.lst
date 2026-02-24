@@ -76,7 +76,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               73  ; ============================================================================
 ----                               74  ; 8085 IMMEDIATE MODE: MVI reg, imm8  /  LXI rp, imm16
 ----                               75  ; ============================================================================
-----                               76  i8085_imm:
+----                               76  i8085_imm
 0000    3E 10                      77          mvi a, BASE             ; label
 0002    3E 15                      78          mvi a, BASE + OFFSET    ; expression with labels
 0004    3E 12                      79          mvi a, >PAGE            ; high byte operator
@@ -108,7 +108,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              105  ; ============================================================================
 ----                              106  ; 8085 DIRECT/ABSOLUTE MODE: LDA addr / STA addr / LHLD / SHLD / JMP / CALL
 ----                              107  ; ============================================================================
-----                              108  i8085_direct:
+----                              108  i8085_direct
 002D    3A 00 20                  109          lda TABLE               ; label
 0030    3A 05 12                  110          lda PAGE + OFFSET       ; expression
 0033    3A 20 20                  111          lda TABLE + (BASE * 2)  ; complex expression
@@ -125,26 +125,26 @@ ADDR    BYTES                    LINE  SOURCE
 004B    CD 52 00                  122          call call_target        ; forward reference
 004E    CD 00 22                  123          call TABLE + $200       ; expression as address
 ----                              124  
-----                              125  jump_target:
+----                              125  jump_target
 0051    00                        126          nop
-----                              127  call_target:
+----                              127  call_target
 0052    C9                        128          ret
 ----                              129  
 ----                              130  ; ============================================================================
 ----                              131  ; 8085 RELATIVE EXPRESSIONS (using $ for current address)
 ----                              132  ; ============================================================================
-----                              133  i8085_relative:
+----                              133  i8085_relative
 0053    C3 56 00                  134          jmp $+3                 ; jump forward 3 bytes (skip next instruction)
 0056    00                        135          nop
 0057    C3 54 00                  136          jmp $-3                 ; jump backward
-----                              137  loop_here:
+----                              137  loop_here
 005A    C3 5A 00                  138          jmp loop_here           ; label reference
 005D    C3 5D 00                  139          jmp $                   ; infinite loop (jump to self)
 ----                              140  
 ----                              141  ; ============================================================================
 ----                              142  ; 8085 RST VECTORS (RST only takes literal 0-7)
 ----                              143  ; ============================================================================
-----                              144  i8085_rst:
+----                              144  i8085_rst
 0060    C7                        145          rst 0                   ; RST 0
 0061    CF                        146          rst 1                   ; RST 1
 0062    D7                        147          rst 2                   ; RST 2
@@ -162,7 +162,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 0011                  159  IO_STATUS       .const  IO_BASE + 1
 ----    EQU 0012                  160  IO_CONTROL      .const  IO_BASE + 2
 ----                              161  
-----                              162  i8085_io:
+----                              162  i8085_io
 0068    DB 10                     163          in IO_DATA              ; input from label
 006A    DB 11                     164          in IO_BASE + 1          ; input from expression
 006C    D3 11                     165          out IO_STATUS           ; output to label
@@ -171,7 +171,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              168  ; ============================================================================
 ----                              169  ; Data directives with expressions
 ----                              170  ; ============================================================================
-----                              171  i8085_data:
+----                              171  i8085_data
 0070    7B A6 1F                  172          .byte num_dec, num_hex, num_hex_pref
 0073    0A 0A F0                  173          .byte num_bin, num_bin_pref, num_bin_long  ; binary formats
 0076    0F 0F                     174          .byte num_oct, num_oct_q
@@ -212,7 +212,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              209  ; ============================================================================
 ----                              210  ; 6502 IMMEDIATE MODE: LDA #imm
 ----                              211  ; ============================================================================
-----                              212  m6502_imm:
+----                              212  m6502_imm
 0400    A9 10                     213          lda #BASE               ; label
 0402    A9 15                     214          lda #BASE + OFFSET      ; expression
 0404    A9 10                     215          lda #>ABS_BASE          ; high byte
@@ -237,7 +237,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              234  ; ============================================================================
 ----                              235  ; 6502 ZERO PAGE MODE: LDA $nn
 ----                              236  ; ============================================================================
-----                              237  m6502_zp:
+----                              237  m6502_zp
 0426    A5 20                     238          lda ZP_BASE             ; label (zero page)
 0428    A5 28                     239          lda ZP_BASE + ZP_OFFSET ; expression
 042A    85 21                     240          sta ZP_BASE + 1         ; store with offset
@@ -261,7 +261,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              258  ; ============================================================================
 ----    EQU 0010                  259  ZP_DOUBLED      .const  ZP_OFFSET * 2   ; pre-calculate expression
 ----                              260  
-----                              261  m6502_zpx:
+----                              261  m6502_zpx
 0448    B5 20                     262          lda ZP_BASE,x           ; label
 044A    B5 24                     263          lda ZP_BASE + 4,x       ; expression
 044C    95 28                     264          sta ZP_BASE + 8,x       ; store
@@ -276,7 +276,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              273  ; ============================================================================
 ----                              274  ; 6502 ZERO PAGE,Y MODE: LDX $nn,Y
 ----                              275  ; ============================================================================
-----                              276  m6502_zpy:
+----                              276  m6502_zpy
 045C    B6 20                     277          ldx ZP_BASE,y           ; label
 045E    B6 24                     278          ldx ZP_BASE + 4,y       ; expression
 0460    96 28                     279          stx ZP_BASE + 8,y       ; store
@@ -284,7 +284,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              281  ; ============================================================================
 ----                              282  ; 6502 ABSOLUTE MODE: LDA $nnnn
 ----                              283  ; ============================================================================
-----                              284  m6502_abs:
+----                              284  m6502_abs
 0462    AD 00 10                  285          lda ABS_BASE            ; label
 0465    AD 00 11                  286          lda ABS_BASE + $100     ; expression
 0468    AD 05 12                  287          lda PAGE + OFFSET       ; labels from 8085 section
@@ -296,15 +296,15 @@ ADDR    BYTES                    LINE  SOURCE
 047A    20 81 04                  293          jsr abs_sub             ; subroutine call
 047D    20 00 21                  294          jsr TABLE + $100        ; expression as address
 ----                              295  
-----                              296  abs_target:
+----                              296  abs_target
 0480    EA                        297          nop
-----                              298  abs_sub:
+----                              298  abs_sub
 0481    60                        299          rts
 ----                              300  
 ----                              301  ; ============================================================================
 ----                              302  ; 6502 ABSOLUTE,X MODE: LDA $nnnn,X
 ----                              303  ; ============================================================================
-----                              304  m6502_absx:
+----                              304  m6502_absx
 0482    BD 00 10                  305          lda ABS_BASE,x          ; label
 0485    BD 00 11                  306          lda ABS_BASE + $100,x   ; expression
 0488    BD 14 20                  307          lda TABLE + (OFFSET * 4),x  ; complex expression
@@ -315,7 +315,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              312  ; ============================================================================
 ----                              313  ; 6502 ABSOLUTE,Y MODE: LDA $nnnn,Y
 ----                              314  ; ============================================================================
-----                              315  m6502_absy:
+----                              315  m6502_absy
 0494    B9 00 10                  316          lda ABS_BASE,y          ; label
 0497    B9 00 11                  317          lda ABS_BASE + $100,y   ; expression
 049A    99 00 12                  318          sta ABS_BASE + $200,y   ; store
@@ -325,7 +325,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              322  ; ============================================================================
 ----                              323  ; 6502 INDIRECT MODE: JMP ($nnnn)
 ----                              324  ; ============================================================================
-----                              325  m6502_ind:
+----                              325  m6502_ind
 04A3    6C FE FF                  326          jmp (VECTOR)            ; indirect through label
 04A6    6C 10 10                  327          jmp (ABS_BASE + $10)    ; indirect through expression
 04A9    6C 00 20                  328          jmp (TABLE)             ; indirect through table
@@ -333,7 +333,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              330  ; ============================================================================
 ----                              331  ; 6502 INDEXED INDIRECT MODE: LDA ($nn,X)
 ----                              332  ; ============================================================================
-----                              333  m6502_indx:
+----                              333  m6502_indx
 04AC    A1 20                     334          lda (ZP_BASE,x)         ; label
 04AE    A1 24                     335          lda (ZP_BASE + 4,x)     ; expression
 04B0    81 28                     336          sta (ZP_BASE + 8,x)     ; store
@@ -346,7 +346,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              343  ; ============================================================================
 ----                              344  ; 6502 INDIRECT INDEXED MODE: LDA ($nn),Y
 ----                              345  ; ============================================================================
-----                              346  m6502_indy:
+----                              346  m6502_indy
 04BC    B1 20                     347          lda (ZP_BASE),y         ; label
 04BE    B1 24                     348          lda (ZP_BASE + 4),y     ; expression
 04C0    91 28                     349          sta (ZP_BASE + 8),y     ; store
@@ -359,8 +359,8 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              356  ; ============================================================================
 ----                              357  ; 6502 RELATIVE MODE: Branches with expressions
 ----                              358  ; ============================================================================
-----                              359  m6502_rel:
-----                              360  branch_here:
+----                              359  m6502_rel
+----                              360  branch_here
 04CC    D0 FE                     361          bne branch_here         ; backward branch to label
 04CE    F0 00                     362          beq $+2                 ; skip next (branch offset 0)
 04D0    90 02                     363          bcc $+4                 ; skip 2 bytes forward
@@ -369,7 +369,7 @@ ADDR    BYTES                    LINE  SOURCE
 04D6    10 F4                     366          bpl branch_here         ; backward to label
 04D8    50 04                     367          bvc $+6                 ; longer forward skip
 04DA    70 00                     368          bvs branch_fwd          ; forward reference
-----                              369  branch_fwd:
+----                              369  branch_fwd
 04DC    EA                        370          nop
 ----                              371  
 ----                              372  ; ============================================================================
@@ -377,7 +377,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              374  ; ============================================================================
 ----                              375          .cpu 65c02
 ----                              376  
-----                              377  m65c02_modes:
+----                              377  m65c02_modes
 ----                              378  ; Zero Page Indirect: LDA ($nn)
 04DD    B2 20                     379          lda (ZP_BASE)           ; label
 04DF    B2 24                     380          lda (ZP_BASE + 4)       ; expression
@@ -392,7 +392,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              389  ; ============================================================================
 ----                              390  ; 6502 Data section with expressions
 ----                              391  ; ============================================================================
-----                              392  m6502_data:
+----                              392  m6502_data
 04EE    20                        393          .byte ZP_BASE           ; label
 04EF    28                        394          .byte ZP_BASE + ZP_OFFSET   ; expression
 04F0    10                        395          .byte >ABS_BASE         ; high byte
@@ -437,7 +437,7 @@ ADDR    BYTES                    LINE  SOURCE
 080C    2E 25                     434          mvi l, derived2
 ----                              435  
 ----                              436  ; Address arithmetic with current location
-----                              437  addr_base:
+----                              437  addr_base
 080E    00                        438          .byte $+0 - addr_base   ; offset 0
 080F    01                        439          .byte $+0 - addr_base   ; offset 1
 0810    02                        440          .byte $+0 - addr_base   ; offset 2

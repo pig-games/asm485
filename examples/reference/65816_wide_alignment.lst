@@ -9,7 +9,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                6  .region ram, $010001, $02ffff, align=$20000
 ----                                7  
 ----                                8  .section code, align=$10000  ; [section code]
-----                                9  start:  ; [section code]
+----                                9  start  ; [section code]
 020000  AA                         10      .byte $aa  ; [section code]
 ----                               11  .endsection
 ----                               12  

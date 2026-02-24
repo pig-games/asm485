@@ -18,11 +18,11 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               15  ; Labels can be up to 32 characters and must start with an alpha.  
 ----                               16  ; Numbers and the underscore character are permitted in a label.
 ----                               17  ; Labels can end with a colon, but the colon is optional.
-2000    7B                         18  LABEL1: .byte      123             ; labels can be on the same line as code
+2000    7B                         18  LABEL1 .byte      123             ; labels can be on the same line as code
 ----                               19  LABEL2
 2001    F1                         20          POP     PSW             ; or the label can be before the code
-2002    D5                         21  NOSPACE:push    D               ; a space is not required after a label
-----                               22  VeryVeryVeryLongLabel:
+2002    D5                         21  NOSPACE push    D               ; a space is not required after a label
+----                               22  VeryVeryVeryLongLabel
 2003    4C 61 62 65 6C 73 20 63 61 6E 20 62 65 20 75 70 20 74 6F 20 33 32 20 63 68 61 72 61 63 74 65 72 73 20 26 26 20 6D 75 73 74 20 73 74 61 72 74 20 77 69 74 68 20 61 6E 20 61 6C 70 68 61 2E    23      .byte  "Labels can be up to 32 characters && must start with an alpha."
 ----                               24  
 ----                               25  ; Expression operators are symbolic, so names like HIGH, LOW, AND, or OR can be
@@ -50,17 +50,17 @@ ERROR: ope005: invalid number: 55D
 ----    EQU 0209                   45  num7    .const     1011Q           ; Octal with trailing 'q'
 ----                               46  
 ----                               47  ; The .byte directive places one or more bytes of data in the output.
-2041    05                         48  d1:     .byte      5               ; single byte
-2042    12 34 56 78                49  d2:     .byte      12h,34h,56h,78h ; multiple bytes
-2046    05 2A 0B                   50  d3:     .byte      5, 02Ah, 1011B  ; Mixed decimal, hex, and binary
+2041    05                         48  d1     .byte      5               ; single byte
+2042    12 34 56 78                49  d2     .byte      12h,34h,56h,78h ; multiple bytes
+2046    05 2A 0B                   50  d3     .byte      5, 02Ah, 1011B  ; Mixed decimal, hex, and binary
 ----                               51  
 ----                               52  ; The .byte directive can also be used with strings.  Each octet in the string
 ----                               53  ; generates one octet of output.  Strings and numeric constants can be mixed
 ----                               54  ; in a single directive.
-2049    54                         55  str1:   .byte      'T'             ; Single character constant
-204A    57 65 6C 63 6F 6D 65       56  str2:   .byte      "Welcome"       ; String constant
-2051    72 65 64 67 72 65 65 6E    57  str3:   .byte      "red","green"   ; Multiple strings
-2059    03 72 65 64 04 62 6C 75 65    58  str4:   .byte      3,"red",4,"blue"; Mixed strings and numerics
+2049    54                         55  str1   .byte      'T'             ; Single character constant
+204A    57 65 6C 63 6F 6D 65       56  str2   .byte      "Welcome"       ; String constant
+2051    72 65 64 67 72 65 65 6E    57  str3   .byte      "red","green"   ; Multiple strings
+2059    03 72 65 64 04 62 6C 75 65    58  str4   .byte      3,"red",4,"blue"; Mixed strings and numerics
 ----                               59  
 ----                               60  ; Note that a single character string can also be used anywhere a numeric
 ----                               61  ; would be allowed.  It evaluates to the ASCII value of the single character.
@@ -101,11 +101,11 @@ ERROR: ope005: invalid number: 55D
 20CD    41 42 43 31 32 33 0D 0A    96      .byte  "ABC",31h,32h,"3",'\r',LF
 ----                               97  
 ----                               98  ; The .word directive stores one or more 16 bit values.
-20D5    03 02                      99  words1: .word      0203h           ; One word value in hex
-20D7    B4 1A                     100  words2: .word      num4            ; One word value in decimal
-20D9    55 AA                     101  words3: .word      1010101001010101B ; One word value in binary
-20DB    02 00 03 00               102  words4: .word      02h, 03h        ; Two word values
-20DF    02 00 03 00 FF 04         103  words5: .word      02h, 03, 04ffh  ; Three word values
+20D5    03 02                      99  words1 .word      0203h           ; One word value in hex
+20D7    B4 1A                     100  words2 .word      num4            ; One word value in decimal
+20D9    55 AA                     101  words3 .word      1010101001010101B ; One word value in binary
+20DB    02 00 03 00               102  words4 .word      02h, 03h        ; Two word values
+20DF    02 00 03 00 FF 04         103  words5 .word      02h, 03, 04ffh  ; Three word values
 ----                              104  
 ----                              105  ; Note that .word stores the two octet values in intel (little endian) order, so
 ----                              106  ; the following two declarations are equivalent:
@@ -115,10 +115,10 @@ ERROR: ope005: invalid number: 55D
 ----                              110  ; The .ds directive reserves space, but does not generate any output.  It
 ----                              111  ; simply advances the target address for the next code or data.
 ----    EQU 0020                  112  StrSize .const     32
-20E9    +0080                     113  buffer: .ds  StrSize * 4     ; Reserve space for 4 strings
+20E9    +0080                     113  buffer .ds  StrSize * 4     ; Reserve space for 4 strings
 ----                              114  
 ----                              115  ; Expressions can be used in place of any numeric constant.
-2169    00 0C                     116  t:      .word      1024 * 3
+2169    00 0C                     116  t      .word      1024 * 3
 216B    31 82 00                  117          LXI     SP, 32 * 4 + 2
 216E    21 5E 20                  118          lxi     h, str4 + 5
 2171    11 09 21                  119          lxi     d, buffer + StrSize
@@ -136,7 +136,7 @@ ERROR: ope005: invalid number: 55D
 ----                              131  ;   bitwise: & ^ |
 ----                              132  ;   logical: && ^^ ||
 ----                              133  ;   ternary: ?:
-----                              134  PREC:
+----                              134  PREC
 2179    0F 00                     135          .word      (8+7)           ; Parenthesis have highest precedence
 217B    FF FF                     136          .word      -1              ; unary plus/minus
 217D    02                        137          .byte      >512            ; high byte
@@ -162,10 +162,10 @@ ERROR: ope005: invalid number: 55D
 ----                              157  ; Address
 ----                              158  ; The $ symbol is used in an expression to represent the current address.
 ----                              159  ; This is useful for calculating the size of objects
-2198    48 65 6C 6C 6F 2C 20 77 6F 72 6C 64   160  hello:  .byte  "Hello, world"
+2198    48 65 6C 6C 6F 2C 20 77 6F 72 6C 64   160  hello  .byte  "Hello, world"
 ----    EQU 000C                  161  strLen  .const     $ - hello       ; Length of the string
 ----                              162  
-----                              163  jump_tab:                       ; Jump table.  Each entry is 3 octets.
+----                              163  jump_tab                       ; Jump table.  Each entry is 3 octets.
 21A4    61                        164          .byte      'a'             ; ADD command
 21A5    00 01                     165          .word      0100h           ; Handler address
 21A7    65                        166          .byte      'e'             ; EXAMINE command
@@ -185,7 +185,7 @@ ERROR: ope005: invalid number: 55D
 ----                              180  ; of these have any relation to the SP register.
 ----                              181  ; Labels that match registers are not permitted in Intel85, but this change was
 ----                              182  ; added to support some code that was developed with a different assembler.
-21B3    00 01                     183  SP:     .word      256             ; define a word at location named SP
+21B3    00 01                     183  SP     .word      256             ; define a word at location named SP
 21B5    21                        184          LXI     H,SP            ; laod address of "SP" word into HL pair
   184 |         LXI     H,[31mS[0mP            ; laod address of "SP" word into HL pair
 ERROR: expected 16-bit immediate, got register SP
@@ -203,14 +203,14 @@ ERROR: expected 16-bit immediate, got register SP
 ----                              196          .if TRUE                        ; match - all code in this block is included
 ----    EQU 4000                  197                  .org 4000h               ; all labels, directives, and code included
 ----    EQU 1234                  198  EX1AVAR         .const 1234h
-4000    34 12                     199  EX1ADATA:       .word  EX1AVAR
-4002    78                        200  EX1A:           mov a,b
+4000    34 12                     199  EX1ADATA       .word  EX1AVAR
+4002    78                        200  EX1A           mov a,b
 ----                              201  
 ----                              202          .else                           ; skip - no code in this block is included
 ----                              203                  .org 8000h               ; all labels, directives, and code skipped
 ----                              204  EX1BVAR         .const 5678h
-----                              205  EX1BDATA:       .word  EX1VAR
-----                              206  EX1B:           mov a,c
+----                              205  EX1BDATA       .word  EX1VAR
+----                              206  EX1B           mov a,c
 ----                              207          .endif                          ; END conditional block
 ----                              208  
 ----                              209  
@@ -244,10 +244,10 @@ ERROR: expected 16-bit immediate, got register SP
 ----    EQU F000                  237                  .org 0f000h
 ----                              238          .if FALSE                       ; level 1 - skip
 ----                              239            .if 0 != 1                    ; level 2 - skip
-----                              240  LABEL1:         ori 03h                 ; label and code skipped
+----                              240  LABEL1         ori 03h                 ; label and code skipped
 ----                              241                  jmp 45
 ----                              242            .elseif FALSE                 ; level 2 - skip
-----                              243  LABEL1:         ori 30h                 ; label and code included
+----                              243  LABEL1         ori 30h                 ; label and code included
 ----                              244                  jmp 67
 ----                              245            .else                         ; level 2 - skip
 ----                              246                  jmp 12
@@ -285,15 +285,15 @@ F010    06 77                     266                  mvi b,77h
 ----                              278  ; A label will not be included in the symbol table if the directive is nested
 ----                              279  ; within another .if block that is false because the nested directive is not
 ----                              280  ; evaluated in that case.
-----                              281  IFLAB:  .if TRUE                        ; label included
+----                              281  IFLAB  .if TRUE                        ; label included
 F012    C3 0A 1A                  282                  jmp 6666
-----                              283  ELSELAB:.else                           ; label included
+----                              283  ELSELAB .else                           ; label included
 ----                              284                  mov c,a
-----                              285  NOLAB1:         jmp 3333                ; labels ignored because they are nested in
-----                              286  NOLAB2:   .if YES                       ; the .else above that did not match
-----                              287  NOLAB3:         jmp 1111
-----                              288  NOLAB4:   .endif
-----                              289  ENDLAB: .endif                          ; label included
+----                              285  NOLAB1         jmp 3333                ; labels ignored because they are nested in
+----                              286  NOLAB2   .if YES                       ; the .else above that did not match
+----                              287  NOLAB3         jmp 1111
+----                              288  NOLAB4   .endif
+----                              289  ENDLAB .endif                          ; label included
 
 Lines: 289  Errors: 2  Warnings: 0
 

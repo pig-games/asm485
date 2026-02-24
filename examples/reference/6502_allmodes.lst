@@ -172,7 +172,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              169  ; ========================================
 ----                              170  ; RELATIVE MODE: Branches
 ----                              171  ; ========================================
-----                              172  branch_test:
+----                              172  branch_test
 0318    90 FE                     173          bcc branch_test ; 90 FE (branch to self)
 031A    B0 00                     174          bcs $+2         ; B0 00
 031C    F0 02                     175          beq $+4         ; F0 02
@@ -181,7 +181,7 @@ ADDR    BYTES                    LINE  SOURCE
 0322    10 00                     178          bpl $+2         ; 10 00
 0324    50 00                     179          bvc $+2         ; 50 00
 0326    70 00                     180          bvs $+2         ; 70 00
-----                              181  forward:
+----                              181  forward
 ----                              182  
 ----                              183  ; ========================================
 ----                              184  ; IMPLIED MODE: No operand

@@ -4,14 +4,14 @@
 
 .section code, align=1
 .pub
-entry:
+entry
     .word data_start
 .priv
     .byte $ea
 .endsection
 
 .section data, align=2
-data_start:
+data_start
     .byte 1, 2, 3
 .endsection
 

@@ -34,11 +34,11 @@ FALSE   .const     0
         .endif
 
 ; labels on conditionals
-LABIF:  .if TRUE
+LABIF  .if TRUE
                 .byte 10
-LABELSE:.else
+LABELSE .else
                 .byte 11
-LABEND: .endif
+LABEND .endif
 
 ; match/case/default
         .match 2

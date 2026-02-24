@@ -34,15 +34,15 @@
         bra skip1       ; 80 xx
         nop
         nop
-skip1:
+skip1
 
 ; BBR/BBS - Branch on Bit Reset/Set
         bbr0 $20, bbr_target    ; 0F 20 xx
         nop
-bbr_target:
+bbr_target
         bbs7 $21, bbs_target    ; FF 21 xx
         nop
-bbs_target:
+bbs_target
 
 ; BIT immediate (65C02 only)
         bit #$55        ; 89 55

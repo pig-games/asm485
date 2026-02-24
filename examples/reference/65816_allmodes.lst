@@ -12,7 +12,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                9  ; ========================================
 0800    82 01 00                   10          brl long_target     ; 82 xx xx
 0803    EA                         11          nop                 ; EA
-----                               12  long_target:
+----                               12  long_target
 0804    5C EE FF C0                13          jml $C0FFEE         ; 5C EE FF C0
 0808    22 CD AB 00                14          jsl $00ABCD         ; 22 CD AB 00
 080C    DC 56 34                   15          jmp [$3456]         ; DC 56 34
@@ -99,7 +99,7 @@ ADDR    BYTES                    LINE  SOURCE
 086E    A9 12                      96          lda #$12
 0870    8D 00 20                   97          sta $2000
 ----                               98  
-----                               99  rel_target:
+----                               99  rel_target
 0873    60                        100          rts
 ----                              101  
 ----                              102          .end

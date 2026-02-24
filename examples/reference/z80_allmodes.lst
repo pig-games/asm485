@@ -240,7 +240,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                              237  ; ========================================
 ----                              238  ; RELATIVE JUMPS
 ----                              239  ; ========================================
-017A    18 FE                     240  loop:   jr loop         ; 18 FE  (self-loop)
+017A    18 FE                     240  loop   jr loop         ; 18 FE  (self-loop)
 017C    28 FC                     241          jr z, loop      ; 28 FC  (backward)
 017E    20 FE                     242          jr nz, $        ; 20 FE  (self-loop via $)
 0180    38 FE                     243          jr c, $         ; 38 FE

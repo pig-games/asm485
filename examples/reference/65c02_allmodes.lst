@@ -37,15 +37,15 @@ ADDR    BYTES                    LINE  SOURCE
 031A    80 02                      34          bra skip1       ; 80 xx
 031C    EA                         35          nop
 031D    EA                         36          nop
-----                               37  skip1:
+----                               37  skip1
 ----                               38  
 ----                               39  ; BBR/BBS - Branch on Bit Reset/Set
 031E    0F 20 01                   40          bbr0 $20, bbr_target    ; 0F 20 xx
 0321    EA                         41          nop
-----                               42  bbr_target:
+----                               42  bbr_target
 0322    FF 21 01                   43          bbs7 $21, bbs_target    ; FF 21 xx
 0325    EA                         44          nop
-----                               45  bbs_target:
+----                               45  bbs_target
 ----                               46  
 ----                               47  ; BIT immediate (65C02 only)
 0326    89 55                      48          bit #$55        ; 89 55

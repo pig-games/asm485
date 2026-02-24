@@ -11,7 +11,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 89ABCDEF                8  wide_const .const $89ABCDEF
 ----                                9  
 ----                               10  .section code  ; [section code]
-----                               11  entry:  ; [section code]
+----                               11  entry  ; [section code]
 FF0000  EA                         12      .byte $ea  ; [section code]
 ----                               13  .endsection
 ----                               14  

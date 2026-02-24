@@ -9,13 +9,13 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 2000                    6          .org $2000      ; Start at $2000
 ----                                7  
 ----                                8  ; Test 65C02-only instructions
-2000    64 20                       9  start:  stz $20         ; 64 20 - Store Zero (zero page)
+2000    64 20                       9  start  stz $20         ; 64 20 - Store Zero (zero page)
 2002    9C 34 12                   10          stz $1234       ; 9C 34 12 - Store Zero (absolute)
 ----                               11          
 2005    80 02                      12          bra skip        ; 80 02 - Branch Always (skip 2 bytes)
 2007    EA                         13          nop             ; EA
 2008    EA                         14          nop             ; EA
-----                               15  skip:   
+----                               15  skip   
 2009    DA                         16          phx             ; DA - Push X
 200A    5A                         17          phy             ; 5A - Push Y
 200B    FA                         18          plx             ; FA - Pull X
@@ -37,7 +37,7 @@ ADDR    BYTES                    LINE  SOURCE
 201F    50 02                      34          bvc nobranch    ; 50 xx - Branch if Overflow Clear
 2021    70 00                      35          bvs nobranch    ; 70 xx - Branch if Overflow Set
 ----                               36  
-----                               37  nobranch:
+----                               37  nobranch
 ----                               38  ; Test immediate mode (including 65C02-only BIT #imm)
 2023    A9 42                      39          lda #$42        ; A9 42 - Load immediate
 2025    A2 10                      40          ldx #$10        ; A2 10

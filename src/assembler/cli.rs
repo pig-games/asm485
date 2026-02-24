@@ -894,9 +894,11 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         Some("default") | None => LabelOutputFormat::Default,
         Some("vice") => LabelOutputFormat::Vice,
         Some("ctags") => LabelOutputFormat::Ctags,
-        Some(other) => return Err(cli_error(format!(
+        Some(other) => {
+            return Err(cli_error(format!(
             "Invalid OPFORGE_LABELS_FORMAT value: {other}. Expected one of: default, vice, ctags"
-        ))),
+        )))
+        }
     };
 
     let effective_label_output_format = if cli.vice_labels {

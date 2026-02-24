@@ -9,9 +9,9 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                6  .region ram, $010000, $04ffff
 ----                                7  
 ----                                8  .section vars, kind=bss  ; [section vars]
-----                                9  start:  ; [section vars]
+----                                9  start  ; [section vars]
 010000  +013880                    10      .res long, 20000  ; [section vars]
-----                               11  end_label:  ; [section vars]
+----                               11  end_label  ; [section vars]
 ----                               12  .endsection
 ----                               13  
 ----                               14  .place vars in ram

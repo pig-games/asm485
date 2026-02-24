@@ -39,8 +39,8 @@ ERROR: Unterminated string: "where is the .end  ; ERR: unterminated string
 ERROR: Label not found: beh
 ----                               21  
 ----                               22  ; column zero
-----                               23  LABEL1:                 ; symbol can start in column 0
-0004    4F                         24  LABEL2: MOV   C,A       ; symbol with instruction also OK
+----                               23  LABEL1                 ; symbol can start in column 0
+0004    4F                         24  LABEL2 MOV   C,A       ; symbol with instruction also OK
 ----    EQU 0007                   25  NAME1   .const   7         ; symbol can start in column zero
 ----                               26  123                     ; ERR: not symbol
    26 | [31m1[0m23                     ; ERR: not symbol

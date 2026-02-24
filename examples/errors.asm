@@ -16,12 +16,12 @@ symq1   .const 123q        ; octal constant
 symq2   .const 128o        ; ERR: bad octal constant
 
 bah     .const 77h
-bad:    .byte  "where is the .end  ; ERR: unterminated string
-special: .byte  "\t\n\r",bah,beh, bad  ; ERR: undefined symbol
+bad    .byte  "where is the .end  ; ERR: unterminated string
+special .byte  "\t\n\r",bah,beh, bad  ; ERR: undefined symbol
 
 ; column zero
-LABEL1:                 ; symbol can start in column 0
-LABEL2: MOV   C,A       ; symbol with instruction also OK
+LABEL1 NOP             ; symbol can start in column 0
+LABEL2 MOV   C,A       ; symbol with instruction also OK
 NAME1   .const   7         ; symbol can start in column zero
 123                     ; ERR: not symbol
 "abc"                   ; ERR: not symbol
@@ -58,8 +58,8 @@ RNUM    .const     1
 
 ; math
 var1    .const     23 / 0  ; ERR: divide by zero
-var2:   .word      255 + 10; OK as a 16 bit value
-var3:   .byte      255 + 10; *ERR: 8 bit constant overflow
+var2   .word      255 + 10; OK as a 16 bit value
+var3   .byte      255 + 10; *ERR: 8 bit constant overflow
 
 
 ; assignment errors
@@ -77,9 +77,9 @@ set1    .var 4           ; OK, can redefine .var
 equ2    .const 2           ; OK
 equ2    .var 3           ; ERR: cannot redefine .const
 
-lab3:   jmp 0           ; OK
-lab3:   jmp 1           ; ERR: label redefined
-lab4:   jmp 2           ; OK
+lab3   jmp 0           ; OK
+lab3   jmp 1           ; ERR: label redefined
+lab4   jmp 2           ; OK
 
 
 ; Conditional directives

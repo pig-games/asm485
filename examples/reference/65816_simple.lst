@@ -7,7 +7,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                4          .cpu 65816
 ----    EQU 0400                    5          .org $0400
 ----                                6  
-----                                7  start:
+----                                7  start
 0400    C2 30                       8          rep #$30        ; C2 30
 0402    E2 20                       9          sep #$20        ; E2 20
 0404    FB                         10          xce             ; FB
@@ -18,7 +18,7 @@ ADDR    BYTES                    LINE  SOURCE
 040B    62 03 00                   15          per near_label  ; 62 xx xx
 040E    82 18 00                   16          brl far_label   ; 82 xx xx
 ----                               17  
-----                               18  near_label:
+----                               18  near_label
 0411    8B                         19          phb             ; 8B
 0412    AB                         20          plb             ; AB
 0413    0B                         21          phd             ; 0B
@@ -38,7 +38,7 @@ ADDR    BYTES                    LINE  SOURCE
 0422    22 56 34 12                35          jsl $123456     ; 22 56 34 12
 0426    DC 45 23                   36          jml [$2345]     ; DC 45 23
 ----                               37  
-----                               38  far_label:
+----                               38  far_label
 0429    6B                         39          rtl             ; 6B
 042A    60                         40          rts             ; 60
 ----                               41  

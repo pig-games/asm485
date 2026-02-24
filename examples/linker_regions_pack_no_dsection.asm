@@ -4,7 +4,7 @@
 
 .section code
 .pub
-start:
+start
     .byte $10, $11
 .priv
 .endsection

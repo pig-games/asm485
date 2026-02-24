@@ -4,19 +4,19 @@
         .cpu 6502
         .org $00FD
 
-m6502_start:
+m6502_start
         lda m6502_target   ; must encode absolute: AD 01 01
         nop
-m6502_target:
+m6502_target
         rts
 
         .cpu 65c02
         .org $01FD
 
-m65c02_start:
+m65c02_start
         stz m65c02_target  ; must encode absolute: 9C 01 02
         nop
-m65c02_target:
+m65c02_target
         rts
 
         .end

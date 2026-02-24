@@ -12,5 +12,5 @@
 .statement text str:msg
 .endstatement
 
-start:
+start
     nop

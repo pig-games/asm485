@@ -73,7 +73,7 @@ char_ab         .const  'AB'
 ; ============================================================================
 ; 8085 IMMEDIATE MODE: MVI reg, imm8  /  LXI rp, imm16
 ; ============================================================================
-i8085_imm:
+i8085_imm
         mvi a, BASE             ; label
         mvi a, BASE + OFFSET    ; expression with labels
         mvi a, >PAGE            ; high byte operator
@@ -105,7 +105,7 @@ TABLE_COMBINED  .const  (TABLE_HI << 8) | TABLE_LO  ; same as TABLE
 ; ============================================================================
 ; 8085 DIRECT/ABSOLUTE MODE: LDA addr / STA addr / LHLD / SHLD / JMP / CALL
 ; ============================================================================
-i8085_direct:
+i8085_direct
         lda TABLE               ; label
         lda PAGE + OFFSET       ; expression
         lda TABLE + (BASE * 2)  ; complex expression
@@ -122,26 +122,26 @@ i8085_direct:
         call call_target        ; forward reference
         call TABLE + $200       ; expression as address
 
-jump_target:
+jump_target
         nop
-call_target:
+call_target
         ret
 
 ; ============================================================================
 ; 8085 RELATIVE EXPRESSIONS (using $ for current address)
 ; ============================================================================
-i8085_relative:
+i8085_relative
         jmp $+3                 ; jump forward 3 bytes (skip next instruction)
         nop
         jmp $-3                 ; jump backward
-loop_here:
+loop_here
         jmp loop_here           ; label reference
         jmp $                   ; infinite loop (jump to self)
 
 ; ============================================================================
 ; 8085 RST VECTORS (RST only takes literal 0-7)
 ; ============================================================================
-i8085_rst:
+i8085_rst
         rst 0                   ; RST 0
         rst 1                   ; RST 1
         rst 2                   ; RST 2
@@ -159,7 +159,7 @@ IO_DATA         .const  IO_BASE + 0
 IO_STATUS       .const  IO_BASE + 1
 IO_CONTROL      .const  IO_BASE + 2
 
-i8085_io:
+i8085_io
         in IO_DATA              ; input from label
         in IO_BASE + 1          ; input from expression
         out IO_STATUS           ; output to label
@@ -168,7 +168,7 @@ i8085_io:
 ; ============================================================================
 ; Data directives with expressions
 ; ============================================================================
-i8085_data:
+i8085_data
         .byte num_dec, num_hex, num_hex_pref
         .byte num_bin, num_bin_pref, num_bin_long  ; binary formats
         .byte num_oct, num_oct_q
@@ -209,7 +209,7 @@ VECTOR          .const  $FFFE
 ; ============================================================================
 ; 6502 IMMEDIATE MODE: LDA #imm
 ; ============================================================================
-m6502_imm:
+m6502_imm
         lda #BASE               ; label
         lda #BASE + OFFSET      ; expression
         lda #>ABS_BASE          ; high byte
@@ -234,7 +234,7 @@ m6502_imm:
 ; ============================================================================
 ; 6502 ZERO PAGE MODE: LDA $nn
 ; ============================================================================
-m6502_zp:
+m6502_zp
         lda ZP_BASE             ; label (zero page)
         lda ZP_BASE + ZP_OFFSET ; expression
         sta ZP_BASE + 1         ; store with offset
@@ -258,7 +258,7 @@ m6502_zp:
 ; ============================================================================
 ZP_DOUBLED      .const  ZP_OFFSET * 2   ; pre-calculate expression
 
-m6502_zpx:
+m6502_zpx
         lda ZP_BASE,x           ; label
         lda ZP_BASE + 4,x       ; expression
         sta ZP_BASE + 8,x       ; store
@@ -273,7 +273,7 @@ m6502_zpx:
 ; ============================================================================
 ; 6502 ZERO PAGE,Y MODE: LDX $nn,Y
 ; ============================================================================
-m6502_zpy:
+m6502_zpy
         ldx ZP_BASE,y           ; label
         ldx ZP_BASE + 4,y       ; expression
         stx ZP_BASE + 8,y       ; store
@@ -281,7 +281,7 @@ m6502_zpy:
 ; ============================================================================
 ; 6502 ABSOLUTE MODE: LDA $nnnn
 ; ============================================================================
-m6502_abs:
+m6502_abs
         lda ABS_BASE            ; label
         lda ABS_BASE + $100     ; expression
         lda PAGE + OFFSET       ; labels from 8085 section
@@ -293,15 +293,15 @@ m6502_abs:
         jsr abs_sub             ; subroutine call
         jsr TABLE + $100        ; expression as address
 
-abs_target:
+abs_target
         nop
-abs_sub:
+abs_sub
         rts
 
 ; ============================================================================
 ; 6502 ABSOLUTE,X MODE: LDA $nnnn,X
 ; ============================================================================
-m6502_absx:
+m6502_absx
         lda ABS_BASE,x          ; label
         lda ABS_BASE + $100,x   ; expression
         lda TABLE + (OFFSET * 4),x  ; complex expression
@@ -312,7 +312,7 @@ m6502_absx:
 ; ============================================================================
 ; 6502 ABSOLUTE,Y MODE: LDA $nnnn,Y
 ; ============================================================================
-m6502_absy:
+m6502_absy
         lda ABS_BASE,y          ; label
         lda ABS_BASE + $100,y   ; expression
         sta ABS_BASE + $200,y   ; store
@@ -322,7 +322,7 @@ m6502_absy:
 ; ============================================================================
 ; 6502 INDIRECT MODE: JMP ($nnnn)
 ; ============================================================================
-m6502_ind:
+m6502_ind
         jmp (VECTOR)            ; indirect through label
         jmp (ABS_BASE + $10)    ; indirect through expression
         jmp (TABLE)             ; indirect through table
@@ -330,7 +330,7 @@ m6502_ind:
 ; ============================================================================
 ; 6502 INDEXED INDIRECT MODE: LDA ($nn,X)
 ; ============================================================================
-m6502_indx:
+m6502_indx
         lda (ZP_BASE,x)         ; label
         lda (ZP_BASE + 4,x)     ; expression
         sta (ZP_BASE + 8,x)     ; store
@@ -343,7 +343,7 @@ m6502_indx:
 ; ============================================================================
 ; 6502 INDIRECT INDEXED MODE: LDA ($nn),Y
 ; ============================================================================
-m6502_indy:
+m6502_indy
         lda (ZP_BASE),y         ; label
         lda (ZP_BASE + 4),y     ; expression
         sta (ZP_BASE + 8),y     ; store
@@ -356,8 +356,8 @@ m6502_indy:
 ; ============================================================================
 ; 6502 RELATIVE MODE: Branches with expressions
 ; ============================================================================
-m6502_rel:
-branch_here:
+m6502_rel
+branch_here
         bne branch_here         ; backward branch to label
         beq $+2                 ; skip next (branch offset 0)
         bcc $+4                 ; skip 2 bytes forward
@@ -366,7 +366,7 @@ branch_here:
         bpl branch_here         ; backward to label
         bvc $+6                 ; longer forward skip
         bvs branch_fwd          ; forward reference
-branch_fwd:
+branch_fwd
         nop
 
 ; ============================================================================
@@ -374,7 +374,7 @@ branch_fwd:
 ; ============================================================================
         .cpu 65c02
 
-m65c02_modes:
+m65c02_modes
 ; Zero Page Indirect: LDA ($nn)
         lda (ZP_BASE)           ; label
         lda (ZP_BASE + 4)       ; expression
@@ -389,7 +389,7 @@ m65c02_modes:
 ; ============================================================================
 ; 6502 Data section with expressions
 ; ============================================================================
-m6502_data:
+m6502_data
         .byte ZP_BASE           ; label
         .byte ZP_BASE + ZP_OFFSET   ; expression
         .byte >ABS_BASE         ; high byte
@@ -434,7 +434,7 @@ derived3        .const  derived2 | $80          ; = $a5
         mvi l, derived2
 
 ; Address arithmetic with current location
-addr_base:
+addr_base
         .byte $+0 - addr_base   ; offset 0
         .byte $+0 - addr_base   ; offset 1
         .byte $+0 - addr_base   ; offset 2

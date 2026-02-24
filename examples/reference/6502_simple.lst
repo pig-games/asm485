@@ -9,7 +9,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 1000                    6          .org $1000      ; Start at $1000
 ----                                7  
 ----                                8  ; Test implied instructions
-1000    EA                          9  start:  nop             ; EA
+1000    EA                          9  start  nop             ; EA
 1001    18                         10          clc             ; 18
 1002    38                         11          sec             ; 38
 1003    58                         12          cli             ; 58

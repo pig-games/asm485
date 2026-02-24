@@ -10,7 +10,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                7          .region bank12, $123400, $12341f
 ----                                8  
 ----                                9          .section code  ; [section code]
-----                               10  start:  ; [section code]
+----                               10  start  ; [section code]
 123400  C2 30                      11          rep #$30  ; [section code]
 123402  E2 10                      12          sep #$10  ; [section code]
 123404  AF 56 34 12                13          lda $123456  ; [section code]

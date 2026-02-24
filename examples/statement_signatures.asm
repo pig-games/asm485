@@ -7,5 +7,5 @@
 .statement sta "[" byte:a ","[{char:reg}]
 .endstatement
 
-start:
+start
     nop

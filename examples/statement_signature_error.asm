@@ -2,5 +2,5 @@
 
 .statement sta "[" byte:a ","[{char:reg}
 
-start:
+start
     nop

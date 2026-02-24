@@ -6,13 +6,13 @@
         .org $2000      ; Start at $2000
 
 ; Test 65C02-only instructions
-start:  stz $20         ; 64 20 - Store Zero (zero page)
+start  stz $20         ; 64 20 - Store Zero (zero page)
         stz $1234       ; 9C 34 12 - Store Zero (absolute)
         
         bra skip        ; 80 02 - Branch Always (skip 2 bytes)
         nop             ; EA
         nop             ; EA
-skip:   
+skip   
         phx             ; DA - Push X
         phy             ; 5A - Push Y
         plx             ; FA - Pull X
@@ -34,7 +34,7 @@ skip:
         bvc nobranch    ; 50 xx - Branch if Overflow Clear
         bvs nobranch    ; 70 xx - Branch if Overflow Set
 
-nobranch:
+nobranch
 ; Test immediate mode (including 65C02-only BIT #imm)
         lda #$42        ; A9 42 - Load immediate
         ldx #$10        ; A2 10

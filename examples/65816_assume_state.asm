@@ -4,7 +4,7 @@
         .cpu 65816
         .org $123400
 
-start:
+start
         .assume e=native, m=16, x=16, dp=$2000, dbr=$12, pbr=auto
 
         lda #$1234          ; A9 34 12 (A is 16-bit)

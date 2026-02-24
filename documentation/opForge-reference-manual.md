@@ -678,7 +678,8 @@ tmp .const 3        ; resolves in caller scope unless body adds explicit .block
 ## 6. Compatibility
 
 - Dot-prefixed directives are required (for `.org`, `.set`, `.if`, etc.).
-- Labels may omit the trailing `:`.
+- Labels are idiomatically written without a trailing `:`.
+- Trailing-colon labels remain supported for compatibility/migration.
 
 ## 7. Command line options
 

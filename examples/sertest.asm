@@ -5,19 +5,19 @@
 BITTIME .const     0113h          ; Time delay for a single bit
 OUTBITS .const	00Bh
 
-START:
+START
         mvi     c,'T'           ; Send a test character
-COUT:
+COUT
         di
         mvi     b,OUTBITS       ; Number of output bits
         xra     a               ; Clear carry for start bit
-CO1:
+CO1
         mvi     a,080H          ; Set the SDE flag
         rar                     ; Shift carry into SOD flag
         cmc                     ;   and invert carry.  Why? (serial is inverted?)
         sim                     ; Output data bit
         lxi     h,BITTIME       ; Load the time delay for one bit width
-CO2:
+CO2
         dcr     l               ; Wait for bit time
         jnz     CO2
         dcr     h
@@ -31,7 +31,7 @@ CO2:
         ei
 
         lxi     h,03fffH        ; Wait a while before sending the character again
-CHILL:
+CHILL
         dcr     l
         jnz     CHILL
         dcr     h

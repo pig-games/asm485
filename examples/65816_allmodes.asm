@@ -9,7 +9,7 @@
 ; ========================================
         brl long_target     ; 82 xx xx
         nop                 ; EA
-long_target:
+long_target
         jml $C0FFEE         ; 5C EE FF C0
         jsl $00ABCD         ; 22 CD AB 00
         jmp [$3456]         ; DC 56 34
@@ -96,7 +96,7 @@ long_target:
         lda #$12
         sta $2000
 
-rel_target:
+rel_target
         rts
 
         .end

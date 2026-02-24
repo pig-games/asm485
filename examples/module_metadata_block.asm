@@ -13,6 +13,6 @@
     .endmeta
 
     .org 0000h
-START:
+START
     .byte 01h, 02h, 03h, 04h
 .endmodule

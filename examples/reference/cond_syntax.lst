@@ -37,11 +37,11 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               34          .endif
 ----                               35  
 ----                               36  ; labels on conditionals
-----                               37  LABIF:  .if TRUE
+----                               37  LABIF  .if TRUE
 2003    0A                         38                  .byte 10
-----                               39  LABELSE:.else
+----                               39  LABELSE .else
 ----                               40                  .byte 11
-----                               41  LABEND: .endif
+----                               41  LABEND .endif
 ----                               42  
 ----                               43  ; match/case/default
 ----                               44          .match 2

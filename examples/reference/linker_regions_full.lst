@@ -7,14 +7,14 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                4  
 ----                                5  .section code, align=1  ; [section code]
 ----                                6  .pub  ; [section code]
-----                                7  entry:  ; [section code]
+----                                7  entry  ; [section code]
 8000    04 80                       8      .word data_start  ; [section code]
 ----                                9  .priv  ; [section code]
 8002    EA                         10      .byte $ea  ; [section code]
 ----                               11  .endsection
 ----                               12  
 ----                               13  .section data, align=2  ; [section data]
-----                               14  data_start:  ; [section data]
+----                               14  data_start  ; [section data]
 8004    01 02 03                   15      .byte 1, 2, 3  ; [section data]
 ----                               16  .endsection
 ----                               17  

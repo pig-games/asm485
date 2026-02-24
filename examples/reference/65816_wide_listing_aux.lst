@@ -10,7 +10,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 123456                  7  wide_value = $123456
 ----                                8  
 ----                                9  .section scratch, kind=bss  ; [section scratch]
-----                               10  buffer:  ; [section scratch]
+----                               10  buffer  ; [section scratch]
 0000    +123456                    11      .res byte, $123456  ; [section scratch]
 ----                               12  .endsection
 ----                               13  

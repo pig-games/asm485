@@ -8,19 +8,19 @@ ADDR    BYTES                    LINE  SOURCE
 ----    EQU 0113                    5  BITTIME .const     0113h          ; Time delay for a single bit
 ----    EQU 000B                    6  OUTBITS .const	00Bh
 ----                                7  
-----                                8  START:
+----                                8  START
 0000    0E 54                       9          mvi     c,'T'           ; Send a test character
-----                               10  COUT:
+----                               10  COUT
 0002    F3                         11          di
 0003    06 0B                      12          mvi     b,OUTBITS       ; Number of output bits
 0005    AF                         13          xra     a               ; Clear carry for start bit
-----                               14  CO1:
+----                               14  CO1
 0006    3E 80                      15          mvi     a,080H          ; Set the SDE flag
 0008    1F                         16          rar                     ; Shift carry into SOD flag
 0009    3F                         17          cmc                     ;   and invert carry.  Why? (serial is inverted?)
 000A    30                         18          sim                     ; Output data bit
 000B    21 13 01                   19          lxi     h,BITTIME       ; Load the time delay for one bit width
-----                               20  CO2:
+----                               20  CO2
 000E    2D                         21          dcr     l               ; Wait for bit time
 000F    C2 0E 00                   22          jnz     CO2
 0012    25                         23          dcr     h
@@ -34,7 +34,7 @@ ADDR    BYTES                    LINE  SOURCE
 001E    FB                         31          ei
 ----                               32  
 001F    21 FF 3F                   33          lxi     h,03fffH        ; Wait a while before sending the character again
-----                               34  CHILL:
+----                               34  CHILL
 0022    2D                         35          dcr     l
 0023    C2 22 00                   36          jnz     CHILL
 0026    25                         37          dcr     h

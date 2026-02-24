@@ -6,7 +6,7 @@
         .org $1000      ; Start at $1000
 
 ; Test implied instructions
-start:  nop             ; EA
+start  nop             ; EA
         clc             ; 18
         sec             ; 38
         cli             ; 58
