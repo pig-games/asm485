@@ -1,4 +1,4 @@
-opForge 8085 Assembler v1.0
+opForge Assembler v0.9.1
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; 65816 runtime state assumptions (.assume) + explicit operand overrides

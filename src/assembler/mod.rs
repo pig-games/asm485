@@ -402,11 +402,7 @@ fn run_one(
         config.debug_conditionals,
         config.tab_size,
     );
-    let cpu_name = assembler
-        .registry
-        .cpu_display_name(assembler.cpu())
-        .unwrap_or_else(|| assembler.cpu().as_str());
-    let header_title = format!("opForge {cpu_name} Assembler v{VERSION}");
+    let header_title = format!("opForge Assembler v{VERSION}");
     if let Err(err) = listing.header(&header_title) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),

@@ -7,6 +7,7 @@ use super::{
     MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
 };
 use crate::assembler::cli::Cli;
+use crate::assembler::VERSION;
 use crate::core::assembler::error::{AsmError, Diagnostic};
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
@@ -372,7 +373,7 @@ fn assemble_example_with_base(
 
     let mut listing = ListingWriter::new(&mut list_file, false);
     listing
-        .header("opForge 8085 Assembler v1.0")
+        .header(&format!("opForge Assembler v{VERSION}"))
         .map_err(|err| format!("Write listing header: {err}"))?;
     let pass2 = assembler
         .pass2(&expanded_lines, &mut listing)
@@ -540,7 +541,10 @@ fn assemble_example_error(asm_path: &Path) -> Option<String> {
 
     let mut sink = io::sink();
     let mut listing = ListingWriter::new(&mut sink, false);
-    if listing.header("opForge 8085 Assembler v1.0").is_ok() {
+    if listing
+        .header(&format!("opForge Assembler v{VERSION}"))
+        .is_ok()
+    {
         let _ = assembler.pass2(&expanded_lines, &mut listing);
     }
     if let Err(err) = validate_example_linker_outputs(&assembler) {
@@ -3393,7 +3397,7 @@ fn placed_section_without_dsection_emits_hex() {
     {
         let mut listing = ListingWriter::new(&mut output, false);
         listing
-            .header("opForge 8085 Assembler v1.0")
+            .header(&format!("opForge Assembler v{VERSION}"))
             .expect("listing header");
         let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
         listing
@@ -3444,7 +3448,7 @@ fn packed_sections_without_dsection_emit_hex() {
     let mut output = Vec::new();
     let mut listing = ListingWriter::new(&mut output, false);
     listing
-        .header("opForge 8085 Assembler v1.0")
+        .header(&format!("opForge Assembler v{VERSION}"))
         .expect("listing header");
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
     listing
@@ -3491,7 +3495,7 @@ fn align_inserts_padding_bytes() {
     let mut output = Vec::new();
     let mut listing = ListingWriter::new(&mut output, false);
     listing
-        .header("opForge 8085 Assembler v1.0")
+        .header(&format!("opForge Assembler v{VERSION}"))
         .expect("listing header");
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
     listing
@@ -3526,7 +3530,7 @@ fn empty_module_emits_only_hex_eof_record() {
     let mut output = Vec::new();
     let mut listing = ListingWriter::new(&mut output, false);
     listing
-        .header("opForge 8085 Assembler v1.0")
+        .header(&format!("opForge Assembler v{VERSION}"))
         .expect("listing header");
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
     listing
@@ -3563,7 +3567,7 @@ fn section_selects_and_restores_output_target() {
     let mut output = Vec::new();
     let mut listing = ListingWriter::new(&mut output, false);
     listing
-        .header("opForge 8085 Assembler v1.0")
+        .header(&format!("opForge Assembler v{VERSION}"))
         .expect("listing header");
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
     listing
@@ -3604,7 +3608,7 @@ fn rts_encodes_in_6502_family() {
     let mut output = Vec::new();
     let mut listing = ListingWriter::new(&mut output, false);
     listing
-        .header("opForge 8085 Assembler v1.0")
+        .header(&format!("opForge Assembler v{VERSION}"))
         .expect("listing header");
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
     listing
