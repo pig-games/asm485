@@ -29,5 +29,7 @@ CPZ,zero_page,D4,1,none,45GS02 extension compare-with-Z zero-page,mega65-book-2.
 CPZ,absolute,CC,2,none,45GS02 extension compare-with-Z absolute,mega65-book-2.txt:25012-25810
 DEW,zero_page,C3,1,none,45GS02 extension decrement-word at base page address,mega65-book-2.txt:25012-25810
 INW,zero_page,E3,1,none,45GS02 extension increment-word at base page address,mega65-book-2.txt:25012-25810
+ASW,absolute,BB,2,none,45GS02 extension arithmetic-shift-word absolute,mega65-book-2.txt:25012-25810
+ROW,absolute,DB,2,none,45GS02 extension rotate-word absolute,mega65-book-2.txt:25012-25810
 PHW,immediate_word,F4,2,none,45GS02 extension push-word immediate,mega65-book-2.txt:25012-25810
 PHW,absolute,EC,2,none,45GS02 extension push-word absolute,mega65-book-2.txt:25012-25810
