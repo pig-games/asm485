@@ -655,6 +655,30 @@ mod tests {
     }
 
     #[test]
+    fn encodes_stz_absolute_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let stz_abs = Operand::Absolute(0x2000, Span::default());
+        match handler.encode_instruction("stz", &[stz_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x8C, 0x00, 0x20]),
+            EncodeResult::NotFound => panic!("stz absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("stz absolute encoding failed: {message}")
+            }
+        }
+
+        let stz_abs_x = Operand::AbsoluteX(0x2002, Span::default());
+        match handler.encode_instruction("stz", &[stz_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x8E, 0x02, 0x20]),
+            EncodeResult::NotFound => panic!("stz absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("stz absolute x encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

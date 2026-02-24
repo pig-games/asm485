@@ -10,6 +10,8 @@ LDA,bracket_indirect_long_z,B1,1,NOP,Bracket sugar lowers [,Z] to NOP + (zp),Y i
 STA,indirect_indexed_zp_y,91,1,NOP,Flat-memory write sugar lowers (,Z) to NOP + (zp),Y,mega65-book-2.txt:27744-27749
 STA,stack_relative_indirect_indexed_y,82,1,none,45GS02 extension stack-relative indirect indexed store,mega65-book-2.txt:25012-25810
 LDA,stack_relative_indirect_indexed_y,E2,1,none,45GS02 extension stack-relative indirect indexed load,mega65-book-2.txt:25012-25810
+STZ,absolute,8C,2,none,45GS02 extension store-zero absolute,mega65-book-2.txt:25012-25810
+STZ,absolute_x,8E,2,none,45GS02 extension store-zero absolute indexed by X,mega65-book-2.txt:25012-25810
 ADCQ,immediate,69,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before ADC,mega65-book-2.txt:25012-25413
 LDQ,absolute,AD,2,NEG NEG,Q pseudo-register form emits two NEG prefixes before LDA,mega65-book-2.txt:25012-25413
 LDQ,immediate,A9,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before LDA,mega65-book-2.txt:25012-25413
