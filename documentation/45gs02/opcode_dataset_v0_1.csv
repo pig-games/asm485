@@ -8,6 +8,14 @@ ADC,immediate,59,1,none,45GS02 immediate ADC opcode variant,mega65-book-2.txt:25
 LDA,immediate,99,1,none,45GS02 immediate LDA opcode variant,mega65-book-2.txt:25012-25810
 BIT,immediate,79,1,none,45GS02 immediate BIT opcode variant,mega65-book-2.txt:25012-25810
 CMP,immediate,B9,1,none,45GS02 immediate CMP opcode variant,mega65-book-2.txt:25012-25810
+ORA,absolute_y,09,2,none,45GS02 absolute,Y ORA opcode variant,mega65-book-2.txt:25012-25810
+AND,absolute_y,29,2,none,45GS02 absolute,Y AND opcode variant,mega65-book-2.txt:25012-25810
+EOR,absolute_y,49,2,none,45GS02 absolute,Y EOR opcode variant,mega65-book-2.txt:25012-25810
+ADC,absolute_y,69,2,none,45GS02 absolute,Y ADC opcode variant,mega65-book-2.txt:25012-25810
+STA,absolute_y,89,2,none,45GS02 absolute,Y STA opcode variant,mega65-book-2.txt:25012-25810
+LDA,absolute_y,A9,2,none,45GS02 absolute,Y LDA opcode variant,mega65-book-2.txt:25012-25810
+CMP,absolute_y,C9,2,none,45GS02 absolute,Y CMP opcode variant,mega65-book-2.txt:25012-25810
+SBC,absolute_y,E9,2,none,45GS02 absolute,Y SBC opcode variant,mega65-book-2.txt:25012-25810
 ORA,immediate,F9,1,none,45GS02 immediate ORA opcode variant,mega65-book-2.txt:25012-25810
 SBC,immediate,D9,1,none,45GS02 immediate SBC opcode variant,mega65-book-2.txt:25012-25810
 JSR,indirect,22,2,none,45GS02 extension JSR indirect absolute form,mega65-book-2.txt:25012-25810

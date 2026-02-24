@@ -763,6 +763,84 @@ mod tests {
     }
 
     #[test]
+    fn encodes_absolute_y_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let ora_abs_y = Operand::AbsoluteY(0x2000, Span::default());
+        match handler.encode_instruction("ora", &[ora_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x09, 0x00, 0x20]),
+            EncodeResult::NotFound => panic!("ora absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("ora absolute y encoding failed: {message}")
+            }
+        }
+
+        let and_abs_y = Operand::AbsoluteY(0x2002, Span::default());
+        match handler.encode_instruction("and", &[and_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x29, 0x02, 0x20]),
+            EncodeResult::NotFound => panic!("and absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("and absolute y encoding failed: {message}")
+            }
+        }
+
+        let eor_abs_y = Operand::AbsoluteY(0x2004, Span::default());
+        match handler.encode_instruction("eor", &[eor_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x49, 0x04, 0x20]),
+            EncodeResult::NotFound => panic!("eor absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("eor absolute y encoding failed: {message}")
+            }
+        }
+
+        let adc_abs_y = Operand::AbsoluteY(0x2006, Span::default());
+        match handler.encode_instruction("adc", &[adc_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x69, 0x06, 0x20]),
+            EncodeResult::NotFound => panic!("adc absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("adc absolute y encoding failed: {message}")
+            }
+        }
+
+        let sta_abs_y = Operand::AbsoluteY(0x2008, Span::default());
+        match handler.encode_instruction("sta", &[sta_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x89, 0x08, 0x20]),
+            EncodeResult::NotFound => panic!("sta absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sta absolute y encoding failed: {message}")
+            }
+        }
+
+        let lda_abs_y = Operand::AbsoluteY(0x200A, Span::default());
+        match handler.encode_instruction("lda", &[lda_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xA9, 0x0A, 0x20]),
+            EncodeResult::NotFound => panic!("lda absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("lda absolute y encoding failed: {message}")
+            }
+        }
+
+        let cmp_abs_y = Operand::AbsoluteY(0x200C, Span::default());
+        match handler.encode_instruction("cmp", &[cmp_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xC9, 0x0C, 0x20]),
+            EncodeResult::NotFound => panic!("cmp absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("cmp absolute y encoding failed: {message}")
+            }
+        }
+
+        let sbc_abs_y = Operand::AbsoluteY(0x200E, Span::default());
+        match handler.encode_instruction("sbc", &[sbc_abs_y], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xE9, 0x0E, 0x20]),
+            EncodeResult::NotFound => panic!("sbc absolute y encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sbc absolute y encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();
