@@ -28,6 +28,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0x13,
     },
     CpuInstructionEntry {
+        mnemonic: "JSR",
+        mode: AddressMode::Indirect,
+        opcode: 0x22,
+    },
+    CpuInstructionEntry {
+        mnemonic: "JSR",
+        mode: AddressMode::AbsoluteIndexedIndirect,
+        opcode: 0x23,
+    },
+    CpuInstructionEntry {
         mnemonic: "BMI",
         mode: AddressMode::RelativeLong,
         opcode: 0x33,

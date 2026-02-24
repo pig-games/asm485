@@ -267,6 +267,34 @@ impl CpuHandler for M45GS02CpuHandler {
                         }
                     }
                 }
+                FamilyOperand::IndexedIndirectX(expr)
+                    if mapped_upper == "JSR"
+                        && Self::has_cpu_mode(
+                            &mapped_upper,
+                            AddressMode::AbsoluteIndexedIndirect,
+                        ) =>
+                {
+                    let value = ctx.eval_expr(expr)?;
+                    let span = expr_span(expr);
+                    if !(0..=65535).contains(&value) {
+                        return Err(format!(
+                            "Absolute indexed indirect address {} out of 16-bit range",
+                            value
+                        ));
+                    }
+                    return Ok(vec![Operand::AbsoluteIndexedIndirect(value as u16, span)]);
+                }
+                FamilyOperand::Indirect(expr)
+                    if mapped_upper == "JSR"
+                        && Self::has_cpu_mode(&mapped_upper, AddressMode::Indirect) =>
+                {
+                    let value = ctx.eval_expr(expr)?;
+                    let span = expr_span(expr);
+                    if !(0..=65535).contains(&value) {
+                        return Err(format!("Indirect address {} out of 16-bit range", value));
+                    }
+                    return Ok(vec![Operand::Indirect(value as u16, span)]);
+                }
                 _ => {}
             }
         }
@@ -603,6 +631,60 @@ mod tests {
             EncodeResult::NotFound => panic!("rts immediate encoding not found"),
             EncodeResult::Error(message, _span) => {
                 panic!("rts immediate encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
+    fn resolves_jsr_indirect_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let jsr_ind = vec![FamilyOperand::Indirect(Expr::Number(
+            "8192".to_string(),
+            Span::default(),
+        ))];
+        let resolved_ind = handler
+            .resolve_operands("jsr", &jsr_ind, &ctx)
+            .expect("resolve jsr indirect");
+        match &resolved_ind[0] {
+            Operand::Indirect(value, _) => assert_eq!(*value, 8192),
+            other => panic!("expected Indirect, got {other:?}"),
+        }
+
+        let jsr_ind_x = vec![FamilyOperand::IndexedIndirectX(Expr::Number(
+            "8194".to_string(),
+            Span::default(),
+        ))];
+        let resolved_ind_x = handler
+            .resolve_operands("jsr", &jsr_ind_x, &ctx)
+            .expect("resolve jsr indexed indirect");
+        match &resolved_ind_x[0] {
+            Operand::AbsoluteIndexedIndirect(value, _) => assert_eq!(*value, 8194),
+            other => panic!("expected AbsoluteIndexedIndirect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encodes_jsr_indirect_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let jsr_ind = Operand::Indirect(0x2000, Span::default());
+        match handler.encode_instruction("jsr", &[jsr_ind], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x22, 0x00, 0x20]),
+            EncodeResult::NotFound => panic!("jsr indirect encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("jsr indirect encoding failed: {message}")
+            }
+        }
+
+        let jsr_ind_x = Operand::AbsoluteIndexedIndirect(0x2002, Span::default());
+        match handler.encode_instruction("jsr", &[jsr_ind_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x23, 0x02, 0x20]),
+            EncodeResult::NotFound => panic!("jsr absolute indexed indirect encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("jsr absolute indexed indirect encoding failed: {message}")
             }
         }
     }
