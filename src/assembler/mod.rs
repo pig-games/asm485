@@ -310,17 +310,6 @@ fn run_one(
     };
     assembler.clear_diagnostics();
     let pass1 = assembler.pass1(&expanded_lines);
-    if pass1.errors > 0 {
-        return Err(AsmRunError::new(
-            AsmError::new(
-                AsmErrorKind::Assembler,
-                "Errors detected in source. No hex file created.",
-                None,
-            ),
-            remap_diags(assembler.take_diagnostics()),
-            expanded_lines.clone(),
-        ));
-    }
 
     let output_config = assembler
         .root_metadata
@@ -330,7 +319,11 @@ fn run_one(
         || output_config.hex_name.is_some()
         || !output_config.bin_specs.is_empty();
     let effective_default_outputs = config.default_outputs && !meta_outputs_requested;
-    if effective_default_outputs && metadata_output.is_none() && cli.outfile.is_none() {
+    if pass1.errors == 0
+        && effective_default_outputs
+        && metadata_output.is_none()
+        && cli.outfile.is_none()
+    {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -373,7 +366,7 @@ fn run_one(
         }
         None => None,
     };
-    if config.go_addr.is_some() && hex_path.is_none() {
+    if pass1.errors == 0 && config.go_addr.is_some() && hex_path.is_none() {
         return Err(AsmRunError::new(
             AsmError::new(
                 AsmErrorKind::Cli,
@@ -446,6 +439,18 @@ fn run_one(
     ) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
+            remap_diags(assembler.take_diagnostics()),
+            expanded_lines.clone(),
+        ));
+    }
+
+    if pass1.errors > 0 || pass2.errors > 0 {
+        return Err(AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Assembler,
+                "Errors detected in source. No hex file created.",
+                None,
+            ),
             remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         ));

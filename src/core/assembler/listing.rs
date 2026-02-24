@@ -10,7 +10,7 @@ use crate::core::symbol_table::SymbolTable;
 use crate::core::text_utils::{is_ident_start, split_comment, Cursor};
 
 use super::conditional::ConditionalContext;
-use super::error::{build_context_lines, LineStatus, PassCounts};
+use super::error::{build_context_lines, Diagnostic, LineStatus, PassCounts, Severity};
 
 /// Data for a single listing line.
 pub struct ListingLine<'a> {
@@ -122,19 +122,25 @@ impl<W: Write> ListingWriter<W> {
 
     pub fn write_diagnostic_with_annotations(
         &mut self,
-        kind: &str,
-        msg: &str,
-        line_num: u32,
-        column: Option<usize>,
+        diagnostic: &Diagnostic,
         source_lines: &[String],
-        help: &[String],
-        fixits: &[crate::core::assembler::error::Fixit],
     ) -> std::io::Result<()> {
-        self.write_diagnostic(kind, msg, line_num, column, source_lines, None)?;
-        for item in help {
+        let kind = match diagnostic.severity {
+            Severity::Warning => "WARNING",
+            Severity::Error => "ERROR",
+        };
+        self.write_diagnostic(
+            kind,
+            diagnostic.error.message(),
+            diagnostic.line,
+            diagnostic.column,
+            source_lines,
+            None,
+        )?;
+        for item in diagnostic.help() {
             writeln!(self.out, "help: {}", strip_ansi_sgr(item))?;
         }
-        for fixit in fixits {
+        for fixit in diagnostic.fixits() {
             writeln!(
                 self.out,
                 "suggestion: replace {} with {:?}",

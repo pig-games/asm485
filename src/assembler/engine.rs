@@ -371,15 +371,7 @@ impl Assembler {
                     applicability: "machine-applicable".to_string(),
                 });
             diagnostics.push(diag.clone());
-            listing.write_diagnostic_with_annotations(
-                "ERROR",
-                err.message(),
-                line_num,
-                None,
-                lines,
-                diag.help(),
-                diag.fixits(),
-            )?;
+            listing.write_diagnostic_with_annotations(&diag, lines)?;
             asm_line.clear_conditionals();
             counts.errors += 1;
         }
