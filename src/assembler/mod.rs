@@ -4451,7 +4451,7 @@ impl<'a> AsmLine<'a> {
         let suggestion = match mnemonic.to_ascii_uppercase().as_str() {
             ".EDIF" | ".ENDFI" | ".ENIDF" => ".ENDIF",
             ".ESLEIF" | ".ELSIEF" | ".ELSIF" | ".ELIF" | ".ELSFI" | ".ELSEFI" => ".ELSEIF",
-            ".ENDMOD" | ".ENDMODUL" | ".ENDMODLE" => ".ENDMODULE",
+            ".ENDMOD" | ".ENDMODUL" | ".ENDMODLE" | ".ENDMODUEL" => ".ENDMODULE",
             ".ENDSECT" | ".ENDSECTON" | ".ENDSEC" => ".ENDSECTION",
             ".ENDMACH" | ".ENDMTACH" => ".ENDMATCH",
             _ => return None,

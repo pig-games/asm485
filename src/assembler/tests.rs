@@ -1750,6 +1750,22 @@ fn unknown_directive_elsefi_typo_emits_machine_applicable_fixit() {
 }
 
 #[test]
+fn unknown_directive_endmoduel_typo_emits_machine_applicable_fixit() {
+    let (status, diag) =
+        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endmoduel", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ENDMODUEL"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ENDMODULE");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
 fn vm_native_parity_for_directive_typo_fixit_payload() {
     assert_directive_typo_vm_native_parity(".edif");
 }
@@ -1820,6 +1836,11 @@ fn vm_native_parity_for_enidf_directive_typo_fixit_payload() {
 #[test]
 fn vm_native_parity_for_elsefi_directive_typo_fixit_payload() {
     assert_directive_typo_vm_native_parity(".elsefi 1");
+}
+
+#[test]
+fn vm_native_parity_for_endmoduel_directive_typo_fixit_payload() {
+    assert_directive_typo_vm_native_parity(".endmoduel");
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
