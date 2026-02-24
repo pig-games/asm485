@@ -1639,7 +1639,10 @@ fn unknown_directive_esleif_typo_emits_machine_applicable_fixit() {
 
 #[test]
 fn vm_native_parity_for_directive_typo_fixit_payload() {
-    let line = ".edif";
+    assert_directive_typo_vm_native_parity(".edif");
+}
+
+fn assert_directive_typo_vm_native_parity(line: &str) {
     let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
     let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
 
@@ -1654,62 +1657,22 @@ fn vm_native_parity_for_directive_typo_fixit_payload() {
 
 #[test]
 fn vm_native_parity_for_endmod_directive_typo_fixit_payload() {
-    let line = ".endmod";
-    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
-    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
-
-    assert_eq!(native.0, runtime.0, "status parity mismatch");
-    let native_diag = native.1.expect("native diagnostic expected");
-    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
-
-    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
-    assert_vm_native_help_parity(&native_diag, &runtime_diag);
-    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
+    assert_directive_typo_vm_native_parity(".endmod");
 }
 
 #[test]
 fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
-    let line = ".endsect";
-    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
-    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
-
-    assert_eq!(native.0, runtime.0, "status parity mismatch");
-    let native_diag = native.1.expect("native diagnostic expected");
-    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
-
-    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
-    assert_vm_native_help_parity(&native_diag, &runtime_diag);
-    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
+    assert_directive_typo_vm_native_parity(".endsect");
 }
 
 #[test]
 fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
-    let line = ".endmach";
-    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
-    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
-
-    assert_eq!(native.0, runtime.0, "status parity mismatch");
-    let native_diag = native.1.expect("native diagnostic expected");
-    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
-
-    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
-    assert_vm_native_help_parity(&native_diag, &runtime_diag);
-    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
+    assert_directive_typo_vm_native_parity(".endmach");
 }
 
 #[test]
 fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
-    let line = ".esleif 1";
-    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
-    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
-
-    assert_eq!(native.0, runtime.0, "status parity mismatch");
-    let native_diag = native.1.expect("native diagnostic expected");
-    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
-
-    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
-    assert_vm_native_help_parity(&native_diag, &runtime_diag);
-    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
+    assert_directive_typo_vm_native_parity(".esleif 1");
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
