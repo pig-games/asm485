@@ -541,4 +541,80 @@ mod tests {
         let diag = Diagnostic::new(12, Severity::Error, err);
         assert_eq!(diag.format(), "12: ERROR [asm001] - Bad thing");
     }
+
+    #[test]
+    fn format_with_context_renders_notes_and_help_after_related_spans() {
+        let err = AsmError::new(AsmErrorKind::Parser, "unexpected token", None);
+        let diag = Diagnostic::new(3, Severity::Error, err)
+            .with_file(Some("example.asm".to_string()))
+            .with_column(Some(5))
+            .with_related_span(LabeledSpan {
+                file: Some("example.asm".to_string()),
+                line: 1,
+                col_start: Some(1),
+                col_end: Some(4),
+                label: Some("opened here".to_string()),
+                is_primary: false,
+            })
+            .with_note("insert a matching terminator")
+            .with_help("add `.endif` after the block");
+
+        let lines = vec![
+            ".if 1".to_string(),
+            "lda #$01".to_string(),
+            "lda #$02".to_string(),
+        ];
+
+        let rendered = diag.format_with_context(Some(&lines), false);
+        assert!(rendered.contains("example.asm:3: ERROR [otp004]"));
+        assert!(rendered.contains("      = 1 | .if 1"));
+        assert!(rendered.contains("      = note: opened here"));
+        assert!(rendered.contains("note: insert a matching terminator"));
+        assert!(rendered.contains("help: add `.endif` after the block"));
+        assert!(rendered.ends_with("ERROR: unexpected token"));
+
+        let related_idx = rendered
+            .find("      = note: opened here")
+            .expect("related note label should be present");
+        let note_idx = rendered
+            .find("note: insert a matching terminator")
+            .expect("note should be present");
+        let help_idx = rendered
+            .find("help: add `.endif` after the block")
+            .expect("help should be present");
+        assert!(
+            related_idx < note_idx,
+            "related label must render before notes"
+        );
+        assert!(note_idx < help_idx, "notes must render before help");
+    }
+
+    #[test]
+    fn format_with_context_renders_fixit_suggestion_after_help() {
+        let err = AsmError::new(AsmErrorKind::Directive, "missing argument", None);
+        let diag = Diagnostic::new(8, Severity::Error, err)
+            .with_file(Some("example.asm".to_string()))
+            .with_help("provide an expression")
+            .with_fixit(Fixit {
+                file: Some("example.asm".to_string()),
+                line: 8,
+                col_start: Some(6),
+                col_end: Some(6),
+                replacement: "0".to_string(),
+                applicability: "machine-applicable".to_string(),
+            });
+        let lines = vec![".byte".to_string(); 8];
+
+        let rendered = diag.format_with_context(Some(&lines), false);
+        let expected = [
+            "example.asm:8: ERROR [asm202]",
+            "    8 | .byte",
+            "help: provide an expression",
+            "suggestion: replace 8:6-6 with \"0\"",
+            "ERROR: missing argument",
+        ]
+        .join("\n");
+
+        assert_eq!(rendered, expected);
+    }
 }
