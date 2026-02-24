@@ -1,0 +1,28 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 JSR indirect extensions
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 1000                    4          .org $1000
+----                                5  
+----                                6  start
+1000    22 00 20                    7          jsr ($2000)
+1003    23 02 20                    8          jsr ($2002,x)
+1006    60                          9          rts
+----                               10  
+----                               11          .end
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1000 (4096)
+
+Total memory is 7 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    22 00 20 23 02 20 60
