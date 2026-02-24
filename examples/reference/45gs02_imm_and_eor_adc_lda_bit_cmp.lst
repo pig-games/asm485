@@ -1,0 +1,32 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 immediate opcode overrides for AND/EOR/ADC/LDA/BIT/CMP
+----                                2  
+----                                3  	.cpu 45gs02
+----    EQU 2000                    4  	.org $2000
+----                                5  
+----                                6  start
+2000    19 11                       7  	and #$11
+2002    39 22                       8  	eor #$22
+2004    59 33                       9  	adc #$33
+2006    99 44                      10  	lda #$44
+2008    79 55                      11  	bit #$55
+200A    B9 66                      12  	cmp #$66
+200C    60                         13  	rts
+----                               14  
+----                               15  	.end
+
+Lines: 15  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2000 (8192)
+
+Total memory is 13 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2000    19 11 39 22 59 33 99 44 79 55 B9 66 60
