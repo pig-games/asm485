@@ -961,6 +961,32 @@ mod tests {
     }
 
     #[test]
+    fn encodes_implied_transfer_and_index_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let implied =
+            |mnemonic: &str, expected: u8| match handler.encode_instruction(mnemonic, &[], &ctx) {
+                EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![expected]),
+                EncodeResult::NotFound => panic!("{mnemonic} implied encoding not found"),
+                EncodeResult::Error(message, _span) => {
+                    panic!("{mnemonic} implied encoding failed: {message}")
+                }
+            };
+
+        implied("dey", 0x78);
+        implied("txa", 0x7A);
+        implied("txs", 0x8A);
+        implied("tya", 0x88);
+        implied("tay", 0x98);
+        implied("tax", 0x9A);
+        implied("tsx", 0xAA);
+        implied("iny", 0xB8);
+        implied("dex", 0xBA);
+        implied("inx", 0xD8);
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

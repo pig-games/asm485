@@ -98,6 +98,56 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xF3,
     },
     CpuInstructionEntry {
+        mnemonic: "DEY",
+        mode: AddressMode::Implied,
+        opcode: 0x78,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TXA",
+        mode: AddressMode::Implied,
+        opcode: 0x7A,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TXS",
+        mode: AddressMode::Implied,
+        opcode: 0x8A,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TYA",
+        mode: AddressMode::Implied,
+        opcode: 0x88,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TAY",
+        mode: AddressMode::Implied,
+        opcode: 0x98,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TAX",
+        mode: AddressMode::Implied,
+        opcode: 0x9A,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TSX",
+        mode: AddressMode::Implied,
+        opcode: 0xAA,
+    },
+    CpuInstructionEntry {
+        mnemonic: "INY",
+        mode: AddressMode::Implied,
+        opcode: 0xB8,
+    },
+    CpuInstructionEntry {
+        mnemonic: "DEX",
+        mode: AddressMode::Implied,
+        opcode: 0xBA,
+    },
+    CpuInstructionEntry {
+        mnemonic: "INX",
+        mode: AddressMode::Implied,
+        opcode: 0xD8,
+    },
+    CpuInstructionEntry {
         mnemonic: "STY",
         mode: AddressMode::AbsoluteX,
         opcode: 0x7B,
