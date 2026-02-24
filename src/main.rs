@@ -575,6 +575,94 @@ mod tests {
     }
 
     #[test]
+    fn format_diagnostic_line_json_matches_v2_schema_fixture() {
+        let diag = Diagnostic::new(
+            12,
+            Severity::Error,
+            AsmError::new(AsmErrorKind::Parser, "unexpected token", None),
+        )
+        .with_code("otp004")
+        .with_file(Some("examples/sample.asm".to_string()))
+        .with_column(Some(9))
+        .with_col_end(Some(11))
+        .with_related_span(opforge::core::assembler::error::LabeledSpan {
+            file: Some("examples/sample.asm".to_string()),
+            line: 3,
+            col_start: Some(1),
+            col_end: Some(4),
+            label: Some("opened here".to_string()),
+            is_primary: false,
+        })
+        .with_note("opened from a conditional block")
+        .with_help("insert `.endif`")
+        .with_fixit(opforge::core::assembler::error::Fixit {
+            file: Some("examples/sample.asm".to_string()),
+            line: 12,
+            col_start: Some(9),
+            col_end: Some(11),
+            replacement: "0".to_string(),
+            applicability: "machine-applicable".to_string(),
+        });
+
+        let actual_line = format_diagnostic_line(
+            &diag,
+            None,
+            false,
+            OutputFormat::Json,
+            DiagnosticsStyle::Classic,
+        );
+        let actual: serde_json::Value = serde_json::from_str(&actual_line).expect("valid json");
+
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("reference")
+            .join("diagnostics_v2_schema.json");
+        let fixture_text = fs::read_to_string(&fixture_path).unwrap_or_else(|err| {
+            panic!(
+                "missing diagnostics schema fixture {}: {err}",
+                fixture_path.display()
+            )
+        });
+        let expected: serde_json::Value =
+            serde_json::from_str(&fixture_text).unwrap_or_else(|err| {
+                panic!(
+                    "invalid diagnostics schema fixture JSON {}: {err}",
+                    fixture_path.display()
+                )
+            });
+
+        assert_eq!(actual, expected, "diagnostics schema fixture mismatch");
+    }
+
+    #[test]
+    fn format_diagnostic_line_json_is_backward_compatible_for_v1_consumers() {
+        let diag = Diagnostic::new(
+            5,
+            Severity::Warning,
+            AsmError::new(AsmErrorKind::Directive, "deprecated directive", None),
+        )
+        .with_code("asm202")
+        .with_file(Some("legacy.asm".to_string()));
+        let json_line = format_diagnostic_line(
+            &diag,
+            None,
+            false,
+            OutputFormat::Json,
+            DiagnosticsStyle::Classic,
+        );
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json_line).expect("v1-compatible parsing should succeed");
+        assert_eq!(parsed["code"], "asm202");
+        assert_eq!(parsed["severity"], "warning");
+        assert_eq!(parsed["message"], "deprecated directive");
+        assert_eq!(parsed["file"], "legacy.asm");
+        assert_eq!(parsed["line"], 5);
+        assert!(parsed["col_start"].is_null());
+        assert!(parsed["col_end"].is_null());
+    }
+
+    #[test]
     fn fixit_overlap_detection_flags_same_line_collision() {
         let path = PathBuf::from("sample.asm");
         let fixits = vec![

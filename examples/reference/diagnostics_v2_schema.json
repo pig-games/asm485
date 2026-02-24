@@ -1,0 +1,35 @@
+{
+  "code": "otp004",
+  "severity": "error",
+  "message": "unexpected token",
+  "file": "examples/sample.asm",
+  "line": 12,
+  "col_start": 9,
+  "col_end": 11,
+  "related_spans": [
+    {
+      "file": "examples/sample.asm",
+      "line": 3,
+      "col_start": 1,
+      "col_end": 4,
+      "label": "opened here",
+      "is_primary": false
+    }
+  ],
+  "notes": [
+    "opened from a conditional block"
+  ],
+  "help": [
+    "insert `.endif`"
+  ],
+  "fixits": [
+    {
+      "file": "examples/sample.asm",
+      "line": 12,
+      "col_start": 9,
+      "col_end": 11,
+      "replacement": "0",
+      "applicability": "machine-applicable"
+    }
+  ]
+}
