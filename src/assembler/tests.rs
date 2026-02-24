@@ -1521,6 +1521,69 @@ fn vm_native_parity_for_dialect_fixit_payload() {
 }
 
 #[test]
+fn intel8085_parser_error_with_z80_mnemonic_emits_dialect_fixit_hint() {
+    let (status, diag) =
+        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, "LD A,", true);
+    assert_eq!(status, LineStatus::Error, "expected parser error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(!diag.help().is_empty(), "expected dialect help hint");
+    assert!(
+        diag.help()[0].contains("Z80 dialect"),
+        "expected Z80 dialect wording in help hint"
+    );
+    assert_eq!(diag.fixits().len(), 1, "expected one parser-hint fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, "MOV");
+    assert_eq!(fixit.applicability, "maybe-incorrect");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn vm_native_parity_for_parser_error_dialect_fixit_payload() {
+    let line = "LD A,";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
+    assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(native_fixit.line, runtime_fixit.line, "fixit line parity mismatch");
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
+#[test]
 fn unknown_directive_typo_emits_machine_applicable_fixit() {
     let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".edif", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
