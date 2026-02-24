@@ -1,13 +1,14 @@
 # opForge
-Multi-target Assembler with expressions, directives, and preprocessor macros. It also supports modules. Not 
-plain old #include (it has that also) but true modules, with visibility control. No ifdefs to prevent multiple
-includes needed :).
+Multi-target assembler with expressions, directives, and preprocessor macros. It also supports true modules
+with visibility control alongside textual includes (`.include`).
 
 This is a multi-target assembler for Intel 8080 family processors (currently 8080, 8085, and Z80) and MOS 6502
 family processors (currently 6502, 65C02, and 65816).
 
 It is partly inspired by [64tass](https://tass64.sourceforge.net) in terms of features and notational style.
-It produces optional Intel Hex, listing, and binary image outputs, selected by command-line arguments.
+It produces optional Intel Hex, listing, and binary image outputs selected by command-line arguments.
+For single-input builds, opForge can default to list+hex output when an output base is available
+(`.meta.output.name` or `-o`).
 
 It also supports patterned `.statement` definitions for custom statement syntax, with typed captures using
 `type:name` and quoted literal commas (use `","`). Statement labels may include dots (e.g. `move.b`).
@@ -88,7 +89,7 @@ expressions).
 ## Usage
 Syntax is:
 
-    opForge [OPTIONS] [INPUT]
+    opForge [OPTIONS] [INPUT]...
 
 Arguments:
 
@@ -158,8 +159,9 @@ Arguments:
     -h, --help                   Print help.
     -V, --version                Print version.
 
-At least one output option (`-l`, `-x`, or `-b`) is required unless a single input provides
-a root-module output name (via `.meta.output.name`) or `-o` is specified. Output selection can
+For multiple inputs, at least one output option (`-l`, `-x`, or `-b`) must be selected.
+For a single input with no explicit outputs, opForge defaults to list+hex when an output base is
+available from `.meta.output.name` or `-o`; otherwise output selection is required. Output selection can
 also be provided by `.meta.output.list`, `.meta.output.hex`, and `.meta.output.bin` in the root module;
 `.meta.output.fill` sets the binary fill byte. CLI flags always take precedence when both are present.
 

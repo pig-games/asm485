@@ -3,8 +3,7 @@
 This document describes the opForge assembler language, directives, and tooling.
 It follows a chapter layout similar to 64tass. Sections marked **Planned** describe 
 features that are not implemented yet.
-This manual is validated against opForge CLI `0.9.1` (crate `0.9.1`). Release notes use
-feature-series labels (for example `v3.1` for the linker-region milestone).
+This manual is validated against opForge CLI `0.9.1` (crate `0.9.1`).
 
 ## 1. Introduction
 
@@ -17,8 +16,6 @@ opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, W
 
 The `.cpu` directive currently accepts `8080` (alias for `8085`), `8085`, `z80`,
 `6502`, `m6502`, `65c02`, `65816`, `65c816`, and `w65c816`.
-
-There is no `.dialect` directive; dialect selection follows the CPU default.
 
 ## 2. Usage tips
 
@@ -598,7 +595,56 @@ Expansion model:
 - `.statement` definitions are expanded by the macro processor **before parsing**.
 - Statement definitions are **global** (not module-scoped).
 
-### 5.6 Assembler pipeline (CPU family/dialect)
+### 5.6 Scope and namespace interaction (`.macro`, `.segment`, `.statement`)
+
+This section describes how compile-time definition lookup and expansion-time
+symbol scopes interact.
+
+Definition-time behavior:
+- `.macro` and `.segment` definitions are namespace-aware:
+  - names are qualified by the active `.namespace` stack
+  - lookup prefers the nearest namespace, then outer namespaces, then global
+- `.block` does **not** add macro/segment name qualification.
+- `.statement` definitions are global keyword entries (not namespace- or module-scoped).
+
+Expansion-time behavior:
+- `.macro` expands with an implicit `.block` / `.endblock` wrapper.
+  - Symbols created inside the expanded body are scoped to that generated block.
+  - If the invocation has a label, that label is attached to the generated `.block` opener.
+- `.segment` expands inline with **no** implicit scope wrapper.
+  - Labels/symbol assignments in the body resolve in the caller's current scope.
+- `.statement` expansions are also inline (no implicit `.block`).
+  - Use an explicit `.block` inside the statement body when local symbol isolation is required.
+
+Definition constraints:
+- Nested `.macro`/`.segment` definitions are not supported.
+- Nested `.statement` definitions are not supported.
+- `.statement` cannot be defined inside `.macro` or `.segment` bodies.
+
+Example:
+
+```
+.namespace outer
+
+ADD1 .macro x
+tmp .const 1        ; local to generated implicit .block
+    .byte .x + tmp
+.endmacro
+
+INLINE .segment x
+tmp .const 2        ; resolves in caller scope (no implicit block)
+    .byte .x + tmp
+.endsegment
+
+.statement emit1 byte:v
+tmp .const 3        ; resolves in caller scope unless body adds explicit .block
+    .byte .v + tmp
+.endstatement
+
+.endn
+```
+
+### 5.7 Assembler pipeline (CPU family/dialect)
 
 #### Registry
 
@@ -639,7 +685,7 @@ Expansion model:
 Syntax:
 
 ```
-opForge [OPTIONS] [INPUT]
+opForge [OPTIONS] [INPUT]...
 ```
 
 Inputs:
@@ -690,7 +736,7 @@ Notes:
   directory.
 - With multiple inputs, at least one output type (`-l`, `-x`, `-b`) must be selected.
 - If no outputs are specified for a single input, opForge defaults to list+hex
-    when `.meta.output.name` (or `-o`) is available.
+  when `.meta.output.name` (or `-o`) is available; otherwise output selection is required.
 - `-b` without a range emits a binary that spans the emitted output.
 - `-g` writes a Start Segment Address record for 16-bit values and a Start Linear Address record for wider values.
 
@@ -768,6 +814,14 @@ Instruction mnemonics are selected by `.cpu`:
 ```
 =  :=  :?=  +=  -=  *=  /=  %=  **=  |=  ^=  &=  ||=  &&=  <<=  >>=  ..=  <?=  >?=  x=  .=
 ```
+
+### 13.3 Scope behavior at a glance
+
+| Construct | Definition lookup | Expansion form | Scope impact at call site | Notes |
+|-----------|-------------------|----------------|----------------------------|-------|
+| `.macro` | Namespace-aware (nearest `.namespace` first, then outer, then global) | Implicit `.block` ... `.endblock` wrapper | Body symbols are local to generated block | Invocation label attaches to generated `.block` line |
+| `.segment` | Namespace-aware (same lookup as `.macro`) | Inline expansion (no implicit wrapper) | Body symbols resolve in caller scope | Use explicit `.block` in body if isolation is needed |
+| `.statement` | Global keyword registry (not namespace-scoped) | Inline expansion (no implicit wrapper) | Body symbols resolve in caller scope | Cannot be defined inside `.macro`/`.segment`; statement definitions are not nested |
 
 ## 14. Appendix: multi-CPU architecture
 
