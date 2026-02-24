@@ -1776,6 +1776,51 @@ fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
     );
 }
 
+#[test]
+fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
+    let line = ".esleif 1";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
     let expected_lines: Vec<&str> = expected.split('\n').collect();
     let actual_lines: Vec<&str> = actual.split('\n').collect();
