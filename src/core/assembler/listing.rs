@@ -120,6 +120,31 @@ impl<W: Write> ListingWriter<W> {
         writeln!(self.out, "{kind}: {msg}")
     }
 
+    pub fn write_diagnostic_with_annotations(
+        &mut self,
+        kind: &str,
+        msg: &str,
+        line_num: u32,
+        column: Option<usize>,
+        source_lines: &[String],
+        help: &[String],
+        fixits: &[crate::core::assembler::error::Fixit],
+    ) -> std::io::Result<()> {
+        self.write_diagnostic(kind, msg, line_num, column, source_lines, None)?;
+        for item in help {
+            writeln!(self.out, "help: {}", strip_ansi_sgr(item))?;
+        }
+        for fixit in fixits {
+            writeln!(
+                self.out,
+                "suggestion: replace {} with {:?}",
+                format_span_bounds(fixit.line, fixit.col_start, fixit.col_end),
+                fixit.replacement
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn footer(
         &mut self,
         counts: &PassCounts,
@@ -201,6 +226,14 @@ impl<W: Write> ListingWriter<W> {
         }
 
         Ok(())
+    }
+}
+
+fn format_span_bounds(line: u32, col_start: Option<usize>, col_end: Option<usize>) -> String {
+    match (col_start, col_end) {
+        (Some(start), Some(end)) => format!("{line}:{start}-{end}"),
+        (Some(start), None) => format!("{line}:{start}"),
+        _ => format!("{line}"),
     }
 }
 
