@@ -1383,21 +1383,8 @@ fn default_native_diagnostic_codes_are_declared_in_vm_catalog() {
     }
 }
 
-#[test]
-fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
-    let line = "MVI A,";
-    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
-    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
-
-    assert_eq!(native.0, runtime.0, "status parity mismatch");
-    let native_diag = native.1.expect("native diagnostic expected");
-    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
-
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
+fn assert_vm_native_diagnostic_core_parity(native_diag: &Diagnostic, runtime_diag: &Diagnostic) {
+    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
     assert_eq!(
         native_diag.notes(),
         runtime_diag.notes(),
@@ -1413,11 +1400,7 @@ fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
         runtime_diag.severity(),
         "severity parity mismatch"
     );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
+    assert_eq!(native_diag.line(), runtime_diag.line(), "line parity mismatch");
     assert_eq!(
         native_diag.column(),
         runtime_diag.column(),
@@ -1430,6 +1413,64 @@ fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
     );
 }
 
+fn assert_vm_native_first_fixit_parity(native_diag: &Diagnostic, runtime_diag: &Diagnostic) {
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+    assert!(
+        !native_diag.fixits().is_empty(),
+        "expected at least one native fixit"
+    );
+    assert!(
+        !runtime_diag.fixits().is_empty(),
+        "expected at least one runtime fixit"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(native_fixit.line, runtime_fixit.line, "fixit line parity mismatch");
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
+fn assert_vm_native_help_parity(native_diag: &Diagnostic, runtime_diag: &Diagnostic) {
+    assert_eq!(
+        native_diag.help().len(),
+        runtime_diag.help().len(),
+        "help count parity mismatch"
+    );
+    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
+}
+
+#[test]
+fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
+    let line = "MVI A,";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+}
+
 #[test]
 fn vm_native_diagnostic_parity_for_instruction_error_code_severity_span() {
     let line = "MVI A, 300";
@@ -1440,36 +1481,7 @@ fn vm_native_diagnostic_parity_for_instruction_error_code_severity_span() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.severity(),
-        runtime_diag.severity(),
-        "severity parity mismatch"
-    );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
-    assert_eq!(
-        native_diag.column(),
-        runtime_diag.column(),
-        "column-start parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -1506,48 +1518,8 @@ fn vm_native_parity_for_dialect_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.line, runtime_fixit.line,
-        "fixit line parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -1580,47 +1552,13 @@ fn vm_native_parity_for_parser_error_dialect_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
     assert_eq!(
         native_diag.help().len(),
         runtime_diag.help().len(),
         "help count parity mismatch"
     );
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(native_fixit.line, runtime_fixit.line, "fixit line parity mismatch");
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -1709,75 +1647,9 @@ fn vm_native_parity_for_directive_typo_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.severity(),
-        runtime_diag.severity(),
-        "severity parity mismatch"
-    );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
-    assert_eq!(
-        native_diag.column(),
-        runtime_diag.column(),
-        "column-start parity mismatch"
-    );
-    assert_eq!(
-        native_diag.col_end(),
-        runtime_diag.col_end(),
-        "column-end parity mismatch"
-    );
-    assert_eq!(
-        native_diag.help().len(),
-        runtime_diag.help().len(),
-        "help count parity mismatch"
-    );
-    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.line, runtime_fixit.line,
-        "fixit line parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+    assert_vm_native_help_parity(&native_diag, &runtime_diag);
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -1790,75 +1662,9 @@ fn vm_native_parity_for_endmod_directive_typo_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.severity(),
-        runtime_diag.severity(),
-        "severity parity mismatch"
-    );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
-    assert_eq!(
-        native_diag.column(),
-        runtime_diag.column(),
-        "column-start parity mismatch"
-    );
-    assert_eq!(
-        native_diag.col_end(),
-        runtime_diag.col_end(),
-        "column-end parity mismatch"
-    );
-    assert_eq!(
-        native_diag.help().len(),
-        runtime_diag.help().len(),
-        "help count parity mismatch"
-    );
-    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.line, runtime_fixit.line,
-        "fixit line parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+    assert_vm_native_help_parity(&native_diag, &runtime_diag);
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -1871,75 +1677,9 @@ fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.severity(),
-        runtime_diag.severity(),
-        "severity parity mismatch"
-    );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
-    assert_eq!(
-        native_diag.column(),
-        runtime_diag.column(),
-        "column-start parity mismatch"
-    );
-    assert_eq!(
-        native_diag.col_end(),
-        runtime_diag.col_end(),
-        "column-end parity mismatch"
-    );
-    assert_eq!(
-        native_diag.help().len(),
-        runtime_diag.help().len(),
-        "help count parity mismatch"
-    );
-    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.line, runtime_fixit.line,
-        "fixit line parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+    assert_vm_native_help_parity(&native_diag, &runtime_diag);
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -1952,75 +1692,9 @@ fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.severity(),
-        runtime_diag.severity(),
-        "severity parity mismatch"
-    );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
-    assert_eq!(
-        native_diag.column(),
-        runtime_diag.column(),
-        "column-start parity mismatch"
-    );
-    assert_eq!(
-        native_diag.col_end(),
-        runtime_diag.col_end(),
-        "column-end parity mismatch"
-    );
-    assert_eq!(
-        native_diag.help().len(),
-        runtime_diag.help().len(),
-        "help count parity mismatch"
-    );
-    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.line, runtime_fixit.line,
-        "fixit line parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+    assert_vm_native_help_parity(&native_diag, &runtime_diag);
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 #[test]
@@ -2033,75 +1707,9 @@ fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
     let native_diag = native.1.expect("native diagnostic expected");
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
-    assert_eq!(
-        native_diag.code(),
-        runtime_diag.code(),
-        "code parity mismatch"
-    );
-    assert_eq!(
-        native_diag.notes(),
-        runtime_diag.notes(),
-        "notes parity mismatch"
-    );
-    assert_eq!(
-        native_diag.related_spans().len(),
-        runtime_diag.related_spans().len(),
-        "related span count parity mismatch"
-    );
-    assert_eq!(
-        native_diag.severity(),
-        runtime_diag.severity(),
-        "severity parity mismatch"
-    );
-    assert_eq!(
-        native_diag.line(),
-        runtime_diag.line(),
-        "line parity mismatch"
-    );
-    assert_eq!(
-        native_diag.column(),
-        runtime_diag.column(),
-        "column-start parity mismatch"
-    );
-    assert_eq!(
-        native_diag.col_end(),
-        runtime_diag.col_end(),
-        "column-end parity mismatch"
-    );
-    assert_eq!(
-        native_diag.help().len(),
-        runtime_diag.help().len(),
-        "help count parity mismatch"
-    );
-    assert_eq!(native_diag.help(), runtime_diag.help(), "help text parity mismatch");
-    assert_eq!(
-        native_diag.fixits().len(),
-        runtime_diag.fixits().len(),
-        "fixit count parity mismatch"
-    );
-
-    let native_fixit = &native_diag.fixits()[0];
-    let runtime_fixit = &runtime_diag.fixits()[0];
-    assert_eq!(
-        native_fixit.replacement, runtime_fixit.replacement,
-        "fixit replacement parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.applicability, runtime_fixit.applicability,
-        "fixit applicability parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.line, runtime_fixit.line,
-        "fixit line parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_start, runtime_fixit.col_start,
-        "fixit column start parity mismatch"
-    );
-    assert_eq!(
-        native_fixit.col_end, runtime_fixit.col_end,
-        "fixit column end parity mismatch"
-    );
+    assert_vm_native_diagnostic_core_parity(&native_diag, &runtime_diag);
+    assert_vm_native_help_parity(&native_diag, &runtime_diag);
+    assert_vm_native_first_fixit_parity(&native_diag, &runtime_diag);
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
