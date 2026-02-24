@@ -99,6 +99,46 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "ORA",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x0D,
+    },
+    CpuInstructionEntry {
+        mnemonic: "AND",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x2D,
+    },
+    CpuInstructionEntry {
+        mnemonic: "EOR",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x4D,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ADC",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x6D,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x8D,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDA",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0xAD,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CMP",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0xCD,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0xED,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ORA",
         mode: AddressMode::AbsoluteY,
         opcode: 0x09,
     },
