@@ -244,3 +244,16 @@ Grouped placement flow:
 Examples:
 - `examples/linker_regions_minimal.asm`
 - `examples/linker_regions_full.asm`
+
+### Diagnostic + Fixit Examples
+
+Directive typo diagnostics with machine-applicable fixits:
+- `examples/directive_typo_endif_fixit_error.asm`
+- `examples/directive_typo_elseif_fixit_error.asm`
+- `examples/directive_typo_endmodule_fixit_error.asm`
+- `examples/directive_typo_endsection_fixit_error.asm`
+- `examples/directive_typo_endmatch_fixit_error.asm`
+
+Dialect-oriented diagnostics with mnemonic replacement suggestions:
+- `examples/dialect_mnemonic_fixit_error.asm`
+- `examples/dialect_parser_fixit_error.asm`
