@@ -41,6 +41,33 @@ pub struct Cli {
     )]
     pub format: OutputFormat,
     #[arg(
+        long = "diagnostics-style",
+        value_enum,
+        default_value_t = DiagnosticsStyle::Classic,
+        long_help = "Select text diagnostics rendering style. classic keeps V1 output; rustc enables multi-span note/help/suggestion layout."
+    )]
+    pub diagnostics_style: DiagnosticsStyle,
+    #[arg(
+        long = "fixits-dry-run",
+        action = ArgAction::SetTrue,
+        conflicts_with = "apply_fixits",
+        long_help = "Plan machine-applicable fixits without writing files."
+    )]
+    pub fixits_dry_run: bool,
+    #[arg(
+        long = "apply-fixits",
+        action = ArgAction::SetTrue,
+        conflicts_with = "fixits_dry_run",
+        long_help = "Apply machine-applicable fixits after diagnostics are produced."
+    )]
+    pub apply_fixits: bool,
+    #[arg(
+        long = "fixits-output",
+        value_name = "FILE",
+        long_help = "Write structured fixit plan JSON to FILE."
+    )]
+    pub fixits_output: Option<PathBuf>,
+    #[arg(
         short = 'q',
         long = "quiet",
         action = ArgAction::SetTrue,
@@ -338,6 +365,13 @@ pub enum OutputFormat {
     #[default]
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum DiagnosticsStyle {
+    #[default]
+    Classic,
+    Rustc,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -1183,6 +1217,10 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         return Err(cli_error("--vice-labels/--ctags-labels requires --labels"));
     }
 
+    if cli.apply_fixits && cli.fixits_dry_run {
+        return Err(cli_error("--apply-fixits conflicts with --fixits-dry-run"));
+    }
+
     Ok(CliConfig {
         input_paths,
         input_extensions,
@@ -1201,6 +1239,10 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         verbose_list: effective_verbose_list,
         debug_conditionals: effective_cond_debug,
         output_format: cli.format,
+        diagnostics_style: cli.diagnostics_style,
+        fixits_dry_run: cli.fixits_dry_run,
+        apply_fixits: cli.apply_fixits,
+        fixits_output: cli.fixits_output.clone(),
         diagnostics_sink: if effective_no_error {
             DiagnosticsSinkConfig::Disabled
         } else if let Some(path) = &effective_error_file {
@@ -1250,6 +1292,10 @@ pub struct CliConfig {
     pub verbose_list: bool,
     pub debug_conditionals: bool,
     pub output_format: OutputFormat,
+    pub diagnostics_style: DiagnosticsStyle,
+    pub fixits_dry_run: bool,
+    pub apply_fixits: bool,
+    pub fixits_output: Option<PathBuf>,
     pub diagnostics_sink: DiagnosticsSinkConfig,
     pub warning_policy: WarningPolicy,
     pub labels_file: Option<PathBuf>,

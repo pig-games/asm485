@@ -124,7 +124,18 @@ impl Assembler {
                     "Found .if without .endif in pass 1",
                     None,
                 );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
+                diagnostics.push(
+                    Diagnostic::new(line_num, Severity::Error, err)
+                        .with_help("add a matching .endif to close the open conditional block")
+                        .with_fixit(crate::core::assembler::error::Fixit {
+                            file: None,
+                            line: line_num,
+                            col_start: Some(1),
+                            col_end: Some(1),
+                            replacement: ".endif".to_string(),
+                            applicability: "machine-applicable".to_string(),
+                        }),
+                );
                 asm_line.clear_conditionals();
                 counts.errors += 1;
             }
@@ -349,7 +360,18 @@ impl Assembler {
 
         if !asm_line.cond_is_empty() {
             let err = AsmError::new(AsmErrorKind::Conditional, "Found .if without .endif", None);
-            diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
+            diagnostics.push(
+                Diagnostic::new(line_num, Severity::Error, err.clone())
+                    .with_help("add a matching .endif to close the open conditional block")
+                    .with_fixit(crate::core::assembler::error::Fixit {
+                        file: None,
+                        line: line_num,
+                        col_start: Some(1),
+                        col_end: Some(1),
+                        replacement: ".endif".to_string(),
+                        applicability: "machine-applicable".to_string(),
+                    }),
+            );
             listing.write_diagnostic("ERROR", err.message(), line_num, None, lines, None)?;
             asm_line.clear_conditionals();
             counts.errors += 1;

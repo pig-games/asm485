@@ -7,7 +7,6 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::core::parser::ParseError;
-use crate::core::parser_reporter::format_parse_error;
 
 /// Line processing status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,6 +75,26 @@ pub enum Severity {
     Error,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabeledSpan {
+    pub file: Option<String>,
+    pub line: u32,
+    pub col_start: Option<usize>,
+    pub col_end: Option<usize>,
+    pub label: Option<String>,
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fixit {
+    pub file: Option<String>,
+    pub line: u32,
+    pub col_start: Option<usize>,
+    pub col_end: Option<usize>,
+    pub replacement: String,
+    pub applicability: String,
+}
+
 /// A diagnostic message with location and context.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
@@ -88,6 +107,10 @@ pub struct Diagnostic {
     pub(crate) file: Option<String>,
     pub(crate) source: Option<String>,
     pub(crate) parser_error: Option<ParseError>,
+    pub(crate) related_spans: Vec<LabeledSpan>,
+    pub(crate) notes: Vec<String>,
+    pub(crate) help: Vec<String>,
+    pub(crate) fixits: Vec<Fixit>,
 }
 
 impl Diagnostic {
@@ -102,6 +125,10 @@ impl Diagnostic {
             file: None,
             source: None,
             parser_error: None,
+            related_spans: Vec::new(),
+            notes: Vec::new(),
+            help: Vec::new(),
+            fixits: Vec::new(),
         }
     }
 
@@ -132,6 +159,54 @@ impl Diagnostic {
 
     pub fn with_parser_error(mut self, parser_error: Option<ParseError>) -> Self {
         self.parser_error = parser_error;
+        if let Some(parser_error) = &self.parser_error {
+            if self.column.is_none() {
+                self.column = Some(parser_error.span.col_start);
+            }
+            if self.col_end.is_none() {
+                self.col_end = Some(parser_error.span.col_end);
+            }
+            if self.related_spans.is_empty() {
+                self.related_spans.push(LabeledSpan {
+                    file: self.file.clone(),
+                    line: parser_error.span.line,
+                    col_start: Some(parser_error.span.col_start),
+                    col_end: Some(parser_error.span.col_end),
+                    label: Some("while parsing this statement".to_string()),
+                    is_primary: true,
+                });
+            }
+            if let Some((code, message)) = split_prefixed_diagnostic(parser_error.message.as_str())
+            {
+                self.code = code.to_string();
+                self.error.message = message.to_string();
+            }
+            if self.fixits.is_empty() {
+                if let Some(fixit) = parser_error_default_fixit(&self, parser_error) {
+                    self.fixits.push(fixit);
+                }
+            }
+        }
+        self
+    }
+
+    pub fn with_related_span(mut self, span: LabeledSpan) -> Self {
+        self.related_spans.push(span);
+        self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help.push(help.into());
+        self
+    }
+
+    pub fn with_fixit(mut self, fixit: Fixit) -> Self {
+        self.fixits.push(fixit);
         self
     }
 
@@ -150,9 +225,6 @@ impl Diagnostic {
     }
 
     pub fn format_with_context(&self, lines: Option<&[String]>, use_color: bool) -> String {
-        if let Some(parser_error) = &self.parser_error {
-            return format_parse_error(parser_error, self.file.as_deref(), lines, use_color);
-        }
         let sev = match self.severity {
             Severity::Warning => "WARNING",
             Severity::Error => "ERROR",
@@ -177,6 +249,45 @@ impl Diagnostic {
             out.push_str(&line);
             out.push('\n');
         }
+
+        for related in self.related_spans.iter().filter(|span| !span.is_primary) {
+            let ctx = build_context_lines(related.line, related.col_start, lines, None, use_color);
+            for line in ctx {
+                out.push_str("      = ");
+                out.push_str(line.trim_start());
+                out.push('\n');
+            }
+            if let Some(label) = &related.label {
+                out.push_str("      = note: ");
+                out.push_str(label);
+                out.push('\n');
+            }
+        }
+
+        for note in &self.notes {
+            out.push_str("note: ");
+            out.push_str(note);
+            out.push('\n');
+        }
+
+        for help in &self.help {
+            out.push_str("help: ");
+            out.push_str(help);
+            out.push('\n');
+        }
+
+        for fixit in &self.fixits {
+            out.push_str("suggestion: replace ");
+            out.push_str(&format_span_bounds(
+                fixit.line,
+                fixit.col_start,
+                fixit.col_end,
+            ));
+            out.push_str(" with ");
+            out.push_str(&format!("{:?}", fixit.replacement));
+            out.push('\n');
+        }
+
         out.push_str(&format!("{sev}: {}", self.error.message()));
         out
     }
@@ -207,6 +318,22 @@ impl Diagnostic {
 
     pub fn message(&self) -> &str {
         self.error.message()
+    }
+
+    pub fn related_spans(&self) -> &[LabeledSpan] {
+        &self.related_spans
+    }
+
+    pub fn notes(&self) -> &[String] {
+        &self.notes
+    }
+
+    pub fn help(&self) -> &[String] {
+        &self.help
+    }
+
+    pub fn fixits(&self) -> &[Fixit] {
+        &self.fixits
     }
 }
 
@@ -338,6 +465,47 @@ pub fn build_context_lines(
 
 fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> String {
     crate::report::highlight_line(line, column, use_color)
+}
+
+fn split_prefixed_diagnostic(message: &str) -> Option<(&str, &str)> {
+    let (code, tail) = message.split_once(':')?;
+    let code = code.trim();
+    if code.len() < 6 || code.len() > 8 {
+        return None;
+    }
+    let mut chars = code.chars();
+    let prefix_ok = chars
+        .by_ref()
+        .take_while(|ch| ch.is_ascii_alphabetic())
+        .count()
+        >= 2;
+    let digits: String = chars.collect();
+    if !prefix_ok || digits.len() != 3 || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    Some((code, tail.trim_start()))
+}
+
+fn parser_error_default_fixit(diag: &Diagnostic, parser_error: &ParseError) -> Option<Fixit> {
+    match diag.code.as_str() {
+        "otp002" | "otp003" => Some(Fixit {
+            file: diag.file.clone(),
+            line: parser_error.span.line,
+            col_start: Some(parser_error.span.col_start),
+            col_end: Some(parser_error.span.col_start),
+            replacement: "0".to_string(),
+            applicability: "maybe-incorrect".to_string(),
+        }),
+        _ => None,
+    }
+}
+
+fn format_span_bounds(line: u32, col_start: Option<usize>, col_end: Option<usize>) -> String {
+    match (col_start, col_end) {
+        (Some(start), Some(end)) => format!("{line}:{start}-{end}"),
+        (Some(start), None) => format!("{line}:{start}"),
+        _ => format!("{line}"),
+    }
 }
 
 fn default_diagnostic_code(kind: AsmErrorKind) -> &'static str {

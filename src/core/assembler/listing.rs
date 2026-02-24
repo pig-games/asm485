@@ -6,8 +6,6 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use crate::core::parser::ParseError;
-use crate::core::parser_reporter::format_parse_error_listing;
 use crate::core::symbol_table::SymbolTable;
 use crate::core::text_utils::{is_ident_start, split_comment, Cursor};
 
@@ -112,16 +110,8 @@ impl<W: Write> ListingWriter<W> {
         line_num: u32,
         column: Option<usize>,
         source_lines: &[String],
-        parser_error: Option<&ParseError>,
+        _parser_error: Option<&crate::core::parser::ParseError>,
     ) -> std::io::Result<()> {
-        if let Some(parser_error) = parser_error {
-            let formatted = format_parse_error_listing(parser_error, Some(source_lines), true);
-            for line in formatted.lines() {
-                writeln!(self.out, "{line}")?;
-            }
-            return Ok(());
-        }
-
         let context = build_context_lines(line_num, column, Some(source_lines), None, true);
         for line in context {
             writeln!(self.out, "{line}")?;
