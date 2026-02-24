@@ -23,6 +23,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+use serde_json::json;
 
 use crate::core::assembler::conditional::{
     ConditionalBlockKind, ConditionalContext, ConditionalStack,
@@ -66,7 +67,7 @@ use crate::z80::module::Z80CpuModule;
 
 use cli::{
     input_base_from_path, resolve_bin_path, resolve_output_path, validate_cli, BinOutputSpec,
-    BinRange, Cli,
+    BinRange, Cli, OutputFormat,
 };
 
 // Re-export public types
@@ -143,6 +144,66 @@ pub fn cpusupport_report() -> String {
     }
 
     lines.join("\n")
+}
+
+pub fn cpusupport_report_json() -> String {
+    cpusupport_report_json_value().to_string()
+}
+
+fn cpusupport_report_json_value() -> serde_json::Value {
+    let assembler = Assembler::new();
+    let registry = &assembler.registry;
+    let mut cpu_ids = registry.cpu_ids();
+    cpu_ids.sort_by_key(|cpu| cpu.as_str());
+
+    let cpus: Vec<serde_json::Value> = cpu_ids
+        .into_iter()
+        .map(|cpu| {
+            let family = registry
+                .cpu_family_id(cpu)
+                .map(|id| id.as_str().to_string());
+            let default_dialect = registry.cpu_default_dialect(cpu).map(str::to_string);
+            json!({
+                "cpu": cpu.as_str(),
+                "family": family,
+                "default_dialect": default_dialect,
+            })
+        })
+        .collect();
+
+    json!({
+        "schema": "opforge-cpusupport-v1",
+        "cpus": cpus,
+    })
+}
+
+pub fn capabilities_report_json() -> String {
+    let assembler = Assembler::new();
+    let registry = &assembler.registry;
+    let mut family_ids = registry.family_ids();
+    family_ids.sort_by_key(|family| family.as_str());
+    let families: Vec<String> = family_ids
+        .into_iter()
+        .map(|family| family.as_str().to_string())
+        .collect();
+    let features = vec![
+        "include-path",
+        "module-path",
+        "input-extension-policy",
+        "diagnostics-routing",
+        "warning-policy",
+        "cpu-override",
+        "dependency-output",
+    ];
+
+    json!({
+        "schema": "opforge-capabilities-v1",
+        "version": VERSION,
+        "features": features,
+        "families": families,
+        "cpusupport": cpusupport_report_json_value(),
+    })
+    .to_string()
 }
 
 /// Run the assembler with command-line arguments.
@@ -537,6 +598,7 @@ fn run_one(
         emit_labels_file(
             path,
             config.label_output_format,
+            config.output_format,
             assembler.symbols(),
             expanded_lines.clone(),
         )?;
@@ -545,6 +607,7 @@ fn run_one(
     if let Some(policy) = &config.dependency_output {
         emit_dependency_file(
             policy,
+            config.output_format,
             &dependency_targets,
             dependency_files.into_iter().collect(),
             expanded_lines.clone(),
@@ -581,6 +644,7 @@ fn make_escape_path(path: &str) -> String {
 fn emit_labels_file(
     path: &Path,
     format: cli::LabelOutputFormat,
+    output_format: cli::OutputFormat,
     symbols: &SymbolTable,
     source_lines: Arc<Vec<String>>,
 ) -> Result<(), AsmRunError> {
@@ -591,24 +655,40 @@ fn emit_labels_file(
             .cmp(&right.name.to_ascii_lowercase())
     });
 
-    let mut output = String::new();
-    for entry in entries {
-        let address = format_addr(entry.val);
-        match format {
-            cli::LabelOutputFormat::Default => {
-                output.push_str(&format!("{} = ${address}\n", entry.name));
+    let output =
+        if output_format == cli::OutputFormat::Json && format == cli::LabelOutputFormat::Default {
+            let labels: Vec<serde_json::Value> = entries
+                .into_iter()
+                .map(|entry| {
+                    json!({
+                        "name": entry.name,
+                        "address": format_addr(entry.val),
+                        "value": entry.val,
+                    })
+                })
+                .collect();
+            json!({ "labels": labels }).to_string()
+        } else {
+            let mut output = String::new();
+            for entry in entries {
+                let address = format_addr(entry.val);
+                match format {
+                    cli::LabelOutputFormat::Default => {
+                        output.push_str(&format!("{} = ${address}\n", entry.name));
+                    }
+                    cli::LabelOutputFormat::Vice => {
+                        output.push_str(&format!("al C:${address} .{}\n", entry.name));
+                    }
+                    cli::LabelOutputFormat::Ctags => {
+                        output.push_str(&format!(
+                            "{}\tlabels\t/^{}$/;\"\tv\n",
+                            entry.name, entry.name
+                        ));
+                    }
+                }
             }
-            cli::LabelOutputFormat::Vice => {
-                output.push_str(&format!("al C:${address} .{}\n", entry.name));
-            }
-            cli::LabelOutputFormat::Ctags => {
-                output.push_str(&format!(
-                    "{}\tlabels\t/^{}$/;\"\tv\n",
-                    entry.name, entry.name
-                ));
-            }
-        }
-    }
+            output
+        };
 
     fs::write(path, output).map_err(|err| {
         AsmRunError::new(
@@ -625,6 +705,7 @@ fn emit_labels_file(
 
 fn emit_dependency_file(
     policy: &cli::DependencyOutputPolicy,
+    output_format: cli::OutputFormat,
     targets: &[String],
     dependencies: Vec<PathBuf>,
     source_lines: Arc<Vec<String>>,
@@ -647,17 +728,29 @@ fn emit_dependency_file(
     dependencies.sort();
     dependencies.dedup();
 
-    let mut body = String::new();
-    body.push_str(&format!(
-        "{}: {}\n",
-        targets.join(" "),
-        dependencies.join(" ")
-    ));
-    if policy.make_phony {
-        for dependency in &dependencies {
-            body.push_str(&format!("{dependency}:\n"));
+    let body = if output_format == OutputFormat::Json {
+        json!({
+            "targets": targets,
+            "dependencies": dependencies,
+            "make_phony": policy.make_phony,
+            "phony_targets": if policy.make_phony { dependencies.clone() } else { Vec::new() },
+        })
+        .to_string()
+            + "\n"
+    } else {
+        let mut body = String::new();
+        body.push_str(&format!(
+            "{}: {}\n",
+            targets.join(" "),
+            dependencies.join(" ")
+        ));
+        if policy.make_phony {
+            for dependency in &dependencies {
+                body.push_str(&format!("{dependency}:\n"));
+            }
         }
-    }
+        body
+    };
 
     let mut options = std::fs::OpenOptions::new();
     options.create(true).write(true);

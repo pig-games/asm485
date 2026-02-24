@@ -1,12 +1,13 @@
 use super::{
     build_export_sections_payloads, build_linker_output_payload, build_mapfile_text,
-    capabilities_report, cpusupport_report, expand_source_file, load_module_graph,
-    root_module_id_from_lines, run_with_cli, set_host_expr_eval_failpoint_for_tests, AsmErrorKind,
-    AsmLine, Assembler, ExportSectionsFormat, ExportSectionsInclude, LineStatus,
-    LinkerOutputDirective, LinkerOutputFormat, ListingWriter, MapFileDirective, MapSymbolsMode,
-    RegionState, RootMetadata, SectionState, Severity,
+    capabilities_report, capabilities_report_json, cpusupport_report, cpusupport_report_json,
+    expand_source_file, load_module_graph, root_module_id_from_lines, run_with_cli,
+    set_host_expr_eval_failpoint_for_tests, AsmErrorKind, AsmLine, Assembler, ExportSectionsFormat,
+    ExportSectionsInclude, LineStatus, LinkerOutputDirective, LinkerOutputFormat, ListingWriter,
+    MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
 };
 use crate::assembler::cli::Cli;
+use crate::core::assembler::error::{AsmError, Diagnostic};
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
 use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
@@ -211,6 +212,57 @@ fn assemble_line_with_runtime_mode_no_injection(
     let status = asm.process(line, 1, 0, 2);
     let message = asm.error().map(|err| err.to_string());
     (status, message, asm.bytes().to_vec(), has_model)
+}
+
+fn assemble_line_diagnostic_with_runtime_mode(
+    cpu: crate::core::cpu::CpuType,
+    line: &str,
+    enable_runtime_model: bool,
+) -> (LineStatus, Option<Diagnostic>) {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+    if enable_runtime_model {
+        let enable_intel_runtime = registry
+            .resolve_pipeline(cpu, None)
+            .map(|pipeline| {
+                pipeline
+                    .family_id
+                    .as_str()
+                    .eq_ignore_ascii_case(crate::families::intel8080::module::FAMILY_ID.as_str())
+            })
+            .unwrap_or(false);
+        if enable_intel_runtime {
+            let package_bytes =
+                build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
+            asm.opthread_execution_model = Some(
+                HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                    .expect("runtime execution model from package bytes"),
+            );
+        }
+    }
+
+    asm.clear_conditionals();
+    asm.clear_scopes();
+    let status = asm.process(line, 1, 0, 2);
+    let diag = asm.error().cloned().map(|err| {
+        let mut diag = Diagnostic::new(
+            1,
+            if status == LineStatus::Warning {
+                Severity::Warning
+            } else {
+                Severity::Error
+            },
+            err,
+        )
+        .with_column(asm.error_column())
+        .with_parser_error(asm.parser_error());
+        if let Some(parse_error) = asm.parser_error_ref() {
+            diag = diag.with_col_end(Some(parse_error.span.col_end));
+        }
+        diag
+    });
+    (status, diag)
 }
 
 fn assemble_i8085_line_with_expr_vm_opt_in(
@@ -925,6 +977,170 @@ fn cpusupport_report_has_stable_shape() {
     assert!(text.starts_with("opforge-cpusupport-v1\n"));
     assert!(text.lines().any(|line| line.starts_with("cpu=8085;")));
     assert!(text.lines().any(|line| line.starts_with("cpu=m6502;")));
+}
+
+#[test]
+fn cpusupport_report_json_has_stable_shape() {
+    let text = cpusupport_report_json();
+    let value: serde_json::Value = serde_json::from_str(&text).expect("valid cpusupport json");
+    assert_eq!(value["schema"], "opforge-cpusupport-v1");
+    let cpus = value["cpus"].as_array().expect("cpus array");
+    assert!(cpus.iter().any(|entry| entry["cpu"] == "8085"));
+    assert!(cpus.iter().any(|entry| entry["cpu"] == "m6502"));
+    assert!(cpus
+        .iter()
+        .all(|entry| entry.get("family").is_some() && entry.get("default_dialect").is_some()));
+}
+
+#[test]
+fn capabilities_report_json_has_stable_shape() {
+    let text = capabilities_report_json();
+    let value: serde_json::Value = serde_json::from_str(&text).expect("valid capabilities json");
+    assert_eq!(value["schema"], "opforge-capabilities-v1");
+    assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
+    assert!(value["features"]
+        .as_array()
+        .expect("features array")
+        .iter()
+        .any(|feature| feature == "dependency-output"));
+    assert_eq!(
+        value["cpusupport"]["schema"], "opforge-cpusupport-v1",
+        "capabilities json should embed cpu support payload"
+    );
+}
+
+#[test]
+fn run_with_cli_writes_labels_as_json_in_json_mode() {
+    let dir = create_temp_dir("labels-file-json");
+    let input = dir.join("labels_json.asm");
+    let list = dir.join("labels_json.lst");
+    let labels = dir.join("labels.json");
+    write_file(&input, "START: nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "--format",
+        "json",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--labels",
+        labels.to_string_lossy().as_ref(),
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with json labels output");
+
+    let content = fs::read_to_string(&labels).expect("read labels json");
+    let value: serde_json::Value = serde_json::from_str(&content).expect("labels json parse");
+    let labels_array = value["labels"].as_array().expect("labels array");
+    assert!(labels_array.iter().any(|entry| entry["name"] == "START"));
+}
+
+#[test]
+fn run_with_cli_writes_dependencies_as_json_line_in_json_mode() {
+    let dir = create_temp_dir("deps-file-json");
+    let input = dir.join("deps_json.asm");
+    let list = dir.join("deps_json.lst");
+    let deps = dir.join("deps.jsonl");
+    write_file(&input, "    nop\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "--format",
+        "json",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--dependencies",
+        deps.to_string_lossy().as_ref(),
+        "--make-phony",
+    ]);
+    run_with_cli(&cli).expect("assembly succeeds with json dependency output");
+
+    let content = fs::read_to_string(&deps).expect("read dependencies jsonl");
+    let line = content.lines().next().expect("first json line");
+    let value: serde_json::Value = serde_json::from_str(line).expect("dependency json parse");
+    assert!(value["targets"].is_array());
+    assert!(value["dependencies"].is_array());
+    assert_eq!(value["make_phony"], true);
+    assert!(value["phony_targets"].is_array());
+}
+
+#[test]
+fn default_native_diagnostic_codes_are_declared_in_vm_catalog() {
+    let package = build_hierarchy_package_from_registry(&default_registry())
+        .expect("runtime package build should succeed");
+    let model = HierarchyExecutionModel::from_package_bytes(package.as_slice())
+        .expect("runtime model load should succeed");
+
+    let kinds = [
+        AsmErrorKind::Assembler,
+        AsmErrorKind::Cli,
+        AsmErrorKind::Conditional,
+        AsmErrorKind::Directive,
+        AsmErrorKind::Expression,
+        AsmErrorKind::Instruction,
+        AsmErrorKind::Io,
+        AsmErrorKind::Parser,
+        AsmErrorKind::Preprocess,
+        AsmErrorKind::Symbol,
+    ];
+
+    for kind in kinds {
+        let diag = Diagnostic::new(1, Severity::Error, AsmError::new(kind, "probe", None));
+        assert!(
+            model.has_declared_diagnostic_code(diag.code()),
+            "diagnostic code '{}' for {:?} should be declared in DIAG catalog",
+            diag.code(),
+            kind
+        );
+    }
+}
+
+#[test]
+fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
+    let line = "MVI A,";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
+    assert_eq!(native_diag.severity(), runtime_diag.severity(), "severity parity mismatch");
+    assert_eq!(native_diag.line(), runtime_diag.line(), "line parity mismatch");
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
+    assert_eq!(
+        native_diag.col_end(),
+        runtime_diag.col_end(),
+        "column-end parity mismatch"
+    );
+}
+
+#[test]
+fn vm_native_diagnostic_parity_for_instruction_error_code_severity_span() {
+    let line = "MVI A, 300";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
+    assert_eq!(native_diag.severity(), runtime_diag.severity(), "severity parity mismatch");
+    assert_eq!(native_diag.line(), runtime_diag.line(), "line parity mismatch");
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
