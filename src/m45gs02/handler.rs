@@ -679,6 +679,30 @@ mod tests {
     }
 
     #[test]
+    fn encodes_ora_and_sbc_immediate_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let ora_imm = Operand::Immediate(0x12, Span::default());
+        match handler.encode_instruction("ora", &[ora_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xF9, 0x12]),
+            EncodeResult::NotFound => panic!("ora immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("ora immediate encoding failed: {message}")
+            }
+        }
+
+        let sbc_imm = Operand::Immediate(0x34, Span::default());
+        match handler.encode_instruction("sbc", &[sbc_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xD9, 0x34]),
+            EncodeResult::NotFound => panic!("sbc immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("sbc immediate encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

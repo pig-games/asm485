@@ -98,6 +98,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xF3,
     },
     CpuInstructionEntry {
+        mnemonic: "ORA",
+        mode: AddressMode::Immediate,
+        opcode: 0xF9,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SBC",
+        mode: AddressMode::Immediate,
+        opcode: 0xD9,
+    },
+    CpuInstructionEntry {
         mnemonic: "MAP",
         mode: AddressMode::Implied,
         opcode: 0x5C,
