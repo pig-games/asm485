@@ -1,0 +1,39 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Simple 45GS02 test program
+----                                2  ; Tests core 45GS02 instructions and sugar currently implemented
+----                                3  
+----                                4          .cpu 45gs02
+----    EQU 0800                    5          .org $0800
+----                                6  
+----                                7  start
+0800    5C                          8          map             ; 5C
+----                                9  
+0801    EA B1 20                   10          lda ($20),z     ; EA B1 20
+0804    EA B1 21                   11          lda [$21],z     ; EA B1 21
+----                               12  
+0807    42 42 69 01                13          adcq #$01       ; 42 42 69 01
+080B    42 42 AD 34 12             14          ldq $1234       ; 42 42 AD 34 12
+0810    42 42 85 44                15          stq $44         ; 42 42 85 44
+----                               16  
+0814    42                         17          neg             ; 42
+0815    EA                         18          eom             ; EA
+0816    60                         19          rts             ; 60
+----                               20  
+----                               21          .end
+
+Lines: 21  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0800 (2048)
+
+Total memory is 23 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0800    5C EA B1 20 EA B1 21 42 42 69 01 42 42 AD 34 12
+0810    42 42 85 44 42 EA 60
