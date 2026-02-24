@@ -3,7 +3,7 @@ use crate::core::parser::Expr;
 use crate::core::registry::VmEncodeCandidate;
 use crate::families::mos6502::{AddressMode, OperandForce};
 use crate::m65816::state;
-use crate::opthread::package::ModeSelectorDescriptor;
+use crate::vm::package::ModeSelectorDescriptor;
 
 use super::force_suffix;
 use super::selector_bridge::{SelectorExprContext, SelectorInput};

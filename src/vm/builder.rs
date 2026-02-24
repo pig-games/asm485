@@ -17,11 +17,11 @@ use crate::m65816::module::CPU_ID as M65816_CPU_ID;
 use crate::m65816::M65816CpuHandler;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_CPU_INSTRUCTION_TABLE;
 use crate::m65c02::module::CPU_ID as M65C02_CPU_ID;
-use crate::opthread::hierarchy::{
+use crate::vm::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };
-use crate::opthread::intel8080_vm::{
+use crate::vm::intel8080_vm::{
     compile_vm_program_for_instruction_entry, compile_vm_program_for_z80_cb_register,
     compile_vm_program_for_z80_half_index, compile_vm_program_for_z80_indexed_cb,
     compile_vm_program_for_z80_indexed_memory, compile_vm_program_for_z80_interrupt_mode,
@@ -29,7 +29,7 @@ use crate::opthread::intel8080_vm::{
     mode_key_for_z80_cb_register, mode_key_for_z80_half_index, mode_key_for_z80_indexed_cb,
     mode_key_for_z80_indexed_memory, mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
 };
-use crate::opthread::package::{
+use crate::vm::package::{
     canonicalize_expr_parser_contracts, canonicalize_hierarchy_metadata,
     canonicalize_parser_contracts, canonicalize_parser_vm_programs, canonicalize_token_policies,
     canonicalize_tokenizer_vm_programs, default_runtime_diagnostic_catalog,
@@ -49,7 +49,7 @@ use crate::opthread::package::{
     EXPR_PARSER_VM_OPCODE_VERSION_V1, EXPR_VM_OPCODE_VERSION_V1, PARSER_AST_SCHEMA_ID_LINE_V1,
     PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1, TOKENIZER_VM_OPCODE_VERSION_V1,
 };
-use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+use crate::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::extensions::Z80_EXTENSION_TABLE;
 use crate::z80::module::CPU_ID as Z80_CPU_ID;
 
@@ -651,14 +651,14 @@ pub fn build_hierarchy_chunks_from_registry(
     canonicalize_tokenizer_vm_programs(&mut tokenizer_vm_programs);
     canonicalize_parser_contracts(&mut parser_contracts);
     canonicalize_parser_vm_programs(&mut parser_vm_programs);
-    crate::opthread::package::canonicalize_expr_contracts(&mut expr_contracts);
+    crate::vm::package::canonicalize_expr_contracts(&mut expr_contracts);
     canonicalize_expr_parser_contracts(&mut expr_parser_contracts);
 
     // Ensure the materialized metadata is coherent before returning.
     HierarchyPackage::new(families.clone(), cpus.clone(), dialects.clone())?;
 
     Ok(HierarchyChunks {
-        metadata: crate::opthread::package::PackageMetaDescriptor::default(),
+        metadata: crate::vm::package::PackageMetaDescriptor::default(),
         strings: Vec::new(),
         diagnostics: default_runtime_diagnostic_catalog(),
         token_policies,
@@ -1251,17 +1251,17 @@ mod tests {
     use crate::i8085::module::I8085CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
-    use crate::opthread::intel8080_vm::{
+    use crate::vm::intel8080_vm::{
         mode_key_for_instruction_entry, mode_key_for_z80_cb_register, mode_key_for_z80_half_index,
         mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
         mode_key_for_z80_interrupt_mode, mode_key_for_z80_ld_indirect,
     };
-    use crate::opthread::package::{
+    use crate::vm::package::{
         load_hierarchy_package, token_identifier_class, ParserVmOpcode, TokenizerVmOpcode,
         DIAG_OPTHREAD_MISSING_VM_PROGRAM, DIAG_PARSER_INVALID_STATEMENT,
         DIAG_TOKENIZER_INVALID_CHAR, PARSER_GRAMMAR_ID_LINE_V1,
     };
-    use crate::opthread::runtime::HierarchyExecutionModel;
+    use crate::vm::runtime::HierarchyExecutionModel;
     use crate::z80::extensions::lookup_extension as lookup_z80_extension;
     use crate::z80::module::Z80CpuModule;
 

@@ -4,7 +4,7 @@
 //! Intel8080-family VM mode/program helpers shared by builder/runtime.
 
 use crate::families::intel8080::table::{ArgType, InstructionEntry, Prefix};
-use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+use crate::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 
 pub(crate) fn mode_key_for_instruction_entry(entry: &InstructionEntry) -> String {
     format!(

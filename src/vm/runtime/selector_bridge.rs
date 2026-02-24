@@ -50,7 +50,7 @@ pub(super) fn intel8080_candidate_from_resolved(
     let entry = intel8080_lookup_instruction_entry(mnemonic, cpu_id, operands)?;
     if matches!(entry.arg_type, IntelArgType::Im) {
         let mode = intel8080_interrupt_mode_for_entry(entry, operands)?;
-        let mode_key = crate::opthread::intel8080_vm::mode_key_for_z80_interrupt_mode(mode)?;
+        let mode_key = crate::vm::intel8080_vm::mode_key_for_z80_interrupt_mode(mode)?;
         return Some(VmEncodeCandidate {
             mode_key,
             operand_bytes: Vec::new(),
@@ -58,7 +58,7 @@ pub(super) fn intel8080_candidate_from_resolved(
     }
     let operand_bytes = intel8080_operand_bytes_for_entry(entry, operands, ctx)?;
     Some(VmEncodeCandidate {
-        mode_key: crate::opthread::intel8080_vm::mode_key_for_instruction_entry(entry),
+        mode_key: crate::vm::intel8080_vm::mode_key_for_instruction_entry(entry),
         operand_bytes,
     })
 }
@@ -160,7 +160,7 @@ fn intel8080_operand_bytes_for_entry(
                 IntelOperand::Immediate8(value, _) => *value,
                 IntelOperand::Immediate16(target, _) => {
                     let next_pc = ctx.current_address() as i64
-                        + crate::opthread::intel8080_vm::prefix_len(entry.prefix) as i64
+                        + crate::vm::intel8080_vm::prefix_len(entry.prefix) as i64
                         + 2;
                     let delta = *target as i64 - next_pc;
                     if !(-128..=127).contains(&delta) {
@@ -210,11 +210,11 @@ pub(super) fn intel8080_ld_indirect_candidate(
 
     let (mode_key, addr) = match (&operands[0], &operands[1]) {
         (IntelOperand::Register(dst, _), IntelOperand::IndirectAddress16(addr, _)) => (
-            crate::opthread::intel8080_vm::mode_key_for_z80_ld_indirect(dst.as_str(), false)?,
+            crate::vm::intel8080_vm::mode_key_for_z80_ld_indirect(dst.as_str(), false)?,
             *addr,
         ),
         (IntelOperand::IndirectAddress16(addr, _), IntelOperand::Register(src, _)) => (
-            crate::opthread::intel8080_vm::mode_key_for_z80_ld_indirect(src.as_str(), true)?,
+            crate::vm::intel8080_vm::mode_key_for_z80_ld_indirect(src.as_str(), true)?,
             *addr,
         ),
         _ => return None,
@@ -362,11 +362,8 @@ fn intel8080_half_index_candidate(
         _ => return None,
     };
 
-    let mode_key = crate::opthread::intel8080_vm::mode_key_for_z80_half_index(
-        prefix,
-        mnemonic,
-        form.as_str(),
-    )?;
+    let mode_key =
+        crate::vm::intel8080_vm::mode_key_for_z80_half_index(prefix, mnemonic, form.as_str())?;
     Some(VmEncodeCandidate {
         mode_key,
         operand_bytes,
@@ -419,8 +416,7 @@ fn intel8080_cb_candidate(
             return None;
         }
         let reg = intel8080_cb_register_name(&operands[0])?;
-        let mode_key =
-            crate::opthread::intel8080_vm::mode_key_for_z80_cb_register(&upper, None, reg)?;
+        let mode_key = crate::vm::intel8080_vm::mode_key_for_z80_cb_register(&upper, None, reg)?;
         return Some(VmEncodeCandidate {
             mode_key,
             operand_bytes: Vec::new(),
@@ -434,7 +430,7 @@ fn intel8080_cb_candidate(
         let bit = intel8080_bit_value(&operands[0])?;
         let reg = intel8080_cb_register_name(&operands[1])?;
         let mode_key =
-            crate::opthread::intel8080_vm::mode_key_for_z80_cb_register(&upper, Some(bit), reg)?;
+            crate::vm::intel8080_vm::mode_key_for_z80_cb_register(&upper, Some(bit), reg)?;
         return Some(VmEncodeCandidate {
             mode_key,
             operand_bytes: Vec::new(),
@@ -528,8 +524,7 @@ fn intel8080_indexed_memory_candidate(
         _ => return None,
     };
 
-    let mode_key =
-        crate::opthread::intel8080_vm::mode_key_for_z80_indexed_memory(base, form.as_str())?;
+    let mode_key = crate::vm::intel8080_vm::mode_key_for_z80_indexed_memory(base, form.as_str())?;
     Some(VmEncodeCandidate {
         mode_key,
         operand_bytes,
@@ -584,11 +579,8 @@ fn intel8080_indexed_cb_candidate(
             }
             let bit = intel8080_bit_value(&operands[0])?;
             let (base, displacement) = intel8080_indexed_base_disp(&operands[1])?;
-            let mode_key = crate::opthread::intel8080_vm::mode_key_for_z80_indexed_cb(
-                base,
-                &upper,
-                Some(bit),
-            )?;
+            let mode_key =
+                crate::vm::intel8080_vm::mode_key_for_z80_indexed_cb(base, &upper, Some(bit))?;
             return Some(VmEncodeCandidate {
                 mode_key,
                 operand_bytes: vec![vec![displacement]],
@@ -603,7 +595,7 @@ fn intel8080_indexed_cb_candidate(
         _ => return None,
     };
 
-    let mode_key = crate::opthread::intel8080_vm::mode_key_for_z80_indexed_cb(base, &upper, None)?;
+    let mode_key = crate::vm::intel8080_vm::mode_key_for_z80_indexed_cb(base, &upper, None)?;
     Some(VmEncodeCandidate {
         mode_key,
         operand_bytes: vec![vec![displacement]],
@@ -672,10 +664,9 @@ impl<'a> SelectorExprContext<'a> {
         resolved: &'a ResolvedHierarchy,
         assembler_ctx: &'a dyn AssemblerContext,
     ) -> Self {
-        let use_portable_eval =
-            crate::opthread::rollout::package_runtime_default_enabled_for_family(
-                resolved.family_id.as_str(),
-            );
+        let use_portable_eval = crate::vm::rollout::package_runtime_default_enabled_for_family(
+            resolved.family_id.as_str(),
+        );
         Self {
             model,
             resolved,

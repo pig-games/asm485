@@ -4,7 +4,7 @@
 //! 6502-native host harness envelope for VM runtime integration.
 
 use crate::core::registry::VmEncodeCandidate;
-use crate::opthread::runtime::{
+use crate::vm::runtime::{
     HierarchyExecutionModel, PortableInstructionRequest, PortableLineAst, PortableToken,
     RuntimeBridgeError, NATIVE_6502_ABI_MAGIC_V1, NATIVE_6502_ABI_VERSION_V1,
     NATIVE_6502_CAPABILITY_ENUM_TABLES_V1, NATIVE_6502_CAPABILITY_EXT_TLV_V1,
@@ -871,11 +871,11 @@ mod tests {
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
-    use crate::opthread::builder::{
+    use crate::vm::builder::{
         build_hierarchy_chunks_from_registry, build_hierarchy_package_from_registry,
     };
-    use crate::opthread::hierarchy::ScopedOwner;
-    use crate::opthread::package::encode_hierarchy_chunks_from_chunks;
+    use crate::vm::hierarchy::ScopedOwner;
+    use crate::vm::package::encode_hierarchy_chunks_from_chunks;
     use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;

@@ -59,9 +59,9 @@ use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
-use crate::opthread::builder::build_hierarchy_package_from_registry;
-use crate::opthread::runtime::HierarchyExecutionModel;
-use crate::opthread::token_bridge::parse_line_with_model;
+use crate::vm::builder::build_hierarchy_package_from_registry;
+use crate::vm::runtime::HierarchyExecutionModel;
+use crate::vm::token_bridge::parse_line_with_model;
 use crate::z80::module::Z80CpuModule;
 
 use cli::{
@@ -1365,7 +1365,7 @@ impl<'a> AsmLine<'a> {
     }
 
     fn portable_expr_runtime_enabled_for_family(&self, family_id: &str) -> bool {
-        crate::opthread::rollout::portable_expr_runtime_enabled_for_family(
+        crate::vm::rollout::portable_expr_runtime_enabled_for_family(
             family_id,
             &self.opthread_expr_eval_opt_in_families,
             &self.opthread_expr_eval_force_host_families,
@@ -2313,7 +2313,7 @@ impl<'a> AsmLine<'a> {
         pipeline: &crate::core::registry::ResolvedPipeline<'_>,
         mapped_mnemonic: &str,
     ) -> Result<bool, String> {
-        if !crate::opthread::rollout::package_runtime_default_enabled_for_family(
+        if !crate::vm::rollout::package_runtime_default_enabled_for_family(
             pipeline.family_id.as_str(),
         ) {
             return Ok(true);
@@ -3729,7 +3729,7 @@ impl<'a> AsmLine<'a> {
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
 
         let family_runtime_authoritative =
-            crate::opthread::rollout::package_runtime_default_enabled_for_family(
+            crate::vm::rollout::package_runtime_default_enabled_for_family(
                 pipeline.family_id.as_str(),
             );
 
@@ -4936,7 +4936,7 @@ impl<'a> AssemblerContext for AsmLine<'a> {
 
         if let Some(model) = self.opthread_execution_model.as_ref() {
             if let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
-                if crate::opthread::rollout::package_runtime_default_enabled_for_family(
+                if crate::vm::rollout::package_runtime_default_enabled_for_family(
                     pipeline.family_id.as_str(),
                 ) && self.portable_expr_runtime_enabled_for_family(pipeline.family_id.as_str())
                 {

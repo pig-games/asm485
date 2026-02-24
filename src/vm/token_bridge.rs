@@ -14,14 +14,14 @@ use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
-use crate::opthread::builder::build_hierarchy_package_from_registry;
-use crate::opthread::runtime::{HierarchyExecutionModel, PortableLineAst, PortableToken};
+use crate::vm::builder::build_hierarchy_package_from_registry;
+use crate::vm::runtime::{HierarchyExecutionModel, PortableLineAst, PortableToken};
 use crate::z80::module::Z80CpuModule;
 
 #[cfg(test)]
-use crate::opthread::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
+use crate::vm::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
 #[cfg(test)]
-use crate::opthread::runtime::RuntimeParserVmProgram;
+use crate::vm::runtime::RuntimeParserVmProgram;
 
 // Use an authoritative rollout lane so bootstrap/macro token bridge paths
 // exercise strict VM tokenizer entrypoints by default.

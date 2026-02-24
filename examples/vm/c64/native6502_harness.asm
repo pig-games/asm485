@@ -555,7 +555,7 @@ status_color_table
 
 .pack in c64mem : basic, code, data
 
-.output "build/opthread-native6502-harness.prg", format=prg, contiguous=false, sections=basic,code,data
-.mapfile "build/opthread-native6502-harness.map", symbols=all
+.output "build/vm-native6502-harness.prg", format=prg, contiguous=false, sections=basic,code,data
+.mapfile "build/vm-native6502-harness.map", symbols=all
 
 .endmodule

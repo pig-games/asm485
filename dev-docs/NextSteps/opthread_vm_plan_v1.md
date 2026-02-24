@@ -54,7 +54,7 @@ Acceptance:
 
 ## Phase P1: Expression Path Off Host Parser (highest priority)
 - [x] Introduce/enable VM-authoritative expression parse contract entrypoint for bridge usage.
-- [x] Replace all `Parser::parse_expr_from_tokens(...)` usages in `src/opthread/token_bridge.rs`.
+- [x] Replace all `Parser::parse_expr_from_tokens(...)` usages in `src/vm/token_bridge.rs`.
 - [x] Preserve diagnostic code shape/span parity for representative corpus.
 - [x] Add regression tests proving no silent host expression parser fallback in assembler hot paths.
 

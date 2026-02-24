@@ -619,7 +619,7 @@ fn parse_statement_def_line(
     code: &str,
     line_num: u32,
 ) -> Result<(String, StatementSignature), MacroError> {
-    let line_ast = crate::opthread::token_bridge::parse_line_with_default_model(code, line_num)
+    let line_ast = crate::vm::token_bridge::parse_line_with_default_model(code, line_num)
         .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))?;
     match line_ast {
         LineAst::StatementDef {
@@ -722,7 +722,7 @@ fn expand_statement_invocation(
 }
 
 fn tokenize_line(line: &str, line_num: u32) -> Result<Vec<Token>, MacroError> {
-    crate::opthread::token_bridge::tokenize_line_with_default_model(line, line_num)
+    crate::vm::token_bridge::tokenize_line_with_default_model(line, line_num)
         .map_err(|err| MacroError::new(err.message, Some(line_num), Some(err.span.col_start)))
 }
 

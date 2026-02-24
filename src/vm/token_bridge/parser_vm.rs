@@ -1,7 +1,7 @@
 use crate::core::parser::{LineAst, ParseError};
 use crate::core::tokenizer::{Span, Token};
-use crate::opthread::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
-use crate::opthread::runtime::{
+use crate::vm::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
+use crate::vm::runtime::{
     RuntimeParserContract, RuntimeParserDiagnosticMap, RuntimeParserVmProgram,
 };
 

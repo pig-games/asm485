@@ -361,7 +361,7 @@ fn expand_with_processor(
 }
 
 fn parse_line_ast(line: &str, line_num: u32) -> Option<LineAst> {
-    crate::opthread::token_bridge::parse_line_with_default_model(line, line_num).ok()
+    crate::vm::token_bridge::parse_line_with_default_model(line, line_num).ok()
 }
 
 pub(crate) fn expr_to_ident(expr: &Expr) -> Option<String> {

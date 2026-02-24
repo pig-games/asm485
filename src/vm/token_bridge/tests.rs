@@ -1104,12 +1104,12 @@ fn parse_line_with_model_requires_expression_contract_compatibility() {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
-    let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+    let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.parser_contracts {
         if matches!(
             contract.owner,
-            crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+            crate::vm::hierarchy::ScopedOwner::Family(ref family_id)
                 if family_id.eq_ignore_ascii_case("mos6502")
         ) {
             contract.grammar_id = "opforge.line.v0".to_string();
@@ -1147,12 +1147,12 @@ fn parse_line_with_model_requires_parser_ast_schema_compatibility() {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
-    let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+    let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.parser_contracts {
         if matches!(
             contract.owner,
-            crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+            crate::vm::hierarchy::ScopedOwner::Family(ref family_id)
                 if family_id.eq_ignore_ascii_case("mos6502")
         ) {
             contract.ast_schema_id = "opforge.ast.line.v0".to_string();
@@ -1190,12 +1190,12 @@ fn parse_line_with_model_enforces_parser_vm_program_byte_budget() {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
-    let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+    let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for program in &mut chunks.parser_vm_programs {
         if matches!(
             program.owner,
-            crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+            crate::vm::hierarchy::ScopedOwner::Family(ref family_id)
                 if family_id.eq_ignore_ascii_case("mos6502")
         ) {
             program.program = vec![ParserVmOpcode::ParseInstructionEnvelope as u8; 100];
@@ -1203,9 +1203,7 @@ fn parse_line_with_model_enforces_parser_vm_program_byte_budget() {
     }
     let mut model =
         HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
-    model.set_runtime_budget_profile(
-        crate::opthread::runtime::RuntimeBudgetProfile::RetroConstrained,
-    );
+    model.set_runtime_budget_profile(crate::vm::runtime::RuntimeBudgetProfile::RetroConstrained);
     let register_checker = register_checker_none();
     let err = parse_line_with_model(
         &model,
@@ -1231,12 +1229,12 @@ fn parse_line_with_model_parser_vm_budget_error_is_deterministic() {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
-    let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+    let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for program in &mut chunks.parser_vm_programs {
         if matches!(
             program.owner,
-            crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+            crate::vm::hierarchy::ScopedOwner::Family(ref family_id)
                 if family_id.eq_ignore_ascii_case("mos6502")
         ) {
             program.program = vec![ParserVmOpcode::ParseInstructionEnvelope as u8; 100];
@@ -1244,9 +1242,7 @@ fn parse_line_with_model_parser_vm_budget_error_is_deterministic() {
     }
     let mut model =
         HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
-    model.set_runtime_budget_profile(
-        crate::opthread::runtime::RuntimeBudgetProfile::RetroConstrained,
-    );
+    model.set_runtime_budget_profile(crate::vm::runtime::RuntimeBudgetProfile::RetroConstrained);
     let register_checker = register_checker_none();
     let first = parse_line_with_model(
         &model,
@@ -1281,13 +1277,11 @@ fn parse_expr_with_vm_contract_rejects_slice_above_parser_token_budget() {
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
     let mut model = HierarchyExecutionModel::from_chunks(
-        crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+        crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
             .expect("hierarchy chunks build"),
     )
     .expect("execution model should build");
-    model.set_runtime_budget_profile(
-        crate::opthread::runtime::RuntimeBudgetProfile::RetroConstrained,
-    );
+    model.set_runtime_budget_profile(crate::vm::runtime::RuntimeBudgetProfile::RetroConstrained);
     let token_budget = model.runtime_budget_limits().max_parser_tokens_per_line;
     let span = Span {
         line: 1,
@@ -1330,16 +1324,16 @@ fn parse_expr_program_ref_with_vm_contract_enforces_vm_contract_for_intel_family
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
-    let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+    let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.expr_parser_contracts {
         if matches!(
             contract.owner,
-            crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+            crate::vm::hierarchy::ScopedOwner::Family(ref family_id)
                 if family_id.eq_ignore_ascii_case("intel8080")
         ) {
             contract.opcode_version =
-                crate::opthread::package::EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+                crate::vm::package::EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
         }
     }
     let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");
@@ -1385,16 +1379,16 @@ fn parse_expr_program_ref_with_vm_contract_uses_vm_path_for_enabled_family() {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
-    let mut chunks = crate::opthread::builder::build_hierarchy_chunks_from_registry(&registry)
+    let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.expr_parser_contracts {
         if matches!(
             contract.owner,
-            crate::opthread::hierarchy::ScopedOwner::Family(ref family_id)
+            crate::vm::hierarchy::ScopedOwner::Family(ref family_id)
                 if family_id.eq_ignore_ascii_case("mos6502")
         ) {
             contract.opcode_version =
-                crate::opthread::package::EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+                crate::vm::package::EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
         }
     }
     let model = HierarchyExecutionModel::from_chunks(chunks).expect("execution model should build");

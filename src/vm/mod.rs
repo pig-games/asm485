@@ -4,6 +4,7 @@
 //! VM runtime/package model (work in progress).
 
 pub mod builder;
+pub mod bytecode;
 pub mod hierarchy;
 pub(crate) mod intel8080_vm;
 pub mod native6502;
@@ -12,4 +13,5 @@ pub mod rewrite;
 pub(crate) mod rollout;
 pub mod runtime;
 pub(crate) mod token_bridge;
-pub mod vm;
+
+pub use bytecode::{execute_program, VmError, OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};

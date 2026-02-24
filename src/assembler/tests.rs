@@ -21,22 +21,22 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
-use crate::opthread::builder::build_hierarchy_chunks_from_registry;
-use crate::opthread::builder::build_hierarchy_package_from_registry;
-use crate::opthread::hierarchy::ScopedOwner;
-use crate::opthread::intel8080_vm::mode_key_for_instruction_entry;
-use crate::opthread::package::{
+use crate::vm::builder::build_hierarchy_chunks_from_registry;
+use crate::vm::builder::build_hierarchy_package_from_registry;
+use crate::vm::hierarchy::ScopedOwner;
+use crate::vm::intel8080_vm::mode_key_for_instruction_entry;
+use crate::vm::package::{
     ModeSelectorDescriptor, ParserVmOpcode, TokenizerVmOpcode, EXPR_PARSER_VM_OPCODE_VERSION_V1,
 };
-use crate::opthread::rollout::{
+use crate::vm::rollout::{
     family_runtime_mode, family_runtime_rollout_policy, package_runtime_default_enabled_for_family,
     FamilyRuntimeMode,
 };
-use crate::opthread::runtime::{
+use crate::vm::runtime::{
     set_core_expr_parser_failpoint_for_tests, HierarchyExecutionModel, PortableSpan, PortableToken,
     PortableTokenKind,
 };
-use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+use crate::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::{Z80CpuModule, CPU_ID as z80_cpu_id};
 use clap::Parser;
 use std::collections::{HashMap, HashSet};
@@ -98,7 +98,7 @@ fn runtime_token_bridge_maps_portable_tokens_to_core_tokens() {
         },
     ];
 
-    let mapped = crate::opthread::token_bridge::runtime_tokens_to_core_tokens(
+    let mapped = crate::vm::token_bridge::runtime_tokens_to_core_tokens(
         &runtime_tokens,
         &crate::core::tokenizer::register_checker_none(),
     )
@@ -125,7 +125,7 @@ fn runtime_token_bridge_rejects_invalid_spans() {
         },
     }];
 
-    let err = crate::opthread::token_bridge::runtime_tokens_to_core_tokens(
+    let err = crate::vm::token_bridge::runtime_tokens_to_core_tokens(
         &runtime_tokens,
         &crate::core::tokenizer::register_checker_none(),
     )
@@ -6949,8 +6949,8 @@ fn error_kind_for_symbol_failure() {
 #[cfg(feature = "vm-parity")]
 #[test]
 fn vm_parity_smoke_instruction_bytes_and_diagnostics() {
-    use crate::opthread::builder::build_hierarchy_package_from_registry;
-    use crate::opthread::package::load_hierarchy_package;
+    use crate::vm::builder::build_hierarchy_package_from_registry;
+    use crate::vm::package::load_hierarchy_package;
     use std::fs;
     use std::path::Path;
 
@@ -7259,7 +7259,7 @@ fn vm_rollout_criteria_mos6502_parity_and_determinism_gate() {
 fn vm_expr_parser_rollout_criteria_all_registered_families_have_policy_and_checklist() {
     let registry = default_registry();
     for family in registry.family_ids() {
-        let policy = crate::opthread::rollout::family_expr_parser_rollout_policy(family.as_str())
+        let policy = crate::vm::rollout::family_expr_parser_rollout_policy(family.as_str())
             .unwrap_or_else(|| {
                 panic!(
                     "missing expr-parser rollout policy for family '{}'",
@@ -7276,15 +7276,9 @@ fn vm_expr_parser_rollout_criteria_all_registered_families_have_policy_and_check
 
 #[test]
 fn vm_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
+    assert!(crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("mos6502"));
     assert!(
-        crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
-            "mos6502"
-        )
-    );
-    assert!(
-        crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
-            "intel8080"
-        )
+        crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("intel8080")
     );
 }
 

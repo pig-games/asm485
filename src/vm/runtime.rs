@@ -23,11 +23,11 @@ use crate::core::tokenizer::{
     Token, TokenKind, Tokenizer,
 };
 use crate::families::mos6502::OperandForce;
-use crate::opthread::builder::{build_hierarchy_package_from_registry, HierarchyBuildError};
-use crate::opthread::hierarchy::{
+use crate::vm::builder::{build_hierarchy_package_from_registry, HierarchyBuildError};
+use crate::vm::hierarchy::{
     HierarchyError, HierarchyPackage, ResolvedHierarchy, ResolvedHierarchyContext, ScopedOwner,
 };
-use crate::opthread::package::{
+use crate::vm::package::{
     decode_hierarchy_chunks, default_token_policy_lexical_defaults, HierarchyChunks,
     ModeSelectorDescriptor, OpcpuCodecError, TokenCaseRule, TokenizerVmDiagnosticMap,
     TokenizerVmLimits, TokenizerVmOpcode, DIAG_OPTHREAD_FORCE_UNSUPPORTED_6502,
@@ -36,10 +36,10 @@ use crate::opthread::package::{
     PARSER_AST_SCHEMA_ID_LINE_V1, PARSER_GRAMMAR_ID_LINE_V1, PARSER_VM_OPCODE_VERSION_V1,
     TOKENIZER_VM_OPCODE_VERSION_V1,
 };
-use crate::opthread::rollout::{
+use crate::vm::rollout::{
     family_expr_parser_rollout_policy, portable_expr_parser_runtime_enabled_for_family,
 };
-use crate::opthread::vm::{execute_program, VmError};
+use crate::vm::{execute_program, VmError};
 
 mod contract_bridge;
 mod encoding_bridge;
@@ -56,7 +56,7 @@ use runtime_expr_parser::RuntimeExpressionParser;
 #[cfg(test)]
 use crate::families::intel8080::Operand as IntelOperand;
 #[cfg(test)]
-use crate::opthread::intel8080_vm::{mode_key_for_instruction_entry, mode_key_for_z80_ld_indirect};
+use crate::vm::intel8080_vm::{mode_key_for_instruction_entry, mode_key_for_z80_ld_indirect};
 #[cfg(test)]
 use selector_bridge::{intel8080_candidate_from_resolved, intel8080_ld_indirect_candidate};
 #[cfg(test)]
@@ -1060,7 +1060,7 @@ impl HierarchyExecutionModel {
         line_num: u32,
     ) -> Result<PortableLineAst, ParseError> {
         let register_checker = register_checker_none();
-        let (line_ast, _, _) = crate::opthread::token_bridge::parse_line_with_model(
+        let (line_ast, _, _) = crate::vm::token_bridge::parse_line_with_model(
             self,
             cpu_id,
             dialect_override,
@@ -1102,7 +1102,7 @@ impl HierarchyExecutionModel {
         dialect_override: Option<&str>,
     ) -> Result<RuntimeParserCertificationChecklists, RuntimeBridgeError> {
         let resolved = self.bridge.resolve_pipeline(cpu_id, dialect_override)?;
-        let checklists = crate::opthread::rollout::parser_certification_checklists_for_family(
+        let checklists = crate::vm::rollout::parser_certification_checklists_for_family(
             resolved.family_id.as_str(),
         );
         Ok(RuntimeParserCertificationChecklists {

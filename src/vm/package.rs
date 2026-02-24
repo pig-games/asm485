@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use crate::opthread::hierarchy::{
+use crate::vm::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, HierarchyError, HierarchyPackage,
     ScopedFormDescriptor, ScopedOwner, ScopedRegisterDescriptor,
 };

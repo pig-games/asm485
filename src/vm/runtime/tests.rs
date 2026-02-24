@@ -11,13 +11,13 @@ use crate::families::mos6502::Operand;
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
-use crate::opthread::builder::{
+use crate::vm::builder::{
     build_hierarchy_chunks_from_registry, build_hierarchy_package_from_registry,
 };
-use crate::opthread::hierarchy::{
+use crate::vm::hierarchy::{
     CpuDescriptor, DialectDescriptor, FamilyDescriptor, ResolvedHierarchy, ScopedOwner,
 };
-use crate::opthread::package::{
+use crate::vm::package::{
     default_token_policy_lexical_defaults, token_identifier_class, DiagnosticDescriptor,
     ExprContractDescriptor, ExprDiagnosticMap, ExprParserContractDescriptor,
     ExprParserDiagnosticMap, HierarchyChunks, ParserContractDescriptor, ParserDiagnosticMap,
@@ -29,7 +29,7 @@ use crate::opthread::package::{
     EXPR_PARSER_VM_OPCODE_VERSION_V1, EXPR_VM_OPCODE_VERSION_V1, PARSER_VM_OPCODE_VERSION_V1,
     TOKENIZER_VM_OPCODE_VERSION_V1,
 };
-use crate::opthread::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
+use crate::vm::{OP_EMIT_OPERAND, OP_EMIT_U8, OP_END};
 use crate::z80::module::Z80CpuModule;
 use std::collections::HashMap;
 use std::fs;
@@ -437,7 +437,7 @@ fn sample_package() -> HierarchyPackage {
 
 fn intel_only_chunks() -> HierarchyChunks {
     HierarchyChunks {
-        metadata: crate::opthread::package::PackageMetaDescriptor::default(),
+        metadata: crate::vm::package::PackageMetaDescriptor::default(),
         strings: Vec::new(),
         diagnostics: Vec::new(),
         token_policies: Vec::new(),

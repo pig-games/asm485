@@ -673,34 +673,29 @@ fn vm_char_class_matches(byte: Option<u8>, class: u8, policy: &RuntimeTokenPolic
 }
 
 fn vm_matches_identifier_start_class(byte: u8, class_mask: u32) -> bool {
-    let is_alpha = (class_mask & crate::opthread::package::token_identifier_class::ASCII_ALPHA)
-        != 0
+    let is_alpha = (class_mask & crate::vm::package::token_identifier_class::ASCII_ALPHA) != 0
         && (byte as char).is_ascii_alphabetic();
-    let is_underscore = (class_mask & crate::opthread::package::token_identifier_class::UNDERSCORE)
-        != 0
-        && byte == b'_';
+    let is_underscore =
+        (class_mask & crate::vm::package::token_identifier_class::UNDERSCORE) != 0 && byte == b'_';
     let is_dot =
-        (class_mask & crate::opthread::package::token_identifier_class::DOT) != 0 && byte == b'.';
+        (class_mask & crate::vm::package::token_identifier_class::DOT) != 0 && byte == b'.';
     is_alpha || is_underscore || is_dot
 }
 
 fn vm_matches_identifier_continue_class(byte: u8, class_mask: u32) -> bool {
     let ch = byte as char;
-    let is_alpha = (class_mask & crate::opthread::package::token_identifier_class::ASCII_ALPHA)
-        != 0
+    let is_alpha = (class_mask & crate::vm::package::token_identifier_class::ASCII_ALPHA) != 0
         && ch.is_ascii_alphabetic();
-    let is_digit = (class_mask & crate::opthread::package::token_identifier_class::ASCII_DIGIT)
-        != 0
+    let is_digit = (class_mask & crate::vm::package::token_identifier_class::ASCII_DIGIT) != 0
         && ch.is_ascii_digit();
-    let is_underscore = (class_mask & crate::opthread::package::token_identifier_class::UNDERSCORE)
-        != 0
-        && byte == b'_';
-    let is_dollar = (class_mask & crate::opthread::package::token_identifier_class::DOLLAR) != 0
-        && byte == b'$';
-    let is_at = (class_mask & crate::opthread::package::token_identifier_class::AT_SIGN) != 0
-        && byte == b'@';
+    let is_underscore =
+        (class_mask & crate::vm::package::token_identifier_class::UNDERSCORE) != 0 && byte == b'_';
+    let is_dollar =
+        (class_mask & crate::vm::package::token_identifier_class::DOLLAR) != 0 && byte == b'$';
+    let is_at =
+        (class_mask & crate::vm::package::token_identifier_class::AT_SIGN) != 0 && byte == b'@';
     let is_dot =
-        (class_mask & crate::opthread::package::token_identifier_class::DOT) != 0 && byte == b'.';
+        (class_mask & crate::vm::package::token_identifier_class::DOT) != 0 && byte == b'.';
     is_alpha || is_digit || is_underscore || is_dollar || is_at || is_dot
 }
 
