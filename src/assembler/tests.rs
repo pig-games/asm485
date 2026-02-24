@@ -1399,6 +1399,16 @@ fn vm_native_diagnostic_parity_for_parser_error_code_severity_span() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
+    );
+    assert_eq!(
         native_diag.severity(),
         runtime_diag.severity(),
         "severity parity mismatch"
@@ -1434,6 +1444,16 @@ fn vm_native_diagnostic_parity_for_instruction_error_code_severity_span() {
         native_diag.code(),
         runtime_diag.code(),
         "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
     );
     assert_eq!(
         native_diag.severity(),
@@ -1490,6 +1510,16 @@ fn vm_native_parity_for_dialect_fixit_payload() {
         native_diag.code(),
         runtime_diag.code(),
         "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
     );
     assert_eq!(
         native_diag.fixits().len(),
@@ -1551,6 +1581,16 @@ fn vm_native_parity_for_parser_error_dialect_fixit_payload() {
     let runtime_diag = runtime.1.expect("runtime diagnostic expected");
 
     assert_eq!(native_diag.code(), runtime_diag.code(), "code parity mismatch");
+    assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
+    );
     assert_eq!(
         native_diag.help().len(),
         runtime_diag.help().len(),
@@ -1675,6 +1715,16 @@ fn vm_native_parity_for_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
+    );
+    assert_eq!(
         native_diag.severity(),
         runtime_diag.severity(),
         "severity parity mismatch"
@@ -1744,6 +1794,16 @@ fn vm_native_parity_for_endmod_directive_typo_fixit_payload() {
         native_diag.code(),
         runtime_diag.code(),
         "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
     );
     assert_eq!(
         native_diag.severity(),
@@ -1817,6 +1877,16 @@ fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
+    );
+    assert_eq!(
         native_diag.severity(),
         runtime_diag.severity(),
         "severity parity mismatch"
@@ -1888,6 +1958,16 @@ fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
+    );
+    assert_eq!(
         native_diag.severity(),
         runtime_diag.severity(),
         "severity parity mismatch"
@@ -1957,6 +2037,16 @@ fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
         native_diag.code(),
         runtime_diag.code(),
         "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.notes(),
+        runtime_diag.notes(),
+        "notes parity mismatch"
+    );
+    assert_eq!(
+        native_diag.related_spans().len(),
+        runtime_diag.related_spans().len(),
+        "related span count parity mismatch"
     );
     assert_eq!(
         native_diag.severity(),
