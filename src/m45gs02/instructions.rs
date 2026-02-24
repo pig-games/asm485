@@ -158,6 +158,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xCC,
     },
     CpuInstructionEntry {
+        mnemonic: "DEW",
+        mode: AddressMode::ZeroPage,
+        opcode: 0xC3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "INW",
+        mode: AddressMode::ZeroPage,
+        opcode: 0xE3,
+    },
+    CpuInstructionEntry {
         mnemonic: "PHW",
         mode: AddressMode::Immediate,
         opcode: 0xF4,

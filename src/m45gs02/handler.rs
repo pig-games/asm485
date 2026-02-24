@@ -719,4 +719,24 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn encodes_dew_and_inw_zero_page_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let dew = Operand::ZeroPage(0x20, Span::default());
+        match handler.encode_instruction("dew", &[dew], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xC3, 0x20]),
+            EncodeResult::NotFound => panic!("dew encoding not found"),
+            EncodeResult::Error(message, _span) => panic!("dew encoding failed: {message}"),
+        }
+
+        let inw = Operand::ZeroPage(0x21, Span::default());
+        match handler.encode_instruction("inw", &[inw], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xE3, 0x21]),
+            EncodeResult::NotFound => panic!("inw encoding not found"),
+            EncodeResult::Error(message, _span) => panic!("inw encoding failed: {message}"),
+        }
+    }
 }
