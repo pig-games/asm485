@@ -1675,6 +1675,26 @@ fn vm_native_parity_for_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
+    assert_eq!(
+        native_diag.col_end(),
+        runtime_diag.col_end(),
+        "column-end parity mismatch"
+    );
+    assert_eq!(
         native_diag.help().len(),
         runtime_diag.help().len(),
         "help count parity mismatch"
@@ -1724,6 +1744,26 @@ fn vm_native_parity_for_endmod_directive_typo_fixit_payload() {
         native_diag.code(),
         runtime_diag.code(),
         "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
+    assert_eq!(
+        native_diag.col_end(),
+        runtime_diag.col_end(),
+        "column-end parity mismatch"
     );
     assert_eq!(
         native_diag.help().len(),
@@ -1777,6 +1817,26 @@ fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
+    assert_eq!(
+        native_diag.col_end(),
+        runtime_diag.col_end(),
+        "column-end parity mismatch"
+    );
+    assert_eq!(
         native_diag.help().len(),
         runtime_diag.help().len(),
         "help count parity mismatch"
@@ -1828,6 +1888,26 @@ fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
         "code parity mismatch"
     );
     assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
+    assert_eq!(
+        native_diag.col_end(),
+        runtime_diag.col_end(),
+        "column-end parity mismatch"
+    );
+    assert_eq!(
         native_diag.help().len(),
         runtime_diag.help().len(),
         "help count parity mismatch"
@@ -1877,6 +1957,26 @@ fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
         native_diag.code(),
         runtime_diag.code(),
         "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.severity(),
+        runtime_diag.severity(),
+        "severity parity mismatch"
+    );
+    assert_eq!(
+        native_diag.line(),
+        runtime_diag.line(),
+        "line parity mismatch"
+    );
+    assert_eq!(
+        native_diag.column(),
+        runtime_diag.column(),
+        "column-start parity mismatch"
+    );
+    assert_eq!(
+        native_diag.col_end(),
+        runtime_diag.col_end(),
+        "column-end parity mismatch"
     );
     assert_eq!(
         native_diag.help().len(),
