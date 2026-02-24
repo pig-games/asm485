@@ -41,7 +41,8 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               38  ; values starting with A-F must have a leading zero.
 ----    EQU 0037                   39  num0    .const     55              ; Decimal constant
 ----                               40  num1    .const     55D             ; Decimal constant with optional suffix
-   40 | num1    .const     [31m5[0m5D             ; Decimal constant with optional suffix
+   40 | num1    .const     55D             ; Decimal constant with optional suffix
+                   ^
 ERROR: ope005: invalid number: 55D
 ----    EQU 00A6                   41  num3    .const     0a6h            ; Hex with leading zero
 ----    EQU 1AB4                   42  num4    .const     1AB4H           ; Hex without leading zero
@@ -187,7 +188,8 @@ ERROR: ope005: invalid number: 55D
 ----                              182  ; added to support some code that was developed with a different assembler.
 21B3    00 01                     183  SP     .word      256             ; define a word at location named SP
 21B5    21                        184          LXI     H,SP            ; laod address of "SP" word into HL pair
-  184 |         LXI     H,[31mS[0mP            ; laod address of "SP" word into HL pair
+  184 |         LXI     H,SP            ; laod address of "SP" word into HL pair
+                  ^
 ERROR: expected 16-bit immediate, got register SP
 21B6    21 B3 21                  185          LXI     H,SP+0
 21B9    21 B3 21                  186          LXI     H,0+SP

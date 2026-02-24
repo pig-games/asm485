@@ -86,6 +86,7 @@ impl<W: Write> ListingWriter<W> {
             String::new()
         };
         let normalized_source = normalize_leading_label_colon(line.source);
+        let normalized_source = strip_ansi_sgr(&normalized_source);
         let source = if let Some(tab_size) = self.tab_size {
             expand_tabs(&normalized_source, tab_size)
         } else {
@@ -112,9 +113,9 @@ impl<W: Write> ListingWriter<W> {
         source_lines: &[String],
         _parser_error: Option<&crate::core::parser::ParseError>,
     ) -> std::io::Result<()> {
-        let context = build_context_lines(line_num, column, Some(source_lines), None, true);
+        let context = build_context_lines(line_num, column, Some(source_lines), None, false);
         for line in context {
-            writeln!(self.out, "{line}")?;
+            writeln!(self.out, "{}", strip_ansi_sgr(&line))?;
         }
         writeln!(self.out, "{kind}: {msg}")
     }
@@ -269,6 +270,26 @@ fn expand_tabs(source: &str, tab_size: usize) -> String {
     expanded
 }
 
+fn strip_ansi_sgr(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && matches!(chars.peek(), Some('[')) {
+            chars.next();
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+
+    out
+}
+
 /// Format bytes as hex string for listing.
 pub fn format_bytes(bytes: &[u8]) -> String {
     bytes
@@ -394,5 +415,71 @@ mod tests {
         let text = String::from_utf8(out).expect("utf8");
         assert!(text.contains("label nop"));
         assert!(!text.contains("label:nop"));
+    }
+
+    #[test]
+    fn listing_diagnostic_output_does_not_include_ansi_sequences() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        let source_lines =
+            vec![".statement move.b char:dst\u{1b}[31m,\u{1b}[0m char:src".to_string()];
+        writer
+            .write_diagnostic(
+                "ERROR",
+                "Commas must be quoted in statement signatures",
+                1,
+                Some(27),
+                &source_lines,
+                None,
+            )
+            .expect("write diagnostic");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(!text.contains("\u{1b}[31m"));
+        assert!(!text.contains("\u{1b}[0m"));
+        assert!(text.contains("ERROR: Commas must be quoted in statement signatures"));
+    }
+
+    #[test]
+    fn listing_source_line_strips_ansi_sequences() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::Ok,
+                aux: 0,
+                line_num: 1,
+                source: "label:\u{1b}[31mnop\u{1b}[0m",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(!text.contains("\u{1b}[31m"));
+        assert!(!text.contains("\u{1b}[0m"));
+        assert!(text.contains("label nop"));
+    }
+
+    #[test]
+    fn listing_source_line_keeps_utf8_characters_while_stripping_ansi() {
+        let mut out = Vec::new();
+        let mut writer = ListingWriter::new(&mut out, false);
+        writer
+            .write_line(ListingLine {
+                addr: 0,
+                bytes: &[],
+                status: LineStatus::Ok,
+                aux: 0,
+                line_num: 1,
+                source: "; LD — INDEX\u{1b}[31m REGISTER\u{1b}[0m",
+                section: None,
+                cond: None,
+            })
+            .expect("write listing line");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("LD — INDEX REGISTER"));
+        assert!(!text.contains("\u{1b}[31m"));
+        assert!(!text.contains("\u{1b}[0m"));
     }
 }
