@@ -703,6 +703,66 @@ mod tests {
     }
 
     #[test]
+    fn encodes_additional_immediate_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let and_imm = Operand::Immediate(0x11, Span::default());
+        match handler.encode_instruction("and", &[and_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x19, 0x11]),
+            EncodeResult::NotFound => panic!("and immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("and immediate encoding failed: {message}")
+            }
+        }
+
+        let eor_imm = Operand::Immediate(0x22, Span::default());
+        match handler.encode_instruction("eor", &[eor_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x39, 0x22]),
+            EncodeResult::NotFound => panic!("eor immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("eor immediate encoding failed: {message}")
+            }
+        }
+
+        let adc_imm = Operand::Immediate(0x33, Span::default());
+        match handler.encode_instruction("adc", &[adc_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x59, 0x33]),
+            EncodeResult::NotFound => panic!("adc immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("adc immediate encoding failed: {message}")
+            }
+        }
+
+        let lda_imm = Operand::Immediate(0x44, Span::default());
+        match handler.encode_instruction("lda", &[lda_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x99, 0x44]),
+            EncodeResult::NotFound => panic!("lda immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("lda immediate encoding failed: {message}")
+            }
+        }
+
+        let bit_imm = Operand::Immediate(0x55, Span::default());
+        match handler.encode_instruction("bit", &[bit_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x79, 0x55]),
+            EncodeResult::NotFound => panic!("bit immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("bit immediate encoding failed: {message}")
+            }
+        }
+
+        let cmp_imm = Operand::Immediate(0x66, Span::default());
+        match handler.encode_instruction("cmp", &[cmp_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xB9, 0x66]),
+            EncodeResult::NotFound => panic!("cmp immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("cmp immediate encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

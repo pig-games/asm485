@@ -13,7 +13,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               10          ; explicit prefix bytes before regular opcode
 0901    42                         11          neg
 0902    42                         12          neg
-0903    69 02                      13          adc #$02
+0903    59 02                      13          adc #$02
 ----                               14  
 ----                               15          ; explicit + implicit flat-memory prefix sequence
 0905    EA                         16          nop
@@ -40,5 +40,5 @@ GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-0900    5C 42 42 69 02 EA EA B1 22 42 42 EA B1 23 42 42
+0900    5C 42 42 59 02 EA EA B1 22 42 42 EA B1 23 42 42
 0910    EA 91 24 EA 60
