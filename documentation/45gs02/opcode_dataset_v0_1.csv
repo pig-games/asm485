@@ -24,6 +24,16 @@ STY,absolute_x,7B,2,none,45GS02 absolute,X STY opcode variant,mega65-book-2.txt:
 STY,absolute,7C,2,none,45GS02 absolute STY opcode variant,mega65-book-2.txt:25012-25810
 STX,absolute,7E,2,none,45GS02 absolute STX opcode variant,mega65-book-2.txt:25012-25810
 STX,absolute_y,8B,2,none,45GS02 absolute,Y STX opcode variant,mega65-book-2.txt:25012-25810
+DEY,imp,78,0,none,45GS02 implied DEY opcode variant,mega65-book-2.txt:25012-25810
+TXA,imp,7A,0,none,45GS02 implied TXA opcode variant,mega65-book-2.txt:25012-25810
+TYA,imp,88,0,none,45GS02 implied TYA opcode variant,mega65-book-2.txt:25012-25810
+TXS,imp,8A,0,none,45GS02 implied TXS opcode variant,mega65-book-2.txt:25012-25810
+TAY,imp,98,0,none,45GS02 implied TAY opcode variant,mega65-book-2.txt:25012-25810
+TAX,imp,9A,0,none,45GS02 implied TAX opcode variant,mega65-book-2.txt:25012-25810
+TSX,imp,AA,0,none,45GS02 implied TSX opcode variant,mega65-book-2.txt:25012-25810
+INY,imp,B8,0,none,45GS02 implied INY opcode variant,mega65-book-2.txt:25012-25810
+DEX,imp,BA,0,none,45GS02 implied DEX opcode variant,mega65-book-2.txt:25012-25810
+INX,imp,D8,0,none,45GS02 implied INX opcode variant,mega65-book-2.txt:25012-25810
 STA,absolute_x,8D,2,none,45GS02 absolute,X STA opcode variant,mega65-book-2.txt:25012-25810
 LDA,absolute_x,AD,2,none,45GS02 absolute,X LDA opcode variant,mega65-book-2.txt:25012-25810
 CMP,absolute_x,CD,2,none,45GS02 absolute,X CMP opcode variant,mega65-book-2.txt:25012-25810
