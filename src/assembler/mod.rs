@@ -45,6 +45,7 @@ use crate::core::parser as asm_parser;
 use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{ModuleRegistry, RegistryError};
+use crate::core::source_map::SourceMap;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::token_value::TokenValue;
@@ -275,6 +276,7 @@ fn run_one(
         &config.module_paths,
         config.pp_macro_depth,
     )?;
+    let source_map = graph.source_map;
     let expanded_lines = Arc::new(graph.lines);
     let mut dependency_files: HashSet<PathBuf> = root_dependency_files.into_iter().collect();
     for path in graph.dependency_files {
@@ -302,6 +304,10 @@ fn run_one(
     }
     assembler.root_metadata.root_module_id = Some(root_module_id);
     assembler.module_macro_names = graph.module_macro_names;
+    let remap_diags = |mut diagnostics: Vec<Diagnostic>| {
+        remap_diagnostics_with_source_map(&mut diagnostics, &source_map);
+        diagnostics
+    };
     assembler.clear_diagnostics();
     let pass1 = assembler.pass1(&expanded_lines);
     if pass1.errors > 0 {
@@ -311,7 +317,7 @@ fn run_one(
                 "Errors detected in source. No hex file created.",
                 None,
             ),
-            assembler.take_diagnostics(),
+            remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         ));
     }
@@ -420,7 +426,7 @@ fn run_one(
         Err(err) => {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
-                assembler.take_diagnostics(),
+                remap_diags(assembler.take_diagnostics()),
                 expanded_lines.clone(),
             ))
         }
@@ -428,7 +434,7 @@ fn run_one(
     let generated_output = assembler.image().entries().map_err(|err| {
         AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
-            assembler.take_diagnostics(),
+            remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         )
     })?;
@@ -440,7 +446,7 @@ fn run_one(
     ) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
-            assembler.take_diagnostics(),
+            remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         ));
     }
@@ -453,7 +459,7 @@ fn run_one(
                     "Error opening file for write",
                     Some(hex_path),
                 ),
-                assembler.take_diagnostics(),
+                remap_diags(assembler.take_diagnostics()),
                 expanded_lines.clone(),
             )
         })?;
@@ -463,7 +469,7 @@ fn run_one(
         {
             return Err(AsmRunError::new(
                 AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
-                assembler.take_diagnostics(),
+                remap_diags(assembler.take_diagnostics()),
                 expanded_lines.clone(),
             ));
         }
@@ -501,7 +507,7 @@ fn run_one(
                     auto_range = Some(assembler.image().output_range().map_err(|err| {
                         AsmRunError::new(
                             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
-                            assembler.take_diagnostics(),
+                            remap_diags(assembler.take_diagnostics()),
                             expanded_lines.clone(),
                         )
                     })?);
@@ -537,7 +543,7 @@ fn run_one(
                         "Error opening file for write",
                         Some(&bin_name),
                     ),
-                    assembler.take_diagnostics(),
+                    remap_diags(assembler.take_diagnostics()),
                     expanded_lines.clone(),
                 ))
             }
@@ -551,7 +557,7 @@ fn run_one(
             ) {
                 return Err(AsmRunError::new(
                     AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
-                    assembler.take_diagnostics(),
+                    remap_diags(assembler.take_diagnostics()),
                     expanded_lines.clone(),
                 ));
             }
@@ -565,7 +571,7 @@ fn run_one(
     ) {
         return Err(AsmRunError::new(
             err,
-            assembler.take_diagnostics(),
+            remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         ));
     }
@@ -576,7 +582,7 @@ fn run_one(
     ) {
         return Err(AsmRunError::new(
             err,
-            assembler.take_diagnostics(),
+            remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         ));
     }
@@ -589,7 +595,7 @@ fn run_one(
     ) {
         return Err(AsmRunError::new(
             err,
-            assembler.take_diagnostics(),
+            remap_diags(assembler.take_diagnostics()),
             expanded_lines.clone(),
         ));
     }
@@ -615,7 +621,7 @@ fn run_one(
     }
 
     Ok(AsmRunReport::new(
-        assembler.take_diagnostics(),
+        remap_diags(assembler.take_diagnostics()),
         expanded_lines,
     ))
 }
@@ -634,6 +640,34 @@ fn format_addr(addr: u32) -> String {
         format!("{addr:06X}")
     } else {
         format!("{addr:08X}")
+    }
+}
+
+fn remap_diagnostics_with_source_map(diagnostics: &mut [Diagnostic], source_map: &SourceMap) {
+    for diagnostic in diagnostics {
+        remap_primary_diagnostic_span(diagnostic, source_map);
+        for span in &mut diagnostic.related_spans {
+            remap_span_line_file(&mut span.file, &mut span.line, source_map);
+        }
+        for fixit in &mut diagnostic.fixits {
+            remap_span_line_file(&mut fixit.file, &mut fixit.line, source_map);
+        }
+    }
+}
+
+fn remap_primary_diagnostic_span(diagnostic: &mut Diagnostic, source_map: &SourceMap) {
+    remap_span_line_file(&mut diagnostic.file, &mut diagnostic.line, source_map);
+}
+
+fn remap_span_line_file(file: &mut Option<String>, line: &mut u32, source_map: &SourceMap) {
+    if file.is_some() || *line == 0 {
+        return;
+    }
+    if let Some(origin) = source_map.origin_for_line(*line) {
+        if let Some(origin_file) = &origin.file {
+            *file = Some(origin_file.clone());
+        }
+        *line = origin.line;
     }
 }
 

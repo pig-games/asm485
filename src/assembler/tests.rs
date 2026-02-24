@@ -660,6 +660,130 @@ fn module_loader_resolves_dependency_from_external_module_path() {
 }
 
 #[test]
+fn module_graph_source_map_tracks_dependency_and_root_origins() {
+    let dir = create_temp_dir("module-source-map");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+
+    write_file(
+        &root_path,
+        ".module app\n    .use lib\n    .byte 1\n.endmodule\n",
+    );
+    write_file(&lib_path, ".module lib\nVALUE .const 2\n.endmodule\n");
+
+    let root_lines = expand_source_file(&root_path, &[], &[], 32).expect("expand root");
+    let graph =
+        load_module_graph(&root_path, root_lines, &[], &[], &[], 32).expect("load module graph");
+
+    assert_eq!(
+        graph.lines.len(),
+        graph.source_map.origins().len(),
+        "source map should have one origin per expanded line"
+    );
+
+    let lib_idx = graph
+        .lines
+        .iter()
+        .position(|line| line.trim().eq_ignore_ascii_case(".module lib"))
+        .expect("lib module in combined output");
+    let app_idx = graph
+        .lines
+        .iter()
+        .position(|line| line.trim().eq_ignore_ascii_case(".module app"))
+        .expect("app module in combined output");
+
+    let lib_origin = &graph.source_map.origins()[lib_idx];
+    let app_origin = &graph.source_map.origins()[app_idx];
+    assert_eq!(
+        lib_origin.file.as_deref(),
+        Some(lib_path.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        app_origin.file.as_deref(),
+        Some(root_path.to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn run_with_cli_attributes_dependency_diagnostics_to_dependency_file() {
+    let dir = create_temp_dir("module-diagnostic-origin");
+    let root_path = dir.join("main.asm");
+    let lib_path = dir.join("lib.asm");
+    let list_path = dir.join("out.lst");
+    let hex_path = dir.join("out.hex");
+
+    write_file(&root_path, ".module app\n    .use lib\n.endmodule\n");
+    write_file(&lib_path, ".module lib\n    BADOP\n.endmodule\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        root_path.to_string_lossy().as_ref(),
+        "-l",
+        list_path.to_string_lossy().as_ref(),
+        "-x",
+        hex_path.to_string_lossy().as_ref(),
+    ]);
+
+    let err = match run_with_cli(&cli) {
+        Ok(_) => panic!("assembly should fail for unknown mnemonic"),
+        Err(err) => err,
+    };
+    assert!(
+        err.diagnostics().iter().any(|diag| {
+            diag.file()
+                .map(|file| file.ends_with("lib.asm"))
+                .unwrap_or(false)
+        }),
+        "expected at least one diagnostic attributed to lib.asm, got: {:?}",
+        err.diagnostics()
+            .iter()
+            .map(|diag| (diag.file(), diag.line(), diag.message()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn run_with_cli_attributes_macro_expansion_diagnostic_to_root_file() {
+    let dir = create_temp_dir("macro-diagnostic-origin");
+    let root_path = dir.join("main.asm");
+    let list_path = dir.join("out.lst");
+    let hex_path = dir.join("out.hex");
+
+    write_file(
+        &root_path,
+        "bad .macro\n    BADOP\n.endmacro\n\n.module app\n    bad\n.endmodule\n",
+    );
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        root_path.to_string_lossy().as_ref(),
+        "-l",
+        list_path.to_string_lossy().as_ref(),
+        "-x",
+        hex_path.to_string_lossy().as_ref(),
+    ]);
+
+    let err = match run_with_cli(&cli) {
+        Ok(_) => panic!("assembly should fail for bad macro expansion"),
+        Err(err) => err,
+    };
+    assert!(
+        err.diagnostics().iter().any(|diag| {
+            diag.file()
+                .map(|file| file.ends_with("main.asm"))
+                .unwrap_or(false)
+        }),
+        "expected at least one diagnostic attributed to main.asm, got: {:?}",
+        err.diagnostics()
+            .iter()
+            .map(|diag| (diag.file(), diag.line(), diag.message()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn module_loader_ambiguity_reports_candidate_paths_and_roots() {
     let dir = create_temp_dir("module-path-ambiguous");
     let root_path = dir.join("main.asm");

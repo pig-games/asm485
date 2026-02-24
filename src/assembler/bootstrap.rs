@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Erik van der Tier
 
 use crate::core::macro_processor::{CompileTimeVisibility, MacroExports};
+use crate::core::source_map::{SourceMap, SourceOrigin};
 
 use super::*;
 
@@ -21,7 +22,7 @@ struct ModuleLoadContext<'a> {
     index: &'a ModuleIndex,
     loaded: &'a mut HashSet<String>,
     preloaded: &'a HashSet<String>,
-    order: &'a mut Vec<(String, Vec<String>)>,
+    order: &'a mut Vec<(String, PathBuf, Vec<String>)>,
     stack: &'a mut Vec<String>,
     defines: &'a [String],
     include_roots: &'a [PathBuf],
@@ -662,7 +663,8 @@ fn load_module_recursive(
     }
 
     ctx.loaded.insert(canonical);
-    ctx.order.push((module_id.to_string(), module_lines));
+    ctx.order
+        .push((module_id.to_string(), info.path.clone(), module_lines));
     ctx.stack.pop();
     Ok(())
 }
@@ -670,6 +672,7 @@ fn load_module_recursive(
 #[derive(Debug)]
 pub(crate) struct ModuleGraphResult {
     pub(crate) lines: Vec<String>,
+    pub(crate) source_map: SourceMap,
     pub(crate) dependency_files: Vec<PathBuf>,
     /// Compile-time symbol visibility map (canonical module ID → name → visibility).
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
@@ -710,7 +713,7 @@ pub(crate) fn load_module_graph(
     }
 
     let mut loaded = HashSet::new();
-    let mut order = Vec::new();
+    let mut order: Vec<(String, PathBuf, Vec<String>)> = Vec::new();
     let mut stack = Vec::new();
     let mut dependency_files = HashSet::new();
     let mut ctx = ModuleLoadContext {
@@ -732,9 +735,9 @@ pub(crate) fn load_module_graph(
     // `order` is dependency-first, so by the time we process a module,
     // all of its dependencies' exports are already collected.
     let mut module_exports: HashMap<String, MacroExports> = HashMap::new();
-    let mut expanded_deps: Vec<Vec<String>> = Vec::new();
+    let mut expanded_deps: Vec<(PathBuf, Vec<String>)> = Vec::new();
 
-    for (module_id, module_lines) in &order {
+    for (module_id, module_path, module_lines) in &order {
         let canonical = canonical_module_id(module_id);
         let use_directives = collect_use_directives_with_items(module_lines);
 
@@ -757,7 +760,7 @@ pub(crate) fn load_module_graph(
 
         let expanded = expand_with_processor(&mut mp, module_lines)?;
         module_exports.insert(canonical, mp.take_native_exports());
-        expanded_deps.push(expanded);
+        expanded_deps.push((module_path.clone(), expanded));
     }
 
     // Phase 2: expand root with only its explicitly imported macros.
@@ -782,10 +785,19 @@ pub(crate) fn load_module_graph(
     let expanded_root = expand_with_processor(&mut mp, &root_lines)?;
 
     let mut combined = Vec::new();
-    for dep_lines in expanded_deps {
-        combined.extend(dep_lines);
+    let mut origins = Vec::new();
+    for (module_path, dep_lines) in expanded_deps {
+        let file_name = module_path.to_string_lossy().to_string();
+        for (idx, line) in dep_lines.iter().enumerate() {
+            combined.push(line.clone());
+            origins.push(SourceOrigin::new(Some(file_name.clone()), idx as u32 + 1));
+        }
     }
-    combined.extend(expanded_root);
+    let root_file = root_path.to_string_lossy().to_string();
+    for (idx, line) in expanded_root.iter().enumerate() {
+        combined.push(line.clone());
+        origins.push(SourceOrigin::new(Some(root_file.clone()), idx as u32 + 1));
+    }
 
     let module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>> = module_exports
         .into_iter()
@@ -807,6 +819,7 @@ pub(crate) fn load_module_graph(
 
     Ok(ModuleGraphResult {
         lines: combined,
+        source_map: SourceMap::new(origins),
         dependency_files: {
             let mut files: Vec<PathBuf> = dependency_files.into_iter().collect();
             files.sort();

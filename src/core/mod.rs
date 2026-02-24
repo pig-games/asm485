@@ -32,6 +32,7 @@ pub mod parser_reporter;
 pub mod preprocess;
 pub mod registry;
 pub mod report;
+pub mod source_map;
 pub mod symbol_table;
 pub mod text_encoding;
 pub mod text_utils;
