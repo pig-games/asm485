@@ -297,6 +297,8 @@ impl CpuHandler for M65C02CpuHandler {
                 }
                 FamilyOperand::IndirectLong(_)
                 | FamilyOperand::IndirectLongY(_)
+                | FamilyOperand::IndirectIndexedZ(_)
+                | FamilyOperand::IndirectLongZ(_)
                 | FamilyOperand::StackRelative(_)
                 | FamilyOperand::StackRelativeIndirectIndexedY(_)
                 | FamilyOperand::Forced { .. }

@@ -1089,9 +1089,11 @@ fn selector_shape_key(mode: AddressMode) -> Option<&'static str> {
             Some("indexed_indirect_x")
         }
         AddressMode::IndirectIndexedY => Some("indirect_indexed_y"),
+        AddressMode::IndirectIndexedZ => Some("indirect_indexed_z"),
         AddressMode::Indirect | AddressMode::ZeroPageIndirect => Some("indirect"),
         AddressMode::IndirectLong | AddressMode::DirectPageIndirectLong => Some("indirect_long"),
         AddressMode::DirectPageIndirectLongY => Some("indirect_long_y"),
+        AddressMode::DirectPageIndirectLongZ => Some("indirect_long_z"),
         AddressMode::StackRelative => Some("stack_relative"),
         AddressMode::StackRelativeIndirectIndexedY => Some("stack_relative_indirect_y"),
         AddressMode::AbsoluteLong => Some("absolute_long"),
@@ -1138,9 +1140,11 @@ fn selector_priority(mode: AddressMode) -> u16 {
         | AddressMode::ZeroPageY
         | AddressMode::IndexedIndirectX
         | AddressMode::IndirectIndexedY
+        | AddressMode::IndirectIndexedZ
         | AddressMode::ZeroPageIndirect
         | AddressMode::DirectPageIndirectLong
         | AddressMode::DirectPageIndirectLongY
+        | AddressMode::DirectPageIndirectLongZ
         | AddressMode::StackRelative
         | AddressMode::StackRelativeIndirectIndexedY => 10,
         AddressMode::Absolute
@@ -1162,9 +1166,11 @@ fn selector_width_rank(mode: AddressMode) -> u8 {
         | AddressMode::ZeroPageY
         | AddressMode::IndexedIndirectX
         | AddressMode::IndirectIndexedY
+        | AddressMode::IndirectIndexedZ
         | AddressMode::ZeroPageIndirect
         | AddressMode::DirectPageIndirectLong
         | AddressMode::DirectPageIndirectLongY
+        | AddressMode::DirectPageIndirectLongZ
         | AddressMode::StackRelative
         | AddressMode::StackRelativeIndirectIndexedY => 1,
         AddressMode::Absolute

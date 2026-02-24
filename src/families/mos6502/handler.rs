@@ -189,6 +189,15 @@ impl FamilyHandler for MOS6502FamilyHandler {
                     }
                     return Ok(vec![FamilyOperand::DirectY(exprs[0].clone())]);
                 }
+                if index == "Z" {
+                    if let Expr::Indirect(inner, _) = &exprs[0] {
+                        return Ok(vec![FamilyOperand::IndirectIndexedZ((**inner).clone())]);
+                    }
+                    if let Expr::IndirectLong(inner, _) = &exprs[0] {
+                        return Ok(vec![FamilyOperand::IndirectLongZ((**inner).clone())]);
+                    }
+                    return Ok(vec![FamilyOperand::Direct(exprs[0].clone())]);
+                }
                 if index == "S" {
                     return Ok(vec![FamilyOperand::StackRelative(exprs[0].clone())]);
                 }

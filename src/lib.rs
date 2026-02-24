@@ -17,6 +17,7 @@ pub mod assembler;
 pub mod core;
 pub mod families;
 pub mod i8085;
+pub mod m45gs02;
 pub mod m65816;
 pub mod m65c02;
 pub mod vm;

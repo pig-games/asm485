@@ -64,6 +64,7 @@ use crate::families::intel8080::{
 };
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
+use crate::m45gs02::module::M45GS02CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::vm::builder::build_hierarchy_package_from_registry;

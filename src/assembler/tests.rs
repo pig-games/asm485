@@ -18,6 +18,7 @@ use crate::families::mos6502::module::{
 };
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
+use crate::m45gs02::module::M45GS02CpuModule;
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
@@ -57,6 +58,7 @@ fn default_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
+    registry.register_cpu(Box::new(M45GS02CpuModule));
     registry
 }
 
@@ -10128,6 +10130,7 @@ fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
         AddressMode::Indirect => Some("($1234)"),
         AddressMode::IndexedIndirectX => Some("($10,X)"),
         AddressMode::IndirectIndexedY => Some("($10),Y"),
+        AddressMode::IndirectIndexedZ => Some("($10),Z"),
         AddressMode::Relative => Some("$0004"),
         AddressMode::RelativeLong => Some("$0004"),
         AddressMode::ZeroPageIndirect => Some("($10)"),
@@ -10138,6 +10141,7 @@ fn mos6502_operand_for_mode(mode: AddressMode) -> Option<&'static str> {
         AddressMode::AbsoluteLongX => Some("$001234,X"),
         AddressMode::IndirectLong => Some("[$1234]"),
         AddressMode::DirectPageIndirectLongY => Some("[$10],Y"),
+        AddressMode::DirectPageIndirectLongZ => Some("[$10],Z"),
         AddressMode::DirectPageIndirectLong => Some("[$10]"),
         AddressMode::BlockMove => Some("$01,$02"),
     }
