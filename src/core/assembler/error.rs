@@ -81,6 +81,8 @@ pub enum Severity {
 pub struct Diagnostic {
     pub(crate) line: u32,
     pub(crate) column: Option<usize>,
+    pub(crate) col_end: Option<usize>,
+    pub(crate) code: String,
     pub(crate) severity: Severity,
     pub(crate) error: AsmError,
     pub(crate) file: Option<String>,
@@ -93,6 +95,8 @@ impl Diagnostic {
         Self {
             line,
             column: None,
+            col_end: None,
+            code: default_diagnostic_code(error.kind()).to_string(),
             severity,
             error,
             file: None,
@@ -103,6 +107,16 @@ impl Diagnostic {
 
     pub fn with_column(mut self, column: Option<usize>) -> Self {
         self.column = column;
+        self
+    }
+
+    pub fn with_col_end(mut self, col_end: Option<usize>) -> Self {
+        self.col_end = col_end;
+        self
+    }
+
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = code.into();
         self
     }
 
@@ -126,7 +140,13 @@ impl Diagnostic {
             Severity::Warning => "WARNING",
             Severity::Error => "ERROR",
         };
-        format!("{}: {} - {}", self.line, sev, self.error.message())
+        format!(
+            "{}: {} [{}] - {}",
+            self.line,
+            sev,
+            self.code,
+            self.error.message()
+        )
     }
 
     pub fn format_with_context(&self, lines: Option<&[String]>, use_color: bool) -> String {
@@ -138,8 +158,8 @@ impl Diagnostic {
             Severity::Error => "ERROR",
         };
         let header = match &self.file {
-            Some(file) => format!("{file}:{}: {sev}", self.line),
-            None => format!("{}: {sev}", self.line),
+            Some(file) => format!("{file}:{}: {sev} [{}]", self.line, self.code),
+            None => format!("{}: {sev} [{}]", self.line, self.code),
         };
 
         let mut out = String::new();
@@ -163,6 +183,30 @@ impl Diagnostic {
 
     pub fn severity(&self) -> Severity {
         self.severity
+    }
+
+    pub fn code(&self) -> &str {
+        self.code.as_str()
+    }
+
+    pub fn line(&self) -> u32 {
+        self.line
+    }
+
+    pub fn column(&self) -> Option<usize> {
+        self.column
+    }
+
+    pub fn col_end(&self) -> Option<usize> {
+        self.col_end
+    }
+
+    pub fn file(&self) -> Option<&str> {
+        self.file.as_deref()
+    }
+
+    pub fn message(&self) -> &str {
+        self.error.message()
     }
 }
 
@@ -296,6 +340,21 @@ fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> String 
     crate::report::highlight_line(line, column, use_color)
 }
 
+fn default_diagnostic_code(kind: AsmErrorKind) -> &'static str {
+    match kind {
+        AsmErrorKind::Assembler => "asm001",
+        AsmErrorKind::Cli => "asm101",
+        AsmErrorKind::Conditional => "asm201",
+        AsmErrorKind::Directive => "asm202",
+        AsmErrorKind::Expression => "asm401",
+        AsmErrorKind::Instruction => "asm402",
+        AsmErrorKind::Io => "asm501",
+        AsmErrorKind::Parser => "otp004",
+        AsmErrorKind::Preprocess => "asm102",
+        AsmErrorKind::Symbol => "asm301",
+    }
+}
+
 /// Format an error message with an optional parameter.
 pub fn format_error(msg: &str, param: Option<&str>) -> String {
     match param {
@@ -312,6 +371,6 @@ mod tests {
     fn diagnostic_format_includes_line_and_severity() {
         let err = AsmError::new(AsmErrorKind::Assembler, "Bad thing", None);
         let diag = Diagnostic::new(12, Severity::Error, err);
-        assert_eq!(diag.format(), "12: ERROR - Bad thing");
+        assert_eq!(diag.format(), "12: ERROR [asm001] - Bad thing");
     }
 }

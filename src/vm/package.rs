@@ -77,6 +77,15 @@ pub const DIAG_PARSER_UNEXPECTED_TOKEN: &str = "otp001";
 pub const DIAG_PARSER_EXPECTED_EXPRESSION: &str = "otp002";
 pub const DIAG_PARSER_EXPECTED_OPERAND: &str = "otp003";
 pub const DIAG_PARSER_INVALID_STATEMENT: &str = "otp004";
+pub const DIAG_ASM_GENERIC_ERRORS_DETECTED: &str = "asm001";
+pub const DIAG_ASM_PREPROCESS_ERROR: &str = "asm102";
+pub const DIAG_ASM_CLI_ERROR: &str = "asm101";
+pub const DIAG_ASM_CONDITIONAL_STRUCTURE: &str = "asm201";
+pub const DIAG_ASM_DIRECTIVE_STRUCTURE: &str = "asm202";
+pub const DIAG_ASM_SYMBOL_ERROR: &str = "asm301";
+pub const DIAG_ASM_EXPRESSION_ERROR: &str = "asm401";
+pub const DIAG_ASM_INSTRUCTION_ERROR: &str = "asm402";
+pub const DIAG_ASM_IO_ERROR: &str = "asm501";
 
 /// VM opcode-version compatibility matrix for package-scoped contracts/programs.
 ///

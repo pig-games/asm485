@@ -589,6 +589,21 @@ fn ultimate64_abi_default_diag_catalog_covers_parser_and_tokenizer_codes() {
     assert!(codes
         .iter()
         .any(|code| code == DIAG_PARSER_INVALID_STATEMENT));
+    assert!(codes
+        .iter()
+        .any(|code| code == DIAG_ASM_GENERIC_ERRORS_DETECTED));
+    assert!(codes.iter().any(|code| code == DIAG_ASM_CLI_ERROR));
+    assert!(codes.iter().any(|code| code == DIAG_ASM_PREPROCESS_ERROR));
+    assert!(codes
+        .iter()
+        .any(|code| code == DIAG_ASM_CONDITIONAL_STRUCTURE));
+    assert!(codes
+        .iter()
+        .any(|code| code == DIAG_ASM_DIRECTIVE_STRUCTURE));
+    assert!(codes.iter().any(|code| code == DIAG_ASM_SYMBOL_ERROR));
+    assert!(codes.iter().any(|code| code == DIAG_ASM_EXPRESSION_ERROR));
+    assert!(codes.iter().any(|code| code == DIAG_ASM_INSTRUCTION_ERROR));
+    assert!(codes.iter().any(|code| code == DIAG_ASM_IO_ERROR));
     assert!(codes.iter().any(|code| code == DIAG_EXPR_INVALID_OPCODE));
     assert!(codes.iter().any(|code| code == DIAG_EXPR_STACK_UNDERFLOW));
     assert!(codes

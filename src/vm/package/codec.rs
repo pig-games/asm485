@@ -186,6 +186,42 @@ pub(super) fn default_runtime_diagnostic_catalog() -> Vec<DiagnosticDescriptor> 
             message_template: "invalid statement".to_string(),
         },
         DiagnosticDescriptor {
+            code: DIAG_ASM_GENERIC_ERRORS_DETECTED.to_string(),
+            message_template: "errors detected in source; output not created".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_CLI_ERROR.to_string(),
+            message_template: "invalid command-line usage".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_PREPROCESS_ERROR.to_string(),
+            message_template: "preprocessor or macro expansion failure".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_CONDITIONAL_STRUCTURE.to_string(),
+            message_template: "conditional structure error".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_DIRECTIVE_STRUCTURE.to_string(),
+            message_template: "directive structure error".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_SYMBOL_ERROR.to_string(),
+            message_template: "symbol resolution error".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_EXPRESSION_ERROR.to_string(),
+            message_template: "expression evaluation error".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_INSTRUCTION_ERROR.to_string(),
+            message_template: "instruction encoding error".to_string(),
+        },
+        DiagnosticDescriptor {
+            code: DIAG_ASM_IO_ERROR.to_string(),
+            message_template: "input/output error".to_string(),
+        },
+        DiagnosticDescriptor {
             code: DIAG_EXPR_INVALID_OPCODE.to_string(),
             message_template: "invalid expression VM opcode".to_string(),
         },
