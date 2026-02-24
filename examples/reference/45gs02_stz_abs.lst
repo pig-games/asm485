@@ -1,0 +1,28 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 STZ absolute forms
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 1200                    4          .org $1200
+----                                5  
+----                                6  start
+1200    8C 00 20                    7          stz $2000
+1203    8E 02 20                    8          stz $2002,x
+1206    60                          9          rts
+----                               10  
+----                               11          .end
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1200 (4608)
+
+Total memory is 7 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1200    8C 00 20 8E 02 20 60

@@ -58,6 +58,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0x73,
     },
     CpuInstructionEntry {
+        mnemonic: "STZ",
+        mode: AddressMode::Absolute,
+        opcode: 0x8C,
+    },
+    CpuInstructionEntry {
+        mnemonic: "STZ",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0x8E,
+    },
+    CpuInstructionEntry {
         mnemonic: "STA",
         mode: AddressMode::StackRelativeIndirectIndexedY,
         opcode: 0x82,
