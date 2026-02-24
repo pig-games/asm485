@@ -13,6 +13,56 @@ pub struct CpuInstructionEntry {
 
 pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     CpuInstructionEntry {
+        mnemonic: "BPL",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x13,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BMI",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x33,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BVC",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x53,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BSR",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x63,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BVS",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x73,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BRA",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x83,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BCC",
+        mode: AddressMode::RelativeLong,
+        opcode: 0x93,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BCS",
+        mode: AddressMode::RelativeLong,
+        opcode: 0xB3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BNE",
+        mode: AddressMode::RelativeLong,
+        opcode: 0xD3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BEQ",
+        mode: AddressMode::RelativeLong,
+        opcode: 0xF3,
+    },
+    CpuInstructionEntry {
         mnemonic: "MAP",
         mode: AddressMode::Implied,
         opcode: 0x5C,
