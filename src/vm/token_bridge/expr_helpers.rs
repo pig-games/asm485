@@ -2,7 +2,11 @@ use crate::core::expr_vm::{PortableExprProgram, PortableExprRef};
 use crate::core::parser::{Expr, ParseError};
 use crate::core::tokenizer::{Span, Token, TokenKind};
 
-use super::{VmExprParseContext, HOST_PARSER_UNEXPECTED_END_OF_EXPRESSION};
+use super::{
+    runtime_bridge_error_to_parse_error, VmExprParseContext,
+    HOST_PARSER_UNEXPECTED_END_OF_EXPRESSION,
+};
+use crate::vm::runtime::{RuntimeBridgeDiagnostic, RuntimeBridgeError};
 
 pub(super) fn enforce_expr_token_budget(
     expr_parse_ctx: &VmExprParseContext<'_>,
@@ -14,27 +18,28 @@ pub(super) fn enforce_expr_token_budget(
         .runtime_budget_limits()
         .max_parser_tokens_per_line;
     if tokens.len() > token_budget {
-        let fallback = format!(
+        let fallback_message = format!(
             "parser token budget exceeded ({} > {})",
             tokens.len(),
             token_budget
         );
-        let message = expr_parse_ctx
+        if let Some(contract) = expr_parse_ctx
             .model
             .resolve_parser_contract(expr_parse_ctx.cpu_id, expr_parse_ctx.dialect_override)
             .ok()
             .flatten()
-            .map(|contract| {
-                format!(
-                    "{}: parser token budget exceeded ({} > {})",
+        {
+            return Err(runtime_bridge_error_to_parse_error(
+                RuntimeBridgeError::Diagnostic(RuntimeBridgeDiagnostic::new(
                     contract.diagnostics.invalid_statement,
-                    tokens.len(),
-                    token_budget
-                )
-            })
-            .unwrap_or(fallback);
+                    fallback_message,
+                    Some(end_span),
+                )),
+                end_span,
+            ));
+        }
         return Err(ParseError {
-            message,
+            message: fallback_message,
             span: end_span,
         });
     }
@@ -78,10 +83,7 @@ pub(super) fn parse_expr_with_vm_contract(
             expr_parse_ctx.cpu_id,
             expr_parse_ctx.dialect_override,
         )
-        .map_err(|err| ParseError {
-            message: err.to_string(),
-            span: end_span,
-        })?;
+        .map_err(|err| runtime_bridge_error_to_parse_error(err, end_span))?;
 
     let mut owned_tokens = Vec::with_capacity(tokens.len());
     owned_tokens.extend_from_slice(tokens);

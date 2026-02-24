@@ -1329,10 +1329,13 @@ fn execution_model_validate_parser_contract_for_assembler_enforces_budget() {
     let err = model
         .validate_parser_contract_for_assembler("m6502", None, 2)
         .expect_err("parser budget should be enforced");
-    assert!(
-        err.to_string().to_ascii_lowercase().contains("otp004"),
-        "expected diagnostic code in error, got: {err}"
-    );
+    match err {
+        RuntimeBridgeError::Diagnostic(diag) => {
+            assert_eq!(diag.code.to_ascii_lowercase(), "otp004");
+            assert!(diag.message.contains("parser AST node budget exceeded"));
+        }
+        other => panic!("expected typed runtime diagnostic, got: {other:?}"),
+    }
 }
 
 #[test]

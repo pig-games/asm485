@@ -964,10 +964,12 @@ fn parse_line_with_parser_vm_emit_diag_if_no_ast_reports_unexpected_token_slot()
         },
     )
     .expect_err("unmatched line should emit terminal parser VM diagnostic");
-    assert!(
-        err.message
-            .contains(parser_contract.diagnostics.unexpected_token.as_str()),
-        "expected parser VM unexpected-token diagnostic code, got {err:?}"
+    assert_eq!(
+        err.message,
+        format!(
+            "{}: parser VM emitted diagnostic slot 0",
+            parser_contract.diagnostics.unexpected_token
+        )
     );
 }
 
@@ -1127,13 +1129,9 @@ fn parse_line_with_model_requires_expression_contract_compatibility() {
     )
     .expect_err("incompatible parser contract should fail before AST parsing");
     let message = err.message;
-    assert!(
-        message.contains("unsupported parser grammar id"),
-        "expected deterministic contract compatibility error, got: {message}"
-    );
-    assert!(
-        message.to_ascii_lowercase().contains("otp004"),
-        "expected parser contract diagnostic code in error, got: {message}"
+    assert_eq!(
+        message,
+        "otp004: unsupported parser grammar id 'opforge.line.v0'"
     );
 }
 
@@ -1170,13 +1168,9 @@ fn parse_line_with_model_requires_parser_ast_schema_compatibility() {
     )
     .expect_err("incompatible parser contract should fail before AST parsing");
     let message = err.message;
-    assert!(
-        message.contains("unsupported parser AST schema id"),
-        "expected deterministic parser AST schema compatibility error, got: {message}"
-    );
-    assert!(
-        message.to_ascii_lowercase().contains("otp004"),
-        "expected parser contract diagnostic code in error, got: {message}"
+    assert_eq!(
+        message,
+        "otp004: unsupported parser AST schema id 'opforge.ast.line.v0'"
     );
 }
 
@@ -1306,10 +1300,10 @@ fn parse_expr_with_vm_contract_rejects_slice_above_parser_token_budget() {
         None,
     )
     .expect_err("expression slice above parser token budget should fail");
-    assert!(err.message.contains("parser token budget exceeded"));
     assert!(
-        err.message.to_ascii_lowercase().contains("otp004"),
-        "expected parser diagnostic code in budget error, got: {}",
+        err.message
+            .starts_with("otp004: parser token budget exceeded"),
+        "unexpected parser token budget diagnostic: {}",
         err.message
     );
 }

@@ -15,7 +15,10 @@ use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::vm::builder::build_hierarchy_package_from_registry;
-use crate::vm::runtime::{HierarchyExecutionModel, PortableLineAst, PortableToken};
+use crate::vm::runtime::{
+    HierarchyExecutionModel, PortableLineAst, PortableToken, RuntimeBridgeDiagnostic,
+    RuntimeBridgeError,
+};
 use crate::z80::module::Z80CpuModule;
 
 #[cfg(test)]
@@ -59,7 +62,9 @@ pub(crate) fn tokenize_parser_tokens_with_model(
     validate_line_column_one(line, line_num)?;
     let portable_tokens = model
         .tokenize_portable_statement_for_assembler(cpu_id, dialect_override, line, line_num)
-        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
+        .map_err(|err| {
+            runtime_bridge_error_to_parse_error(err, parse_span_at_end(line, line_num))
+        })?;
 
     let core_tokens =
         runtime_tokens_to_core_tokens_with_source(&portable_tokens, Some(line), register_checker)?;
@@ -111,23 +116,27 @@ pub(crate) fn parse_line_with_model(
     )?;
     let parser_contract = model
         .validate_parser_contract_for_assembler(cpu_id, dialect_override, tokens.len())
-        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
+        .map_err(|err| {
+            runtime_bridge_error_to_parse_error(err, parse_span_at_end(line, line_num))
+        })?;
     let parser_vm_program = model
         .resolve_parser_vm_program(cpu_id, dialect_override)
-        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?
+        .map_err(|err| runtime_bridge_error_to_parse_error(err, parse_span_at_end(line, line_num)))?
         .ok_or_else(|| {
-            parse_error_at_end(
-                line,
-                line_num,
-                format!(
-                    "{}: missing parser VM program for active CPU pipeline",
-                    parser_contract.diagnostics.invalid_statement
-                ),
+            runtime_bridge_error_to_parse_error(
+                RuntimeBridgeError::Diagnostic(RuntimeBridgeDiagnostic::new(
+                    parser_contract.diagnostics.invalid_statement.as_str(),
+                    "missing parser VM program for active CPU pipeline",
+                    None,
+                )),
+                parse_span_at_end(line, line_num),
             )
         })?;
     model
         .enforce_parser_vm_program_budget_for_assembler(&parser_contract, &parser_vm_program)
-        .map_err(|err| parse_error_at_end(line, line_num, err.to_string()))?;
+        .map_err(|err| {
+            runtime_bridge_error_to_parse_error(err, parse_span_at_end(line, line_num))
+        })?;
     let line_ast = parse_line_with_parser_vm(
         tokens,
         end_span,
@@ -173,10 +182,31 @@ pub(crate) fn tokenize_line_with_default_model(
 }
 
 fn parse_error_at_end(line: &str, line_num: u32, message: impl Into<String>) -> ParseError {
-    let (end_span, _) = parser_end_metadata(line, line_num, &[]);
+    let end_span = parse_span_at_end(line, line_num);
     ParseError {
         message: message.into(),
         span: end_span,
+    }
+}
+
+fn parse_span_at_end(line: &str, line_num: u32) -> Span {
+    let (end_span, _) = parser_end_metadata(line, line_num, &[]);
+    end_span
+}
+
+pub(super) fn runtime_bridge_error_to_parse_error(
+    err: RuntimeBridgeError,
+    fallback_span: Span,
+) -> ParseError {
+    match err {
+        RuntimeBridgeError::Diagnostic(diag) => ParseError {
+            message: diag.render(),
+            span: diag.span.unwrap_or(fallback_span),
+        },
+        other => ParseError {
+            message: other.to_string(),
+            span: fallback_span,
+        },
     }
 }
 

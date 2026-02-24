@@ -2,13 +2,15 @@ use crate::core::parser::{LineAst, ParseError};
 use crate::core::tokenizer::{Span, Token};
 use crate::vm::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
 use crate::vm::runtime::{
-    RuntimeParserContract, RuntimeParserDiagnosticMap, RuntimeParserVmProgram,
+    RuntimeBridgeDiagnostic, RuntimeBridgeError, RuntimeParserContract, RuntimeParserDiagnosticMap,
+    RuntimeParserVmProgram,
 };
 
 use super::{
     parse_assignment_envelope_from_tokens, parse_dot_directive_envelope_from_tokens,
     parse_error_at_end, parse_instruction_envelope_from_tokens,
-    parse_star_org_envelope_from_tokens, parse_statement_envelope_from_tokens, ParserVmExecContext,
+    parse_star_org_envelope_from_tokens, parse_statement_envelope_from_tokens,
+    runtime_bridge_error_to_parse_error, ParserVmExecContext,
 };
 
 pub(super) fn parse_line_with_parser_vm(
@@ -143,22 +145,25 @@ pub(super) fn parse_line_with_parser_vm(
                 let slot = parser_vm_read_diag_slot(
                     parser_vm_program,
                     &mut pc,
-                    exec_ctx,
+                    end_span,
                     parser_contract,
                     "EmitDiag",
                 )?;
                 let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
-                return Err(parse_error_at_end(
-                    exec_ctx.source_line,
-                    exec_ctx.line_num,
-                    format!("{code}: parser VM emitted diagnostic slot {slot}"),
+                return Err(runtime_bridge_error_to_parse_error(
+                    RuntimeBridgeError::Diagnostic(RuntimeBridgeDiagnostic::new(
+                        code,
+                        format!("parser VM emitted diagnostic slot {slot}"),
+                        Some(end_span),
+                    )),
+                    end_span,
                 ));
             }
             ParserVmOpcode::EmitDiagIfNoAst => {
                 let slot = parser_vm_read_diag_slot(
                     parser_vm_program,
                     &mut pc,
-                    exec_ctx,
+                    end_span,
                     parser_contract,
                     "EmitDiagIfNoAst",
                 )?;
@@ -166,10 +171,13 @@ pub(super) fn parse_line_with_parser_vm(
                     continue;
                 }
                 let code = parser_diag_code_for_slot(&parser_contract.diagnostics, slot);
-                return Err(parse_error_at_end(
-                    exec_ctx.source_line,
-                    exec_ctx.line_num,
-                    format!("{code}: parser VM emitted diagnostic slot {slot}"),
+                return Err(runtime_bridge_error_to_parse_error(
+                    RuntimeBridgeError::Diagnostic(RuntimeBridgeDiagnostic::new(
+                        code,
+                        format!("parser VM emitted diagnostic slot {slot}"),
+                        Some(end_span),
+                    )),
+                    end_span,
                 ));
             }
             ParserVmOpcode::Fail => {
@@ -207,18 +215,18 @@ fn parser_diag_code_for_slot(diagnostics: &RuntimeParserDiagnosticMap, slot: u8)
 fn parser_vm_read_diag_slot(
     parser_vm_program: &RuntimeParserVmProgram,
     pc: &mut usize,
-    exec_ctx: ParserVmExecContext<'_>,
+    end_span: Span,
     parser_contract: &RuntimeParserContract,
     opcode_name: &str,
 ) -> Result<u8, ParseError> {
     let Some(slot) = parser_vm_program.program.get(*pc).copied() else {
-        return Err(parse_error_at_end(
-            exec_ctx.source_line,
-            exec_ctx.line_num,
-            format!(
-                "{}: parser VM {} missing slot operand",
-                parser_contract.diagnostics.invalid_statement, opcode_name
-            ),
+        return Err(runtime_bridge_error_to_parse_error(
+            RuntimeBridgeError::Diagnostic(RuntimeBridgeDiagnostic::new(
+                parser_contract.diagnostics.invalid_statement.as_str(),
+                format!("parser VM {} missing slot operand", opcode_name),
+                Some(end_span),
+            )),
+            end_span,
         ));
     };
     *pc = pc.saturating_add(1);

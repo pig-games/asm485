@@ -158,12 +158,41 @@ fn register_fn_resolver(
 
 /// Errors emitted by the VM host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeBridgeDiagnostic {
+    pub code: String,
+    pub message: String,
+    pub span: Option<Span>,
+}
+
+impl RuntimeBridgeDiagnostic {
+    pub fn new(code: impl Into<String>, message: impl Into<String>, span: Option<Span>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            span,
+        }
+    }
+
+    pub fn render(&self) -> String {
+        let code = self.code.trim();
+        if code.is_empty() {
+            self.message.clone()
+        } else if self.message.is_empty() {
+            code.to_string()
+        } else {
+            format!("{}: {}", code, self.message)
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
     Build(HierarchyBuildError),
     Package(OpcpuCodecError),
     Hierarchy(HierarchyError),
     Resolve(String),
+    Diagnostic(RuntimeBridgeDiagnostic),
     Vm(VmError),
 }
 
@@ -373,6 +402,7 @@ impl std::fmt::Display for RuntimeBridgeError {
             Self::Package(err) => write!(f, "runtime package error: {}", err),
             Self::Hierarchy(err) => write!(f, "hierarchy resolution error: {}", err),
             Self::Resolve(err) => write!(f, "{}", err),
+            Self::Diagnostic(diag) => write!(f, "{}", diag.render()),
             Self::Vm(err) => write!(f, "VM encode error: {}", err),
         }
     }
@@ -968,18 +998,30 @@ impl HierarchyExecutionModel {
         let error_code = parser_contract_error_code(contract);
         let parser_token_budget = self.budget_limits.max_parser_tokens_per_line;
         if estimated_ast_nodes > parser_token_budget {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: parser token budget exceeded ({} > {})",
-                error_code, estimated_ast_nodes, parser_token_budget
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    error_code,
+                    format!(
+                        "parser token budget exceeded ({} > {})",
+                        estimated_ast_nodes, parser_token_budget
+                    ),
+                    None,
+                ),
+            ));
         }
         let max_nodes = (contract.max_ast_nodes_per_line as usize)
             .min(self.budget_limits.max_parser_ast_nodes_per_line);
         if estimated_ast_nodes > max_nodes {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: parser AST node budget exceeded ({} > {})",
-                error_code, estimated_ast_nodes, max_nodes
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    error_code,
+                    format!(
+                        "parser AST node budget exceeded ({} > {})",
+                        estimated_ast_nodes, max_nodes
+                    ),
+                    None,
+                ),
+            ));
         }
         Ok(contract.clone())
     }
@@ -1042,12 +1084,16 @@ impl HierarchyExecutionModel {
         let max_bytes = self.budget_limits.max_parser_vm_program_bytes;
         let actual = parser_vm_program.program.len();
         if actual > max_bytes {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: parser VM program byte budget exceeded ({} > {})",
-                parser_contract_error_code(parser_contract),
-                actual,
-                max_bytes
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    parser_contract_error_code(parser_contract),
+                    format!(
+                        "parser VM program byte budget exceeded ({} > {})",
+                        actual, max_bytes
+                    ),
+                    None,
+                ),
+            ));
         }
         Ok(())
     }
@@ -1120,6 +1166,10 @@ impl HierarchyExecutionModel {
 }
 
 impl HierarchyExecutionModel {
+    pub fn has_declared_diagnostic_code(&self, code: &str) -> bool {
+        self.diag_templates.contains_key(&code.to_ascii_lowercase())
+    }
+
     fn mode_exists_for_owner(
         &self,
         selector: &ModeSelectorDescriptor,

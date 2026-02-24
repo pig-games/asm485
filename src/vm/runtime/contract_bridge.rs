@@ -36,34 +36,52 @@ impl HierarchyExecutionModel {
         self.ensure_parser_diagnostic_map_compatible_for_assembler(contract)?;
         let error_code = parser_contract_error_code(contract);
         if contract.max_ast_nodes_per_line == 0 {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: parser contract max_ast_nodes_per_line must be > 0",
-                error_code
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    error_code,
+                    "parser contract max_ast_nodes_per_line must be > 0",
+                    None,
+                ),
+            ));
         }
         if contract.opcode_version != PARSER_VM_OPCODE_VERSION_V1 {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: unsupported parser contract opcode version {}",
-                error_code, contract.opcode_version
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    error_code,
+                    format!(
+                        "unsupported parser contract opcode version {}",
+                        contract.opcode_version
+                    ),
+                    None,
+                ),
+            ));
         }
         if !contract
             .grammar_id
             .eq_ignore_ascii_case(PARSER_GRAMMAR_ID_LINE_V1)
         {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: unsupported parser grammar id '{}'",
-                error_code, contract.grammar_id
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    error_code,
+                    format!("unsupported parser grammar id '{}'", contract.grammar_id),
+                    None,
+                ),
+            ));
         }
         if !contract
             .ast_schema_id
             .eq_ignore_ascii_case(PARSER_AST_SCHEMA_ID_LINE_V1)
         {
-            return Err(RuntimeBridgeError::Resolve(format!(
-                "{}: unsupported parser AST schema id '{}'",
-                error_code, contract.ast_schema_id
-            )));
+            return Err(RuntimeBridgeError::Diagnostic(
+                RuntimeBridgeDiagnostic::new(
+                    error_code,
+                    format!(
+                        "unsupported parser AST schema id '{}'",
+                        contract.ast_schema_id
+                    ),
+                    None,
+                ),
+            ));
         }
         Ok(())
     }
@@ -92,10 +110,16 @@ impl HierarchyExecutionModel {
             ),
         ] {
             if value.trim().is_empty() {
-                return Err(RuntimeBridgeError::Resolve(format!(
-                    "{}: missing parser contract diagnostic mapping for '{}'",
-                    error_code, field_name
-                )));
+                return Err(RuntimeBridgeError::Diagnostic(
+                    RuntimeBridgeDiagnostic::new(
+                        error_code,
+                        format!(
+                            "missing parser contract diagnostic mapping for '{}'",
+                            field_name
+                        ),
+                        None,
+                    ),
+                ));
             }
             self.ensure_diag_code_declared_in_package_catalog(
                 error_code,
@@ -156,9 +180,15 @@ impl HierarchyExecutionModel {
         if self.diag_templates.contains_key(&code.to_ascii_lowercase()) {
             return Ok(());
         }
-        Err(RuntimeBridgeError::Resolve(format!(
-            "{}: {} diagnostic code '{}' is not declared in package DIAG catalog",
-            error_code, context, code
-        )))
+        Err(RuntimeBridgeError::Diagnostic(
+            RuntimeBridgeDiagnostic::new(
+                error_code,
+                format!(
+                    "{} diagnostic code '{}' is not declared in package DIAG catalog",
+                    context, code
+                ),
+                None,
+            ),
+        ))
     }
 }
