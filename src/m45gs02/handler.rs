@@ -593,6 +593,21 @@ mod tests {
     }
 
     #[test]
+    fn encodes_rts_immediate_form() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let rts_imm = Operand::Immediate(0x34, Span::default());
+        match handler.encode_instruction("rts", &[rts_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x62, 0x34]),
+            EncodeResult::NotFound => panic!("rts immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("rts immediate encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
     fn resolves_ldz_directx_to_absolutex_when_zero_page_x_mode_is_unavailable() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

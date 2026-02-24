@@ -83,6 +83,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xEA,
     },
     CpuInstructionEntry {
+        mnemonic: "RTS",
+        mode: AddressMode::Immediate,
+        opcode: 0x62,
+    },
+    CpuInstructionEntry {
         mnemonic: "NEG",
         mode: AddressMode::Implied,
         opcode: 0x42,

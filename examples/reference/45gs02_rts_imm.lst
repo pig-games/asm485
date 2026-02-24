@@ -1,0 +1,26 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 immediate RTS form
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 0F00                    4          .org $0F00
+----                                5  
+----                                6  start
+0F00    62 34                       7          rts #$34
+----                                8  
+----                                9          .end
+
+Lines: 9  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0f00 (3840)
+
+Total memory is 2 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0F00    62 34
