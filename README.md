@@ -153,7 +153,7 @@ Arguments:
     --Werror                     Treat warnings as errors.
     --format <text|json>         Select global CLI output format.
     --diagnostics-style <classic|rustc>
-                                 Select text diagnostics rendering style.
+                                 Select text diagnostics rendering style (default: rustc).
     --fixits-dry-run             Plan machine-applicable fixits without writing files.
     --apply-fixits               Apply machine-applicable fixits.
     --fixits-output <FILE>       Write fixit planning/apply report JSON to FILE.

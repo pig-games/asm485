@@ -43,8 +43,8 @@ pub struct Cli {
     #[arg(
         long = "diagnostics-style",
         value_enum,
-        default_value_t = DiagnosticsStyle::Classic,
-        long_help = "Select text diagnostics rendering style. classic keeps V1 output; rustc enables multi-span note/help/suggestion layout."
+        default_value_t = DiagnosticsStyle::Rustc,
+        long_help = "Select text diagnostics rendering style. rustc enables multi-span note/help/suggestion layout (default); classic preserves the legacy V1 layout."
     )]
     pub diagnostics_style: DiagnosticsStyle,
     #[arg(
