@@ -1,0 +1,44 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 prefix and alias coverage
+----                                2  ; Uses mega65 alias and explicit/implicit prefix composition
+----                                3  
+----                                4          .cpu mega65
+----    EQU 0900                    5          .org $0900
+----                                6  
+----                                7  start
+0900    5C                          8          map
+----                                9  
+----                               10          ; explicit prefix bytes before regular opcode
+0901    42                         11          neg
+0902    42                         12          neg
+0903    69 02                      13          adc #$02
+----                               14  
+----                               15          ; explicit + implicit flat-memory prefix sequence
+0905    EA                         16          nop
+0906    EA B1 22                   17          lda ($22),z
+----                               18  
+----                               19          ; implicit combined prefixes from Q + flat-memory sugar
+0909    42 42 EA B1 23             20          ldq [$23],z
+090E    42 42 EA 91 24             21          stq ($24),z
+----                               22  
+0913    EA                         23          eom
+0914    60                         24          rts
+----                               25  
+----                               26          .end
+
+Lines: 26  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0900 (2304)
+
+Total memory is 21 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0900    5C 42 42 69 02 EA EA B1 22 42 42 EA B1 23 42 42
+0910    EA 91 24 EA 60
