@@ -1,1 +1,5 @@
-Assembly failed: Region range overlaps existing region 'low' at $10F0..$10FF: high
+Assembly failed:
+4: ERROR [asm202]
+    4 | .region high, $10f0, $11ff
+                          ^
+ERROR: Region range overlaps existing region 'low' at $10F0..$10FF: high

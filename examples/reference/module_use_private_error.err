@@ -1,1 +1,5 @@
-Assembly failed: Symbol is private: SECRET
+Assembly failed:
+9: ERROR [asm301]
+    9 |     .use alpha (SECRET)
+                ^
+ERROR: Symbol is private: SECRET

@@ -503,12 +503,17 @@ fn validate_example_linker_outputs(assembler: &Assembler) -> Result<(), String> 
     Ok(())
 }
 
-fn first_example_error(assembler: &Assembler) -> Option<String> {
+fn first_example_error(assembler: &Assembler, source_lines: &[String]) -> Option<String> {
     assembler
         .diagnostics
         .iter()
         .find(|diag| diag.severity == Severity::Error)
-        .map(|diag| format!("Assembly failed: {}", diag.error.message()))
+        .map(|diag| {
+            format!(
+                "Assembly failed:\n{}",
+                diag.format_with_context(Some(source_lines), false)
+            )
+        })
 }
 
 fn assemble_example_error(asm_path: &Path) -> Option<String> {
@@ -542,7 +547,7 @@ fn assemble_example_error(asm_path: &Path) -> Option<String> {
         return Some(err);
     }
 
-    first_example_error(&assembler)
+    first_example_error(&assembler, &expanded_lines)
 }
 
 #[test]

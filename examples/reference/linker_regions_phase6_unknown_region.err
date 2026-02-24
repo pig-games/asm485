@@ -1,1 +1,5 @@
-Assembly failed: Unknown region in placement directive: nowhere
+Assembly failed:
+9: ERROR [asm202]
+    9 | .place code in nowhere
+ ^
+ERROR: Unknown region in placement directive: nowhere

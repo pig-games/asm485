@@ -1,1 +1,5 @@
-Assembly failed: Unknown section option key: bogus
+Assembly failed:
+3: ERROR [asm202]
+    3 | .section code, bogus=1
+                    ^
+ERROR: Unknown section option key: bogus

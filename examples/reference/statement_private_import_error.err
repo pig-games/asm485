@@ -1,1 +1,5 @@
-Assembly failed: No instruction found for PUSHB
+Assembly failed:
+14: ERROR [asm402]
+   14 |     PUSHB $AA
+             ^
+ERROR: No instruction found for PUSHB

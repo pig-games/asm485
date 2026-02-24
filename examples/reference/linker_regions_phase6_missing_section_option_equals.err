@@ -1,1 +1,5 @@
-Assembly failed: Expected section option in key=value form
+Assembly failed:
+3: ERROR [asm202]
+    3 | .section code, align
+               ^
+ERROR: Expected section option in key=value form

@@ -1,1 +1,5 @@
-Assembly failed: Section is bound to region 'ram' but was placed in region 'rom': code
+Assembly failed:
+10: ERROR [asm202]
+   10 | .place code in rom
+ ^
+ERROR: Section is bound to region 'ram' but was placed in region 'rom': code

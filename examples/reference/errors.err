@@ -1,1 +1,5 @@
-Assembly failed: ope005: invalid number: 5X5
+Assembly failed:
+7: ERROR [asm401]
+    7 | symd2   .const 5X5         ; ERR: bad decimal constant
+               ^
+ERROR: ope005: invalid number: 5X5

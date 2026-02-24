@@ -1,1 +1,5 @@
-Assembly failed: Unknown section in placement directive: missing
+Assembly failed:
+5: ERROR [asm202]
+    5 | .place missing in ram
+ ^
+ERROR: Unknown section in placement directive: missing
