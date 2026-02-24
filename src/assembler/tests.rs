@@ -1607,6 +1607,22 @@ fn unknown_directive_endsect_typo_emits_machine_applicable_fixit() {
 }
 
 #[test]
+fn unknown_directive_endsec_typo_emits_machine_applicable_fixit() {
+    let (status, diag) =
+        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endsec", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ENDSEC"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ENDSECTION");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
 fn unknown_directive_endmach_typo_emits_machine_applicable_fixit() {
     let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endmach", true);
     assert_eq!(status, LineStatus::Error, "expected directive error");
@@ -1629,6 +1645,22 @@ fn unknown_directive_esleif_typo_emits_machine_applicable_fixit() {
 
     let diag = diag.expect("diagnostic expected");
     assert!(diag.message().contains("Unknown directive .ESLEIF"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ELSEIF");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn unknown_directive_elsif_typo_emits_machine_applicable_fixit() {
+    let (status, diag) =
+        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".elsif 1", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ELSIF"));
     assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
 
     let fixit = &diag.fixits()[0];
@@ -1666,6 +1698,11 @@ fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
 }
 
 #[test]
+fn vm_native_parity_for_endsec_directive_typo_fixit_payload() {
+    assert_directive_typo_vm_native_parity(".endsec");
+}
+
+#[test]
 fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
     assert_directive_typo_vm_native_parity(".endmach");
 }
@@ -1673,6 +1710,11 @@ fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
 #[test]
 fn vm_native_parity_for_esleif_directive_typo_fixit_payload() {
     assert_directive_typo_vm_native_parity(".esleif 1");
+}
+
+#[test]
+fn vm_native_parity_for_elsif_directive_typo_fixit_payload() {
+    assert_directive_typo_vm_native_parity(".elsif 1");
 }
 
 fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {

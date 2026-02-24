@@ -4450,9 +4450,9 @@ impl<'a> AsmLine<'a> {
     fn failure_for_unknown_directive_with_fixit(&mut self, mnemonic: &str) -> Option<LineStatus> {
         let suggestion = match mnemonic.to_ascii_uppercase().as_str() {
             ".EDIF" | ".ENDFI" => ".ENDIF",
-            ".ESLEIF" | ".ELSIEF" => ".ELSEIF",
+            ".ESLEIF" | ".ELSIEF" | ".ELSIF" => ".ELSEIF",
             ".ENDMOD" | ".ENDMODUL" => ".ENDMODULE",
-            ".ENDSECT" | ".ENDSECTON" => ".ENDSECTION",
+            ".ENDSECT" | ".ENDSECTON" | ".ENDSEC" => ".ENDSECTION",
             ".ENDMACH" | ".ENDMTACH" => ".ENDMATCH",
             _ => return None,
         };
