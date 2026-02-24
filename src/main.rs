@@ -203,6 +203,7 @@ fn collect_machine_applicable_fixits(
     fallback_file: Option<&Path>,
 ) -> Vec<PlannedFixit> {
     let mut planned = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for diag in diagnostics {
         for fixit in diag.fixits() {
             if !fixit
@@ -218,11 +219,24 @@ fn collect_machine_applicable_fixits(
                     None => continue,
                 },
             };
+            let col_start = fixit.col_start.unwrap_or(1).max(1);
+            let col_end = fixit.col_end.unwrap_or(fixit.col_start.unwrap_or(1)).max(1);
+            let dedup_key = (
+                file_path.clone(),
+                fixit.line,
+                col_start,
+                col_end,
+                fixit.replacement.clone(),
+                fixit.applicability.to_ascii_lowercase(),
+            );
+            if !seen.insert(dedup_key) {
+                continue;
+            }
             planned.push(PlannedFixit {
                 file: file_path,
                 line: fixit.line,
-                col_start: fixit.col_start.unwrap_or(1).max(1),
-                col_end: fixit.col_end.unwrap_or(fixit.col_start.unwrap_or(1)).max(1),
+                col_start,
+                col_end,
                 replacement: fixit.replacement.clone(),
                 applicability: fixit.applicability.clone(),
             });
@@ -685,6 +699,36 @@ mod tests {
         ];
 
         assert!(fixits_have_overlaps(&fixits));
+    }
+
+    #[test]
+    fn collect_machine_applicable_fixits_deduplicates_identical_edits() {
+        let fixit = opforge::core::assembler::error::Fixit {
+            file: None,
+            line: 7,
+            col_start: Some(1),
+            col_end: Some(1),
+            replacement: ".endif".to_string(),
+            applicability: "machine-applicable".to_string(),
+        };
+        let diagnostics = vec![
+            Diagnostic::new(
+                7,
+                Severity::Error,
+                AsmError::new(AsmErrorKind::Conditional, "Found .if without .endif", None),
+            )
+            .with_fixit(fixit.clone()),
+            Diagnostic::new(
+                7,
+                Severity::Error,
+                AsmError::new(AsmErrorKind::Conditional, "Found .if without .endif", None),
+            )
+            .with_fixit(fixit),
+        ];
+
+        let planned = collect_machine_applicable_fixits(&diagnostics, Some(Path::new("sample.asm")));
+        assert_eq!(planned.len(), 1);
+        assert!(!fixits_have_overlaps(&planned));
     }
 
     #[test]
