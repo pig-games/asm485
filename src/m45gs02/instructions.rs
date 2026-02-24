@@ -168,6 +168,16 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xE3,
     },
     CpuInstructionEntry {
+        mnemonic: "ASW",
+        mode: AddressMode::Absolute,
+        opcode: 0xBB,
+    },
+    CpuInstructionEntry {
+        mnemonic: "ROW",
+        mode: AddressMode::Absolute,
+        opcode: 0xDB,
+    },
+    CpuInstructionEntry {
         mnemonic: "PHW",
         mode: AddressMode::Immediate,
         opcode: 0xF4,

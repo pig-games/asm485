@@ -1,0 +1,28 @@
+opForge Assembler v0.9.2
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 extension absolute word operations
+----                                2  .cpu 45gs02
+----    EQU 0D00                    3  .org $0D00
+----                                4  
+----                                5  asw $2000
+    5 | asw $2000
+         ^
+ERROR: otp001: parser VM emitted diagnostic slot 0
+----                                6  row $2002
+    6 | row $2002
+         ^
+ERROR: otp001: parser VM emitted diagnostic slot 0
+----                                7  rts
+
+Lines: 7  Errors: 2  Warnings: 0
+
+SYMBOL TABLE
+
+rts             : 0d00 (3328)
+
+Total memory is 0 bytes
+
+GENERATED OUTPUT
+
+(none)

@@ -739,4 +739,28 @@ mod tests {
             EncodeResult::Error(message, _span) => panic!("inw encoding failed: {message}"),
         }
     }
+
+    #[test]
+    fn encodes_asw_and_row_absolute_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let asw_abs = Operand::Absolute(0x2000, Span::default());
+        match handler.encode_instruction("asw", &[asw_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xBB, 0x00, 0x20]),
+            EncodeResult::NotFound => panic!("asw absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("asw absolute encoding failed: {message}")
+            }
+        }
+
+        let row_abs = Operand::Absolute(0x2002, Span::default());
+        match handler.encode_instruction("row", &[row_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xDB, 0x02, 0x20]),
+            EncodeResult::NotFound => panic!("row absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("row absolute encoding failed: {message}")
+            }
+        }
+    }
 }

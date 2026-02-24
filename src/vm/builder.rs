@@ -12,6 +12,8 @@ use crate::families::mos6502::module::FAMILY_ID as MOS6502_FAMILY_ID;
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::i8085::extensions::I8085_EXTENSION_TABLE;
 use crate::i8085::module::CPU_ID as I8085_CPU_ID;
+use crate::m45gs02::instructions::CPU_INSTRUCTION_TABLE as M45GS02_CPU_INSTRUCTION_TABLE;
+use crate::m45gs02::module::CPU_ID as M45GS02_CPU_ID;
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_CPU_INSTRUCTION_TABLE;
 use crate::m65816::module::CPU_ID as M65816_CPU_ID;
 use crate::m65816::M65816CpuHandler;
@@ -602,6 +604,22 @@ pub fn build_hierarchy_chunks_from_registry(
         );
         tables.extend(compile_m65c02_bit_branch_programs());
         selectors.extend(compile_m65c02_bit_branch_selectors());
+    }
+    if registered_cpu_ids.contains(M45GS02_CPU_ID.as_str()) {
+        emit_mos_style_table_programs(
+            M45GS02_CPU_INSTRUCTION_TABLE,
+            ScopedOwner::Cpu(M45GS02_CPU_ID.as_str().to_string()),
+            &mut tables,
+            &mut selectors,
+            false,
+            false,
+            false,
+            false,
+            |_| true,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode,
+        );
     }
     if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
         let m65816_handler = M65816CpuHandler::new();

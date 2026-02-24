@@ -1043,6 +1043,27 @@ fn run_with_cli_accepts_45gs02_alias_override() {
 }
 
 #[test]
+fn run_with_cli_accepts_45gs02_asw_and_row_forms() {
+    let dir = create_temp_dir("cpu-override-45gs02-asw-row");
+    let input = dir.join("cpu.asm");
+    let list = dir.join("cpu.lst");
+    write_file(&input, "    asw $2000\n    row $2002\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--cpu",
+        "45gs02",
+    ]);
+
+    let report = run_with_cli(&cli).expect("45gs02 ASW/ROW forms should assemble");
+    assert_eq!(report.len(), 1);
+}
+
+#[test]
 fn run_with_cli_writes_make_dependencies_file() {
     let dir = create_temp_dir("dependencies-file");
     let input = dir.join("main.asm");
