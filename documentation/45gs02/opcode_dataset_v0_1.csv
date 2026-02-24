@@ -20,6 +20,8 @@ TAZ,imp,3B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-2
 TAB,imp,4B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
 TZA,imp,5B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
 TBA,imp,6B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+PHZ,imp,CB,0,none,45GS02 extension push-Z register instruction,mega65-book-2.txt:25012-25810
+PLZ,imp,EB,0,none,45GS02 extension pull-Z register instruction,mega65-book-2.txt:25012-25810
 TSY,imp,FB,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
 LDZ,immediate,A3,1,none,45GS02 extension load-Z immediate,mega65-book-2.txt:25012-25810
 LDZ,absolute,9B,2,none,45GS02 extension load-Z absolute,mega65-book-2.txt:25012-25810
