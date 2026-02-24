@@ -987,6 +987,29 @@ mod tests {
     }
 
     #[test]
+    fn encodes_implied_flag_control_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let implied =
+            |mnemonic: &str, expected: u8| match handler.encode_instruction(mnemonic, &[], &ctx) {
+                EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![expected]),
+                EncodeResult::NotFound => panic!("{mnemonic} implied encoding not found"),
+                EncodeResult::Error(message, _span) => {
+                    panic!("{mnemonic} implied encoding failed: {message}")
+                }
+            };
+
+        implied("clc", 0x08);
+        implied("sec", 0x28);
+        implied("cli", 0x48);
+        implied("sei", 0x68);
+        implied("clv", 0xA8);
+        implied("cld", 0xC8);
+        implied("sed", 0xE8);
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();
