@@ -11,3 +11,19 @@ LDQ,immediate,A9,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before 
 STQ,zero_page,85,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before STA,mega65-book-2.txt:25012-25413
 STQ,absolute,8D,2,NEG NEG,Q pseudo-register form emits two NEG prefixes before STA,mega65-book-2.txt:25012-25413
 STQ,indirect_indexed_zp_y,91,1,NEG NEG NOP,Combined Q+flat form emits NEG NEG and NOP before base STA mode,mega65-book-2.txt:27744-27749
+CLE,imp,02,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+SEE,imp,03,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+INZ,imp,0B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TYS,imp,1B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+DEZ,imp,2B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TAZ,imp,3B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TAB,imp,4B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TZA,imp,5B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TBA,imp,6B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TSY,imp,FB,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+LDZ,immediate,A3,1,none,45GS02 extension load-Z immediate,mega65-book-2.txt:25012-25810
+LDZ,absolute,9B,2,none,45GS02 extension load-Z absolute,mega65-book-2.txt:25012-25810
+LDZ,absolute_x,AB,2,none,45GS02 extension load-Z absolute indexed by X,mega65-book-2.txt:25012-25810
+CPZ,immediate,C2,1,none,45GS02 extension compare-with-Z immediate,mega65-book-2.txt:25012-25810
+CPZ,zero_page,D4,1,none,45GS02 extension compare-with-Z zero-page,mega65-book-2.txt:25012-25810
+CPZ,absolute,CC,2,none,45GS02 extension compare-with-Z absolute,mega65-book-2.txt:25012-25810

@@ -13,6 +13,16 @@ pub struct CpuInstructionEntry {
 
 pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     CpuInstructionEntry {
+        mnemonic: "CLE",
+        mode: AddressMode::Implied,
+        opcode: 0x02,
+    },
+    CpuInstructionEntry {
+        mnemonic: "SEE",
+        mode: AddressMode::Implied,
+        opcode: 0x03,
+    },
+    CpuInstructionEntry {
         mnemonic: "BPL",
         mode: AddressMode::RelativeLong,
         opcode: 0x13,
@@ -76,6 +86,76 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mnemonic: "NEG",
         mode: AddressMode::Implied,
         opcode: 0x42,
+    },
+    CpuInstructionEntry {
+        mnemonic: "INZ",
+        mode: AddressMode::Implied,
+        opcode: 0x0B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TYS",
+        mode: AddressMode::Implied,
+        opcode: 0x1B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "DEZ",
+        mode: AddressMode::Implied,
+        opcode: 0x2B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TAZ",
+        mode: AddressMode::Implied,
+        opcode: 0x3B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TAB",
+        mode: AddressMode::Implied,
+        opcode: 0x4B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TZA",
+        mode: AddressMode::Implied,
+        opcode: 0x5B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TBA",
+        mode: AddressMode::Implied,
+        opcode: 0x6B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "TSY",
+        mode: AddressMode::Implied,
+        opcode: 0xFB,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDZ",
+        mode: AddressMode::Immediate,
+        opcode: 0xA3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDZ",
+        mode: AddressMode::Absolute,
+        opcode: 0x9B,
+    },
+    CpuInstructionEntry {
+        mnemonic: "LDZ",
+        mode: AddressMode::AbsoluteX,
+        opcode: 0xAB,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CPZ",
+        mode: AddressMode::Immediate,
+        opcode: 0xC2,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CPZ",
+        mode: AddressMode::ZeroPage,
+        opcode: 0xD4,
+    },
+    CpuInstructionEntry {
+        mnemonic: "CPZ",
+        mode: AddressMode::Absolute,
+        opcode: 0xCC,
     },
 ];
 

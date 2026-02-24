@@ -417,4 +417,66 @@ mod tests {
             EncodeResult::Error(message, _span) => panic!("bpl relfar encoding failed: {message}"),
         }
     }
+
+    #[test]
+    fn encodes_implied_extension_mnemonics() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let cases = [
+            ("cle", 0x02),
+            ("see", 0x03),
+            ("inz", 0x0B),
+            ("tys", 0x1B),
+            ("dez", 0x2B),
+            ("taz", 0x3B),
+            ("tab", 0x4B),
+            ("tza", 0x5B),
+            ("tba", 0x6B),
+            ("tsy", 0xFB),
+        ];
+
+        for (mnemonic, opcode) in cases {
+            match handler.encode_instruction(mnemonic, &[], &ctx) {
+                EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![opcode], "mnemonic={mnemonic}"),
+                EncodeResult::NotFound => panic!("{mnemonic} encoding not found"),
+                EncodeResult::Error(message, _span) => {
+                    panic!("{mnemonic} encoding failed: {message}")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn encodes_ldz_and_cpz_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let ldz_imm = Operand::Immediate(0x34, Span::default());
+        match handler.encode_instruction("ldz", &[ldz_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xA3, 0x34]),
+            EncodeResult::NotFound => panic!("ldz immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("ldz immediate encoding failed: {message}")
+            }
+        }
+
+        let ldz_abs = Operand::Absolute(0x1234, Span::default());
+        match handler.encode_instruction("ldz", &[ldz_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x9B, 0x34, 0x12]),
+            EncodeResult::NotFound => panic!("ldz absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("ldz absolute encoding failed: {message}")
+            }
+        }
+
+        let cpz_zp = Operand::ZeroPage(0x20, Span::default());
+        match handler.encode_instruction("cpz", &[cpz_zp], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xD4, 0x20]),
+            EncodeResult::NotFound => panic!("cpz zero-page encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("cpz zero-page encoding failed: {message}")
+            }
+        }
+    }
 }
