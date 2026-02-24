@@ -1,6 +1,7 @@
 mnemonic,address_mode_key,opcode_hex,operand_bytes,prefix_sequence,constraints,source_anchor
 MAP,imp,5C,0,none,45GS02 extension instruction,mega65-book-2.txt:24952-25012
 EOM,imp,EA,0,none,End-of-MAP instruction (shares opcode with NOP semantics by context),mega65-book-2.txt:6212-6230
+RTS,immediate,62,1,none,45GS02 extension immediate RTS form,mega65-book-2.txt:25012-25810
 NEG,imp,42,0,none,Prefix-capable negate opcode used by compound instructions,mega65-book-2.txt:27744-27749
 LDA,indirect_indexed_zp_y,B1,1,NOP,Flat-memory sugar lowers (,Z) to NOP + (zp),Y,mega65-book-2.txt:27744-27749
 LDA,bracket_indirect_long_z,B1,1,NOP,Bracket sugar lowers [,Z] to NOP + (zp),Y in current implementation,mega65-book-2.txt:27744-27749
