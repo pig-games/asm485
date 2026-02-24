@@ -40,10 +40,7 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               37  ; not required.  All constants must start with a numeric character, so hex 
 ----                               38  ; values starting with A-F must have a leading zero.
 ----    EQU 0037                   39  num0    .const     55              ; Decimal constant
-----                               40  num1    .const     55D             ; Decimal constant with optional suffix
-   40 | num1    .const     55D             ; Decimal constant with optional suffix
-                   ^
-ERROR: ope005: invalid number: 55D
+----    EQU 0037                   40  num1    .const     55D             ; Decimal constant with optional suffix
 ----    EQU 00A6                   41  num3    .const     0a6h            ; Hex with leading zero
 ----    EQU 1AB4                   42  num4    .const     1AB4H           ; Hex without leading zero
 ----    EQU 0065                   43  num5    .const     01100101b       ; Binary
@@ -187,12 +184,9 @@ ERROR: ope005: invalid number: 55D
 ----                              181  ; Labels that match registers are not permitted in Intel85, but this change was
 ----                              182  ; added to support some code that was developed with a different assembler.
 21B3    00 01                     183  SP     .word      256             ; define a word at location named SP
-21B5    21                        184          LXI     H,SP            ; laod address of "SP" word into HL pair
-  184 |         LXI     H,SP            ; laod address of "SP" word into HL pair
-                  ^
-ERROR: expected 16-bit immediate, got register SP
-21B6    21 B3 21                  185          LXI     H,SP+0
-21B9    21 B3 21                  186          LXI     H,0+SP
+21B5    21 B3 21                  184          LXI     H,SP            ; laod address of "SP" word into HL pair
+21B8    21 B3 21                  185          LXI     H,SP+0
+21BB    21 B3 21                  186          LXI     H,0+SP
 ----                              187  
 ----                              188  
 ----                              189  ; Conditional directives
@@ -297,7 +291,7 @@ F012    C3 0A 1A                  282                  jmp 6666
 ----                              288  NOLAB4   .endif
 ----                              289  ENDLAB .endif                          ; label included
 
-Lines: 289  Errors: 2  Warnings: 0
+Lines: 289  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
@@ -308,6 +302,7 @@ VeryVeryVeryLongLabel: 2003 (8195)
 RAMST           : 0000 (0)
 ROMST           : c000 (49152)
 num0            : 0037 (55)
+num1            : 0037 (55)
 num3            : 00a6 (166)
 num4            : 1ab4 (6836)
 num5            : 0065 (101)
@@ -344,7 +339,7 @@ EX1AVAR         : 1234 (4660)
 EX1ADATA        : 4000 (16384)
 EX1A            : 4002 (16386)
 
-Total memory is 343 bytes
+Total memory is 345 bytes
 
 GENERATED OUTPUT
 
@@ -370,8 +365,8 @@ ADDR    BYTES
 2179    0F 00 FF FF 02 00 08 00 02 00 09 00 01 00 03 00
 2189    F3 00 01 00 00 00 01 00 02 00 01 00 01 01 00 48
 2199    65 6C 6C 6F 2C 20 77 6F 72 6C 64 61 00 01 65 42
-21A9    01 70 20 02 73 34 03 78 34 04 00 01 21 21 B3 21
-21B9    21 B3 21
+21A9    01 70 20 02 73 34 03 78 34 04 00 01 21 B3 21 21
+21B9    B3 21 21 B3 21
 4000    34 12 78
 F000    C3 B3 15 C3 0A 1A 4F C3 05 0D 3E 11 06 22 3E 66
 F010    06 77 C3 0A 1A

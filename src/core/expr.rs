@@ -275,6 +275,8 @@ pub fn parse_number(text: &str) -> Option<i64> {
         || text.ends_with('Q')
     {
         i64::from_str_radix(&text[..text.len() - 1], 8).ok()?
+    } else if text.ends_with('d') || text.ends_with('D') {
+        text[..text.len() - 1].parse::<i64>().ok()?
     } else {
         text.parse::<i64>().ok()?
     };
@@ -373,8 +375,11 @@ mod tests {
     #[test]
     fn parse_number_decimal() {
         assert_eq!(parse_number("42"), Some(42));
+        assert_eq!(parse_number("55D"), Some(55));
+        assert_eq!(parse_number("55d"), Some(55));
         assert_eq!(parse_number("0"), Some(0));
         assert_eq!(parse_number("-10"), Some(-10));
+        assert_eq!(parse_number("-10D"), Some(-10));
     }
 
     #[test]

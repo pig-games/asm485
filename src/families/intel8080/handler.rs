@@ -442,7 +442,7 @@ fn encode_intel8080_family_operands(
                 }
             };
 
-            if let Some(kind) = family_operand_kind(imm_operand) {
+            if let Some(kind) = family_operand_kind_for_immediate(imm_operand, ctx) {
                 return FamilyEncodeResult::error(
                     bytes,
                     format!("expected {expected_bits}-bit immediate, got {kind}"),
@@ -716,6 +716,20 @@ fn family_operand_kind(operand: &FamilyOperand) -> Option<String> {
         FamilyOperand::Indirect(name, _) => Some(format!("indirect ({name})")),
         FamilyOperand::Indexed { base, .. } => Some(format!("indexed ({base})")),
         _ => None,
+    }
+}
+
+fn family_operand_kind_for_immediate(
+    operand: &FamilyOperand,
+    ctx: &dyn AssemblerContext,
+) -> Option<String> {
+    match operand {
+        FamilyOperand::Register(name, _) | FamilyOperand::Condition(name, _)
+            if ctx.has_symbol(name) =>
+        {
+            None
+        }
+        _ => family_operand_kind(operand),
     }
 }
 

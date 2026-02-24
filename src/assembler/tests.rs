@@ -7713,15 +7713,15 @@ fn vm_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled() {
 }
 
 #[test]
-fn vm_runtime_intel_authoritative_preserves_lxi_register_name_diagnostic_shape() {
+fn vm_runtime_intel_authoritative_allows_lxi_register_named_label_as_immediate() {
     let source = ["    .cpu 8085", "SP: .word 256", "    LXI H,SP"];
     let (_entries, diagnostics) = assemble_source_entries_with_runtime_mode(&source, true)
         .expect("source assembly should run");
     assert!(
-        diagnostics
+        !diagnostics
             .iter()
             .any(|diag| diag.contains("expected 16-bit immediate, got register SP")),
-        "expected legacy LXI/SP diagnostic, got: {diagnostics:?}"
+        "unexpected LXI/SP immediate diagnostic: {diagnostics:?}"
     );
 }
 
