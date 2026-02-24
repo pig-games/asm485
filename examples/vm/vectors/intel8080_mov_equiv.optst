@@ -1,0 +1,6 @@
+family=intel8080
+cpu=8085
+dialect=intel8080
+native_line=    MOV A,B
+canonical_line=    MOV A,B
+expect_status=ok

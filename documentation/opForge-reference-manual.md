@@ -666,9 +666,13 @@ tmp .const 3        ; resolves in caller scope unless body adds explicit .block
 5. Run **CPU validator** (trait exists, currently unused by CPUs).
 6. Encode with **family handler**; fall back to **CPU handler** for extensions.
 
-#### opThread hierarchy bridge (v0.1 in-progress)
+#### VM hierarchy bridge (v1)
 
-- `src/opthread/runtime.rs` provides host-facing target selection:
+See also:
+- [VM Boundary & Protocol Specification (v1)](vm-boundary-protocol-v1.md) (host/VM boundary + strictness rules)
+- [VM Ultimate64 ABI Contract (v1)](vm-ultimate64-abi-contract-v1.md) (constrained-runtime ABI for `*.opcpu`)
+
+- The VM runtime bridge provides host-facing target selection:
   - `set_active_cpu(cpu_id)`
   - `resolve_pipeline(cpu_id, dialect_override?)`
 - Dialect override is host policy only; source still has **no `.dialect` directive**.
@@ -886,6 +890,13 @@ The assembler is organized into layers with hierarchical parsing and encoding:
 │ CPU   │  │ CPU   │           │ CPU   │  │ CPU   │  │ CPU   │
 └───────┘  └───────┘           └───────┘  └───────┘  └───────┘
 ```
+
+### VM boundary (certified families)
+
+For certified families, the per-line assembly hot path uses VM contracts for tokenization, parser envelope execution, portable expression services, and authoritative encode tables.
+
+Canonical host/VM boundary and failure/strictness rules:
+- [VM Boundary & Protocol Specification (v1)](vm-boundary-protocol-v1.md)
 
 ### Layer responsibilities
 
@@ -1112,7 +1123,11 @@ pub trait DialectModule: Send + Sync {
 }
 ```
 
-## 15. opThread package authoring notes (v0.1 draft)
+## 15. VM package authoring notes (v0.1 draft)
+
+See also:
+- [VM Boundary & Protocol Specification (v1)](vm-boundary-protocol-v1.md)
+- [VM Ultimate64 ABI Contract (v1)](vm-ultimate64-abi-contract-v1.md)
 
 ### Ownership rules
 
@@ -1134,4 +1149,4 @@ pub trait DialectModule: Send + Sync {
 2. Move CPU extension forms/registers into CPU-scoped overlays.
 3. Convert dialect mapper tables into deterministic rewrite rules.
 4. Keep directives/macros/linker/output behavior host-owned in v0.1.
-5. Add parity vectors (`.optst`) and run `make test-opthread-parity`.
+5. Add parity vectors (`.optst`) and run `make test-vm-parity`.

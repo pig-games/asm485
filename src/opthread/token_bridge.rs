@@ -73,7 +73,7 @@ pub(crate) fn parse_line_with_default_model(
     line_num: u32,
 ) -> Result<LineAst, ParseError> {
     let model = default_runtime_model().ok_or_else(|| ParseError {
-        message: "opThread tokenizer runtime model is unavailable".to_string(),
+        message: "VM tokenizer runtime model is unavailable".to_string(),
         span: Span {
             line: line_num,
             col_start: 1,
@@ -120,7 +120,7 @@ pub(crate) fn parse_line_with_model(
                 line,
                 line_num,
                 format!(
-                    "{}: missing opThread parser VM program for active CPU pipeline",
+                    "{}: missing parser VM program for active CPU pipeline",
                     parser_contract.diagnostics.invalid_statement
                 ),
             )
@@ -153,7 +153,7 @@ pub(crate) fn tokenize_line_with_default_model(
     line_num: u32,
 ) -> Result<Vec<Token>, ParseError> {
     let model = default_runtime_model().ok_or_else(|| ParseError {
-        message: "opThread tokenizer runtime model is unavailable".to_string(),
+        message: "VM tokenizer runtime model is unavailable".to_string(),
         span: Span {
             line: line_num,
             col_start: 1,

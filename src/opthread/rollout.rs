@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-//! opThread runtime rollout policy by CPU family.
+//! VM runtime rollout policy by CPU family.
 //!
 //! This keeps staged-enable controls explicit and testable.
 

@@ -14,11 +14,11 @@ proptest = "1"
 
 [features]
 default = []
-# Enables loading/writing opThread runtime package bytes as an on-disk artifact
-# (`target/opthread/opforge-runtime.opcpu`) with registry-build fallback.
-opthread-runtime-opcpu-artifact = []
-# Enables additional parity-focused opThread test lanes and checks.
-opthread-parity = []
+# Enables loading/writing VM runtime package bytes as an on-disk artifact
+# (`target/vm/opforge-vm-runtime.opcpu`) with registry-build fallback.
+vm-runtime-opcpu-artifact = []
+# Enables additional parity-focused VM test lanes and checks.
+vm-parity = []
 
 [profile.release]
 lto = true

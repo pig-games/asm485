@@ -116,7 +116,7 @@ impl HierarchyExecutionModel {
             .trim()
             .is_empty()
         {
-            "opthread-runtime"
+            "vm-runtime"
         } else {
             contract.diagnostics.invalid_expression_program.as_str()
         };

@@ -1,0 +1,6 @@
+family=intel8080
+cpu=z80
+dialect=zilog
+native_line=    JP missing_label
+canonical_line=    JMP missing_label
+expect_status=error

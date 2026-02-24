@@ -11,7 +11,7 @@
 //! - [`m65c02`] - WDC 65C02-specific extensions
 //! - [`m65816`] - WDC 65816-specific extensions
 //! - [`assembler`] - Main assembler entry point
-//! - [`opthread`] - opThread VM/package model (in progress)
+//! - [`opthread`] - VM runtime/package model (in progress)
 
 pub mod assembler;
 pub mod core;

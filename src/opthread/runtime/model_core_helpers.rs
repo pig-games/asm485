@@ -118,7 +118,7 @@ impl HierarchyExecutionModel {
 
     pub(super) fn budget_error(name: &str, limit: usize, observed: usize) -> RuntimeBridgeError {
         RuntimeBridgeError::Resolve(format!(
-            "opThread runtime budget exceeded ({name}): observed {observed}, limit {limit}"
+            "VM runtime budget exceeded ({name}): observed {observed}, limit {limit}"
         ))
     }
 }

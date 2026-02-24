@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-//! Family/CPU/Dialect hierarchy schema and resolver for opThread packages.
+//! Family/CPU/Dialect hierarchy schema and resolver for VM packages.
 //!
 //! This module mirrors opForge registry semantics for pipeline selection:
 //! explicit dialect override, then CPU default dialect, then family canonical.

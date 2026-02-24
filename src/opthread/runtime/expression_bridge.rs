@@ -228,7 +228,7 @@ impl HierarchyExecutionModel {
         if opcode_version != EXPR_PARSER_VM_OPCODE_VERSION_V1 {
             return Err(ParseError {
                 message: format!(
-                    "unsupported opThread expression parser VM opcode version {}",
+                    "unsupported VM expression parser VM opcode version {}",
                     opcode_version
                 ),
                 span: end_span,

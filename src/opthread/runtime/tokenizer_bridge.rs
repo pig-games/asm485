@@ -23,7 +23,7 @@ impl HierarchyExecutionModel {
                     .tokenizer_vm_program_for_resolved(&resolved)
                     .ok_or_else(|| {
                         RuntimeBridgeError::Resolve(format!(
-                            "missing opThread tokenizer VM program for family '{}'",
+                            "missing tokenizer VM program for family '{}'",
                             resolved.family_id
                         ))
                     })?;
@@ -76,7 +76,7 @@ impl HierarchyExecutionModel {
             .tokenizer_vm_program_for_resolved(&resolved)
             .ok_or_else(|| {
                 RuntimeBridgeError::Resolve(format!(
-                    "missing opThread tokenizer VM program for family '{}'",
+                    "missing tokenizer VM program for family '{}'",
                     resolved.family_id
                 ))
             })?;
@@ -493,7 +493,7 @@ impl HierarchyExecutionModel {
 fn tokenizer_vm_error_code(program: &RuntimeTokenizerVmProgram) -> &str {
     let code = program.diagnostics.invalid_char.trim();
     if code.is_empty() {
-        "opthread-runtime"
+        "vm-runtime"
     } else {
         code
     }

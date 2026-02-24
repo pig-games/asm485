@@ -1406,7 +1406,7 @@ fn execution_model_validate_parser_contract_for_assembler_errors_when_missing() 
     assert!(
         err.to_string()
             .to_ascii_lowercase()
-            .contains("missing opthread parser contract"),
+            .contains("missing vm parser contract"),
         "expected missing contract error, got: {err}"
     );
 }
@@ -1844,7 +1844,8 @@ fn execution_model_compile_expression_program_parser_vm_opt_in_rejects_unknown_o
         .expect_err("unknown expression parser VM opcode version should fail");
     assert!(err
         .message
-        .contains("unsupported opThread expression parser VM opcode version"));
+        .to_ascii_lowercase()
+        .contains("unsupported vm expression parser vm opcode version"));
 }
 
 #[test]
@@ -2074,7 +2075,7 @@ fn execution_model_tokenizer_vm_authoritative_mode_requires_program() {
     assert!(err
         .to_string()
         .to_ascii_lowercase()
-        .contains("missing opthread tokenizer vm program"));
+        .contains("missing tokenizer vm program"));
 }
 
 #[test]

@@ -130,7 +130,7 @@ pub(super) fn default_runtime_diagnostic_catalog() -> Vec<DiagnosticDescriptor> 
     vec![
         DiagnosticDescriptor {
             code: DIAG_OPTHREAD_MISSING_VM_PROGRAM.to_string(),
-            message_template: "missing opThread VM program for {mnemonic}".to_string(),
+            message_template: "missing VM program for {mnemonic}".to_string(),
         },
         DiagnosticDescriptor {
             code: DIAG_OPTHREAD_INVALID_FORCE_OVERRIDE.to_string(),

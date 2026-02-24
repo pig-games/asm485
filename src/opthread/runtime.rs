@@ -156,7 +156,7 @@ fn register_fn_resolver(
     );
 }
 
-/// Errors emitted by the opThread host/runtime bridge.
+/// Errors emitted by the VM host/runtime bridge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeBridgeError {
     ActiveCpuNotSet,
@@ -479,7 +479,7 @@ impl HierarchyRuntimeBridge {
 }
 
 pub mod native6502_abi {
-    /// opThread v1 native host ABI marker for 6502-class integrations.
+    /// VM v1 native host ABI marker for 6502-class integrations.
     pub const NATIVE_6502_ABI_MAGIC_V1: [u8; 4] = *b"OT65";
     pub const NATIVE_6502_ABI_VERSION_V1: u16 = 0x0001;
 
@@ -960,7 +960,7 @@ impl HierarchyExecutionModel {
             .parser_contract_for_resolved(&resolved)
             .ok_or_else(|| {
                 RuntimeBridgeError::Resolve(format!(
-                    "missing opThread parser contract for family '{}'",
+                    "missing VM parser contract for family '{}'",
                     resolved.family_id
                 ))
             })?;
@@ -1022,7 +1022,7 @@ impl HierarchyExecutionModel {
         };
         if contract.opcode_version != EXPR_VM_OPCODE_VERSION_V1 {
             return Err(RuntimeBridgeError::Resolve(format!(
-                "unsupported opThread expression contract opcode version {}",
+                "unsupported VM expression contract opcode version {}",
                 contract.opcode_version
             )));
         }
@@ -1254,7 +1254,7 @@ fn expr_parser_vm_parity_checklist_for_family(family_id: &str) -> Option<&'stati
 fn parser_contract_error_code(contract: &RuntimeParserContract) -> &str {
     let code = contract.diagnostics.invalid_statement.trim();
     if code.is_empty() {
-        "opthread-runtime"
+        "vm-runtime"
     } else {
         code
     }

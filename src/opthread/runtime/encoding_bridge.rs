@@ -56,7 +56,7 @@ impl HierarchyExecutionModel {
             Some(bytes) => Ok(Some(bytes)),
             None => {
                 let upper = mnemonic.to_ascii_uppercase();
-                let fallback = format!("missing opThread VM program for {}", upper);
+                let fallback = format!("missing VM program for {}", upper);
                 let message = self.diag_message(
                     DIAG_OPTHREAD_MISSING_VM_PROGRAM,
                     fallback.as_str(),

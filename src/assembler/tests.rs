@@ -6946,9 +6946,9 @@ fn error_kind_for_symbol_failure() {
     assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Symbol);
 }
 
-#[cfg(feature = "opthread-parity")]
+#[cfg(feature = "vm-parity")]
 #[test]
-fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
+fn vm_parity_smoke_instruction_bytes_and_diagnostics() {
     use crate::opthread::builder::build_hierarchy_package_from_registry;
     use crate::opthread::package::load_hierarchy_package;
     use std::fs;
@@ -6958,7 +6958,7 @@ fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
     let package_bytes =
         build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
     let package = load_hierarchy_package(&package_bytes).expect("load hierarchy package");
-    let vectors_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/opthread/vectors");
+    let vectors_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/vm/vectors");
     let mut vector_paths: Vec<_> = fs::read_dir(vectors_dir)
         .expect("read vectors dir")
         .filter_map(Result::ok)
@@ -7036,7 +7036,7 @@ fn opthread_parity_smoke_instruction_bytes_and_diagnostics() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
+fn vm_runtime_mos6502_base_cpu_path_uses_package_forms() {
     let bytes = assemble_bytes(m6502_cpu_id, "    LDA #$10");
     assert_eq!(bytes, vec![0xA9, 0x10]);
 
@@ -7050,7 +7050,7 @@ fn opthread_runtime_mos6502_base_cpu_path_uses_package_forms() {
 }
 
 #[test]
-fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
+fn vm_runtime_model_is_available_for_mos6502_family_cpus() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
 
@@ -7065,7 +7065,7 @@ fn opthread_runtime_model_is_available_for_mos6502_family_cpus() {
 }
 
 #[test]
-fn opthread_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokenization() {
+fn vm_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokenization() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
 
@@ -7076,28 +7076,28 @@ fn opthread_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokeniza
     assert!(z80_asm.opthread_execution_model.is_some());
 }
 
-#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+#[cfg(feature = "vm-runtime-opcpu-artifact")]
 #[test]
-fn opthread_runtime_artifact_path_is_target_relative() {
-    let base = create_temp_dir("opthread-artifact-path");
+fn vm_runtime_artifact_path_is_target_relative() {
+    let base = create_temp_dir("vm-artifact-path");
     let path = AsmLine::opthread_package_artifact_path_for_dir(base.as_path());
     assert_eq!(
         path,
         base.join("target")
-            .join("opthread")
-            .join("opforge-runtime.opcpu")
+            .join("vm")
+            .join("opforge-vm-runtime.opcpu")
     );
 }
 
-#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+#[cfg(feature = "vm-runtime-opcpu-artifact")]
 #[test]
-fn opthread_runtime_artifact_helpers_round_trip_model_load() {
+fn vm_runtime_artifact_helpers_round_trip_model_load() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
-    let path = create_temp_dir("opthread-artifact-roundtrip")
+    let path = create_temp_dir("vm-artifact-roundtrip")
         .join("target")
-        .join("opthread")
-        .join("opforge-runtime.opcpu");
+        .join("vm")
+        .join("opforge-vm-runtime.opcpu");
     let package_bytes =
         build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
     AsmLine::persist_opthread_package_artifact(path.as_path(), &package_bytes);
@@ -7115,9 +7115,9 @@ fn opthread_runtime_artifact_helpers_round_trip_model_load() {
     );
 }
 
-#[cfg(feature = "opthread-runtime-opcpu-artifact")]
+#[cfg(feature = "vm-runtime-opcpu-artifact")]
 #[test]
-fn opthread_runtime_artifact_mos6502_parity_and_determinism_gate() {
+fn vm_runtime_artifact_mos6502_parity_and_determinism_gate() {
     let source = [
         "    .cpu 6502",
         "    .org $1000",
@@ -7159,7 +7159,7 @@ fn opthread_runtime_artifact_mos6502_parity_and_determinism_gate() {
 }
 
 #[test]
-fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist() {
+fn vm_rollout_criteria_all_registered_families_have_policy_and_checklist() {
     let registry = default_registry();
     for family in registry.family_ids() {
         let policy = family_runtime_rollout_policy(family.as_str())
@@ -7173,7 +7173,7 @@ fn opthread_rollout_criteria_all_registered_families_have_policy_and_checklist()
 }
 
 #[test]
-fn opthread_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled() {
+fn vm_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled() {
     assert_eq!(
         family_runtime_mode("intel8080"),
         FamilyRuntimeMode::Authoritative
@@ -7188,7 +7188,7 @@ fn opthread_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled(
         let runtime = assemble_line_with_runtime_mode_no_injection(cpu, line, true);
         assert!(
             runtime.3,
-            "authoritative family should initialize opthread model for VM tokenization on {}",
+            "authoritative family should initialize VM model for VM tokenization on {}",
             cpu.as_str()
         );
         assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
@@ -7198,7 +7198,7 @@ fn opthread_rollout_criteria_intel_family_is_authoritative_when_runtime_enabled(
 }
 
 #[test]
-fn opthread_runtime_intel_authoritative_preserves_lxi_register_name_diagnostic_shape() {
+fn vm_runtime_intel_authoritative_preserves_lxi_register_name_diagnostic_shape() {
     let source = ["    .cpu 8085", "SP: .word 256", "    LXI H,SP"];
     let (_entries, diagnostics) = assemble_source_entries_with_runtime_mode(&source, true)
         .expect("source assembly should run");
@@ -7211,7 +7211,7 @@ fn opthread_runtime_intel_authoritative_preserves_lxi_register_name_diagnostic_s
 }
 
 #[test]
-fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
+fn vm_rollout_criteria_mos6502_parity_and_determinism_gate() {
     assert_eq!(
         family_runtime_mode("mos6502"),
         FamilyRuntimeMode::Authoritative
@@ -7256,7 +7256,7 @@ fn opthread_rollout_criteria_mos6502_parity_and_determinism_gate() {
 }
 
 #[test]
-fn opthread_expr_parser_rollout_criteria_all_registered_families_have_policy_and_checklist() {
+fn vm_expr_parser_rollout_criteria_all_registered_families_have_policy_and_checklist() {
     let registry = default_registry();
     for family in registry.family_ids() {
         let policy = crate::opthread::rollout::family_expr_parser_rollout_policy(family.as_str())
@@ -7275,7 +7275,7 @@ fn opthread_expr_parser_rollout_criteria_all_registered_families_have_policy_and
 }
 
 #[test]
-fn opthread_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
+fn vm_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
     assert!(
         crate::opthread::rollout::portable_expr_parser_runtime_default_enabled_for_family(
             "mos6502"
@@ -7289,7 +7289,7 @@ fn opthread_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
 }
 
 #[test]
-fn opthread_runtime_intel8085_path_uses_package_forms() {
+fn vm_runtime_intel8085_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7318,7 +7318,7 @@ fn opthread_runtime_intel8085_path_uses_package_forms() {
 }
 
 #[test]
-fn opthread_runtime_z80_dialect_path_uses_package_forms() {
+fn vm_runtime_z80_dialect_path_uses_package_forms() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
@@ -7348,7 +7348,7 @@ fn opthread_runtime_z80_dialect_path_uses_package_forms() {
 }
 
 #[test]
-fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
+fn vm_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
     let pairs = [
         ("    MVI A,55h", "    LD A,55h"),
         ("    MOV A,B", "    LD A,B"),
@@ -7403,7 +7403,7 @@ fn opthread_runtime_intel8080_family_rewrite_pairs_match_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
+fn vm_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
     let corpus = ["    RIM", "    SIM"];
 
     for line in corpus {
@@ -7416,7 +7416,7 @@ fn opthread_runtime_intel8085_extension_parity_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
+fn vm_runtime_z80_extension_parity_corpus_matches_native_mode() {
     let corpus = ["    DJNZ $0004", "    RLC B"];
 
     for line in corpus {
@@ -7429,7 +7429,7 @@ fn opthread_runtime_z80_extension_parity_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
+fn vm_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7451,13 +7451,11 @@ fn opthread_runtime_mos6502_missing_tabl_program_errors_instead_of_fallback() {
     let status = asm.process("    LDA #$10", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
     assert_eq!(status, LineStatus::Error);
-    assert!(message
-        .to_ascii_lowercase()
-        .contains("missing opthread vm program"));
+    assert!(message.to_ascii_lowercase().contains("missing vm program"));
 }
 
 #[test]
-fn opthread_runtime_mos6502_parser_vm_failure_errors_instead_of_host_parser_fallback() {
+fn vm_runtime_mos6502_parser_vm_failure_errors_instead_of_host_parser_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7493,7 +7491,7 @@ fn opthread_runtime_mos6502_parser_vm_failure_errors_instead_of_host_parser_fall
 }
 
 #[test]
-fn opthread_runtime_mos6502_expression_contract_breakage_errors_instead_of_fallback() {
+fn vm_runtime_mos6502_expression_contract_breakage_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7529,7 +7527,7 @@ fn opthread_runtime_mos6502_expression_contract_breakage_errors_instead_of_fallb
 }
 
 #[test]
-fn opthread_runtime_mos6502_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+fn vm_runtime_mos6502_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7565,7 +7563,7 @@ fn opthread_runtime_mos6502_expr_parser_contract_breakage_errors_instead_of_host
 }
 
 #[test]
-fn opthread_runtime_mos6502_data_eval_survives_host_evaluator_failpoint() {
+fn vm_runtime_mos6502_data_eval_survives_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7590,7 +7588,7 @@ fn opthread_runtime_mos6502_data_eval_survives_host_evaluator_failpoint() {
 }
 
 #[test]
-fn opthread_runtime_i8085_data_eval_survives_host_evaluator_failpoint() {
+fn vm_runtime_i8085_data_eval_survives_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7615,7 +7613,7 @@ fn opthread_runtime_i8085_data_eval_survives_host_evaluator_failpoint() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_expr_parse_survives_core_parser_failpoint() {
+fn vm_runtime_mos6502_expr_parse_survives_core_parser_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7640,7 +7638,7 @@ fn opthread_runtime_mos6502_expr_parse_survives_core_parser_failpoint() {
 }
 
 #[test]
-fn opthread_runtime_i8085_expr_parse_survives_core_parser_failpoint() {
+fn vm_runtime_i8085_expr_parse_survives_core_parser_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7665,7 +7663,7 @@ fn opthread_runtime_i8085_expr_parse_survives_core_parser_failpoint() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_instruction_expr_parse_survives_core_parser_failpoint() {
+fn vm_runtime_mos6502_instruction_expr_parse_survives_core_parser_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7690,7 +7688,7 @@ fn opthread_runtime_mos6502_instruction_expr_parse_survives_core_parser_failpoin
 }
 
 #[test]
-fn opthread_runtime_i8085_instruction_expr_parse_survives_core_parser_failpoint() {
+fn vm_runtime_i8085_instruction_expr_parse_survives_core_parser_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7715,7 +7713,7 @@ fn opthread_runtime_i8085_instruction_expr_parse_survives_core_parser_failpoint(
 }
 
 #[test]
-fn opthread_runtime_mos6502_instruction_expr_eval_survives_host_evaluator_failpoint() {
+fn vm_runtime_mos6502_instruction_expr_eval_survives_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7740,7 +7738,7 @@ fn opthread_runtime_mos6502_instruction_expr_eval_survives_host_evaluator_failpo
 }
 
 #[test]
-fn opthread_runtime_i8085_instruction_expr_eval_survives_host_evaluator_failpoint() {
+fn vm_runtime_i8085_instruction_expr_eval_survives_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -7765,7 +7763,7 @@ fn opthread_runtime_i8085_instruction_expr_eval_survives_host_evaluator_failpoin
 }
 
 #[test]
-fn opthread_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+fn vm_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7801,7 +7799,7 @@ fn opthread_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_ho
 }
 
 #[test]
-fn opthread_runtime_mos6502_eval_expr_uses_expr_contract_budgets() {
+fn vm_runtime_mos6502_eval_expr_uses_expr_contract_budgets() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7837,7 +7835,7 @@ fn opthread_runtime_mos6502_eval_expr_uses_expr_contract_budgets() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_eval_expr_uses_portable_eval_by_default_when_certified() {
+fn vm_runtime_mos6502_eval_expr_uses_portable_eval_by_default_when_certified() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7871,7 +7869,7 @@ fn opthread_runtime_mos6502_eval_expr_uses_portable_eval_by_default_when_certifi
 }
 
 #[test]
-fn opthread_runtime_mos6502_eval_expr_force_host_override_disables_default_vm() {
+fn vm_runtime_mos6502_eval_expr_force_host_override_disables_default_vm() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7904,7 +7902,7 @@ fn opthread_runtime_mos6502_eval_expr_force_host_override_disables_default_vm() 
 }
 
 #[test]
-fn opthread_runtime_mos6502_data_directive_eval_uses_portable_eval_by_default_when_certified() {
+fn vm_runtime_mos6502_data_directive_eval_uses_portable_eval_by_default_when_certified() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -7938,7 +7936,7 @@ fn opthread_runtime_mos6502_data_directive_eval_uses_portable_eval_by_default_wh
 }
 
 #[test]
-fn opthread_runtime_intel8085_data_directive_eval_uses_portable_eval_by_default() {
+fn vm_runtime_intel8085_data_directive_eval_uses_portable_eval_by_default() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -7972,7 +7970,7 @@ fn opthread_runtime_intel8085_data_directive_eval_uses_portable_eval_by_default(
 }
 
 #[test]
-fn opthread_runtime_mos6502_layout_directive_eval_uses_portable_eval_by_default_when_certified() {
+fn vm_runtime_mos6502_layout_directive_eval_uses_portable_eval_by_default_when_certified() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8006,7 +8004,7 @@ fn opthread_runtime_mos6502_layout_directive_eval_uses_portable_eval_by_default_
 }
 
 #[test]
-fn opthread_runtime_intel8085_layout_directive_eval_uses_portable_eval_by_default() {
+fn vm_runtime_intel8085_layout_directive_eval_uses_portable_eval_by_default() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -8040,7 +8038,7 @@ fn opthread_runtime_intel8085_layout_directive_eval_uses_portable_eval_by_defaul
 }
 
 #[test]
-fn opthread_runtime_mos6502_complex_layout_directives_survive_host_evaluator_failpoint() {
+fn vm_runtime_mos6502_complex_layout_directives_survive_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -8084,7 +8082,7 @@ fn opthread_runtime_mos6502_complex_layout_directives_survive_host_evaluator_fai
 }
 
 #[test]
-fn opthread_runtime_i8085_complex_layout_directives_survive_host_evaluator_failpoint() {
+fn vm_runtime_i8085_complex_layout_directives_survive_host_evaluator_failpoint() {
     struct FailpointReset;
 
     impl Drop for FailpointReset {
@@ -8128,7 +8126,7 @@ fn opthread_runtime_i8085_complex_layout_directives_survive_host_evaluator_failp
 }
 
 #[test]
-fn opthread_runtime_mos6502_output_directive_eval_uses_portable_eval_by_default_when_certified() {
+fn vm_runtime_mos6502_output_directive_eval_uses_portable_eval_by_default_when_certified() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8168,7 +8166,7 @@ fn opthread_runtime_mos6502_output_directive_eval_uses_portable_eval_by_default_
 }
 
 #[test]
-fn opthread_runtime_intel8085_output_directive_eval_uses_portable_eval_by_default() {
+fn vm_runtime_intel8085_output_directive_eval_uses_portable_eval_by_default() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -8208,7 +8206,7 @@ fn opthread_runtime_intel8085_output_directive_eval_uses_portable_eval_by_defaul
 }
 
 #[test]
-fn opthread_runtime_mos6502_selector_unknown_symbol_uses_explicit_compat_fallback() {
+fn vm_runtime_mos6502_selector_unknown_symbol_uses_explicit_compat_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8233,7 +8231,7 @@ fn opthread_runtime_mos6502_selector_unknown_symbol_uses_explicit_compat_fallbac
 }
 
 #[test]
-fn opthread_runtime_mos6502_selector_non_compat_eval_error_does_not_fallback() {
+fn vm_runtime_mos6502_selector_non_compat_eval_error_does_not_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8267,7 +8265,7 @@ fn opthread_runtime_mos6502_selector_non_compat_eval_error_does_not_fallback() {
 }
 
 #[test]
-fn opthread_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_portable_eval() {
+fn vm_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_portable_eval() {
     let unresolved_native =
         assemble_i8085_line_with_expr_vm_opt_in("    MVI A, missing_symbol", 0x1000, None, false);
     let unresolved_runtime =
@@ -8310,7 +8308,7 @@ fn opthread_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_po
 }
 
 #[test]
-fn opthread_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
+fn vm_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
     let corpus = [
         "    MVI A, ((1 + 2 * 3) == 7 ? $2A : $55)",
         "    MVI A, (($ + 2) > $1000 ? $11 : $22)",
@@ -8336,7 +8334,7 @@ fn opthread_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_por
 }
 
 #[test]
-fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_authoritative() {
+fn vm_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_authoritative() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -8370,7 +8368,7 @@ fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_autho
 }
 
 #[test]
-fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_when_opted_in() {
+fn vm_runtime_intel8085_eval_expr_uses_portable_eval_when_opted_in() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, i8085_cpu_id, &registry);
@@ -8403,7 +8401,7 @@ fn opthread_runtime_intel8085_eval_expr_uses_portable_eval_when_opted_in() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
+fn vm_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8436,7 +8434,7 @@ fn opthread_runtime_mos6502_missing_tokenizer_vm_program_errors_instead_of_fallb
 }
 
 #[test]
-fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallback() {
+fn vm_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8469,7 +8467,7 @@ fn opthread_runtime_mos6502_invalid_tokenizer_vm_opcode_errors_instead_of_fallba
 }
 
 #[test]
-fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallback() {
+fn vm_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8505,7 +8503,7 @@ fn opthread_runtime_mos6502_delegate_tokenizer_vm_opcode_errors_instead_of_fallb
 }
 
 #[test]
-fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of_fallback() {
+fn vm_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8538,7 +8536,7 @@ fn opthread_runtime_mos6502_malformed_tokenizer_vm_state_table_errors_instead_of
 }
 
 #[test]
-fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_authoritative() {
+fn vm_runtime_intel8080_family_tokenization_requires_vm_tokens_when_authoritative() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
@@ -8571,7 +8569,7 @@ fn opthread_runtime_intel8080_family_tokenization_requires_vm_tokens_when_author
 }
 
 #[test]
-fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime_flag_is_off() {
+fn vm_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime_flag_is_off() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, z80_cpu_id, &registry);
@@ -8604,7 +8602,7 @@ fn opthread_runtime_intel8080_family_tokenization_is_vm_strict_even_when_runtime
 }
 
 #[test]
-fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
+fn vm_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m6502_cpu_id, &registry);
@@ -8630,7 +8628,7 @@ fn opthread_runtime_m6502_missing_selector_errors_instead_of_resolve_fallback() 
 }
 
 #[test]
-fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback() {
+fn vm_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m65c02_cpu_id, &registry);
@@ -8656,7 +8654,7 @@ fn opthread_runtime_m65c02_missing_selector_errors_instead_of_resolve_fallback()
 }
 
 #[test]
-fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback() {
+fn vm_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = AsmLine::with_cpu(&mut symbols, m65816_cpu_id, &registry);
@@ -8684,7 +8682,7 @@ fn opthread_runtime_m65816_missing_selector_errors_instead_of_resolve_fallback()
 }
 
 #[test]
-fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
+fn vm_runtime_mos6502_parity_corpus_matches_native_mode() {
     let corpus = [
         "    LDA #$10",
         "    STA $2000",
@@ -8709,7 +8707,7 @@ fn opthread_runtime_mos6502_parity_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
+fn vm_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
     // The mos6502 family is currently VM-eval enabled by default in rollout policy.
     // Verify representative family CPUs keep byte+diagnostic parity with host mode.
     let corpus = [
@@ -8729,7 +8727,7 @@ fn opthread_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode()
 }
 
 #[test]
-fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
+fn vm_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
     let corpus = [
         (m6502_cpu_id, "LABEL: LDA #$10 ; trailing comment"),
         (m6502_cpu_id, "LABEL LDA $10,X"),
@@ -8771,7 +8769,7 @@ fn opthread_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fallback() {
+fn vm_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fallback() {
     let line = "    LDA ($10,S),Y";
     let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
     let runtime = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
@@ -8781,7 +8779,7 @@ fn opthread_runtime_mos6502_expr_resolver_rejects_unsupported_shape_without_fall
 }
 
 #[test]
-fn opthread_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
+fn vm_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
     let corpus = [
         (m6502_cpu_id, "    LDA $10,d"),
         (m65c02_cpu_id, "    LDA $10,d"),
@@ -8797,7 +8795,7 @@ fn opthread_runtime_non_65816_force_suffix_diagnostics_match_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_pathological_line_corpus_matches_native_mode() {
+fn vm_runtime_mos6502_pathological_line_corpus_matches_native_mode() {
     let corpus = [
         (m6502_cpu_id, "    LDA missing_label"),
         (m6502_cpu_id, "    BNE missing_label"),
@@ -8817,7 +8815,7 @@ fn opthread_runtime_mos6502_pathological_line_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_m65816_width_edge_program_matches_native_mode() {
+fn vm_runtime_m65816_width_edge_program_matches_native_mode() {
     let source = [
         "    .cpu 65816",
         "    SEP #$20",
@@ -8835,7 +8833,7 @@ fn opthread_runtime_m65816_width_edge_program_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
+fn vm_runtime_mos6502_selector_conflict_reports_deterministic_error() {
     let registry = default_registry();
 
     let mut chunks =
@@ -8890,7 +8888,7 @@ fn opthread_runtime_mos6502_selector_conflict_reports_deterministic_error() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_example_programs_match_native_mode() {
+fn vm_runtime_mos6502_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let corpus = ["6502_simple.asm", "6502_allmodes.asm", "mos6502_modes.asm"];
 
@@ -8910,7 +8908,7 @@ fn opthread_runtime_mos6502_example_programs_match_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
+fn vm_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
     let source = [
         "    .cpu 6502",
         "    .org $1000",
@@ -8938,7 +8936,7 @@ fn opthread_runtime_mos6502_relocation_heavy_program_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_m65c02_example_programs_match_native_mode() {
+fn vm_runtime_m65c02_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let corpus = ["65c02_simple.asm", "65c02_allmodes.asm"];
 
@@ -8958,7 +8956,7 @@ fn opthread_runtime_m65c02_example_programs_match_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_m65816_example_programs_match_native_mode() {
+fn vm_runtime_m65816_example_programs_match_native_mode() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let corpus = [
         "65816_simple.asm",
@@ -8988,7 +8986,7 @@ fn opthread_runtime_m65816_example_programs_match_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() {
+fn vm_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() {
     let corpus = [
         (m6502_cpu_id, "    BNE $0200"),
         (m6502_cpu_id, "    JMP missing_label"),
@@ -9008,7 +9006,7 @@ fn opthread_runtime_mos_family_diagnostic_boundary_parity_matches_native_mode() 
 }
 
 #[test]
-fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
+fn vm_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
     let corpus = [
         "    BRA $0004",
         "    BBR0 $12,$0005",
@@ -9032,7 +9030,7 @@ fn opthread_runtime_m65c02_extension_parity_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
+fn vm_runtime_m65816_extension_parity_corpus_matches_native_mode() {
     let corpus = [
         "    REP #$30",
         "    SEP #$20",
@@ -9062,7 +9060,7 @@ fn opthread_runtime_m65816_extension_parity_corpus_matches_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_m65c02_table_modes_match_native_mode() {
+fn vm_runtime_m65c02_table_modes_match_native_mode() {
     let mut cases: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
 
@@ -9104,7 +9102,7 @@ fn opthread_runtime_m65c02_table_modes_match_native_mode() {
 }
 
 #[test]
-fn opthread_runtime_m65816_table_modes_match_native_mode() {
+fn vm_runtime_m65816_table_modes_match_native_mode() {
     let mut cases: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
 
@@ -9220,10 +9218,10 @@ fn collect_mos6502_native_baseline_snapshot() -> String {
 #[test]
 fn mos6502_native_baseline_matches_reference() {
     let baseline_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/opthread/reference/mos6502_native_baseline.tsv");
+        .join("examples/vm/reference/mos6502_native_baseline.tsv");
     let snapshot = collect_mos6502_native_baseline_snapshot();
 
-    if std::env::var("opForge_UPDATE_OPTHREAD_BASELINE").is_ok() {
+    if std::env::var("opForge_UPDATE_VM_BASELINE").is_ok() {
         if let Some(parent) = baseline_path.parent() {
             fs::create_dir_all(parent).expect("create baseline directory");
         }
@@ -9232,7 +9230,7 @@ fn mos6502_native_baseline_matches_reference() {
 
     let expected = fs::read_to_string(&baseline_path).unwrap_or_else(|err| {
         panic!(
-            "missing baseline file {}: {} (run with opForge_UPDATE_OPTHREAD_BASELINE=1)",
+            "missing baseline file {}: {} (run with opForge_UPDATE_VM_BASELINE=1)",
             baseline_path.display(),
             err
         )

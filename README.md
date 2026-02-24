@@ -14,6 +14,7 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 `type:name` and quoted literal commas (use `","`). Statement labels may include dots (e.g. `move.b`).
 
 For full documentation on features and syntax, read the [opForge Reference Manual](documentation/opForge-reference-manual.md).
+For VM host/boundary semantics, see [VM Boundary & Protocol Specification (v1)](documentation/vm-boundary-protocol-v1.md).
 For version-specific 65816 implementation scope and limits, see [RELEASE_NOTES_v0.9.1.md](RELEASE_NOTES_v0.9.1.md).
 
 Build:
@@ -37,46 +38,46 @@ Run the full test suite:
 
     make test
 
-Run opThread parity smoke checks (optional feature lane):
+Run VM parity smoke checks (optional feature lane):
 
-    make test-opthread-parity
+    make test-vm-parity
 
 Run MOS6502 runtime/package parity checks:
 
-    make test-opthread-runtime
+    make test-vm-runtime
 
 Run MOS6502 runtime/package artifact-mode checks (optional feature lane):
 
-    make test-opthread-runtime-artifact
+    make test-vm-runtime-artifact
 
 Run Intel8080-family runtime/package parity checks:
 
-    make test-opthread-runtime-intel
+    make test-vm-runtime-intel
 
 Run rollout policy/criteria gate checks:
 
-    make test-opthread-rollout-criteria
+    make test-vm-rollout-criteria
 
 Run the local MOS6502 CI gate bundle:
 
-    make ci-opthread-mos6502
+    make ci-vm-mos6502
 
 Run the local Intel8080-family CI gate bundle:
 
-    make ci-opthread-intel8080
+    make ci-vm-intel8080
 
-opThread rollout status (VM runtime is default):
+VM rollout status (VM runtime is default):
 - Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
 - Authoritative package-runtime family: `intel8080` (`8085`, `z80`).
 
 Optional on-disk runtime package artifact mode:
-- Enable feature `opthread-runtime-opcpu-artifact`.
-- Runtime then loads/writes `.opcpu` bytes at `target/opthread/opforge-runtime.opcpu` with registry-build fallback.
+- Enable feature `vm-runtime-opcpu-artifact`.
+- Runtime then loads/writes `.opcpu` bytes at `target/vm/opforge-vm-runtime.opcpu` with registry-build fallback.
 - Rust-table-driven package generation remains the supported authoring path for new families/CPUs (`build_hierarchy_package_from_registry`).
 
 Cargo feature flags:
-- `opthread-runtime-opcpu-artifact`: enables on-disk runtime package artifact mode (`target/opthread/opforge-runtime.opcpu`) with registry fallback.
-- `opthread-parity`: enables parity-focused opThread test lanes and CI checks.
+- `vm-runtime-opcpu-artifact`: enables on-disk runtime package artifact mode (`target/vm/opforge-vm-runtime.opcpu`) with registry fallback.
+- `vm-parity`: enables parity-focused VM test lanes and CI checks.
 
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 

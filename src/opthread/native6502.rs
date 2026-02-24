@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-//! 6502-native host harness envelope for opThread runtime integration.
+//! 6502-native host harness envelope for VM runtime integration.
 
 use crate::core::registry::VmEncodeCandidate;
 use crate::opthread::runtime::{
@@ -475,7 +475,7 @@ impl Native6502Harness {
 
     fn set_pipeline(&mut self, cpu_id: &str, dialect_override: Option<&str>) -> Result<(), String> {
         let model = self.model.as_ref().ok_or_else(|| {
-            "OTR001: native set_pipeline requires a loaded opThread package".to_string()
+            "OTR001: native set_pipeline requires a loaded VM package".to_string()
         })?;
         model
             .resolve_pipeline(cpu_id, dialect_override)
@@ -528,9 +528,10 @@ impl Native6502Harness {
     fn require_active_model(
         &self,
     ) -> Result<(&HierarchyExecutionModel, &str, Option<&str>), String> {
-        let model = self.model.as_ref().ok_or_else(|| {
-            "OTR001: native entrypoint requires a loaded opThread package".to_string()
-        })?;
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| "OTR001: native entrypoint requires a loaded VM package".to_string())?;
         let active_cpu = self
             .active_cpu
             .as_deref()
@@ -882,7 +883,7 @@ mod tests {
     fn harness_fixture_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
-            .join("opthread")
+            .join("vm")
             .join("harness-fixtures")
     }
 

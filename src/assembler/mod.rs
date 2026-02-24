@@ -74,11 +74,14 @@ pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as
 pub use cli::VERSION;
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
-const OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES";
-const OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES";
-#[cfg(feature = "opthread-runtime-opcpu-artifact")]
-const OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str =
-    "target/opthread/opforge-runtime.opcpu";
+const OPFORGE_VM_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPFORGE_VM_EXPR_EVAL_OPT_IN_FAMILIES";
+const OPFORGE_VM_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV: &str =
+    "OPFORGE_VM_EXPR_EVAL_FORCE_HOST_FAMILIES";
+const LEGACY_OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES";
+const LEGACY_OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV: &str =
+    "OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES";
+#[cfg(feature = "vm-runtime-opcpu-artifact")]
+const VM_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str = "target/vm/opforge-vm-runtime.opcpu";
 #[cfg(test)]
 thread_local! {
     static HOST_EXPR_EVAL_FAILPOINT: Cell<bool> = const { Cell::new(false) };
@@ -1330,11 +1333,35 @@ impl<'a> AsmLine<'a> {
     }
 
     fn expr_eval_opt_in_families_from_env() -> Vec<String> {
-        Self::parse_family_list_from_env(OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV)
+        let mut families =
+            Self::parse_family_list_from_env(OPFORGE_VM_EXPR_EVAL_OPT_IN_FAMILIES_ENV);
+        for candidate in
+            Self::parse_family_list_from_env(LEGACY_OPTHREAD_EXPR_EVAL_OPT_IN_FAMILIES_ENV)
+        {
+            if !families
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(candidate.as_str()))
+            {
+                families.push(candidate);
+            }
+        }
+        families
     }
 
     fn expr_eval_force_host_families_from_env() -> Vec<String> {
-        Self::parse_family_list_from_env(OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV)
+        let mut families =
+            Self::parse_family_list_from_env(OPFORGE_VM_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV);
+        for candidate in
+            Self::parse_family_list_from_env(LEGACY_OPTHREAD_EXPR_EVAL_FORCE_HOST_FAMILIES_ENV)
+        {
+            if !families
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(candidate.as_str()))
+            {
+                families.push(candidate);
+            }
+        }
+        families
     }
 
     fn portable_expr_runtime_enabled_for_family(&self, family_id: &str) -> bool {
@@ -1359,7 +1386,7 @@ impl<'a> AsmLine<'a> {
             return None;
         }
 
-        #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+        #[cfg(feature = "vm-runtime-opcpu-artifact")]
         {
             if let Some(path) = Self::opthread_package_artifact_path() {
                 if let Some(model) = Self::load_opthread_execution_model_from_artifact(&path) {
@@ -1381,25 +1408,25 @@ impl<'a> AsmLine<'a> {
         HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
     }
 
-    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    #[cfg(feature = "vm-runtime-opcpu-artifact")]
     fn opthread_package_artifact_path_for_dir(base_dir: &Path) -> PathBuf {
-        base_dir.join(OPTHREAD_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH)
+        base_dir.join(VM_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH)
     }
 
-    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    #[cfg(feature = "vm-runtime-opcpu-artifact")]
     fn opthread_package_artifact_path() -> Option<PathBuf> {
         std::env::current_dir()
             .ok()
             .map(|base_dir| Self::opthread_package_artifact_path_for_dir(base_dir.as_path()))
     }
 
-    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    #[cfg(feature = "vm-runtime-opcpu-artifact")]
     fn load_opthread_execution_model_from_artifact(path: &Path) -> Option<HierarchyExecutionModel> {
         let bytes = fs::read(path).ok()?;
         HierarchyExecutionModel::from_package_bytes(bytes.as_slice()).ok()
     }
 
-    #[cfg(feature = "opthread-runtime-opcpu-artifact")]
+    #[cfg(feature = "vm-runtime-opcpu-artifact")]
     fn persist_opthread_package_artifact(path: &Path, package_bytes: &[u8]) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
@@ -2761,7 +2788,7 @@ impl<'a> AsmLine<'a> {
                     .unwrap_or_else(|_| self.cpu.as_str().to_string());
                 let err = ParseError {
                     message: format!(
-                        "opThread runtime tokenizer model unavailable for family '{}'",
+                        "VM runtime tokenizer model unavailable for family '{}'",
                         family_id
                     ),
                     span: Span {
@@ -3732,7 +3759,7 @@ impl<'a> AsmLine<'a> {
                     LineStatus::Error,
                     AsmErrorKind::Instruction,
                     &format!(
-                        "opThread runtime model unavailable for authoritative family '{}'",
+                        "VM runtime model unavailable for authoritative family '{}'",
                         pipeline.family_id.as_str()
                     ),
                     None,
@@ -3774,7 +3801,7 @@ impl<'a> AsmLine<'a> {
                                         LineStatus::Error,
                                         AsmErrorKind::Instruction,
                                         &format!(
-                                            "opThread VM program emitted no bytes for {}",
+                                            "VM program emitted no bytes for {}",
                                             mapped_mnemonic.to_ascii_uppercase()
                                         ),
                                         None,
@@ -3926,7 +3953,7 @@ impl<'a> AsmLine<'a> {
                                 LineStatus::Error,
                                 AsmErrorKind::Instruction,
                                 &format!(
-                                    "opThread VM program emitted no bytes for {}",
+                                    "VM program emitted no bytes for {}",
                                     mapped_mnemonic.to_ascii_uppercase()
                                 ),
                                 None,
@@ -3963,7 +3990,7 @@ impl<'a> AsmLine<'a> {
                             LineStatus::Error,
                             AsmErrorKind::Instruction,
                             &format!(
-                                "missing opThread VM program for {}",
+                                "missing VM program for {}",
                                 mapped_mnemonic.to_ascii_uppercase()
                             ),
                             None,

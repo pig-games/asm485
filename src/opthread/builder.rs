@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Erik van der Tier
 
-//! Build opThread hierarchy chunks from the live opForge module registry.
+//! Build VM hierarchy chunks from the live opForge module registry.
 
 use crate::core::expr_vm::PortableExprBudgets;
 use crate::core::family::CpuHandler;

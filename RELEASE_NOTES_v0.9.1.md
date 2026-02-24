@@ -19,7 +19,7 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
 
 ## Added
 
-- opThread hierarchy groundwork (in-progress, feature-gated development surface):
+- VM hierarchy groundwork (in-progress, feature-gated development surface):
   - hierarchy package chunks for `FAMS`/`CPUS`/`DIAL`/`REGS`/`FORM`
   - optional `TOKS` package chunk for scoped token-policy hints (case folding, identifier classes, punctuation set)
   - phase-1 `TOKS` schema closure with full lexical policy fields (comment/quote/escape/number/operator policy) and backward-compatible legacy decode defaults
@@ -29,12 +29,12 @@ Delta summary: `119 files changed, 9559 insertions(+), 6431 deletions(-)`.
   - deterministic metadata canonicalization and stable snapshot coverage
   - host/runtime bridge API for active CPU selection + hierarchy-aware pipeline resolution
   - explicit family rollout modes: MOS6502-family is authoritative package-runtime; Intel8080-family remains staged verification (native default)
-  - optional feature-gated `.opcpu` artifact load/write path (`opthread-runtime-opcpu-artifact`) using `target/opthread/opforge-runtime.opcpu`
-  - artifact-mode MOS6502 runtime verification lane via `make test-opthread-runtime-artifact`
+  - optional feature-gated `.opcpu` artifact load/write path (`vm-runtime-opcpu-artifact`) using `target/vm/opforge-vm-runtime.opcpu`
+  - artifact-mode MOS6502 runtime verification lane via `make test-vm-runtime-artifact`
   - explicit retention of Rust-table-driven package generation (`build_hierarchy_package_from_registry`) as the authoring path for new family/CPU onboarding
-  - bounded deterministic dialect rewrite engine (`src/opthread/rewrite.rs`)
-  - parity smoke harness behind feature flag (`cargo test --features opthread-parity ...`)
-  - draft `.optst` vector corpus under `examples/opthread/vectors/`
+  - bounded deterministic dialect rewrite engine (VM rewrite layer)
+  - parity smoke harness behind feature flag (`cargo test --features vm-parity ...`)
+  - draft `.optst` vector corpus under `examples/vm/vectors/`
 - Linker-region workflow directives and validation:
   - `.region`, `.place`, `.pack`
   - strict region-bound placement checks

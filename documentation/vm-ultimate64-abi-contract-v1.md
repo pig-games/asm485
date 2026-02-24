@@ -1,13 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# opThread Ultimate64 ABI Contract (v1)
+# VM Ultimate64 ABI Contract (v1)
 
 Status: active  
-Last updated: 2026-02-17
+Last updated: 2026-02-24
+
+See also:
+- [VM Boundary & Protocol Specification (v1)](vm-boundary-protocol-v1.md)
 
 ## 1. Scope
 
-This document defines the host/native ABI boundary for consuming opThread hierarchy packages (`*.opcpu`) in Ultimate64-class constrained runtimes.
+This document defines the host/native ABI boundary for consuming VM hierarchy packages (`*.opcpu`) in Ultimate64-class constrained runtimes.
 
 Forward note: a CPU/family-independent contract container (`*.opcore`) is planned. `.opcore` follows the same constrained-runtime ABI principles defined here (endianness/width rules, TOC traversal, ownership independence, deterministic error codes), with its own container magic/versioning as specified when introduced.
 
@@ -127,4 +130,4 @@ The Rust host includes ABI-oriented conformance tests for this contract, includi
 - wire-payload smoke flow over byte interfaces (`set_pipeline`, `tokenize_line`, `parse_line`, `encode_instruction`, `last_error`)
 
 Reference C64/VICE host scaffold (opForge assembly) for external-native integration bring-up:
-- `examples/opthread/c64/native6502_harness.asm`
+- `examples/vm/c64/native6502_harness.asm`
