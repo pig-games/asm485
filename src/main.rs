@@ -7,8 +7,9 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 
 use clap::Parser;
+use serde_json::json;
 
-use opforge::assembler::cli::{validate_cli, Cli, DiagnosticsSinkConfig};
+use opforge::assembler::cli::{validate_cli, Cli, DiagnosticsSinkConfig, OutputFormat};
 use opforge::core::assembler::error::{AsmRunError, AsmRunReport, Diagnostic, Severity};
 
 struct DiagnosticsSink {
@@ -49,9 +50,15 @@ impl DiagnosticsSink {
         report: &AsmRunReport,
         diagnostics: &[Diagnostic],
         use_color: bool,
+        format: OutputFormat,
     ) {
         for diag in diagnostics {
-            self.emit_line(&diag.format_with_context(Some(report.source_lines()), use_color));
+            self.emit_line(&format_diagnostic_line(
+                diag,
+                Some(report.source_lines()),
+                use_color,
+                format,
+            ));
         }
     }
 
@@ -60,21 +67,64 @@ impl DiagnosticsSink {
         err: &AsmRunError,
         diagnostics: &[Diagnostic],
         use_color: bool,
+        format: OutputFormat,
     ) {
         for diag in diagnostics {
-            self.emit_line(&diag.format_with_context(Some(err.source_lines()), use_color));
+            self.emit_line(&format_diagnostic_line(
+                diag,
+                Some(err.source_lines()),
+                use_color,
+                format,
+            ));
         }
+    }
+}
+
+fn severity_to_str(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Warning => "warning",
+        Severity::Error => "error",
+    }
+}
+
+fn format_diagnostic_line(
+    diag: &Diagnostic,
+    source_lines: Option<&[String]>,
+    use_color: bool,
+    format: OutputFormat,
+) -> String {
+    if format == OutputFormat::Json {
+        json!({
+            "code": diag.code(),
+            "severity": severity_to_str(diag.severity()),
+            "message": diag.message(),
+            "file": diag.file(),
+            "line": diag.line(),
+            "col_start": diag.column(),
+            "col_end": diag.col_end(),
+        })
+        .to_string()
+    } else {
+        diag.format_with_context(source_lines, use_color)
     }
 }
 
 fn main() {
     let cli = Cli::parse();
     if cli.print_cpusupport {
-        println!("{}", opforge::assembler::cpusupport_report());
+        if cli.format == OutputFormat::Json {
+            println!("{}", opforge::assembler::cpusupport_report_json());
+        } else {
+            println!("{}", opforge::assembler::cpusupport_report());
+        }
         return;
     }
     if cli.print_capabilities {
-        println!("{}", opforge::assembler::capabilities_report());
+        if cli.format == OutputFormat::Json {
+            println!("{}", opforge::assembler::capabilities_report_json());
+        } else {
+            println!("{}", opforge::assembler::capabilities_report());
+        }
         return;
     }
     let cli_config = match validate_cli(&cli) {
@@ -109,7 +159,12 @@ fn main() {
                     })
                     .cloned()
                     .collect();
-                sink.emit_report_diagnostics(report, &diagnostics, use_color);
+                sink.emit_report_diagnostics(
+                    report,
+                    &diagnostics,
+                    use_color,
+                    cli_config.output_format,
+                );
             }
         }
         Err(err) => {
@@ -121,11 +176,38 @@ fn main() {
                 })
                 .cloned()
                 .collect();
-            sink.emit_error_diagnostics(&err, &diagnostics, use_color);
-            if !matches!(cli_config.diagnostics_sink, DiagnosticsSinkConfig::Disabled) {
+            sink.emit_error_diagnostics(&err, &diagnostics, use_color, cli_config.output_format);
+            if cli_config.output_format != OutputFormat::Json
+                && !matches!(cli_config.diagnostics_sink, DiagnosticsSinkConfig::Disabled)
+            {
                 sink.emit_line(&err.to_string());
             }
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opforge::core::assembler::error::{AsmError, AsmErrorKind};
+
+    #[test]
+    fn format_diagnostic_line_json_has_expected_keys_with_nulls() {
+        let diag = Diagnostic::new(
+            7,
+            Severity::Error,
+            AsmError::new(AsmErrorKind::Assembler, "boom", None),
+        )
+        .with_code("ope999");
+        let line = format_diagnostic_line(&diag, None, false, OutputFormat::Json);
+        let value: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert_eq!(value["code"], "ope999");
+        assert_eq!(value["severity"], "error");
+        assert_eq!(value["message"], "boom");
+        assert_eq!(value["line"], 7);
+        assert!(value["file"].is_null());
+        assert!(value["col_start"].is_null());
+        assert!(value["col_end"].is_null());
     }
 }

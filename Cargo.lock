@@ -304,6 +304,7 @@ version = "0.9.1"
 dependencies = [
  "clap",
  "proptest",
+ "serde_json",
 ]
 
 [[package]]

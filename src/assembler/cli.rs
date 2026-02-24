@@ -7,7 +7,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, ValueEnum};
 
 use crate::core::assembler::error::{AsmError, AsmErrorKind, AsmRunError};
 
@@ -33,6 +33,13 @@ With multiple inputs, -o must be a directory and explicit output filenames are n
     long_about = LONG_ABOUT
 )]
 pub struct Cli {
+    #[arg(
+        long = "format",
+        value_enum,
+        default_value_t = OutputFormat::Text,
+        long_help = "Select global CLI output format. text is default; json enables machine-readable output where supported."
+    )]
+    pub format: OutputFormat,
     #[arg(
         short = 'q',
         long = "quiet",
@@ -324,6 +331,13 @@ pub enum LabelOutputFormat {
     Default,
     Vice,
     Ctags,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum OutputFormat {
+    #[default]
+    Text,
+    Json,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -1186,6 +1200,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         tab_size: effective_tab_size,
         verbose_list: effective_verbose_list,
         debug_conditionals: effective_cond_debug,
+        output_format: cli.format,
         diagnostics_sink: if effective_no_error {
             DiagnosticsSinkConfig::Disabled
         } else if let Some(path) = &effective_error_file {
@@ -1234,6 +1249,7 @@ pub struct CliConfig {
     pub tab_size: Option<usize>,
     pub verbose_list: bool,
     pub debug_conditionals: bool,
+    pub output_format: OutputFormat,
     pub diagnostics_sink: DiagnosticsSinkConfig,
     pub warning_policy: WarningPolicy,
     pub labels_file: Option<PathBuf>,
@@ -1310,6 +1326,8 @@ mod tests {
     fn cli_parses_outputs_and_inputs() {
         let cli = Cli::parse_from([
             "opForge",
+            "--format",
+            "json",
             "-i",
             "prog.asm",
             "-I",
@@ -1345,6 +1363,7 @@ mod tests {
             "aa",
         ]);
         assert_eq!(cli.infiles, vec![PathBuf::from("prog.asm")]);
+        assert_eq!(cli.format, OutputFormat::Json);
         assert_eq!(cli.include_paths, vec![PathBuf::from("inc")]);
         assert_eq!(cli.module_paths, vec![PathBuf::from("modules")]);
         assert!(cli.quiet);
@@ -1372,6 +1391,7 @@ mod tests {
     #[test]
     fn cli_defaults_pp_macro_depth() {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
+        assert_eq!(cli.format, OutputFormat::Text);
         assert_eq!(cli.pp_macro_depth, 64);
         assert!(cli.positional_inputs.is_empty());
     }
@@ -1417,6 +1437,8 @@ mod tests {
             "-i",
             "prog.asm",
             "-l",
+            "--format",
+            "json",
             "--cpu",
             "m6502",
             "--labels",
@@ -1431,6 +1453,7 @@ mod tests {
             "--Werror",
         ]);
         let config = validate_cli(&cli).expect("validate cli");
+        assert_eq!(config.output_format, OutputFormat::Json);
         assert_eq!(config.cpu_override.as_deref(), Some("m6502"));
         assert_eq!(config.labels_file, Some(PathBuf::from("symbols.lbl")));
         match config.diagnostics_sink {
