@@ -248,12 +248,12 @@ Examples:
 ### Diagnostic + Fixit Examples
 
 Directive typo diagnostics with machine-applicable fixits:
-- `examples/directive_typo_endif_fixit_error.asm`
-- `examples/directive_typo_elseif_fixit_error.asm`
-- `examples/directive_typo_endmodule_fixit_error.asm`
-- `examples/directive_typo_endsection_fixit_error.asm`
-- `examples/directive_typo_endmatch_fixit_error.asm`
+- `examples/directive_typo_endif_fixit_error.asm` → `examples/reference/directive_typo_endif_fixit_error.err`
+- `examples/directive_typo_elseif_fixit_error.asm` → `examples/reference/directive_typo_elseif_fixit_error.err`
+- `examples/directive_typo_endmodule_fixit_error.asm` → `examples/reference/directive_typo_endmodule_fixit_error.err`
+- `examples/directive_typo_endsection_fixit_error.asm` → `examples/reference/directive_typo_endsection_fixit_error.err`
+- `examples/directive_typo_endmatch_fixit_error.asm` → `examples/reference/directive_typo_endmatch_fixit_error.err`
 
 Dialect-oriented diagnostics with mnemonic replacement suggestions:
-- `examples/dialect_mnemonic_fixit_error.asm`
-- `examples/dialect_parser_fixit_error.asm`
+- `examples/dialect_mnemonic_fixit_error.asm` → `examples/reference/dialect_mnemonic_fixit_error.err`
+- `examples/dialect_parser_fixit_error.asm` → `examples/reference/dialect_parser_fixit_error.err`
