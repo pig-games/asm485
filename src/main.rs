@@ -4,6 +4,7 @@
 // CLI entrypoint for opForge.
 
 use std::fs::OpenOptions;
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -191,6 +192,12 @@ struct PlannedFixit {
     applicability: String,
 }
 
+#[derive(Debug, Clone)]
+struct FileGuard {
+    len: u64,
+    content_hash: u64,
+}
+
 fn collect_machine_applicable_fixits(
     diagnostics: &[Diagnostic],
     fallback_file: Option<&Path>,
@@ -260,7 +267,49 @@ fn fixits_have_overlaps(fixits: &[PlannedFixit]) -> bool {
     false
 }
 
-fn apply_fixits_in_place(fixits: &[PlannedFixit]) -> io::Result<usize> {
+fn compute_file_guard(path: &Path) -> io::Result<FileGuard> {
+    let content = std::fs::read(path)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut hasher);
+    Ok(FileGuard {
+        len: content.len() as u64,
+        content_hash: hasher.finish(),
+    })
+}
+
+fn capture_fixit_guards(
+    fixits: &[PlannedFixit],
+) -> io::Result<std::collections::HashMap<PathBuf, FileGuard>> {
+    let mut guards = std::collections::HashMap::new();
+    for fixit in fixits {
+        guards
+            .entry(fixit.file.clone())
+            .or_insert(compute_file_guard(fixit.file.as_path())?);
+    }
+    Ok(guards)
+}
+
+fn verify_fixit_guards(
+    guards: &std::collections::HashMap<PathBuf, FileGuard>,
+    path: &Path,
+) -> io::Result<()> {
+    let Some(expected) = guards.get(path) else {
+        return Ok(());
+    };
+    let current = compute_file_guard(path)?;
+    if expected.len != current.len || expected.content_hash != current.content_hash {
+        return Err(io::Error::other(format!(
+            "stale source detected before applying fixits for {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn apply_fixits_in_place(
+    fixits: &[PlannedFixit],
+    guards: Option<&std::collections::HashMap<PathBuf, FileGuard>>,
+) -> io::Result<usize> {
     let mut by_file: std::collections::HashMap<&Path, Vec<&PlannedFixit>> =
         std::collections::HashMap::new();
     for fixit in fixits {
@@ -269,6 +318,9 @@ fn apply_fixits_in_place(fixits: &[PlannedFixit]) -> io::Result<usize> {
 
     let mut applied = 0usize;
     for (file, edits) in by_file {
+        if let Some(guards) = guards {
+            verify_fixit_guards(guards, file)?;
+        }
         let mut text = std::fs::read_to_string(file)?;
         let mut edits = edits;
         edits.sort_by_key(|edit| {
@@ -398,8 +450,11 @@ fn main() {
                     if fixits_have_overlaps(&planned) {
                         sink.emit_line("fixits: overlap detected; aborting fixit application");
                     } else {
+                        let guards = capture_fixit_guards(&planned);
                         if cli_config.apply_fixits {
-                            match apply_fixits_in_place(&planned) {
+                            match guards
+                                .and_then(|guards| apply_fixits_in_place(&planned, Some(&guards)))
+                            {
                                 Ok(applied) => {
                                     sink.emit_line(&format!("fixits: applied {applied} edits"))
                                 }
@@ -449,8 +504,11 @@ fn main() {
                 if fixits_have_overlaps(&planned) {
                     sink.emit_line("fixits: overlap detected; aborting fixit application");
                 } else {
+                    let guards = capture_fixit_guards(&planned);
                     if cli_config.apply_fixits {
-                        match apply_fixits_in_place(&planned) {
+                        match guards
+                            .and_then(|guards| apply_fixits_in_place(&planned, Some(&guards)))
+                        {
                             Ok(applied) => {
                                 sink.emit_line(&format!("fixits: applied {applied} edits"))
                             }
@@ -483,6 +541,9 @@ fn main() {
 mod tests {
     use super::*;
     use opforge::core::assembler::error::{AsmError, AsmErrorKind};
+    use std::fs;
+    use std::process;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn format_diagnostic_line_json_has_expected_keys_with_nulls() {
@@ -511,5 +572,91 @@ mod tests {
         assert!(value["notes"].is_array());
         assert!(value["help"].is_array());
         assert!(value["fixits"].is_array());
+    }
+
+    #[test]
+    fn fixit_overlap_detection_flags_same_line_collision() {
+        let path = PathBuf::from("sample.asm");
+        let fixits = vec![
+            PlannedFixit {
+                file: path.clone(),
+                line: 10,
+                col_start: 5,
+                col_end: 8,
+                replacement: "AAA".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+            PlannedFixit {
+                file: path,
+                line: 10,
+                col_start: 8,
+                col_end: 12,
+                replacement: "BBB".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+        ];
+
+        assert!(fixits_have_overlaps(&fixits));
+    }
+
+    #[test]
+    fn apply_fixits_in_place_updates_file_content() {
+        let dir = create_temp_dir("fixit-apply");
+        let file = dir.join("sample.asm");
+        fs::write(&file, "lda #1\n").expect("write source");
+
+        let fixits = vec![PlannedFixit {
+            file: file.clone(),
+            line: 1,
+            col_start: 6,
+            col_end: 7,
+            replacement: "2".to_string(),
+            applicability: "machine-applicable".to_string(),
+        }];
+
+        let guards = capture_fixit_guards(&fixits).expect("capture guards");
+        let applied = apply_fixits_in_place(&fixits, Some(&guards)).expect("apply fixits");
+        assert_eq!(applied, 1);
+
+        let content = fs::read_to_string(&file).expect("read source");
+        assert_eq!(content, "lda #2\n");
+    }
+
+    #[test]
+    fn apply_fixits_in_place_rejects_stale_source() {
+        let dir = create_temp_dir("fixit-stale");
+        let file = dir.join("sample.asm");
+        fs::write(&file, "lda #1\n").expect("write source");
+
+        let fixits = vec![PlannedFixit {
+            file: file.clone(),
+            line: 1,
+            col_start: 6,
+            col_end: 7,
+            replacement: "2".to_string(),
+            applicability: "machine-applicable".to_string(),
+        }];
+
+        let guards = capture_fixit_guards(&fixits).expect("capture guards");
+        fs::write(&file, "lda #9\n").expect("mutate source");
+
+        let err =
+            apply_fixits_in_place(&fixits, Some(&guards)).expect_err("stale source must fail");
+        assert!(
+            err.to_string().contains("stale source detected"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn create_temp_dir(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("main-test-{label}-{}-{nanos}", process::id()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
     }
 }

@@ -151,6 +151,12 @@ Arguments:
     -w, --no-warn                Suppress warning diagnostics.
     --Wall                       Enable all warning classes (reserved for future groups).
     --Werror                     Treat warnings as errors.
+    --format <text|json>         Select global CLI output format.
+    --diagnostics-style <classic|rustc>
+                                 Select text diagnostics rendering style.
+    --fixits-dry-run             Plan machine-applicable fixits without writing files.
+    --apply-fixits               Apply machine-applicable fixits.
+    --fixits-output <FILE>       Write fixit planning/apply report JSON to FILE.
     --cpu <ID>                   Set initial CPU before parsing source directives.
     --print-capabilities         Print deterministic capability metadata and exit.
     --print-cpusupport           Print deterministic CPU support metadata and exit.
