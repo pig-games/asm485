@@ -7,8 +7,12 @@ ADDR    BYTES                    LINE  SOURCE
 2000    3E 11                       4  start   mvi a,11h  ; [section code]
     5 | <end of file>
 ERROR: Found .module without .endmodule
+help: add a matching .endmodule to close the open module block
+suggestion: replace 5:1-1 with ".endmodule"
     5 | <end of file>
 ERROR: Found .section without .endsection
+help: add a matching .endsection to close the open section block
+suggestion: replace 5:1-1 with ".endsection"
 
 Lines: 4  Errors: 2  Warnings: 0
 

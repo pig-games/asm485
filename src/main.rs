@@ -726,7 +726,8 @@ mod tests {
             .with_fixit(fixit),
         ];
 
-        let planned = collect_machine_applicable_fixits(&diagnostics, Some(Path::new("sample.asm")));
+        let planned =
+            collect_machine_applicable_fixits(&diagnostics, Some(Path::new("sample.asm")));
         assert_eq!(planned.len(), 1);
         assert!(!fixits_have_overlaps(&planned));
     }

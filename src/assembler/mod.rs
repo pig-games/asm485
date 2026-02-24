@@ -29,7 +29,8 @@ use crate::core::assembler::conditional::{
     ConditionalBlockKind, ConditionalContext, ConditionalStack,
 };
 use crate::core::assembler::error::{
-    AsmError, AsmErrorKind, AsmRunError, AsmRunReport, Diagnostic, LineStatus, PassCounts, Severity,
+    AsmError, AsmErrorKind, AsmRunError, AsmRunReport, Diagnostic, Fixit, LineStatus, PassCounts,
+    Severity,
 };
 use crate::core::assembler::expression::{
     apply_assignment_op, eval_binary_op, eval_unary_op, expr_span, parse_number_text, AstEvalError,
@@ -44,7 +45,7 @@ use crate::core::macro_processor::MacroProcessor;
 use crate::core::parser as asm_parser;
 use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::preprocess::Preprocessor;
-use crate::core::registry::{ModuleRegistry, RegistryError};
+use crate::core::registry::{FamilyOperandSet, ModuleRegistry, RegistryError, ResolvedPipeline};
 use crate::core::source_map::SourceMap;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
@@ -57,6 +58,10 @@ use std::sync::Arc;
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::intel8080::module::Intel8080FamilyOperands;
 use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
+use crate::families::intel8080::{
+    dialect::{canonical_suggestion_for_zilog_mnemonic, map_zilog_to_canonical},
+    module::FAMILY_ID as INTEL8080_FAMILY_ID,
+};
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
@@ -1311,7 +1316,11 @@ struct AsmLine<'a> {
     top_level_content_seen: bool,
     last_error: Option<AsmError>,
     last_error_column: Option<usize>,
+    last_error_help: Option<String>,
+    last_error_fixits: Vec<Fixit>,
     last_parser_error: Option<ParseError>,
+    current_line_num: u32,
+    current_source_line: Option<String>,
     line_end_span: Option<Span>,
     line_end_token: Option<String>,
     bytes: Vec<u8>,
@@ -1375,7 +1384,11 @@ impl<'a> AsmLine<'a> {
             top_level_content_seen: false,
             last_error: None,
             last_error_column: None,
+            last_error_help: None,
+            last_error_fixits: Vec::new(),
             last_parser_error: None,
+            current_line_num: 1,
+            current_source_line: None,
             line_end_span: None,
             line_end_token: None,
             bytes: Vec::with_capacity(256),
@@ -1614,6 +1627,14 @@ impl<'a> AsmLine<'a> {
 
     fn error_column(&self) -> Option<usize> {
         self.last_error_column
+    }
+
+    fn error_help(&self) -> Option<&str> {
+        self.last_error_help.as_deref()
+    }
+
+    fn error_fixits(&self) -> &[Fixit] {
+        &self.last_error_fixits
     }
 
     fn parser_error(&self) -> Option<ParseError> {
@@ -2946,6 +2967,7 @@ impl<'a> AsmLine<'a> {
                 self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
                 self.last_error_column = Some(err.span.col_start);
                 self.last_parser_error = Some(err);
+                self.attach_dialect_fixit_hint_from_source_line();
                 return LineStatus::Error;
             }
         };
@@ -2958,7 +2980,11 @@ impl<'a> AsmLine<'a> {
     fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {
         self.last_error = None;
         self.last_error_column = None;
+        self.last_error_help = None;
+        self.last_error_fixits.clear();
         self.last_parser_error = None;
+        self.current_line_num = line_num;
+        self.current_source_line = Some(line.to_string());
         self.line_end_span = None;
         self.line_end_token = None;
         self.start_addr = addr;
@@ -3193,6 +3219,13 @@ impl<'a> AsmLine<'a> {
 
                 let mut status = self.process_directive_ast(&mnemonic, &operands);
                 if status == LineStatus::NothingDone {
+                    if mnemonic.starts_with('.') {
+                        if let Some(status_with_fixit) =
+                            self.failure_for_unknown_directive_with_fixit(&mnemonic)
+                        {
+                            return status_with_fixit;
+                        }
+                    }
                     status = self.process_instruction_ast(&mnemonic, &operands);
                 }
                 status
@@ -3874,11 +3907,11 @@ impl<'a> AsmLine<'a> {
                 }
             };
             if !allow {
-                return self.failure(
+                return self.failure_instruction_not_found(
                     LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &format!("No instruction found for {}", mnemonic.to_ascii_uppercase()),
-                    None,
+                    &pipeline,
+                    mnemonic,
+                    family_operands.as_ref(),
                 );
             }
 
@@ -3973,14 +4006,11 @@ impl<'a> AsmLine<'a> {
                             let defer_to_native_diagnostics = model
                                 .defer_native_diagnostics_on_expr_none(pipeline.family_id.as_str());
                             if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
-                                return self.failure(
+                                return self.failure_instruction_not_found(
                                     LineStatus::Error,
-                                    AsmErrorKind::Instruction,
-                                    &format!(
-                                        "No instruction found for {}",
-                                        mapped_mnemonic.to_ascii_uppercase()
-                                    ),
-                                    None,
+                                    &pipeline,
+                                    &mapped_mnemonic,
+                                    mapped_operands.as_ref(),
                                 );
                             }
                         }
@@ -4222,14 +4252,237 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 }
-                Ok(None) => self.failure(
+                Ok(None) => self.failure_instruction_not_found(
                     LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &format!("No instruction found for {}", mnemonic.to_ascii_uppercase()),
-                    None,
+                    &pipeline,
+                    mnemonic,
+                    family_operands.as_ref(),
                 ),
             },
         }
+    }
+
+    fn failure_instruction_not_found(
+        &mut self,
+        status: LineStatus,
+        pipeline: &ResolvedPipeline<'_>,
+        mnemonic: &str,
+        operands: &dyn FamilyOperandSet,
+    ) -> LineStatus {
+        let message = format!("No instruction found for {}", mnemonic.to_ascii_uppercase());
+        if let Some((help, fixit)) =
+            self.dialect_fixit_for_instruction_not_found(pipeline, mnemonic, operands)
+        {
+            let column = self
+                .mnemonic_span_in_current_line(mnemonic)
+                .map(|(start, _)| start)
+                .or(self.line_end_span.map(|span| span.col_start));
+            let status =
+                self.set_failure_core(status, AsmErrorKind::Instruction, &message, None, column);
+            self.last_error_help = Some(help);
+            self.last_error_fixits = vec![fixit];
+            return status;
+        }
+
+        self.failure(status, AsmErrorKind::Instruction, &message, None)
+    }
+
+    fn dialect_fixit_for_instruction_not_found(
+        &self,
+        pipeline: &ResolvedPipeline<'_>,
+        mnemonic: &str,
+        operands: &dyn FamilyOperandSet,
+    ) -> Option<(String, Fixit)> {
+        if !pipeline
+            .family_id
+            .as_str()
+            .eq_ignore_ascii_case(INTEL8080_FAMILY_ID.as_str())
+        {
+            return None;
+        }
+
+        if pipeline.dialect_id.eq_ignore_ascii_case("zilog") {
+            return None;
+        }
+
+        let intel_operands = operands
+            .as_any()
+            .downcast_ref::<Intel8080FamilyOperands>()?;
+        let (canonical_mnemonic, _mapped_operands) =
+            map_zilog_to_canonical(mnemonic, intel_operands.0.as_slice())?;
+
+        if canonical_mnemonic.eq_ignore_ascii_case(mnemonic) {
+            return None;
+        }
+
+        let (col_start, col_end) = self.mnemonic_span_in_current_line(mnemonic)?;
+        let replacement = canonical_mnemonic.to_ascii_uppercase();
+        let help = format!(
+            "{} appears to use Z80 dialect under {} CPU mode; replace with Intel8080-family form '{}', or switch CPU/dialect",
+            mnemonic.to_ascii_uppercase(),
+            self.cpu.as_str(),
+            replacement
+        );
+
+        Some((
+            help,
+            Fixit {
+                file: None,
+                line: self.current_line_num,
+                col_start: Some(col_start),
+                col_end: Some(col_end),
+                replacement,
+                applicability: "machine-applicable".to_string(),
+            },
+        ))
+    }
+
+    fn mnemonic_span_in_current_line(&self, mnemonic: &str) -> Option<(usize, usize)> {
+        let source = self.current_source_line.as_ref()?;
+        if mnemonic.is_empty() {
+            return None;
+        }
+
+        let source_lower = source.to_ascii_lowercase();
+        let needle = mnemonic.to_ascii_lowercase();
+        let mut search_from = 0usize;
+
+        while let Some(relative) = source_lower.get(search_from..)?.find(&needle) {
+            let start = search_from + relative;
+            let end = start + needle.len();
+
+            let prev = source[..start].chars().next_back();
+            let next = source[end..].chars().next();
+
+            let left_ok = prev.is_none_or(|ch| !is_identifierish(ch));
+            let right_ok = next.is_none_or(|ch| !is_identifierish(ch));
+            if left_ok && right_ok {
+                return Some((start + 1, end + 1));
+            }
+
+            search_from = end;
+        }
+
+        None
+    }
+
+    fn attach_dialect_fixit_hint_from_source_line(&mut self) {
+        let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) else {
+            return;
+        };
+
+        if !pipeline
+            .family_id
+            .as_str()
+            .eq_ignore_ascii_case(INTEL8080_FAMILY_ID.as_str())
+            || pipeline.dialect_id.eq_ignore_ascii_case("zilog")
+        {
+            return;
+        }
+
+        let Some((mnemonic, col_start, col_end)) = self.statement_mnemonic_from_source_line()
+        else {
+            return;
+        };
+        let Some(suggestion) = canonical_suggestion_for_zilog_mnemonic(mnemonic.as_str()) else {
+            return;
+        };
+        if suggestion.eq_ignore_ascii_case(mnemonic.as_str()) {
+            return;
+        }
+
+        self.last_error_help = Some(format!(
+            "{} appears to use Z80 dialect under {} CPU mode; consider Intel8080-family '{}' syntax, or switch CPU/dialect",
+            mnemonic.to_ascii_uppercase(),
+            self.cpu.as_str(),
+            suggestion.to_ascii_uppercase()
+        ));
+        self.last_error_fixits.push(Fixit {
+            file: None,
+            line: self.current_line_num,
+            col_start: Some(col_start),
+            col_end: Some(col_end),
+            replacement: suggestion.to_ascii_uppercase(),
+            applicability: "maybe-incorrect".to_string(),
+        });
+    }
+
+    fn statement_mnemonic_from_source_line(&self) -> Option<(String, usize, usize)> {
+        let source = self.current_source_line.as_ref()?;
+        let without_comment = source.split(';').next().unwrap_or("");
+        let bytes = without_comment.as_bytes();
+        let mut idx = 0usize;
+
+        while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        if idx >= bytes.len() {
+            return None;
+        }
+
+        let mut probe = idx;
+        while probe < bytes.len() && is_identifierish(bytes[probe] as char) {
+            probe += 1;
+        }
+        if probe < bytes.len() && bytes[probe] == b':' {
+            idx = probe + 1;
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+        }
+
+        let start = idx;
+        while idx < bytes.len() && is_identifierish(bytes[idx] as char) {
+            idx += 1;
+        }
+        if idx == start {
+            return None;
+        }
+
+        let mnemonic = without_comment[start..idx].trim();
+        if mnemonic.is_empty() {
+            return None;
+        }
+
+        Some((mnemonic.to_string(), start + 1, idx + 1))
+    }
+
+    fn failure_for_unknown_directive_with_fixit(&mut self, mnemonic: &str) -> Option<LineStatus> {
+        let suggestion = match mnemonic.to_ascii_uppercase().as_str() {
+            ".EDIF" | ".ENDFI" => ".ENDIF",
+            ".ESLEIF" | ".ELSIEF" => ".ELSEIF",
+            ".ENDMOD" | ".ENDMODUL" => ".ENDMODULE",
+            ".ENDSECT" | ".ENDSECTON" => ".ENDSECTION",
+            ".ENDMACH" | ".ENDMTACH" => ".ENDMATCH",
+            _ => return None,
+        };
+
+        let (col_start, col_end) = self
+            .mnemonic_span_in_current_line(mnemonic)
+            .or_else(|| {
+                self.statement_mnemonic_from_source_line()
+                    .map(|(_, start, end)| (start, end))
+            })
+            .unwrap_or((1, 1));
+
+        let status = self.set_failure_core(
+            LineStatus::Error,
+            AsmErrorKind::Directive,
+            &format!("Unknown directive {}", mnemonic.to_ascii_uppercase()),
+            None,
+            Some(col_start),
+        );
+        self.last_error_help = Some(format!("did you mean {}?", suggestion.to_ascii_lowercase()));
+        self.last_error_fixits = vec![Fixit {
+            file: None,
+            line: self.current_line_num,
+            col_start: Some(col_start),
+            col_end: Some(col_end),
+            replacement: suggestion.to_string(),
+            applicability: "machine-applicable".to_string(),
+        }];
+
+        Some(status)
     }
 
     fn current_section_kind(&self) -> Option<SectionKind> {
@@ -5030,7 +5283,7 @@ impl<'a> AsmLine<'a> {
         self.failure_at(status, kind, msg, param, column)
     }
 
-    fn failure_at(
+    fn set_failure_core(
         &mut self,
         status: LineStatus,
         kind: AsmErrorKind,
@@ -5042,6 +5295,24 @@ impl<'a> AsmLine<'a> {
         self.last_error_column = column;
         status
     }
+
+    fn failure_at(
+        &mut self,
+        status: LineStatus,
+        kind: AsmErrorKind,
+        msg: &str,
+        param: Option<&str>,
+        column: Option<usize>,
+    ) -> LineStatus {
+        let status = self.set_failure_core(status, kind, msg, param, column);
+        self.last_error_help = None;
+        self.last_error_fixits.clear();
+        status
+    }
+}
+
+fn is_identifierish(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '.'
 }
 
 /// Implement AssemblerContext for AsmLine to provide expression evaluation

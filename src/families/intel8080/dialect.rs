@@ -153,6 +153,18 @@ pub fn find_mapping(mnemonic: &str, num_regs: u8, has_imm: bool) -> Option<&'sta
     })
 }
 
+/// Suggest a canonical Intel8080-family mnemonic from a Zilog surface mnemonic.
+///
+/// This helper is intentionally mnemonic-only and does not validate operand arity;
+/// callers should treat this as a hint unless full operand mapping succeeds.
+pub fn canonical_suggestion_for_zilog_mnemonic(mnemonic: &str) -> Option<&'static str> {
+    let upper = mnemonic.to_ascii_uppercase();
+    ZILOG_DIALECT_MAP
+        .iter()
+        .find(|entry| entry.from == upper)
+        .map(|entry| entry.canonical)
+}
+
 pub use crate::z80::dialect::{is_z80_only_mnemonic, map_register};
 
 /// Map a Zilog mnemonic + operands to canonical Intel 8080 form.

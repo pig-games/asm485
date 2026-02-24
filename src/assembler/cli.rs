@@ -3,13 +3,58 @@
 
 //! Command-line interface parsing and argument validation.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock};
 
 use clap::{ArgAction, Parser, ValueEnum};
 
 use crate::core::assembler::error::{AsmError, AsmErrorKind, AsmRunError};
+
+#[cfg(test)]
+fn env_lock() -> &'static Mutex<()> {
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    ENV_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[cfg(test)]
+thread_local! {
+    static ENV_LOCK_HELD: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+struct EnvLockReset;
+
+#[cfg(test)]
+impl Drop for EnvLockReset {
+    fn drop(&mut self) {
+        ENV_LOCK_HELD.with(|held| held.set(false));
+    }
+}
+
+#[cfg(test)]
+fn with_env_lock<T>(action: impl FnOnce() -> T) -> T {
+    let already_held = ENV_LOCK_HELD.with(|held| {
+        if held.get() {
+            true
+        } else {
+            held.set(true);
+            false
+        }
+    });
+
+    if already_held {
+        return action();
+    }
+
+    let _guard = env_lock().lock().expect("lock env mutex");
+    let _reset = EnvLockReset;
+    action()
+}
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -814,6 +859,18 @@ fn parse_env_string(var_name: &str) -> Result<Option<String>, AsmRunError> {
 
 /// Validate CLI arguments and return parsed configuration.
 pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
+    #[cfg(test)]
+    {
+        with_env_lock(|| validate_cli_inner(cli))
+    }
+
+    #[cfg(not(test))]
+    {
+        validate_cli_inner(cli)
+    }
+}
+
+fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
     let env_cpu = parse_env_string("OPFORGE_CPU")?;
     let env_include_paths = parse_env_path_list("OPFORGE_INCLUDE_PATHS")?;
     let env_module_paths = parse_env_path_list("OPFORGE_MODULE_PATHS")?;
@@ -1313,7 +1370,6 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::process;
-    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn range_0000_ffff() -> BinRange {
@@ -1328,44 +1384,40 @@ mod tests {
     }
 
     fn with_env_vars(vars: &[(&str, Option<&str>)], test: impl FnOnce()) {
-        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = ENV_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("lock env mutex");
+        with_env_lock(|| {
+            let saved: Vec<(String, Option<OsString>)> = vars
+                .iter()
+                .map(|(key, _)| (key.to_string(), env::var_os(key)))
+                .collect();
 
-        let saved: Vec<(String, Option<OsString>)> = vars
-            .iter()
-            .map(|(key, _)| (key.to_string(), env::var_os(key)))
-            .collect();
-
-        for (key, value) in vars {
-            match value {
-                Some(value) => {
-                    // SAFETY: tests serialize env access via ENV_LOCK.
-                    unsafe { env::set_var(key, value) }
-                }
-                None => {
-                    // SAFETY: tests serialize env access via ENV_LOCK.
-                    unsafe { env::remove_var(key) }
+            for (key, value) in vars {
+                match value {
+                    Some(value) => {
+                        // SAFETY: tests serialize env access via ENV_LOCK.
+                        unsafe { env::set_var(key, value) }
+                    }
+                    None => {
+                        // SAFETY: tests serialize env access via ENV_LOCK.
+                        unsafe { env::remove_var(key) }
+                    }
                 }
             }
-        }
 
-        test();
+            test();
 
-        for (key, value) in saved {
-            match value {
-                Some(value) => {
-                    // SAFETY: tests serialize env access via ENV_LOCK.
-                    unsafe { env::set_var(key, value) }
-                }
-                None => {
-                    // SAFETY: tests serialize env access via ENV_LOCK.
-                    unsafe { env::remove_var(key) }
+            for (key, value) in saved {
+                match value {
+                    Some(value) => {
+                        // SAFETY: tests serialize env access via ENV_LOCK.
+                        unsafe { env::set_var(key, value) }
+                    }
+                    None => {
+                        // SAFETY: tests serialize env access via ENV_LOCK.
+                        unsafe { env::remove_var(key) }
+                    }
                 }
             }
-        }
+        });
     }
 
     #[test]

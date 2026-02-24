@@ -87,31 +87,29 @@ impl Assembler {
                     Ok(line_addr) => line_addr,
                     Err(()) => {
                         if let Some(err) = asm_line.error() {
-                            diagnostics.push(
-                                Diagnostic::new(line_num, Severity::Error, err.clone())
-                                    .with_column(asm_line.error_column()),
-                            );
+                            diagnostics.push(Self::diagnostic_from_asmline(
+                                &asm_line,
+                                line_num,
+                                Severity::Error,
+                                err.clone(),
+                            ));
                         }
                         counts.errors += 1;
                         addr
                     }
                 };
                 let status = asm_line.process(src, line_num, line_addr, 1);
-                if status == LineStatus::Pass1Error || status == LineStatus::Error {
+                let status_failed = status == LineStatus::Pass1Error || status == LineStatus::Error;
+                let update_failed =
+                    !status_failed && asm_line.update_addresses(&mut addr, status).is_err();
+                if status_failed || update_failed {
                     if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Error, err.clone())
-                                .with_column(asm_line.error_column())
-                                .with_parser_error(asm_line.parser_error()),
-                        );
-                    }
-                    counts.errors += 1;
-                } else if asm_line.update_addresses(&mut addr, status).is_err() {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Error, err.clone())
-                                .with_column(asm_line.error_column()),
-                        );
+                        diagnostics.push(Self::diagnostic_from_asmline(
+                            &asm_line,
+                            line_num,
+                            Severity::Error,
+                            err.clone(),
+                        ));
                     }
                     counts.errors += 1;
                 }
@@ -146,7 +144,18 @@ impl Assembler {
                     "Found .module without .endmodule",
                     None,
                 );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
+                diagnostics.push(
+                    Diagnostic::new(line_num, Severity::Error, err)
+                        .with_help("add a matching .endmodule to close the open module block")
+                        .with_fixit(crate::core::assembler::error::Fixit {
+                            file: None,
+                            line: line_num,
+                            col_start: Some(1),
+                            col_end: Some(1),
+                            replacement: ".endmodule".to_string(),
+                            applicability: "machine-applicable".to_string(),
+                        }),
+                );
                 counts.errors += 1;
             }
 
@@ -156,7 +165,18 @@ impl Assembler {
                     "Found .section without .endsection",
                     None,
                 );
-                diagnostics.push(Diagnostic::new(line_num, Severity::Error, err));
+                diagnostics.push(
+                    Diagnostic::new(line_num, Severity::Error, err)
+                        .with_help("add a matching .endsection to close the open section block")
+                        .with_fixit(crate::core::assembler::error::Fixit {
+                            file: None,
+                            line: line_num,
+                            col_start: Some(1),
+                            col_end: Some(1),
+                            replacement: ".endsection".to_string(),
+                            applicability: "machine-applicable".to_string(),
+                        }),
+                );
                 counts.errors += 1;
             }
 
@@ -166,10 +186,12 @@ impl Assembler {
                     let status = asm_line.apply_placement_directive(directive);
                     if status == LineStatus::Error || status == LineStatus::Pass1Error {
                         if let Some(err) = asm_line.error() {
-                            diagnostics.push(
-                                Diagnostic::new(directive.line(), Severity::Error, err.clone())
-                                    .with_column(asm_line.error_column()),
-                            );
+                            diagnostics.push(Self::diagnostic_from_asmline(
+                                &asm_line,
+                                directive.line(),
+                                Severity::Error,
+                                err.clone(),
+                            ));
                         }
                         counts.errors += 1;
                     }
@@ -263,10 +285,12 @@ impl Assembler {
                 Ok(line_addr) => line_addr,
                 Err(()) => {
                     if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Error, err.clone())
-                                .with_column(asm_line.error_column()),
-                        );
+                        diagnostics.push(Self::diagnostic_from_asmline(
+                            &asm_line,
+                            line_num,
+                            Severity::Error,
+                            err.clone(),
+                        ));
                         listing.write_diagnostic(
                             "ERROR",
                             err.message(),
@@ -301,11 +325,12 @@ impl Assembler {
             match status {
                 LineStatus::Error | LineStatus::Pass1Error => {
                     if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Error, err.clone())
-                                .with_column(asm_line.error_column())
-                                .with_parser_error(asm_line.parser_error()),
-                        );
+                        diagnostics.push(Self::diagnostic_from_asmline(
+                            &asm_line,
+                            line_num,
+                            Severity::Error,
+                            err.clone(),
+                        ));
                         listing.write_diagnostic(
                             "ERROR",
                             err.message(),
@@ -319,11 +344,12 @@ impl Assembler {
                 }
                 LineStatus::Warning => {
                     if let Some(err) = asm_line.error() {
-                        diagnostics.push(
-                            Diagnostic::new(line_num, Severity::Warning, err.clone())
-                                .with_column(asm_line.error_column())
-                                .with_parser_error(asm_line.parser_error()),
-                        );
+                        diagnostics.push(Self::diagnostic_from_asmline(
+                            &asm_line,
+                            line_num,
+                            Severity::Warning,
+                            err.clone(),
+                        ));
                         listing.write_diagnostic(
                             "WARNING",
                             err.message(),
@@ -340,10 +366,12 @@ impl Assembler {
 
             if asm_line.update_addresses(&mut addr, status).is_err() {
                 if let Some(err) = asm_line.error() {
-                    diagnostics.push(
-                        Diagnostic::new(line_num, Severity::Error, err.clone())
-                            .with_column(asm_line.error_column()),
-                    );
+                    diagnostics.push(Self::diagnostic_from_asmline(
+                        &asm_line,
+                        line_num,
+                        Severity::Error,
+                        err.clone(),
+                    ));
                     listing.write_diagnostic(
                         "ERROR",
                         err.message(),
@@ -382,8 +410,18 @@ impl Assembler {
                 "Found .module without .endmodule",
                 None,
             );
-            diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-            listing.write_diagnostic("ERROR", err.message(), line_num, None, lines, None)?;
+            let diag = Diagnostic::new(line_num, Severity::Error, err.clone())
+                .with_help("add a matching .endmodule to close the open module block")
+                .with_fixit(crate::core::assembler::error::Fixit {
+                    file: None,
+                    line: line_num,
+                    col_start: Some(1),
+                    col_end: Some(1),
+                    replacement: ".endmodule".to_string(),
+                    applicability: "machine-applicable".to_string(),
+                });
+            diagnostics.push(diag.clone());
+            listing.write_diagnostic_with_annotations(&diag, lines)?;
             counts.errors += 1;
         }
 
@@ -393,8 +431,18 @@ impl Assembler {
                 "Found .section without .endsection",
                 None,
             );
-            diagnostics.push(Diagnostic::new(line_num, Severity::Error, err.clone()));
-            listing.write_diagnostic("ERROR", err.message(), line_num, None, lines, None)?;
+            let diag = Diagnostic::new(line_num, Severity::Error, err.clone())
+                .with_help("add a matching .endsection to close the open section block")
+                .with_fixit(crate::core::assembler::error::Fixit {
+                    file: None,
+                    line: line_num,
+                    col_start: Some(1),
+                    col_end: Some(1),
+                    replacement: ".endsection".to_string(),
+                    applicability: "machine-applicable".to_string(),
+                });
+            diagnostics.push(diag.clone());
+            listing.write_diagnostic_with_annotations(&diag, lines)?;
             counts.errors += 1;
         }
 
@@ -417,5 +465,24 @@ impl Assembler {
         self.sections = sections;
         counts.lines = line_num - 1;
         Ok(counts)
+    }
+
+    fn diagnostic_from_asmline(
+        asm_line: &AsmLine<'_>,
+        line_num: u32,
+        severity: Severity,
+        err: AsmError,
+    ) -> Diagnostic {
+        let mut diagnostic = Diagnostic::new(line_num, severity, err)
+            .with_column(asm_line.error_column())
+            .with_parser_error(asm_line.parser_error());
+
+        if let Some(help) = asm_line.error_help() {
+            diagnostic = diagnostic.with_help(help.to_string());
+        }
+        for fixit in asm_line.error_fixits() {
+            diagnostic = diagnostic.with_fixit(fixit.clone());
+        }
+        diagnostic
     }
 }

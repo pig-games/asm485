@@ -258,6 +258,12 @@ fn assemble_line_diagnostic_with_runtime_mode(
         )
         .with_column(asm.error_column())
         .with_parser_error(asm.parser_error());
+        if let Some(help) = asm.error_help() {
+            diag = diag.with_help(help.to_string());
+        }
+        for fixit in asm.error_fixits() {
+            diag = diag.with_fixit(fixit.clone());
+        }
         if let Some(parse_error) = asm.parser_error_ref() {
             diag = diag.with_col_end(Some(parse_error.span.col_end));
         }
@@ -1443,6 +1449,330 @@ fn vm_native_diagnostic_parity_for_instruction_error_code_severity_span() {
         native_diag.column(),
         runtime_diag.column(),
         "column-start parity mismatch"
+    );
+}
+
+#[test]
+fn intel8085_unknown_z80_mnemonic_emits_dialect_fixit() {
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, "LD A,B", true);
+    assert_eq!(
+        status,
+        LineStatus::Error,
+        "expected instruction error for 8085 LD syntax"
+    );
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(!diag.message().is_empty());
+
+    let fixits = diag.fixits();
+    assert_eq!(fixits.len(), 1, "expected one dialect suggestion fixit");
+    let fixit = &fixits[0];
+    assert_eq!(fixit.replacement, "MOV");
+    assert_eq!(fixit.applicability, "maybe-incorrect");
+    assert_eq!(fixit.line, 1);
+    assert!(
+        !diag.help().is_empty() && diag.help()[0].contains("Z80 dialect"),
+        "expected dialect help hint"
+    );
+}
+
+#[test]
+fn vm_native_parity_for_dialect_fixit_payload() {
+    let line = "LD A,B";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
+#[test]
+fn unknown_directive_typo_emits_machine_applicable_fixit() {
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".edif", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .EDIF"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ENDIF");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn unknown_directive_endmod_typo_emits_machine_applicable_fixit() {
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endmod", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ENDMOD"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ENDMODULE");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn unknown_directive_endsect_typo_emits_machine_applicable_fixit() {
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endsect", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ENDSECT"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ENDSECTION");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn unknown_directive_endmach_typo_emits_machine_applicable_fixit() {
+    let (status, diag) = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".endmach", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ENDMACH"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ENDMATCH");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn unknown_directive_esleif_typo_emits_machine_applicable_fixit() {
+    let (status, diag) =
+        assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, ".esleif 1", true);
+    assert_eq!(status, LineStatus::Error, "expected directive error");
+
+    let diag = diag.expect("diagnostic expected");
+    assert!(diag.message().contains("Unknown directive .ESLEIF"));
+    assert_eq!(diag.fixits().len(), 1, "expected one typo fixit");
+
+    let fixit = &diag.fixits()[0];
+    assert_eq!(fixit.replacement, ".ELSEIF");
+    assert_eq!(fixit.applicability, "machine-applicable");
+    assert_eq!(fixit.line, 1);
+}
+
+#[test]
+fn vm_native_parity_for_directive_typo_fixit_payload() {
+    let line = ".edif";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
+#[test]
+fn vm_native_parity_for_endmod_directive_typo_fixit_payload() {
+    let line = ".endmod";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
+#[test]
+fn vm_native_parity_for_endsect_directive_typo_fixit_payload() {
+    let line = ".endsect";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
+    );
+}
+
+#[test]
+fn vm_native_parity_for_endmach_directive_typo_fixit_payload() {
+    let line = ".endmach";
+    let native = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, false);
+    let runtime = assemble_line_diagnostic_with_runtime_mode(i8085_cpu_id, line, true);
+
+    assert_eq!(native.0, runtime.0, "status parity mismatch");
+    let native_diag = native.1.expect("native diagnostic expected");
+    let runtime_diag = runtime.1.expect("runtime diagnostic expected");
+
+    assert_eq!(
+        native_diag.code(),
+        runtime_diag.code(),
+        "code parity mismatch"
+    );
+    assert_eq!(
+        native_diag.fixits().len(),
+        runtime_diag.fixits().len(),
+        "fixit count parity mismatch"
+    );
+
+    let native_fixit = &native_diag.fixits()[0];
+    let runtime_fixit = &runtime_diag.fixits()[0];
+    assert_eq!(
+        native_fixit.replacement, runtime_fixit.replacement,
+        "fixit replacement parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.applicability, runtime_fixit.applicability,
+        "fixit applicability parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.line, runtime_fixit.line,
+        "fixit line parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_start, runtime_fixit.col_start,
+        "fixit column start parity mismatch"
+    );
+    assert_eq!(
+        native_fixit.col_end, runtime_fixit.col_end,
+        "fixit column end parity mismatch"
     );
 }
 
@@ -3365,6 +3695,14 @@ fn missing_endmodule_emits_diagnostic() {
         .diagnostics
         .iter()
         .any(|diag| diag.error.message().contains(".endmodule")));
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.fixits().iter().any(|fixit| {
+            fixit.replacement == ".endmodule"
+                && fixit
+                    .applicability
+                    .eq_ignore_ascii_case("machine-applicable")
+        })
+    }));
 }
 
 #[test]
@@ -3474,6 +3812,14 @@ fn missing_endsection_emits_diagnostic() {
         .diagnostics
         .iter()
         .any(|diag| diag.error.message().contains(".endsection")));
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.fixits().iter().any(|fixit| {
+            fixit.replacement == ".endsection"
+                && fixit
+                    .applicability
+                    .eq_ignore_ascii_case("machine-applicable")
+        })
+    }));
 }
 
 #[test]
