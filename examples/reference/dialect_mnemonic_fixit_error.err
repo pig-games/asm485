@@ -1,0 +1,7 @@
+Assembly failed:
+4: ERROR [asm402]
+    4 |         ld a,b
+        ^
+help: LD appears to use Z80 dialect under 8085 CPU mode; replace with Intel8080-family form 'MOV', or switch CPU/dialect
+suggestion: replace 4:9-11 with "MOV"
+ERROR: No instruction found for LD
