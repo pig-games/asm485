@@ -20,6 +20,10 @@ ORA,absolute_x,0D,2,none,45GS02 absolute,X ORA opcode variant,mega65-book-2.txt:
 AND,absolute_x,2D,2,none,45GS02 absolute,X AND opcode variant,mega65-book-2.txt:25012-25810
 EOR,absolute_x,4D,2,none,45GS02 absolute,X EOR opcode variant,mega65-book-2.txt:25012-25810
 ADC,absolute_x,6D,2,none,45GS02 absolute,X ADC opcode variant,mega65-book-2.txt:25012-25810
+STY,absolute_x,7B,2,none,45GS02 absolute,X STY opcode variant,mega65-book-2.txt:25012-25810
+STY,absolute,7C,2,none,45GS02 absolute STY opcode variant,mega65-book-2.txt:25012-25810
+STX,absolute,7E,2,none,45GS02 absolute STX opcode variant,mega65-book-2.txt:25012-25810
+STX,absolute_y,8B,2,none,45GS02 absolute,Y STX opcode variant,mega65-book-2.txt:25012-25810
 STA,absolute_x,8D,2,none,45GS02 absolute,X STA opcode variant,mega65-book-2.txt:25012-25810
 LDA,absolute_x,AD,2,none,45GS02 absolute,X LDA opcode variant,mega65-book-2.txt:25012-25810
 CMP,absolute_x,CD,2,none,45GS02 absolute,X CMP opcode variant,mega65-book-2.txt:25012-25810
