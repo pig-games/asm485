@@ -295,6 +295,25 @@ impl CpuHandler for M45GS02CpuHandler {
                     }
                     return Ok(vec![Operand::Indirect(value as u16, span)]);
                 }
+                FamilyOperand::StackRelativeIndirectIndexedY(expr)
+                    if Self::has_cpu_mode(
+                        &mapped_upper,
+                        AddressMode::StackRelativeIndirectIndexedY,
+                    ) =>
+                {
+                    let value = ctx.eval_expr(expr)?;
+                    let span = expr_span(expr);
+                    if !(0..=255).contains(&value) {
+                        return Err(format!(
+                            "Stack-relative indirect indexed address {} out of 8-bit range",
+                            value
+                        ));
+                    }
+                    return Ok(vec![Operand::StackRelativeIndirectIndexedY(
+                        value as u8,
+                        span,
+                    )]);
+                }
                 _ => {}
             }
         }
@@ -685,6 +704,64 @@ mod tests {
             EncodeResult::NotFound => panic!("jsr absolute indexed indirect encoding not found"),
             EncodeResult::Error(message, _span) => {
                 panic!("jsr absolute indexed indirect encoding failed: {message}")
+            }
+        }
+    }
+
+    #[test]
+    fn resolves_stack_relative_indirect_indexed_y_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let sta_ops = vec![FamilyOperand::StackRelativeIndirectIndexedY(Expr::Number(
+            "32".to_string(),
+            Span::default(),
+        ))];
+        let resolved_sta = handler
+            .resolve_operands("sta", &sta_ops, &ctx)
+            .expect("resolve sta stack-relative indirect indexed y");
+        match &resolved_sta[0] {
+            Operand::StackRelativeIndirectIndexedY(value, _) => assert_eq!(*value, 32),
+            other => panic!("expected StackRelativeIndirectIndexedY, got {other:?}"),
+        }
+
+        let lda_ops = vec![FamilyOperand::StackRelativeIndirectIndexedY(Expr::Number(
+            "33".to_string(),
+            Span::default(),
+        ))];
+        let resolved_lda = handler
+            .resolve_operands("lda", &lda_ops, &ctx)
+            .expect("resolve lda stack-relative indirect indexed y");
+        match &resolved_lda[0] {
+            Operand::StackRelativeIndirectIndexedY(value, _) => assert_eq!(*value, 33),
+            other => panic!("expected StackRelativeIndirectIndexedY, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encodes_stack_relative_indirect_indexed_y_forms() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let sta_operand = Operand::StackRelativeIndirectIndexedY(0x20, Span::default());
+        match handler.encode_instruction("sta", &[sta_operand], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0x82, 0x20]),
+            EncodeResult::NotFound => {
+                panic!("sta stack-relative indirect indexed y encoding not found")
+            }
+            EncodeResult::Error(message, _span) => {
+                panic!("sta stack-relative indirect indexed y encoding failed: {message}")
+            }
+        }
+
+        let lda_operand = Operand::StackRelativeIndirectIndexedY(0x21, Span::default());
+        match handler.encode_instruction("lda", &[lda_operand], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xE2, 0x21]),
+            EncodeResult::NotFound => {
+                panic!("lda stack-relative indirect indexed y encoding not found")
+            }
+            EncodeResult::Error(message, _span) => {
+                panic!("lda stack-relative indirect indexed y encoding failed: {message}")
             }
         }
     }
