@@ -958,6 +958,91 @@ fn run_with_cli_reports_unknown_cpu_override() {
 }
 
 #[test]
+fn run_with_cli_rejects_45gs02_flat_z_form_on_m6502_override() {
+    let dir = create_temp_dir("cpu-override-m6502-flat-z");
+    let input = dir.join("cpu.asm");
+    let list = dir.join("cpu.lst");
+    write_file(&input, "    lda ($20),z\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--cpu",
+        "m6502",
+    ]);
+    let err = match run_with_cli(&cli) {
+        Ok(_) => panic!("m6502 override should reject 45gs02-only flat-z form"),
+        Err(err) => err,
+    };
+    assert!(
+        err.diagnostics()
+            .iter()
+            .any(|diag| { diag.message().contains("No instruction found for LDA") }),
+        "unexpected diagnostics: {:?}",
+        err.diagnostics()
+            .iter()
+            .map(|diag| diag.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn run_with_cli_rejects_45gs02_flat_z_form_on_m65c02_override() {
+    let dir = create_temp_dir("cpu-override-m65c02-flat-z");
+    let input = dir.join("cpu.asm");
+    let list = dir.join("cpu.lst");
+    write_file(&input, "    lda ($20),z\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--cpu",
+        "65c02",
+    ]);
+    let err = match run_with_cli(&cli) {
+        Ok(_) => panic!("m65c02 override should reject 45gs02-only flat-z form"),
+        Err(err) => err,
+    };
+    assert!(
+        err.diagnostics()
+            .iter()
+            .any(|diag| { diag.message().contains("No instruction found for LDA") }),
+        "unexpected diagnostics: {:?}",
+        err.diagnostics()
+            .iter()
+            .map(|diag| diag.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn run_with_cli_accepts_45gs02_alias_override() {
+    let dir = create_temp_dir("cpu-override-mega65-alias");
+    let input = dir.join("cpu.asm");
+    let list = dir.join("cpu.lst");
+    write_file(&input, "    adcq #$01\n");
+
+    let cli = Cli::parse_from([
+        "opForge",
+        "-i",
+        input.to_string_lossy().as_ref(),
+        "-l",
+        list.to_string_lossy().as_ref(),
+        "--cpu",
+        "mega65",
+    ]);
+
+    let report = run_with_cli(&cli).expect("mega65 alias should resolve to 45gs02");
+    assert_eq!(report.len(), 1);
+}
+
+#[test]
 fn run_with_cli_writes_make_dependencies_file() {
     let dir = create_temp_dir("dependencies-file");
     let input = dir.join("main.asm");
