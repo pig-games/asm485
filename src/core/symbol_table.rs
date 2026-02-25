@@ -78,8 +78,9 @@ pub struct SymbolTable {
     entries: Vec<SymbolTableEntry>,
     /// Case-normalized name → index into `entries` for O(1) lookup.
     index: HashMap<String, usize>,
-    modules: Vec<String>,
     module_info: Vec<ModuleInfo>,
+    /// Case-normalized module name → index into `module_info` for O(1) lookup.
+    module_index: HashMap<String, usize>,
 }
 
 impl SymbolTable {
@@ -88,32 +89,28 @@ impl SymbolTable {
         Self {
             entries: Vec::new(),
             index: HashMap::new(),
-            modules: Vec::new(),
             module_info: Vec::new(),
+            module_index: HashMap::new(),
         }
     }
 
     pub fn register_module(&mut self, name: &str) -> SymbolTableResult {
-        if self
-            .modules
-            .iter()
-            .any(|module| module.eq_ignore_ascii_case(name))
-        {
+        let key = name.to_ascii_uppercase();
+        if self.module_index.contains_key(&key) {
             return SymbolTableResult::Duplicate;
         }
-        self.modules.push(name.to_string());
+        let idx = self.module_info.len();
         self.module_info.push(ModuleInfo {
             name: name.to_string(),
             imports: Vec::new(),
         });
+        self.module_index.insert(key, idx);
         SymbolTableResult::Ok
     }
 
     #[must_use]
     pub fn has_module(&self, name: &str) -> bool {
-        self.modules
-            .iter()
-            .any(|module| module.eq_ignore_ascii_case(name))
+        self.module_index.contains_key(&name.to_ascii_uppercase())
     }
 
     pub fn add_import(&mut self, module: &str, import: ModuleImport) -> ImportResult {
@@ -170,15 +167,18 @@ impl SymbolTable {
     }
 
     fn module_info(&self, name: &str) -> Option<&ModuleInfo> {
-        self.module_info
-            .iter()
-            .find(|module| module.name.eq_ignore_ascii_case(name))
+        let key = name.to_ascii_uppercase();
+        self.module_index
+            .get(&key)
+            .map(|&idx| &self.module_info[idx])
     }
 
     fn module_info_mut(&mut self, name: &str) -> Option<&mut ModuleInfo> {
-        self.module_info
-            .iter_mut()
-            .find(|module| module.name.eq_ignore_ascii_case(name))
+        let key = name.to_ascii_uppercase();
+        self.module_index
+            .get(&key)
+            .copied()
+            .map(|idx| &mut self.module_info[idx])
     }
 
     #[must_use]
