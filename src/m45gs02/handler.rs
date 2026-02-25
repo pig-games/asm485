@@ -4,9 +4,8 @@
 //! 45GS02 CPU handler implementation.
 
 use crate::core::assembler::expression::expr_span;
-use crate::core::family::{
-    expr_has_unstable_symbols, AssemblerContext, CpuHandler, EncodeResult, FamilyHandler,
-};
+use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler};
+use crate::families::mos6502::operand_resolution;
 use crate::families::mos6502::{AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand};
 use crate::m45gs02::instructions::{has_mnemonic, lookup_instruction};
 
@@ -184,87 +183,36 @@ impl CpuHandler for M45GS02CpuHandler {
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute)
                     {
-                        let value = ctx.eval_expr(expr)?;
-                        let span = expr_span(expr);
-
-                        if !(0..=65535).contains(&value) {
-                            return Err(format!("Address {} out of 16-bit range", value));
-                        }
-
-                        let has_zp = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage);
-                        let has_abs = Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute);
-                        let unstable = expr_has_unstable_symbols(expr, ctx);
-
-                        if (0..=255).contains(&value) {
-                            if (!has_zp || unstable) && has_abs {
-                                return Ok(vec![Operand::Absolute(value as u16, span)]);
-                            }
-                            if has_zp {
-                                return Ok(vec![Operand::ZeroPage(value as u8, span)]);
-                            }
-                        }
-
-                        if has_abs {
-                            return Ok(vec![Operand::Absolute(value as u16, span)]);
-                        }
+                        return Ok(vec![operand_resolution::resolve_direct(
+                            &mapped_upper,
+                            expr,
+                            ctx,
+                            Self::has_cpu_mode,
+                        )?]);
                     }
                 }
                 FamilyOperand::DirectX(expr) => {
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageX)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteX)
                     {
-                        let value = ctx.eval_expr(expr)?;
-                        let span = expr_span(expr);
-
-                        if !(0..=65535).contains(&value) {
-                            return Err(format!("Address {} out of 16-bit range", value));
-                        }
-
-                        let has_zp_x = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageX);
-                        let has_abs_x = Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteX);
-                        let unstable = expr_has_unstable_symbols(expr, ctx);
-
-                        if (0..=255).contains(&value) {
-                            if (!has_zp_x || unstable) && has_abs_x {
-                                return Ok(vec![Operand::AbsoluteX(value as u16, span)]);
-                            }
-                            if has_zp_x {
-                                return Ok(vec![Operand::ZeroPageX(value as u8, span)]);
-                            }
-                        }
-
-                        if has_abs_x {
-                            return Ok(vec![Operand::AbsoluteX(value as u16, span)]);
-                        }
+                        return Ok(vec![operand_resolution::resolve_direct_x(
+                            &mapped_upper,
+                            expr,
+                            ctx,
+                            Self::has_cpu_mode,
+                        )?]);
                     }
                 }
                 FamilyOperand::DirectY(expr) => {
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageY)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteY)
                     {
-                        let value = ctx.eval_expr(expr)?;
-                        let span = expr_span(expr);
-
-                        if !(0..=65535).contains(&value) {
-                            return Err(format!("Address {} out of 16-bit range", value));
-                        }
-
-                        let has_zp_y = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageY);
-                        let has_abs_y = Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteY);
-                        let unstable = expr_has_unstable_symbols(expr, ctx);
-
-                        if (0..=255).contains(&value) {
-                            if (!has_zp_y || unstable) && has_abs_y {
-                                return Ok(vec![Operand::AbsoluteY(value as u16, span)]);
-                            }
-                            if has_zp_y {
-                                return Ok(vec![Operand::ZeroPageY(value as u8, span)]);
-                            }
-                        }
-
-                        if has_abs_y {
-                            return Ok(vec![Operand::AbsoluteY(value as u16, span)]);
-                        }
+                        return Ok(vec![operand_resolution::resolve_direct_y(
+                            &mapped_upper,
+                            expr,
+                            ctx,
+                            Self::has_cpu_mode,
+                        )?]);
                     }
                 }
                 FamilyOperand::IndexedIndirectX(expr)
