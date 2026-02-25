@@ -371,6 +371,18 @@ impl EvalContext for SymbolTableContext<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn with_grouped_underscores(value: &str, group: usize) -> String {
+        let mut out = String::with_capacity(value.len() + value.len() / group);
+        for (idx, ch) in value.chars().rev().enumerate() {
+            if idx != 0 && idx % group == 0 {
+                out.push('_');
+            }
+            out.push(ch);
+        }
+        out.chars().rev().collect()
+    }
 
     #[test]
     fn parse_number_decimal() {
@@ -424,6 +436,42 @@ mod tests {
         assert_eq!(parse_number("1_000"), Some(1000));
         assert_eq!(parse_number("0xFF_FF"), Some(0xFFFF));
         assert_eq!(parse_number("0b1010_1010"), Some(0xAA));
+    }
+
+    proptest! {
+        #[test]
+        fn parse_number_decimal_round_trip_u32(value in any::<u32>()) {
+            let text = value.to_string();
+            prop_assert_eq!(parse_number(&text), Some(value as i64));
+        }
+
+        #[test]
+        fn parse_number_hex_round_trip_u32(value in any::<u32>()) {
+            let text = format!("0x{:X}", value);
+            prop_assert_eq!(parse_number(&text), Some(value as i64));
+        }
+
+        #[test]
+        fn parse_number_binary_round_trip_u16(value in any::<u16>()) {
+            let text = format!("0b{:b}", value);
+            prop_assert_eq!(parse_number(&text), Some(value as i64));
+        }
+
+        #[test]
+        fn parse_number_decimal_underscores_match_plain_u32(value in any::<u32>()) {
+            let plain = value.to_string();
+            let underscored = with_grouped_underscores(&plain, 3);
+            prop_assert_eq!(parse_number(&underscored), parse_number(&plain));
+        }
+
+        #[test]
+        fn parse_number_hex_underscores_match_plain_u32(value in any::<u32>()) {
+            let hex = format!("{:X}", value);
+            let grouped = with_grouped_underscores(&hex, 2);
+            let plain = format!("0x{}", hex);
+            let underscored = format!("0x{}", grouped);
+            prop_assert_eq!(parse_number(&underscored), parse_number(&plain));
+        }
     }
 
     #[test]
