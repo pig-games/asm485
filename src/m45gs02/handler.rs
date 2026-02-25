@@ -1010,6 +1010,32 @@ mod tests {
     }
 
     #[test]
+    fn encodes_implied_stack_control_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let implied =
+            |mnemonic: &str, expected: u8| match handler.encode_instruction(mnemonic, &[], &ctx) {
+                EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![expected]),
+                EncodeResult::NotFound => panic!("{mnemonic} implied encoding not found"),
+                EncodeResult::Error(message, _span) => {
+                    panic!("{mnemonic} implied encoding failed: {message}")
+                }
+            };
+
+        implied("brk", 0x00);
+        implied("php", 0xF8);
+        implied("pha", 0x38);
+        implied("phy", 0x4A);
+        implied("plp", 0x18);
+        implied("pla", 0x58);
+        implied("ply", 0x6A);
+        implied("phx", 0xCA);
+        implied("plx", 0xEA);
+        implied("rti", 0x40);
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

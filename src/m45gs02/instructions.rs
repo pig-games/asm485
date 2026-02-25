@@ -98,6 +98,56 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         opcode: 0xF3,
     },
     CpuInstructionEntry {
+        mnemonic: "BRK",
+        mode: AddressMode::Implied,
+        opcode: 0x00,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PHP",
+        mode: AddressMode::Implied,
+        opcode: 0xF8,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PHA",
+        mode: AddressMode::Implied,
+        opcode: 0x38,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PHY",
+        mode: AddressMode::Implied,
+        opcode: 0x4A,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PLP",
+        mode: AddressMode::Implied,
+        opcode: 0x18,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PLA",
+        mode: AddressMode::Implied,
+        opcode: 0x58,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PLY",
+        mode: AddressMode::Implied,
+        opcode: 0x6A,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PHX",
+        mode: AddressMode::Implied,
+        opcode: 0xCA,
+    },
+    CpuInstructionEntry {
+        mnemonic: "PLX",
+        mode: AddressMode::Implied,
+        opcode: 0xEA,
+    },
+    CpuInstructionEntry {
+        mnemonic: "RTI",
+        mode: AddressMode::Implied,
+        opcode: 0x40,
+    },
+    CpuInstructionEntry {
         mnemonic: "CLC",
         mode: AddressMode::Implied,
         opcode: 0x08,

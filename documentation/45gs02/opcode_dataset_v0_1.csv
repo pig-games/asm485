@@ -24,6 +24,16 @@ STY,absolute_x,7B,2,none,45GS02 absolute,X STY opcode variant,mega65-book-2.txt:
 STY,absolute,7C,2,none,45GS02 absolute STY opcode variant,mega65-book-2.txt:25012-25810
 STX,absolute,7E,2,none,45GS02 absolute STX opcode variant,mega65-book-2.txt:25012-25810
 STX,absolute_y,8B,2,none,45GS02 absolute,Y STX opcode variant,mega65-book-2.txt:25012-25810
+BRK,imp,00,0,none,45GS02 implied BRK opcode variant,mega65-book-2.txt:25012-25810
+PHP,imp,F8,0,none,45GS02 implied PHP opcode variant,mega65-book-2.txt:25012-25810
+PHA,imp,38,0,none,45GS02 implied PHA opcode variant,mega65-book-2.txt:25012-25810
+PHY,imp,4A,0,none,45GS02 implied PHY opcode variant,mega65-book-2.txt:25012-25810
+PLP,imp,18,0,none,45GS02 implied PLP opcode variant,mega65-book-2.txt:25012-25810
+PLA,imp,58,0,none,45GS02 implied PLA opcode variant,mega65-book-2.txt:25012-25810
+PLY,imp,6A,0,none,45GS02 implied PLY opcode variant,mega65-book-2.txt:25012-25810
+PHX,imp,CA,0,none,45GS02 implied PHX opcode variant,mega65-book-2.txt:25012-25810
+PLX,imp,EA,0,none,45GS02 implied PLX opcode variant,mega65-book-2.txt:25012-25810
+RTI,imp,40,0,none,45GS02 implied RTI opcode variant,mega65-book-2.txt:25012-25810
 CLC,imp,08,0,none,45GS02 implied CLC opcode variant,mega65-book-2.txt:25012-25810
 SEC,imp,28,0,none,45GS02 implied SEC opcode variant,mega65-book-2.txt:25012-25810
 CLI,imp,48,0,none,45GS02 implied CLI opcode variant,mega65-book-2.txt:25012-25810
