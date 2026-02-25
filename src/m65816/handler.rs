@@ -38,8 +38,8 @@ struct SymbolBankResolutionSpec {
     assumed_known: bool,
     assumed_key: &'static str,
     absolute_mode: AddressMode,
-    long_mode: AddressMode,
-    long_ctor: fn(u32, crate::core::tokenizer::Span) -> Operand,
+    long_mode: Option<AddressMode>,
+    long_ctor: Option<fn(u32, crate::core::tokenizer::Span) -> Operand>,
 }
 
 struct HighBankResolutionSpec {
@@ -469,8 +469,10 @@ impl M65816CpuHandler {
         }
 
         if !spec.assumed_known {
-            if Self::has_mode(upper_mnemonic, spec.long_mode) {
-                return Ok(Some((spec.long_ctor)(val as u32, span)));
+            if let (Some(long_mode), Some(long_ctor)) = (spec.long_mode, spec.long_ctor) {
+                if Self::has_mode(upper_mnemonic, long_mode) {
+                    return Ok(Some(long_ctor(val as u32, span)));
+                }
             }
             if !symbol_unstable && Self::has_mode(upper_mnemonic, spec.absolute_mode) {
                 return Err(Self::bank_unknown_error(spec.assumed_key, upper_mnemonic));
@@ -479,8 +481,10 @@ impl M65816CpuHandler {
         }
 
         if spec.assumed_bank != 0 {
-            if Self::has_mode(upper_mnemonic, spec.long_mode) {
-                return Ok(Some((spec.long_ctor)(val as u32, span)));
+            if let (Some(long_mode), Some(long_ctor)) = (spec.long_mode, spec.long_ctor) {
+                if Self::has_mode(upper_mnemonic, long_mode) {
+                    return Ok(Some(long_ctor(val as u32, span)));
+                }
             }
             if !symbol_unstable && Self::has_mode(upper_mnemonic, spec.absolute_mode) {
                 return Err(Self::bank_mismatch_error(
@@ -719,8 +723,8 @@ impl CpuHandler for M65816CpuHandler {
                             assumed_known,
                             assumed_key,
                             absolute_mode: AddressMode::Absolute,
-                            long_mode: AddressMode::AbsoluteLong,
-                            long_ctor: Operand::AbsoluteLong,
+                            long_mode: Some(AddressMode::AbsoluteLong),
+                            long_ctor: Some(Operand::AbsoluteLong),
                         },
                     )? {
                         return Ok(vec![resolved]);
@@ -863,8 +867,8 @@ impl CpuHandler for M65816CpuHandler {
                             assumed_known,
                             assumed_key,
                             absolute_mode: AddressMode::AbsoluteX,
-                            long_mode: AddressMode::AbsoluteLongX,
-                            long_ctor: Operand::AbsoluteLongX,
+                            long_mode: Some(AddressMode::AbsoluteLongX),
+                            long_ctor: Some(Operand::AbsoluteLongX),
                         },
                     )? {
                         return Ok(vec![resolved]);
@@ -943,24 +947,22 @@ impl CpuHandler for M65816CpuHandler {
                         }
                     }
 
-                    if symbol_based
-                        && (0..=0xFFFF).contains(&val)
-                        && !symbol_unstable
-                        && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
-                    {
-                        if !assumed_known {
-                            return Err(Self::bank_unknown_error("dbr", &upper_mnemonic));
-                        }
-                        if assumed_bank == 0 {
-                            // In matching low bank we can keep absolute Y as-is.
-                        } else {
-                            return Err(Self::bank_mismatch_error(
-                                val as u32,
-                                0,
-                                assumed_bank,
-                                "dbr",
-                            ));
-                        }
+                    if let Some(resolved) = Self::resolve_symbol_bank_operand(
+                        &upper_mnemonic,
+                        val,
+                        span,
+                        symbol_based,
+                        symbol_unstable,
+                        SymbolBankResolutionSpec {
+                            assumed_bank,
+                            assumed_known,
+                            assumed_key: "dbr",
+                            absolute_mode: AddressMode::AbsoluteY,
+                            long_mode: None,
+                            long_ctor: None,
+                        },
+                    )? {
+                        return Ok(vec![resolved]);
                     }
 
                     if let Some(resolved) = Self::resolve_high_bank_operand(
