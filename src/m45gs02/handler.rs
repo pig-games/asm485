@@ -629,12 +629,39 @@ mod tests {
             }
         }
 
+        let ldz_abs_x = Operand::AbsoluteX(0x1234, Span::default());
+        match handler.encode_instruction("ldz", &[ldz_abs_x], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xAB, 0x34, 0x12]),
+            EncodeResult::NotFound => panic!("ldz absolute x encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("ldz absolute x encoding failed: {message}")
+            }
+        }
+
+        let cpz_imm = Operand::Immediate(0x44, Span::default());
+        match handler.encode_instruction("cpz", &[cpz_imm], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xC2, 0x44]),
+            EncodeResult::NotFound => panic!("cpz immediate encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("cpz immediate encoding failed: {message}")
+            }
+        }
+
         let cpz_zp = Operand::ZeroPage(0x20, Span::default());
         match handler.encode_instruction("cpz", &[cpz_zp], &ctx) {
             EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xD4, 0x20]),
             EncodeResult::NotFound => panic!("cpz zero-page encoding not found"),
             EncodeResult::Error(message, _span) => {
                 panic!("cpz zero-page encoding failed: {message}")
+            }
+        }
+
+        let cpz_abs = Operand::Absolute(0x1234, Span::default());
+        match handler.encode_instruction("cpz", &[cpz_abs], &ctx) {
+            EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![0xCC, 0x34, 0x12]),
+            EncodeResult::NotFound => panic!("cpz absolute encoding not found"),
+            EncodeResult::Error(message, _span) => {
+                panic!("cpz absolute encoding failed: {message}")
             }
         }
     }
