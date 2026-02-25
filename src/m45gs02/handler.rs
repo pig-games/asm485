@@ -563,6 +563,144 @@ mod tests {
     }
 
     #[test]
+    fn bsr_out_of_range_uses_pass1_placeholder_and_pass2_error() {
+        struct BranchRangeContext {
+            symbols: SymbolTable,
+            current_address: u32,
+            pass: u8,
+        }
+
+        impl AssemblerContext for BranchRangeContext {
+            fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+                match expr {
+                    Expr::Number(text, _) => text
+                        .parse::<i64>()
+                        .map_err(|_| format!("unable to parse numeric literal '{text}'")),
+                    _ => Err("unsupported expression for test context".to_string()),
+                }
+            }
+
+            fn symbols(&self) -> &SymbolTable {
+                &self.symbols
+            }
+
+            fn has_symbol(&self, _name: &str) -> bool {
+                false
+            }
+
+            fn symbol_is_finalized(&self, _name: &str) -> Option<bool> {
+                None
+            }
+
+            fn current_address(&self) -> u32 {
+                self.current_address
+            }
+
+            fn pass(&self) -> u8 {
+                self.pass
+            }
+        }
+
+        let handler = M45GS02CpuHandler::new();
+        let family_operands = vec![FamilyOperand::Direct(Expr::Number(
+            "50000".to_string(),
+            Span::default(),
+        ))];
+
+        let pass1_ctx = BranchRangeContext {
+            symbols: SymbolTable::new(),
+            current_address: 0,
+            pass: 1,
+        };
+        let resolved = handler
+            .resolve_operands("bsr", &family_operands, &pass1_ctx)
+            .expect("pass1 should keep placeholder for out-of-range bsr");
+        match &resolved[0] {
+            Operand::RelativeLong(value, _) => assert_eq!(*value, 0),
+            other => panic!("expected RelativeLong placeholder, got {other:?}"),
+        }
+
+        let pass2_ctx = BranchRangeContext {
+            symbols: SymbolTable::new(),
+            current_address: 0,
+            pass: 2,
+        };
+        let err = handler
+            .resolve_operands("bsr", &family_operands, &pass2_ctx)
+            .expect_err("pass2 should error for out-of-range bsr target");
+        assert!(err.contains("Far branch target out of range"));
+    }
+
+    #[test]
+    fn branch_out_of_range_uses_pass1_placeholder_and_pass2_error() {
+        struct BranchRangeContext {
+            symbols: SymbolTable,
+            current_address: u32,
+            pass: u8,
+        }
+
+        impl AssemblerContext for BranchRangeContext {
+            fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+                match expr {
+                    Expr::Number(text, _) => text
+                        .parse::<i64>()
+                        .map_err(|_| format!("unable to parse numeric literal '{text}'")),
+                    _ => Err("unsupported expression for test context".to_string()),
+                }
+            }
+
+            fn symbols(&self) -> &SymbolTable {
+                &self.symbols
+            }
+
+            fn has_symbol(&self, _name: &str) -> bool {
+                false
+            }
+
+            fn symbol_is_finalized(&self, _name: &str) -> Option<bool> {
+                None
+            }
+
+            fn current_address(&self) -> u32 {
+                self.current_address
+            }
+
+            fn pass(&self) -> u8 {
+                self.pass
+            }
+        }
+
+        let handler = M45GS02CpuHandler::new();
+        let family_operands = vec![FamilyOperand::Direct(Expr::Number(
+            "50000".to_string(),
+            Span::default(),
+        ))];
+
+        let pass1_ctx = BranchRangeContext {
+            symbols: SymbolTable::new(),
+            current_address: 0,
+            pass: 1,
+        };
+        let resolved = handler
+            .resolve_operands("bpl", &family_operands, &pass1_ctx)
+            .expect("pass1 should keep placeholder for out-of-range branch");
+        match &resolved[0] {
+            Operand::RelativeLong(value, _) => assert_eq!(*value, 0),
+            other => panic!("expected RelativeLong placeholder, got {other:?}"),
+        }
+
+        let pass2_ctx = BranchRangeContext {
+            symbols: SymbolTable::new(),
+            current_address: 0,
+            pass: 2,
+        };
+        let err = handler
+            .resolve_operands("bpl", &family_operands, &pass2_ctx)
+            .expect_err("pass2 should error for out-of-range branch target");
+        assert!(err.contains("Far branch target out of range"));
+    }
+
+    #[test]
     fn encodes_relfar_branch_operand() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();
