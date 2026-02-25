@@ -58,3 +58,41 @@ fn highlight_line(line: &str, column: usize, use_color: bool) -> String {
     let col_opt = if column == 0 { None } else { Some(column) };
     crate::report::highlight_line(line, col_opt, use_color)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{format_parse_error, format_parse_error_listing};
+    use crate::core::parser::ParseError;
+    use crate::core::tokenizer::Span;
+
+    #[test]
+    fn format_parse_error_includes_file_and_message() {
+        let err = ParseError {
+            message: "unexpected token".to_string(),
+            span: Span {
+                line: 1,
+                col_start: 2,
+                col_end: 2,
+            },
+        };
+        let lines = vec!["lda #".to_string()];
+        let out = format_parse_error(&err, Some("test.asm"), Some(&lines), false);
+        assert!(out.contains("test.asm:1: ERROR"));
+        assert!(out.contains("ERROR: unexpected token"));
+    }
+
+    #[test]
+    fn format_parse_error_listing_uses_source_unavailable_fallback() {
+        let err = ParseError {
+            message: "bad line".to_string(),
+            span: Span {
+                line: 9,
+                col_start: 1,
+                col_end: 1,
+            },
+        };
+        let out = format_parse_error_listing(&err, None, false);
+        assert!(out.contains("<source unavailable>"));
+        assert!(out.contains("ERROR: bad line"));
+    }
+}
