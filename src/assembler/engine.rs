@@ -29,7 +29,7 @@ impl Assembler {
 
         Self {
             symbols: SymbolTable::new(),
-            image: ImageStore::new(65536),
+            image: ImageStore::new(),
             sections: HashMap::new(),
             regions: HashMap::new(),
             diagnostics: Vec::new(),
@@ -79,7 +79,7 @@ impl Assembler {
         {
             let root_metadata = std::mem::take(&mut self.root_metadata);
             let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
-            asm_line.root_metadata = root_metadata;
+            asm_line.output_state.root_metadata = root_metadata;
             asm_line.clear_conditionals();
             asm_line.clear_scopes();
 
@@ -204,7 +204,7 @@ impl Assembler {
                 counts.errors += 1;
             }
 
-            for (name, section) in &asm_line.sections {
+            for (name, section) in &asm_line.layout.sections {
                 if section.default_region.is_some() && !section.layout_placed {
                     let err = AsmError::new(
                         AsmErrorKind::Directive,
@@ -216,9 +216,10 @@ impl Assembler {
                 }
             }
 
-            for output in &asm_line.root_metadata.linker_outputs {
+            for output in &asm_line.output_state.root_metadata.linker_outputs {
                 for section_name in &output.sections {
                     let is_placed = asm_line
+                        .layout
                         .sections
                         .get(section_name)
                         .map(|section| section.layout_placed)
@@ -266,20 +267,34 @@ impl Assembler {
         // Seed pass2 with pass1 placement/layout state so section-local encoding
         // (especially relative branches) uses rebased absolute addresses even if
         // .place/.pack directives appear later in source order.
-        asm_line.sections = self.sections.clone();
-        asm_line.regions = self.regions.clone();
-        for section in asm_line.sections.values_mut() {
+        asm_line.layout.sections = self.sections.clone();
+        asm_line.layout.regions = self.regions.clone();
+        for section in asm_line.layout.sections.values_mut() {
             section.pc = 0;
             section.bytes.clear();
             section.emitted = false;
         }
-        self.image = ImageStore::new(65536);
+        self.image = ImageStore::new();
 
         let mut addr: u32 = 0;
         let mut line_num: u32 = 1;
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;
         let image = &mut self.image;
+
+        if let Some(err) = image.init_error() {
+            let message = format!("failed to initialize image store: {err}");
+            let diag = Diagnostic::new(
+                line_num,
+                Severity::Error,
+                AsmError::new(AsmErrorKind::Io, &message, None),
+            );
+            diagnostics.push(diag.clone());
+            listing.write_diagnostic_with_annotations(&diag, lines)?;
+            counts.errors += 1;
+            counts.lines = line_num - 1;
+            return Ok(counts);
+        }
 
         for src in lines {
             let line_addr = match asm_line.current_addr(addr) {
@@ -463,9 +478,33 @@ impl Assembler {
         for (base_addr, _, section) in deferred_sections {
             image.store_slice(base_addr, &section.bytes);
         }
+
+        if Self::cpu_warns_for_wide_output(asm_line.cpu) {
+            if let Ok(Some((_min_addr, max_addr))) = image.output_range() {
+                if max_addr > 0xFFFF {
+                    let message = format!(
+                        "assembled output exceeds 64 KB for CPU {} (max emitted address ${max_addr:08X})",
+                        asm_line.cpu.as_str()
+                    );
+                    let diag = Diagnostic::new(
+                        line_num.saturating_sub(1),
+                        Severity::Warning,
+                        AsmError::new(AsmErrorKind::Assembler, &message, None),
+                    );
+                    diagnostics.push(diag.clone());
+                    listing.write_diagnostic_with_annotations(&diag, lines)?;
+                    counts.warnings += 1;
+                }
+            }
+        }
+
         self.sections = sections;
         counts.lines = line_num - 1;
         Ok(counts)
+    }
+
+    fn cpu_warns_for_wide_output(cpu: CpuType) -> bool {
+        matches!(cpu.as_str(), "m6502" | "65c02" | "8080" | "8085" | "z80")
     }
 
     fn diagnostic_from_asmline(
@@ -485,5 +524,24 @@ impl Assembler {
             diagnostic = diagnostic.with_fixit(fixit.clone());
         }
         diagnostic
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Assembler;
+    use crate::core::cpu::CpuType;
+
+    #[test]
+    fn wide_output_warning_policy_matches_target_cpu() {
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("m6502")));
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("65c02")));
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("8080")));
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("8085")));
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("z80")));
+        assert!(!Assembler::cpu_warns_for_wide_output(CpuType::new("65816")));
+        assert!(!Assembler::cpu_warns_for_wide_output(CpuType::new(
+            "45gs02"
+        )));
     }
 }

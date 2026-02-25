@@ -6,7 +6,12 @@
 //! This module ties together the CPU-agnostic core with CPU-specific
 //! instruction encoding (8085, Z80).
 
+mod asmline_conditionals;
 mod asmline_directives;
+mod asmline_directives_data;
+mod asmline_directives_layout;
+mod asmline_directives_metadata;
+mod asmline_directives_scope;
 mod bootstrap;
 pub mod cli;
 mod engine;
@@ -45,7 +50,9 @@ use crate::core::macro_processor::MacroProcessor;
 use crate::core::parser as asm_parser;
 use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::preprocess::Preprocessor;
-use crate::core::registry::{FamilyOperandSet, ModuleRegistry, RegistryError, ResolvedPipeline};
+use crate::core::registry::{
+    FamilyOperandSet, ModuleRegistry, OperandSet, RegistryError, ResolvedPipeline,
+};
 use crate::core::source_map::SourceMap;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
@@ -1294,32 +1301,117 @@ struct EncodingScopeState {
     previous_active_encoding: String,
 }
 
-/// Per-line assembler state.
-struct AsmLine<'a> {
-    symbols: &'a mut SymbolTable,
-    registry: &'a ModuleRegistry,
-    root_metadata: RootMetadata,
-    cond_stack: ConditionalStack,
-    scope_stack: ScopeStack,
-    visibility_stack: Vec<SymbolVisibility>,
-    module_active: Option<String>,
-    module_scope_depth: usize,
-    in_meta_block: bool,
-    in_output_block: bool,
-    output_cpu_block: Option<String>,
+#[derive(Debug)]
+struct AsmDiagnosticsState {
+    last_error: Option<AsmError>,
+    last_error_column: Option<usize>,
+    last_error_help: Option<String>,
+    last_error_fixits: Vec<Fixit>,
+    last_parser_error: Option<ParseError>,
+}
+
+impl AsmDiagnosticsState {
+    fn new() -> Self {
+        Self {
+            last_error: None,
+            last_error_column: None,
+            last_error_help: None,
+            last_error_fixits: Vec::new(),
+            last_parser_error: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AsmLayoutState {
     sections: HashMap<String, SectionState>,
     regions: HashMap<String, RegionState>,
     placement_directives: Vec<PlacementDirective>,
     section_symbol_sections: HashMap<String, String>,
     section_stack: Vec<Option<String>>,
     current_section: Option<String>,
+}
+
+impl AsmLayoutState {
+    fn new() -> Self {
+        Self {
+            sections: HashMap::new(),
+            regions: HashMap::new(),
+            placement_directives: Vec::new(),
+            section_symbol_sections: HashMap::new(),
+            section_stack: Vec::new(),
+            current_section: None,
+        }
+    }
+}
+
+struct AsmSymbolScopeState {
+    scope_stack: ScopeStack,
+    visibility_stack: Vec<SymbolVisibility>,
+    module_active: Option<String>,
+    module_scope_depth: usize,
     saw_explicit_module: bool,
     top_level_content_seen: bool,
-    last_error: Option<AsmError>,
-    last_error_column: Option<usize>,
-    last_error_help: Option<String>,
-    last_error_fixits: Vec<Fixit>,
-    last_parser_error: Option<ParseError>,
+}
+
+impl AsmSymbolScopeState {
+    fn new() -> Self {
+        Self {
+            scope_stack: ScopeStack::new(),
+            visibility_stack: vec![SymbolVisibility::Private],
+            module_active: None,
+            module_scope_depth: 0,
+            saw_explicit_module: false,
+            top_level_content_seen: false,
+        }
+    }
+}
+
+struct AsmOutputState {
+    root_metadata: RootMetadata,
+    in_meta_block: bool,
+    in_output_block: bool,
+    output_cpu_block: Option<String>,
+}
+
+impl AsmOutputState {
+    fn new(root_metadata: RootMetadata) -> Self {
+        Self {
+            root_metadata,
+            in_meta_block: false,
+            in_output_block: false,
+            output_cpu_block: None,
+        }
+    }
+}
+
+struct AsmCpuModeState {
+    program_address_max: u32,
+    word_size_bytes: u32,
+    little_endian: bool,
+    state_flags: HashMap<String, u32>,
+}
+
+impl AsmCpuModeState {
+    fn new(registry: &ModuleRegistry, cpu: CpuType) -> Self {
+        Self {
+            program_address_max: AsmLine::build_cpu_program_address_max(registry, cpu),
+            word_size_bytes: AsmLine::build_cpu_word_size(registry, cpu),
+            little_endian: AsmLine::build_cpu_endianness(registry, cpu),
+            state_flags: AsmLine::build_cpu_runtime_state(registry, cpu),
+        }
+    }
+}
+
+/// Per-line assembler state.
+struct AsmLine<'a> {
+    symbols: &'a mut SymbolTable,
+    registry: &'a ModuleRegistry,
+    cond_stack: ConditionalStack,
+    symbol_scope: AsmSymbolScopeState,
+    output_state: AsmOutputState,
+    layout: AsmLayoutState,
+    diagnostics: AsmDiagnosticsState,
     current_line_num: u32,
     current_source_line: Option<String>,
     line_end_span: Option<Span>,
@@ -1332,10 +1424,7 @@ struct AsmLine<'a> {
     mnemonic: Option<String>,
     cpu: CpuType,
     register_checker: RegisterChecker,
-    cpu_program_address_max: u32,
-    cpu_word_size_bytes: u32,
-    cpu_little_endian: bool,
-    cpu_state_flags: HashMap<String, u32>,
+    cpu_mode: AsmCpuModeState,
     opthread_expr_eval_opt_in_families: Vec<String>,
     opthread_expr_eval_force_host_families: Vec<String>,
     opthread_execution_model: Option<HierarchyExecutionModel>,
@@ -1366,28 +1455,11 @@ impl<'a> AsmLine<'a> {
         Self {
             symbols,
             registry,
-            root_metadata,
             cond_stack: ConditionalStack::new(),
-            scope_stack: ScopeStack::new(),
-            visibility_stack: vec![SymbolVisibility::Private],
-            module_active: None,
-            module_scope_depth: 0,
-            in_meta_block: false,
-            in_output_block: false,
-            output_cpu_block: None,
-            sections: HashMap::new(),
-            regions: HashMap::new(),
-            placement_directives: Vec::new(),
-            section_symbol_sections: HashMap::new(),
-            section_stack: Vec::new(),
-            current_section: None,
-            saw_explicit_module: false,
-            top_level_content_seen: false,
-            last_error: None,
-            last_error_column: None,
-            last_error_help: None,
-            last_error_fixits: Vec::new(),
-            last_parser_error: None,
+            symbol_scope: AsmSymbolScopeState::new(),
+            output_state: AsmOutputState::new(root_metadata),
+            layout: AsmLayoutState::new(),
+            diagnostics: AsmDiagnosticsState::new(),
             current_line_num: 1,
             current_source_line: None,
             line_end_span: None,
@@ -1400,10 +1472,7 @@ impl<'a> AsmLine<'a> {
             mnemonic: None,
             cpu,
             register_checker: Self::build_register_checker(registry, cpu),
-            cpu_program_address_max: Self::build_cpu_program_address_max(registry, cpu),
-            cpu_word_size_bytes: Self::build_cpu_word_size(registry, cpu),
-            cpu_little_endian: Self::build_cpu_endianness(registry, cpu),
-            cpu_state_flags: Self::build_cpu_runtime_state(registry, cpu),
+            cpu_mode: AsmCpuModeState::new(registry, cpu),
             opthread_expr_eval_opt_in_families: Self::expr_eval_opt_in_families_from_env(),
             opthread_expr_eval_force_host_families: Self::expr_eval_force_host_families_from_env(),
             opthread_execution_model: Self::build_opthread_execution_model(registry, cpu),
@@ -1577,27 +1646,32 @@ impl<'a> AsmLine<'a> {
     }
 
     fn take_root_metadata(&mut self) -> RootMetadata {
-        std::mem::take(&mut self.root_metadata)
+        std::mem::take(&mut self.output_state.root_metadata)
     }
 
     fn take_placement_directives(&mut self) -> Vec<PlacementDirective> {
-        std::mem::take(&mut self.placement_directives)
+        std::mem::take(&mut self.layout.placement_directives)
     }
 
     fn take_sections(&mut self) -> HashMap<String, SectionState> {
-        std::mem::take(&mut self.sections)
+        std::mem::take(&mut self.layout.sections)
     }
 
     fn take_regions(&mut self) -> HashMap<String, RegionState> {
-        std::mem::take(&mut self.regions)
+        std::mem::take(&mut self.layout.regions)
     }
 
     fn finalize_section_symbol_addresses(&mut self) -> Vec<AsmError> {
-        let section_symbols = std::mem::take(&mut self.section_symbol_sections);
+        let section_symbols = std::mem::take(&mut self.layout.section_symbol_sections);
         let mut errors = Vec::new();
         let cpu_name = self.cpu.as_str().to_string();
         for (symbol_name, section_name) in section_symbols {
-            let Some(base_addr) = self.sections.get(&section_name).and_then(|s| s.base_addr) else {
+            let Some(base_addr) = self
+                .layout
+                .sections
+                .get(&section_name)
+                .and_then(|s| s.base_addr)
+            else {
                 continue;
             };
             if let Some(entry) = self.symbols.entry_mut(&symbol_name) {
@@ -1623,32 +1697,33 @@ impl<'a> AsmLine<'a> {
     }
 
     fn error(&self) -> Option<&AsmError> {
-        self.last_error.as_ref()
+        self.diagnostics.last_error.as_ref()
     }
 
     fn error_column(&self) -> Option<usize> {
-        self.last_error_column
+        self.diagnostics.last_error_column
     }
 
     fn error_help(&self) -> Option<&str> {
-        self.last_error_help.as_deref()
+        self.diagnostics.last_error_help.as_deref()
     }
 
     fn error_fixits(&self) -> &[Fixit] {
-        &self.last_error_fixits
+        &self.diagnostics.last_error_fixits
     }
 
     fn parser_error(&self) -> Option<ParseError> {
-        self.last_parser_error.clone()
+        self.diagnostics.last_parser_error.clone()
     }
 
     fn parser_error_ref(&self) -> Option<&ParseError> {
-        self.last_parser_error.as_ref()
+        self.diagnostics.last_parser_error.as_ref()
     }
 
     #[cfg(test)]
     fn error_message(&self) -> &str {
-        self.last_error
+        self.diagnostics
+            .last_error
             .as_ref()
             .map(|err| err.message())
             .unwrap_or("")
@@ -1675,31 +1750,30 @@ impl<'a> AsmLine<'a> {
     }
 
     fn clear_scopes(&mut self) {
-        self.scope_stack.clear();
-        self.visibility_stack.clear();
-        self.visibility_stack.push(SymbolVisibility::Private);
-        self.module_active = None;
-        self.module_scope_depth = 0;
-        self.in_meta_block = false;
-        self.in_output_block = false;
-        self.output_cpu_block = None;
-        self.sections.clear();
-        self.regions.clear();
-        self.placement_directives.clear();
-        self.section_symbol_sections.clear();
-        self.section_stack.clear();
-        self.current_section = None;
-        self.saw_explicit_module = false;
-        self.top_level_content_seen = false;
+        self.symbol_scope.scope_stack.clear();
+        self.symbol_scope.visibility_stack.clear();
+        self.symbol_scope
+            .visibility_stack
+            .push(SymbolVisibility::Private);
+        self.symbol_scope.module_active = None;
+        self.symbol_scope.module_scope_depth = 0;
+        self.output_state.in_meta_block = false;
+        self.output_state.in_output_block = false;
+        self.output_state.output_cpu_block = None;
+        self.layout.sections.clear();
+        self.layout.regions.clear();
+        self.layout.placement_directives.clear();
+        self.layout.section_symbol_sections.clear();
+        self.layout.section_stack.clear();
+        self.layout.current_section = None;
+        self.symbol_scope.saw_explicit_module = false;
+        self.symbol_scope.top_level_content_seen = false;
         self.reset_cpu_runtime_profile();
         self.reset_text_encoding_profile();
     }
 
     fn reset_cpu_runtime_profile(&mut self) {
-        self.cpu_program_address_max = Self::build_cpu_program_address_max(self.registry, self.cpu);
-        self.cpu_word_size_bytes = Self::build_cpu_word_size(self.registry, self.cpu);
-        self.cpu_little_endian = Self::build_cpu_endianness(self.registry, self.cpu);
-        self.cpu_state_flags = Self::build_cpu_runtime_state(self.registry, self.cpu);
+        self.cpu_mode = AsmCpuModeState::new(self.registry, self.cpu);
     }
 
     fn reset_text_encoding_profile(&mut self) {
@@ -2430,7 +2504,7 @@ impl<'a> AsmLine<'a> {
         cpu_handler.update_runtime_state_after_encode(
             mnemonic,
             operands,
-            &mut self.cpu_state_flags,
+            &mut self.cpu_mode.state_flags,
         );
     }
 
@@ -2449,12 +2523,12 @@ impl<'a> AsmLine<'a> {
         operands: &[Expr],
     ) -> Result<bool, String> {
         let pipeline = Self::resolve_pipeline_for_cpu(self.registry, self.cpu)?;
-        let mut state_flags = std::mem::take(&mut self.cpu_state_flags);
+        let mut state_flags = std::mem::take(&mut self.cpu_mode.state_flags);
         let result =
             pipeline
                 .cpu
                 .apply_runtime_directive(directive, operands, self, &mut state_flags);
-        self.cpu_state_flags = state_flags;
+        self.cpu_mode.state_flags = state_flags;
         result
     }
 
@@ -2526,21 +2600,21 @@ impl<'a> AsmLine<'a> {
     }
 
     fn in_module(&self) -> bool {
-        self.module_active.is_some()
+        self.symbol_scope.module_active.is_some()
     }
 
     fn in_section(&self) -> bool {
-        self.current_section.is_some()
+        self.layout.current_section.is_some()
     }
 
     fn current_section_name(&self) -> Option<&str> {
-        self.current_section.as_deref()
+        self.layout.current_section.as_deref()
     }
 
     fn current_addr(&mut self, main_addr: u32) -> Result<u32, ()> {
-        match self.current_section.as_deref() {
+        match self.layout.current_section.as_deref() {
             Some(name) => {
-                let Some(section) = self.sections.get(name) else {
+                let Some(section) = self.layout.sections.get(name) else {
                     return Ok(main_addr);
                 };
                 let max = self.max_program_address();
@@ -2555,9 +2629,9 @@ impl<'a> AsmLine<'a> {
                 ) {
                     Ok(addr) => Ok(addr),
                     Err(message) => {
-                        self.last_error =
+                        self.diagnostics.last_error =
                             Some(AsmError::new(AsmErrorKind::Directive, &message, None));
-                        self.last_error_column = None;
+                        self.diagnostics.last_error_column = None;
                         Err(())
                     }
                 }
@@ -2570,8 +2644,9 @@ impl<'a> AsmLine<'a> {
         if self.pass != 1 {
             return;
         }
-        if let Some(section_name) = self.current_section.as_ref() {
-            self.section_symbol_sections
+        if let Some(section_name) = self.layout.current_section.as_ref() {
+            self.layout
+                .section_symbol_sections
                 .insert(full_name.to_string(), section_name.clone());
         }
     }
@@ -2589,9 +2664,9 @@ impl<'a> AsmLine<'a> {
         };
         let max = self.max_program_address();
         let cpu_name = self.cpu.as_str().to_string();
-        if let Some(section_name) = self.current_section.clone() {
+        if let Some(section_name) = self.layout.current_section.clone() {
             let update_result: Result<(), String> = (|| {
-                let Some(section) = self.sections.get_mut(&section_name) else {
+                let Some(section) = self.layout.sections.get_mut(&section_name) else {
                     return Ok(());
                 };
                 let current_abs = Self::checked_add_address(
@@ -2735,13 +2810,13 @@ impl<'a> AsmLine<'a> {
     }
 
     fn fail_address_update(&mut self, message: String) -> Result<(), ()> {
-        self.last_error = Some(AsmError::new(AsmErrorKind::Directive, &message, None));
-        self.last_error_column = self.line_end_span.map(|span| span.col_start);
+        self.diagnostics.last_error = Some(AsmError::new(AsmErrorKind::Directive, &message, None));
+        self.diagnostics.last_error_column = self.line_end_span.map(|span| span.col_start);
         Err(())
     }
 
     fn is_allowed_meta_directive(&self, mnemonic: &str) -> bool {
-        if self.in_output_block {
+        if self.output_state.in_output_block {
             return is_output_block_directive(mnemonic)
                 || self.is_output_cpu_block_directive(mnemonic);
         }
@@ -2760,7 +2835,8 @@ impl<'a> AsmLine<'a> {
     }
 
     fn current_visibility(&self) -> SymbolVisibility {
-        self.visibility_stack
+        self.symbol_scope
+            .visibility_stack
             .last()
             .copied()
             .unwrap_or(SymbolVisibility::Private)
@@ -2768,12 +2844,12 @@ impl<'a> AsmLine<'a> {
 
     fn push_visibility(&mut self) {
         let current = self.current_visibility();
-        self.visibility_stack.push(current);
+        self.symbol_scope.visibility_stack.push(current);
     }
 
     fn pop_visibility(&mut self) -> bool {
-        if self.visibility_stack.len() > 1 {
-            self.visibility_stack.pop();
+        if self.symbol_scope.visibility_stack.len() > 1 {
+            self.symbol_scope.visibility_stack.pop();
             true
         } else {
             false
@@ -2781,10 +2857,10 @@ impl<'a> AsmLine<'a> {
     }
 
     fn set_visibility(&mut self, visibility: SymbolVisibility) {
-        if let Some(current) = self.visibility_stack.last_mut() {
+        if let Some(current) = self.symbol_scope.visibility_stack.last_mut() {
             *current = visibility;
         } else {
-            self.visibility_stack.push(visibility);
+            self.symbol_scope.visibility_stack.push(visibility);
         }
     }
 
@@ -2807,19 +2883,19 @@ impl<'a> AsmLine<'a> {
         if name.contains('.') {
             name.to_string()
         } else {
-            self.scope_stack.qualify(name)
+            self.symbol_scope.scope_stack.qualify(name)
         }
     }
 
     fn resolve_imported_name(&self, name: &str) -> Option<String> {
-        let module_id = self.module_active.as_deref()?;
+        let module_id = self.symbol_scope.module_active.as_deref()?;
         let (target_module, target_name) =
             self.symbols.resolve_selective_import(module_id, name)?;
         Some(format!("{target_module}.{target_name}"))
     }
 
     fn resolve_import_alias(&self, name: &str) -> Option<String> {
-        let module_id = self.module_active.as_deref()?;
+        let module_id = self.symbol_scope.module_active.as_deref()?;
         let (prefix, rest) = name.split_once('.')?;
         let target_module = self.symbols.resolve_import_alias(module_id, prefix)?;
         Some(format!("{target_module}.{rest}"))
@@ -2829,11 +2905,11 @@ impl<'a> AsmLine<'a> {
         if name.contains('.') {
             return false;
         }
-        let module_id = match self.module_active.as_deref() {
+        let module_id = match self.symbol_scope.module_active.as_deref() {
             Some(module_id) => module_id,
             None => return false,
         };
-        if self.scope_stack.depth() != self.module_scope_depth {
+        if self.symbol_scope.scope_stack.depth() != self.symbol_scope.module_scope_depth {
             return false;
         }
         self.symbols
@@ -2854,9 +2930,9 @@ impl<'a> AsmLine<'a> {
             }
             return Ok(None);
         }
-        let mut depth = self.scope_stack.depth();
+        let mut depth = self.symbol_scope.scope_stack.depth();
         while depth > 0 {
-            let prefix = self.scope_stack.prefix(depth);
+            let prefix = self.symbol_scope.scope_stack.prefix(depth);
             let candidate = format!("{prefix}.{name}");
             if let Some(entry) = self.symbols.entry(&candidate) {
                 if !self.entry_is_visible(entry) {
@@ -2895,9 +2971,9 @@ impl<'a> AsmLine<'a> {
                 .unwrap_or_else(|| name.to_string());
             return self.symbols.entry(&candidate);
         }
-        let mut depth = self.scope_stack.depth();
+        let mut depth = self.symbol_scope.scope_stack.depth();
         while depth > 0 {
-            let prefix = self.scope_stack.prefix(depth);
+            let prefix = self.symbol_scope.scope_stack.prefix(depth);
             let candidate = format!("{prefix}.{name}");
             if let Some(entry) = self.symbols.entry(&candidate) {
                 return Some(entry);
@@ -2916,7 +2992,8 @@ impl<'a> AsmLine<'a> {
     fn entry_is_visible(&self, entry: &crate::core::symbol_table::SymbolTableEntry) -> bool {
         match entry.visibility {
             SymbolVisibility::Public => true,
-            SymbolVisibility::Private => match (&entry.module_id, &self.module_active) {
+            SymbolVisibility::Private => match (&entry.module_id, &self.symbol_scope.module_active)
+            {
                 (Some(entry_module), Some(current_module)) => {
                     entry_module.eq_ignore_ascii_case(current_module)
                 }
@@ -2947,9 +3024,10 @@ impl<'a> AsmLine<'a> {
                         col_end: 1,
                     },
                 };
-                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                self.last_error_column = Some(err.span.col_start);
-                self.last_parser_error = Some(err);
+                self.diagnostics.last_error =
+                    Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.diagnostics.last_error_column = Some(err.span.col_start);
+                self.diagnostics.last_parser_error = Some(err);
                 return LineStatus::Error;
             }
         };
@@ -2965,9 +3043,10 @@ impl<'a> AsmLine<'a> {
             Ok(parsed) => parsed,
             Err(err) => {
                 self.line_end_span = Some(err.span);
-                self.last_error = Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
-                self.last_error_column = Some(err.span.col_start);
-                self.last_parser_error = Some(err);
+                self.diagnostics.last_error =
+                    Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
+                self.diagnostics.last_error_column = Some(err.span.col_start);
+                self.diagnostics.last_parser_error = Some(err);
                 self.attach_dialect_fixit_hint_from_source_line();
                 return LineStatus::Error;
             }
@@ -2979,11 +3058,11 @@ impl<'a> AsmLine<'a> {
     }
 
     fn process(&mut self, line: &str, line_num: u32, addr: u32, pass: u8) -> LineStatus {
-        self.last_error = None;
-        self.last_error_column = None;
-        self.last_error_help = None;
-        self.last_error_fixits.clear();
-        self.last_parser_error = None;
+        self.diagnostics.last_error = None;
+        self.diagnostics.last_error_column = None;
+        self.diagnostics.last_error_help = None;
+        self.diagnostics.last_error_fixits.clear();
+        self.diagnostics.last_parser_error = None;
         self.current_line_num = line_num;
         self.current_source_line = Some(line.to_string());
         self.line_end_span = None;
@@ -3017,7 +3096,7 @@ impl<'a> AsmLine<'a> {
         }
 
         if !self.in_module() {
-            if self.saw_explicit_module {
+            if self.symbol_scope.saw_explicit_module {
                 if !matches!(ast, LineAst::Empty) && !Self::ast_is_toplevel_directive(&ast) {
                     return self.failure(
                         LineStatus::Error,
@@ -3027,11 +3106,11 @@ impl<'a> AsmLine<'a> {
                     );
                 }
             } else if !matches!(ast, LineAst::Empty) && !Self::ast_is_toplevel_directive(&ast) {
-                self.top_level_content_seen = true;
+                self.symbol_scope.top_level_content_seen = true;
             }
         }
 
-        if self.in_meta_block && !self.cond_stack.skipping() {
+        if self.output_state.in_meta_block && !self.cond_stack.skipping() {
             match &ast {
                 LineAst::Empty | LineAst::Conditional { .. } => {}
                 LineAst::Statement {
@@ -3091,7 +3170,7 @@ impl<'a> AsmLine<'a> {
                         span,
                     );
                 }
-                if self.scope_stack.depth() != self.module_scope_depth {
+                if self.symbol_scope.scope_stack.depth() != self.symbol_scope.module_scope_depth {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Directive,
@@ -3108,7 +3187,11 @@ impl<'a> AsmLine<'a> {
                         params,
                         span,
                     };
-                    let module_name = self.module_active.as_deref().expect("module active");
+                    let module_name = self
+                        .symbol_scope
+                        .module_active
+                        .as_deref()
+                        .expect("module active");
                     match self.symbols.add_import(module_name, import) {
                         ImportResult::Ok => LineStatus::Ok,
                         ImportResult::AliasCollision => self.failure_at_span(
@@ -3252,7 +3335,7 @@ impl<'a> AsmLine<'a> {
                 self.start_addr,
                 false,
                 self.current_visibility(),
-                self.module_active.as_deref(),
+                self.symbol_scope.module_active.as_deref(),
             )
         } else if self.in_section() {
             crate::symbol_table::SymbolTableResult::Ok
@@ -3275,442 +3358,6 @@ impl<'a> AsmLine<'a> {
         }
 
         None
-    }
-
-    fn process_conditional_ast(
-        &mut self,
-        kind: ConditionalKind,
-        exprs: &[Expr],
-        span: Span,
-    ) -> LineStatus {
-        let skipping = self.cond_stack.skipping();
-        let end_span = self.line_end_span.unwrap_or(span);
-        let expr_err_span = exprs.first().map(expr_span).unwrap_or(end_span);
-
-        match kind {
-            ConditionalKind::If => {
-                let val = match exprs.first() {
-                    Some(expr) => match self.eval_expr_ast(expr) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                err.error.kind(),
-                                err.error.message(),
-                                None,
-                                err.span,
-                            );
-                        }
-                    },
-                    None => 0,
-                };
-                if skipping {
-                    if let Some(ctx) = self.cond_stack.last_mut() {
-                        ctx.skip_level = ctx.skip_level.saturating_add(1);
-                    }
-                    return LineStatus::Skip;
-                }
-                let prev = self.cond_stack.last();
-                let mut ctx = ConditionalContext::new(prev, ConditionalBlockKind::If);
-                if val != 0 {
-                    ctx.matched = true;
-                } else {
-                    ctx.skipping = true;
-                }
-                self.cond_stack.push(ctx);
-            }
-            ConditionalKind::Switch => {
-                let val = match exprs.first() {
-                    Some(expr) => match self.eval_expr_ast(expr) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                err.error.kind(),
-                                err.error.message(),
-                                None,
-                                err.span,
-                            );
-                        }
-                    },
-                    None => 0,
-                };
-                if skipping {
-                    if let Some(ctx) = self.cond_stack.last_mut() {
-                        ctx.skip_level = ctx.skip_level.saturating_add(1);
-                    }
-                    return LineStatus::Skip;
-                }
-                let prev = self.cond_stack.last();
-                let mut ctx = ConditionalContext::new(prev, ConditionalBlockKind::Switch);
-                ctx.switch_value = Some(val);
-                ctx.skipping = true;
-                self.cond_stack.push(ctx);
-            }
-            ConditionalKind::Else | ConditionalKind::ElseIf => {
-                if self.cond_stack.is_empty() {
-                    let err_span = if kind == ConditionalKind::ElseIf {
-                        expr_err_span
-                    } else {
-                        end_span
-                    };
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".else or .elseif found without matching .if",
-                        None,
-                        err_span,
-                    );
-                }
-                let skip_level = match self.cond_stack.last() {
-                    Some(ctx) => ctx.skip_level,
-                    None => {
-                        let err_span = if kind == ConditionalKind::ElseIf {
-                            expr_err_span
-                        } else {
-                            end_span
-                        };
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            AsmErrorKind::Conditional,
-                            ".else or .elseif found without matching .if",
-                            None,
-                            err_span,
-                        );
-                    }
-                };
-                if skip_level > 0 {
-                    return LineStatus::Skip;
-                }
-                if self.cond_stack.last().map(|ctx| ctx.kind) != Some(ConditionalBlockKind::If) {
-                    let err_span = if kind == ConditionalKind::ElseIf {
-                        expr_err_span
-                    } else {
-                        end_span
-                    };
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".else or .elseif found without matching .if",
-                        None,
-                        err_span,
-                    );
-                }
-                let val = if kind == ConditionalKind::Else {
-                    1
-                } else {
-                    match exprs.first() {
-                        Some(expr) => match self.eval_expr_ast(expr) {
-                            Ok(v) => v,
-                            Err(err) => {
-                                return self.failure_at_span(
-                                    LineStatus::Error,
-                                    err.error.kind(),
-                                    err.error.message(),
-                                    None,
-                                    err.span,
-                                );
-                            }
-                        },
-                        None => 0,
-                    }
-                };
-                let Some(ctx) = self.cond_stack.last_mut() else {
-                    let err_span = if kind == ConditionalKind::ElseIf {
-                        expr_err_span
-                    } else {
-                        end_span
-                    };
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".else or .elseif found without matching .if",
-                        None,
-                        err_span,
-                    );
-                };
-                if ctx.sub_type == TokenValue::Else as i32 {
-                    let err_span = if kind == ConditionalKind::ElseIf {
-                        expr_err_span
-                    } else {
-                        end_span
-                    };
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".else or .elseif cannot follow .else",
-                        None,
-                        err_span,
-                    );
-                }
-                let sub_type = if kind == ConditionalKind::Else {
-                    TokenValue::Else as i32
-                } else {
-                    TokenValue::ElseIf as i32
-                };
-                if !ctx.skipping {
-                    ctx.skipping = true;
-                    ctx.sub_type = sub_type;
-                } else if !ctx.matched && val != 0 {
-                    ctx.matched = true;
-                    ctx.skipping = false;
-                    ctx.sub_type = sub_type;
-                }
-            }
-            ConditionalKind::Case => {
-                if self.cond_stack.is_empty() {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".case found without matching .match",
-                        None,
-                        expr_err_span,
-                    );
-                }
-                let skip_level = match self.cond_stack.last() {
-                    Some(ctx) => ctx.skip_level,
-                    None => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            AsmErrorKind::Conditional,
-                            ".case found without matching .match",
-                            None,
-                            expr_err_span,
-                        );
-                    }
-                };
-                if skip_level > 0 {
-                    return LineStatus::Skip;
-                }
-                let (switch_val, sub_type, kind) = match self.cond_stack.last() {
-                    Some(ctx) => {
-                        let sv = match ctx.switch_value {
-                            Some(v) => v,
-                            None => {
-                                return self.failure_at_span(
-                                    LineStatus::Error,
-                                    AsmErrorKind::Conditional,
-                                    ".case found without matching .match",
-                                    None,
-                                    expr_err_span,
-                                );
-                            }
-                        };
-                        (sv, ctx.sub_type, ctx.kind)
-                    }
-                    None => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            AsmErrorKind::Conditional,
-                            ".case found without matching .match",
-                            None,
-                            expr_err_span,
-                        );
-                    }
-                };
-                if kind != ConditionalBlockKind::Switch {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".case found without matching .match",
-                        None,
-                        expr_err_span,
-                    );
-                }
-                if sub_type == TokenValue::Default as i32 {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".case cannot follow .default",
-                        None,
-                        expr_err_span,
-                    );
-                }
-                let mut case_match = false;
-                for expr in exprs.iter() {
-                    match self.eval_expr_ast(expr) {
-                        Ok(val) => {
-                            if val == switch_val {
-                                case_match = true;
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                err.error.kind(),
-                                err.error.message(),
-                                None,
-                                err.span,
-                            );
-                        }
-                    }
-                }
-                let sub_type = TokenValue::Case as i32;
-                let Some(ctx) = self.cond_stack.last_mut() else {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".case found without matching .match",
-                        None,
-                        expr_err_span,
-                    );
-                };
-                if !ctx.skipping {
-                    ctx.skipping = true;
-                    ctx.sub_type = sub_type;
-                } else if !ctx.matched && case_match {
-                    ctx.matched = true;
-                    ctx.skipping = false;
-                    ctx.sub_type = sub_type;
-                } else {
-                    ctx.sub_type = sub_type;
-                }
-            }
-            ConditionalKind::Default => {
-                if self.cond_stack.is_empty() {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".default found without matching .match",
-                        None,
-                        end_span,
-                    );
-                }
-                let skip_level = match self.cond_stack.last() {
-                    Some(ctx) => ctx.skip_level,
-                    None => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            AsmErrorKind::Conditional,
-                            ".default found without matching .match",
-                            None,
-                            end_span,
-                        );
-                    }
-                };
-                if skip_level > 0 {
-                    return LineStatus::Skip;
-                }
-                if self.cond_stack.last().map(|ctx| ctx.kind) != Some(ConditionalBlockKind::Switch)
-                {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".default found without matching .match",
-                        None,
-                        end_span,
-                    );
-                }
-                let Some(ctx) = self.cond_stack.last_mut() else {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".default found without matching .match",
-                        None,
-                        end_span,
-                    );
-                };
-                if ctx.sub_type == TokenValue::Default as i32 {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".default cannot follow .default",
-                        None,
-                        end_span,
-                    );
-                }
-                ctx.sub_type = TokenValue::Default as i32;
-                if ctx.matched {
-                    ctx.skipping = true;
-                } else {
-                    ctx.matched = true;
-                    ctx.skipping = false;
-                }
-            }
-            ConditionalKind::EndIf => {
-                if self.cond_stack.is_empty() {
-                    let err_span = end_span;
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".endif found without matching .if",
-                        None,
-                        err_span,
-                    );
-                }
-                let Some(ctx) = self.cond_stack.last_mut() else {
-                    let err_span = end_span;
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".endif found without matching .if",
-                        None,
-                        err_span,
-                    );
-                };
-                if ctx.skip_level > 0 {
-                    ctx.skip_level = ctx.skip_level.saturating_sub(1);
-                    return LineStatus::Skip;
-                }
-                if ctx.kind != ConditionalBlockKind::If {
-                    let err_span = end_span;
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".endif found without matching .if",
-                        None,
-                        err_span,
-                    );
-                }
-                self.cond_stack.pop();
-                if self.cond_stack.skipping() {
-                    return LineStatus::Skip;
-                }
-            }
-            ConditionalKind::EndSwitch => {
-                if self.cond_stack.is_empty() {
-                    let err_span = end_span;
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".endmatch found without matching .match",
-                        None,
-                        err_span,
-                    );
-                }
-                let Some(ctx) = self.cond_stack.last_mut() else {
-                    let err_span = end_span;
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".endmatch found without matching .match",
-                        None,
-                        err_span,
-                    );
-                };
-                if ctx.skip_level > 0 {
-                    ctx.skip_level = ctx.skip_level.saturating_sub(1);
-                    return LineStatus::Skip;
-                }
-                if ctx.kind != ConditionalBlockKind::Switch {
-                    let err_span = end_span;
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Conditional,
-                        ".endmatch found without matching .match",
-                        None,
-                        err_span,
-                    );
-                }
-                self.cond_stack.pop();
-                if self.cond_stack.skipping() {
-                    return LineStatus::Skip;
-                }
-            }
-        }
-
-        LineStatus::Ok
     }
 
     fn process_assignment_ast(
@@ -3759,7 +3406,7 @@ impl<'a> AsmLine<'a> {
                         val,
                         is_rw,
                         self.current_visibility(),
-                        self.module_active.as_deref(),
+                        self.symbol_scope.module_active.as_deref(),
                     )
                 } else {
                     self.symbols.update(&full_name, val)
@@ -3890,146 +3537,15 @@ impl<'a> AsmLine<'a> {
             .map_mnemonic(mnemonic, family_operands.as_ref())
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
 
-        let vm_instruction_runtime_supported_for_cpu = self.cpu != crate::m45gs02::module::CPU_ID;
-        let family_runtime_authoritative =
-            crate::vm::rollout::package_runtime_default_enabled_for_family(
-                pipeline.family_id.as_str(),
-            ) && vm_instruction_runtime_supported_for_cpu;
-
-        {
-            let allow = match self.opthread_form_allows_mnemonic(&pipeline, &mapped_mnemonic) {
-                Ok(allow) => allow,
-                Err(message) => {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Instruction,
-                        &message,
-                        None,
-                    )
-                }
-            };
-            if !allow {
-                return self.failure_instruction_not_found(
-                    LineStatus::Error,
-                    &pipeline,
-                    mnemonic,
-                    family_operands.as_ref(),
-                );
-            }
-
-            if self.opthread_execution_model.is_none() && family_runtime_authoritative {
-                return self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &format!(
-                        "VM runtime model unavailable for authoritative family '{}'",
-                        pipeline.family_id.as_str()
-                    ),
-                    None,
-                );
-            }
-            if let Some(model) = self.opthread_execution_model.as_ref() {
-                let runtime_expr_force_host =
-                    self.portable_expr_runtime_force_host_for_family(pipeline.family_id.as_str());
-                let strict_runtime_parse_resolve = model
-                    .expr_resolution_is_strict_for_family(pipeline.family_id.as_str())
-                    && vm_instruction_runtime_supported_for_cpu;
-                let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
-                    || family_runtime_authoritative)
-                    && !runtime_expr_force_host;
-                // Keep this alias explicit even though it currently equals
-                // `runtime_expr_bytes_authoritative`: selector-gate and VM-path
-                // rollout can diverge in the future without changing call sites.
-                let runtime_expr_vm_path_enabled = runtime_expr_bytes_authoritative;
-                let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
-                    && model.selector_gate_only_expr_runtime_for_cpu(self.cpu.as_str());
-                if runtime_expr_vm_path_enabled {
-                    let runtime_expr_operands_storage =
-                        Self::opthread_runtime_expr_operands_from_mapped(mapped_operands.as_ref());
-                    let runtime_expr_operands =
-                        runtime_expr_operands_storage.as_deref().unwrap_or(operands);
-                    match model.encode_instruction_from_exprs(
-                        self.cpu.as_str(),
-                        None,
-                        &mapped_mnemonic,
-                        runtime_expr_operands,
-                        self,
-                    ) {
-                        Ok(Some(bytes)) => {
-                            if runtime_expr_selector_gate_only {
-                                // Keep selector strictness checks, but defer final emission to
-                                // runtime VM encode over native-resolved operands for 65816.
-                            } else if bytes.is_empty() {
-                                if family_runtime_authoritative {
-                                    return self.failure(
-                                        LineStatus::Error,
-                                        AsmErrorKind::Instruction,
-                                        &format!(
-                                            "VM program emitted no bytes for {}",
-                                            mapped_mnemonic.to_ascii_uppercase()
-                                        ),
-                                        None,
-                                    );
-                                }
-                                // Treat empty runtime output as no emission and continue
-                                // into native resolution/encoding.
-                            } else if !runtime_expr_bytes_authoritative {
-                                // Staged/non-strict families keep native resolution as the source
-                                // of truth for emission parity.
-                            } else {
-                                if let Err(err) = self.validate_instruction_emit_span(
-                                    &mapped_mnemonic,
-                                    operands,
-                                    bytes.len(),
-                                ) {
-                                    return self.failure_at_span(
-                                        LineStatus::Error,
-                                        AsmErrorKind::Instruction,
-                                        err.error.message(),
-                                        None,
-                                        err.span,
-                                    );
-                                }
-                                self.bytes.extend_from_slice(&bytes);
-                                if let Ok(resolved_operands) = pipeline.cpu.resolve_operands(
-                                    mnemonic,
-                                    mapped_operands.as_ref(),
-                                    self,
-                                ) {
-                                    self.apply_cpu_runtime_state_after_encode(
-                                        pipeline.cpu.as_ref(),
-                                        &mapped_mnemonic,
-                                        resolved_operands.as_ref(),
-                                    );
-                                }
-                                return LineStatus::Ok;
-                            }
-                        }
-                        Ok(None) => {
-                            let defer_to_native_diagnostics = model
-                                .defer_native_diagnostics_on_expr_none(pipeline.family_id.as_str());
-                            if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
-                                return self.failure_instruction_not_found(
-                                    LineStatus::Error,
-                                    &pipeline,
-                                    &mapped_mnemonic,
-                                    mapped_operands.as_ref(),
-                                );
-                            }
-                        }
-                        Err(err) => {
-                            if !runtime_expr_selector_gate_only {
-                                return self.failure(
-                                    LineStatus::Error,
-                                    AsmErrorKind::Instruction,
-                                    &err.to_string(),
-                                    None,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+        if let Some(status) = self.try_encode_instruction_via_runtime_expr(
+            &pipeline,
+            mnemonic,
+            operands,
+            family_operands.as_ref(),
+            &mapped_mnemonic,
+            mapped_operands.as_ref(),
+        ) {
+            return status;
         }
 
         match pipeline.family.encode_family_operands(
@@ -4098,76 +3614,13 @@ impl<'a> AsmLine<'a> {
             }
         }
 
-        if let Some(model) = self.opthread_execution_model.as_ref() {
-            let strict_runtime_vm_programs = family_runtime_authoritative
-                || (model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str())
-                    && vm_instruction_runtime_supported_for_cpu);
-            match model.encode_instruction(
-                self.cpu.as_str(),
-                None,
-                &mapped_mnemonic,
-                resolved_operands.as_ref(),
-            ) {
-                Ok(Some(bytes)) => {
-                    if bytes.is_empty() {
-                        if family_runtime_authoritative {
-                            return self.failure(
-                                LineStatus::Error,
-                                AsmErrorKind::Instruction,
-                                &format!(
-                                    "VM program emitted no bytes for {}",
-                                    mapped_mnemonic.to_ascii_uppercase()
-                                ),
-                                None,
-                            );
-                        }
-                        // Treat empty runtime output as no emission and continue
-                        // into native family/cpu encoding.
-                    } else {
-                        if let Err(err) = self.validate_instruction_emit_span(
-                            &mapped_mnemonic,
-                            operands,
-                            bytes.len(),
-                        ) {
-                            return self.failure_at_span(
-                                LineStatus::Error,
-                                AsmErrorKind::Instruction,
-                                err.error.message(),
-                                None,
-                                err.span,
-                            );
-                        }
-                        self.bytes.extend_from_slice(&bytes);
-                        self.apply_cpu_runtime_state_after_encode(
-                            pipeline.cpu.as_ref(),
-                            &mapped_mnemonic,
-                            resolved_operands.as_ref(),
-                        );
-                        return LineStatus::Ok;
-                    }
-                }
-                Ok(None) => {
-                    if strict_runtime_vm_programs {
-                        return self.failure(
-                            LineStatus::Error,
-                            AsmErrorKind::Instruction,
-                            &format!(
-                                "missing VM program for {}",
-                                mapped_mnemonic.to_ascii_uppercase()
-                            ),
-                            None,
-                        );
-                    }
-                }
-                Err(err) => {
-                    return self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Instruction,
-                        &err.to_string(),
-                        None,
-                    );
-                }
-            }
+        if let Some(status) = self.try_encode_instruction_via_runtime_operands(
+            &pipeline,
+            &mapped_mnemonic,
+            operands,
+            resolved_operands.as_ref(),
+        ) {
+            return status;
         }
 
         match pipeline
@@ -4266,6 +3719,242 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    fn try_encode_instruction_via_runtime_expr(
+        &mut self,
+        pipeline: &ResolvedPipeline<'_>,
+        mnemonic: &str,
+        operands: &[Expr],
+        family_operands: &dyn FamilyOperandSet,
+        mapped_mnemonic: &str,
+        mapped_operands: &dyn FamilyOperandSet,
+    ) -> Option<LineStatus> {
+        let vm_instruction_runtime_supported_for_cpu = self.cpu != crate::m45gs02::module::CPU_ID;
+        let family_runtime_authoritative =
+            crate::vm::rollout::package_runtime_default_enabled_for_family(
+                pipeline.family_id.as_str(),
+            ) && vm_instruction_runtime_supported_for_cpu;
+
+        let allow = match self.opthread_form_allows_mnemonic(pipeline, mapped_mnemonic) {
+            Ok(allow) => allow,
+            Err(message) => {
+                return Some(self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Instruction,
+                    &message,
+                    None,
+                ))
+            }
+        };
+        if !allow {
+            return Some(self.failure_instruction_not_found(
+                LineStatus::Error,
+                pipeline,
+                mnemonic,
+                family_operands,
+            ));
+        }
+
+        if self.opthread_execution_model.is_none() && family_runtime_authoritative {
+            return Some(self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                &format!(
+                    "VM runtime model unavailable for authoritative family '{}'",
+                    pipeline.family_id.as_str()
+                ),
+                None,
+            ));
+        }
+
+        let model = self.opthread_execution_model.as_ref()?;
+
+        let runtime_expr_force_host =
+            self.portable_expr_runtime_force_host_for_family(pipeline.family_id.as_str());
+        let strict_runtime_parse_resolve = model
+            .expr_resolution_is_strict_for_family(pipeline.family_id.as_str())
+            && vm_instruction_runtime_supported_for_cpu;
+        let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
+            || family_runtime_authoritative)
+            && !runtime_expr_force_host;
+        let runtime_expr_vm_path_enabled = runtime_expr_bytes_authoritative;
+        let runtime_expr_selector_gate_only = runtime_expr_vm_path_enabled
+            && model.selector_gate_only_expr_runtime_for_cpu(self.cpu.as_str());
+        if !runtime_expr_vm_path_enabled {
+            return None;
+        }
+
+        let runtime_expr_operands_storage =
+            Self::opthread_runtime_expr_operands_from_mapped(mapped_operands);
+        let runtime_expr_operands = runtime_expr_operands_storage.as_deref().unwrap_or(operands);
+        match model.encode_instruction_from_exprs(
+            self.cpu.as_str(),
+            None,
+            mapped_mnemonic,
+            runtime_expr_operands,
+            self,
+        ) {
+            Ok(Some(bytes)) => {
+                if runtime_expr_selector_gate_only {
+                    return None;
+                }
+                if bytes.is_empty() {
+                    if family_runtime_authoritative {
+                        return Some(self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &format!(
+                                "VM program emitted no bytes for {}",
+                                mapped_mnemonic.to_ascii_uppercase()
+                            ),
+                            None,
+                        ));
+                    }
+                    return None;
+                }
+                if !runtime_expr_bytes_authoritative {
+                    return None;
+                }
+
+                if let Some(status) =
+                    self.emit_instruction_bytes_checked(mapped_mnemonic, operands, bytes.as_slice())
+                {
+                    return Some(status);
+                }
+                if let Ok(resolved_operands) =
+                    pipeline
+                        .cpu
+                        .resolve_operands(mnemonic, mapped_operands, self)
+                {
+                    self.apply_cpu_runtime_state_after_encode(
+                        pipeline.cpu.as_ref(),
+                        mapped_mnemonic,
+                        resolved_operands.as_ref(),
+                    );
+                }
+                Some(LineStatus::Ok)
+            }
+            Ok(None) => {
+                let defer_to_native_diagnostics =
+                    model.defer_native_diagnostics_on_expr_none(pipeline.family_id.as_str());
+                if strict_runtime_parse_resolve && !defer_to_native_diagnostics {
+                    Some(self.failure_instruction_not_found(
+                        LineStatus::Error,
+                        pipeline,
+                        mapped_mnemonic,
+                        mapped_operands,
+                    ))
+                } else {
+                    None
+                }
+            }
+            Err(err) => {
+                if runtime_expr_selector_gate_only {
+                    None
+                } else {
+                    Some(self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &err.to_string(),
+                        None,
+                    ))
+                }
+            }
+        }
+    }
+
+    fn try_encode_instruction_via_runtime_operands(
+        &mut self,
+        pipeline: &ResolvedPipeline<'_>,
+        mapped_mnemonic: &str,
+        operands: &[Expr],
+        resolved_operands: &dyn OperandSet,
+    ) -> Option<LineStatus> {
+        let model = self.opthread_execution_model.as_ref()?;
+
+        let vm_instruction_runtime_supported_for_cpu = self.cpu != crate::m45gs02::module::CPU_ID;
+        let family_runtime_authoritative =
+            crate::vm::rollout::package_runtime_default_enabled_for_family(
+                pipeline.family_id.as_str(),
+            ) && vm_instruction_runtime_supported_for_cpu;
+
+        let strict_runtime_vm_programs = family_runtime_authoritative
+            || (model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str())
+                && vm_instruction_runtime_supported_for_cpu);
+        match model.encode_instruction(self.cpu.as_str(), None, mapped_mnemonic, resolved_operands)
+        {
+            Ok(Some(bytes)) => {
+                if bytes.is_empty() {
+                    if family_runtime_authoritative {
+                        return Some(self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &format!(
+                                "VM program emitted no bytes for {}",
+                                mapped_mnemonic.to_ascii_uppercase()
+                            ),
+                            None,
+                        ));
+                    }
+                    return None;
+                }
+
+                if let Some(status) =
+                    self.emit_instruction_bytes_checked(mapped_mnemonic, operands, bytes.as_slice())
+                {
+                    return Some(status);
+                }
+                self.apply_cpu_runtime_state_after_encode(
+                    pipeline.cpu.as_ref(),
+                    mapped_mnemonic,
+                    resolved_operands,
+                );
+                Some(LineStatus::Ok)
+            }
+            Ok(None) => {
+                if strict_runtime_vm_programs {
+                    Some(self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &format!(
+                            "missing VM program for {}",
+                            mapped_mnemonic.to_ascii_uppercase()
+                        ),
+                        None,
+                    ))
+                } else {
+                    None
+                }
+            }
+            Err(err) => Some(self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                &err.to_string(),
+                None,
+            )),
+        }
+    }
+
+    fn emit_instruction_bytes_checked(
+        &mut self,
+        mapped_mnemonic: &str,
+        operands: &[Expr],
+        bytes: &[u8],
+    ) -> Option<LineStatus> {
+        if let Err(err) =
+            self.validate_instruction_emit_span(mapped_mnemonic, operands, bytes.len())
+        {
+            return Some(self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                err.error.message(),
+                None,
+                err.span,
+            ));
+        }
+        self.bytes.extend_from_slice(bytes);
+        None
+    }
+
     fn failure_instruction_not_found(
         &mut self,
         status: LineStatus,
@@ -4283,8 +3972,8 @@ impl<'a> AsmLine<'a> {
                 .or(self.line_end_span.map(|span| span.col_start));
             let status =
                 self.set_failure_core(status, AsmErrorKind::Instruction, &message, None, column);
-            self.last_error_help = Some(help);
-            self.last_error_fixits = vec![fixit];
+            self.diagnostics.last_error_help = Some(help);
+            self.diagnostics.last_error_fixits = vec![fixit];
             return status;
         }
 
@@ -4395,13 +4084,13 @@ impl<'a> AsmLine<'a> {
             return;
         }
 
-        self.last_error_help = Some(format!(
+        self.diagnostics.last_error_help = Some(format!(
             "{} appears to use Z80 dialect under {} CPU mode; consider Intel8080-family '{}' syntax, or switch CPU/dialect",
             mnemonic.to_ascii_uppercase(),
             self.cpu.as_str(),
             suggestion.to_ascii_uppercase()
         ));
-        self.last_error_fixits.push(Fixit {
+        self.diagnostics.last_error_fixits.push(Fixit {
             file: None,
             line: self.current_line_num,
             col_start: Some(col_start),
@@ -4476,8 +4165,9 @@ impl<'a> AsmLine<'a> {
             None,
             Some(col_start),
         );
-        self.last_error_help = Some(format!("did you mean {}?", suggestion.to_ascii_lowercase()));
-        self.last_error_fixits = vec![Fixit {
+        self.diagnostics.last_error_help =
+            Some(format!("did you mean {}?", suggestion.to_ascii_lowercase()));
+        self.diagnostics.last_error_fixits = vec![Fixit {
             file: None,
             line: self.current_line_num,
             col_start: Some(col_start),
@@ -4490,14 +4180,15 @@ impl<'a> AsmLine<'a> {
     }
 
     fn current_section_kind(&self) -> Option<SectionKind> {
-        self.current_section
+        self.layout
+            .current_section
             .as_ref()
-            .and_then(|name| self.sections.get(name))
+            .and_then(|name| self.layout.sections.get(name))
             .map(|section| section.kind)
     }
 
     fn max_program_address(&self) -> u32 {
-        self.cpu_program_address_max
+        self.cpu_mode.program_address_max
     }
 
     fn validate_program_address(
@@ -4587,11 +4278,11 @@ impl<'a> AsmLine<'a> {
     }
 
     fn current_cpu_little_endian(&self) -> bool {
-        self.cpu_little_endian
+        self.cpu_mode.little_endian
     }
 
     fn cpu_word_size_bytes(&self) -> u32 {
-        self.cpu_word_size_bytes
+        self.cpu_mode.word_size_bytes
     }
 
     fn section_kind_allows_data(&self) -> bool {
@@ -5295,8 +4986,8 @@ impl<'a> AsmLine<'a> {
         param: Option<&str>,
         column: Option<usize>,
     ) -> LineStatus {
-        self.last_error = Some(AsmError::new(kind, msg, param));
-        self.last_error_column = column;
+        self.diagnostics.last_error = Some(AsmError::new(kind, msg, param));
+        self.diagnostics.last_error_column = column;
         status
     }
 
@@ -5309,8 +5000,8 @@ impl<'a> AsmLine<'a> {
         column: Option<usize>,
     ) -> LineStatus {
         let status = self.set_failure_core(status, kind, msg, param, column);
-        self.last_error_help = None;
-        self.last_error_fixits.clear();
+        self.diagnostics.last_error_help = None;
+        self.diagnostics.last_error_fixits.clear();
         status
     }
 }
@@ -5393,7 +5084,7 @@ impl<'a> AssemblerContext for AsmLine<'a> {
     }
 
     fn cpu_state_flag(&self, key: &str) -> Option<u32> {
-        self.cpu_state_flags.get(key).copied()
+        self.cpu_mode.state_flags.get(key).copied()
     }
 }
 

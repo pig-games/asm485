@@ -2712,14 +2712,15 @@ fn section_symbol_finalize_reports_address_overflow() {
     );
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    asm.sections.insert(
+    asm.layout.sections.insert(
         "code".to_string(),
         SectionState {
             base_addr: Some(1),
             ..SectionState::default()
         },
     );
-    asm.section_symbol_sections
+    asm.layout
+        .section_symbol_sections
         .insert("main.start".to_string(), "code".to_string());
 
     let errors = asm.finalize_section_symbol_addresses();
@@ -2795,8 +2796,8 @@ fn place_reports_address_range_overflow_in_arithmetic() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    asm.cpu_program_address_max = u32::MAX;
-    asm.regions.insert(
+    asm.cpu_mode.program_address_max = u32::MAX;
+    asm.layout.regions.insert(
         "ram".to_string(),
         RegionState {
             name: "ram".to_string(),
@@ -2807,7 +2808,7 @@ fn place_reports_address_range_overflow_in_arithmetic() {
             placed: Vec::new(),
         },
     );
-    asm.sections.insert(
+    asm.layout.sections.insert(
         "code".to_string(),
         SectionState {
             max_pc: 3,
@@ -3465,8 +3466,8 @@ fn update_addresses_reports_section_address_arithmetic_overflow() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    asm.current_section = Some("code".to_string());
-    asm.sections.insert(
+    asm.layout.current_section = Some("code".to_string());
+    asm.layout.sections.insert(
         "code".to_string(),
         SectionState {
             start_pc: u32::MAX,
@@ -3510,8 +3511,8 @@ fn current_addr_reports_section_address_arithmetic_overflow() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    asm.current_section = Some("code".to_string());
-    asm.sections.insert(
+    asm.layout.current_section = Some("code".to_string());
+    asm.layout.sections.insert(
         "code".to_string(),
         SectionState {
             start_pc: u32::MAX,
@@ -4400,49 +4401,57 @@ fn m65816_assume_sets_runtime_state_and_immediate_widths() {
         LineStatus::Ok
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::EMULATION_MODE_KEY)
             .copied(),
         Some(0)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::ACCUMULATOR_8BIT_KEY)
             .copied(),
         Some(0)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::INDEX_8BIT_KEY)
             .copied(),
         Some(0)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::DATA_BANK_KEY)
             .copied(),
         Some(0x12)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::DATA_BANK_EXPLICIT_KEY)
             .copied(),
         Some(1)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::PROGRAM_BANK_KEY)
             .copied(),
         Some(0x34)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::PROGRAM_BANK_EXPLICIT_KEY)
             .copied(),
         Some(1)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::DIRECT_PAGE_KEY)
             .copied(),
         Some(0x2000)
@@ -4521,13 +4530,15 @@ fn m65816_assume_bank_auto_resets_explicit_flags() {
         LineStatus::Ok
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::DATA_BANK_EXPLICIT_KEY)
             .copied(),
         Some(0)
     );
     assert_eq!(
-        asm.cpu_state_flags
+        asm.cpu_mode
+            .state_flags
             .get(crate::m65816::state::PROGRAM_BANK_EXPLICIT_KEY)
             .copied(),
         Some(0)
