@@ -578,6 +578,50 @@ impl M65816CpuHandler {
 
         Ok(None)
     }
+
+    fn try_shared_direct_fallback(
+        upper_mnemonic: &str,
+        expr: &crate::core::parser::Expr,
+        ctx: &dyn AssemblerContext,
+        zero_page_mode: AddressMode,
+        absolute_mode: AddressMode,
+    ) -> Result<Option<Operand>, String> {
+        if !(Self::has_mode(upper_mnemonic, zero_page_mode)
+            || Self::has_mode(upper_mnemonic, absolute_mode))
+        {
+            return Ok(None);
+        }
+
+        let resolved = match (zero_page_mode, absolute_mode) {
+            (AddressMode::ZeroPage, AddressMode::Absolute) => {
+                crate::families::mos6502::operand_resolution::resolve_direct(
+                    upper_mnemonic,
+                    expr,
+                    ctx,
+                    Self::has_mode,
+                )?
+            }
+            (AddressMode::ZeroPageX, AddressMode::AbsoluteX) => {
+                crate::families::mos6502::operand_resolution::resolve_direct_x(
+                    upper_mnemonic,
+                    expr,
+                    ctx,
+                    Self::has_mode,
+                )?
+            }
+            (AddressMode::ZeroPageY, AddressMode::AbsoluteY) => {
+                crate::families::mos6502::operand_resolution::resolve_direct_y(
+                    upper_mnemonic,
+                    expr,
+                    ctx,
+                    Self::has_mode,
+                )?
+            }
+            _ => return Ok(None),
+        };
+
+        Ok(Some(resolved))
+    }
 }
 
 impl CpuHandler for M65816CpuHandler {
@@ -799,17 +843,14 @@ impl CpuHandler for M65816CpuHandler {
                         return Ok(vec![resolved]);
                     }
 
-                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage)
-                        || Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
-                    {
-                        return Ok(vec![
-                            crate::families::mos6502::operand_resolution::resolve_direct(
-                                &upper_mnemonic,
-                                expr,
-                                ctx,
-                                Self::has_mode,
-                            )?,
-                        ]);
+                    if let Some(resolved) = Self::try_shared_direct_fallback(
+                        &upper_mnemonic,
+                        expr,
+                        ctx,
+                        AddressMode::ZeroPage,
+                        AddressMode::Absolute,
+                    )? {
+                        return Ok(vec![resolved]);
                     }
                 }
                 FamilyOperand::DirectX(expr) => {
@@ -953,17 +994,14 @@ impl CpuHandler for M65816CpuHandler {
                         return Ok(vec![resolved]);
                     }
 
-                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX)
-                        || Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
-                    {
-                        return Ok(vec![
-                            crate::families::mos6502::operand_resolution::resolve_direct_x(
-                                &upper_mnemonic,
-                                expr,
-                                ctx,
-                                Self::has_mode,
-                            )?,
-                        ]);
+                    if let Some(resolved) = Self::try_shared_direct_fallback(
+                        &upper_mnemonic,
+                        expr,
+                        ctx,
+                        AddressMode::ZeroPageX,
+                        AddressMode::AbsoluteX,
+                    )? {
+                        return Ok(vec![resolved]);
                     }
                 }
                 FamilyOperand::DirectY(expr) => {
@@ -1057,17 +1095,14 @@ impl CpuHandler for M65816CpuHandler {
                         return Ok(vec![resolved]);
                     }
 
-                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageY)
-                        || Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
-                    {
-                        return Ok(vec![
-                            crate::families::mos6502::operand_resolution::resolve_direct_y(
-                                &upper_mnemonic,
-                                expr,
-                                ctx,
-                                Self::has_mode,
-                            )?,
-                        ]);
+                    if let Some(resolved) = Self::try_shared_direct_fallback(
+                        &upper_mnemonic,
+                        expr,
+                        ctx,
+                        AddressMode::ZeroPageY,
+                        AddressMode::AbsoluteY,
+                    )? {
+                        return Ok(vec![resolved]);
                     }
                 }
                 FamilyOperand::IndexedIndirectX(expr) => {
