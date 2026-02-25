@@ -116,15 +116,6 @@ fn expr_span(expr: &Expr) -> Span {
     }
 }
 
-/// Size suffix for instructions (68000 family).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum SizeSuffix {
-    Byte,
-    Word,
-    Long,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

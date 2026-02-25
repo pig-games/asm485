@@ -52,7 +52,7 @@ pub use expr_vm::{
     EXPR_VM_OPCODE_VERSION_V1,
 };
 pub use family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler, FamilyParseError};
-pub use operand::{Operand, SizeSuffix};
+pub use operand::Operand;
 pub use parser::ParseError;
 pub use symbol_table::SymbolTable;
 pub use text_encoding::{TextEncodingError, TextEncodingRegistry};
