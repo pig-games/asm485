@@ -25,6 +25,14 @@ struct DirectPageResolutionSpec {
     absolute_ctor: fn(u16, crate::core::tokenizer::Span) -> Operand,
 }
 
+struct DataBankForceSpec {
+    assumed_bank: u8,
+    assumed_known: bool,
+    assumed_key: &'static str,
+    absolute_mode: AddressMode,
+    absolute_ctor: fn(u16, crate::core::tokenizer::Span) -> Operand,
+}
+
 impl Default for M65816CpuHandler {
     fn default() -> Self {
         Self::new()
@@ -392,6 +400,42 @@ impl M65816CpuHandler {
         }
         None
     }
+
+    fn resolve_forced_data_bank_operand(
+        upper_mnemonic: &str,
+        val: i64,
+        span: crate::core::tokenizer::Span,
+        spec: DataBankForceSpec,
+    ) -> Result<Operand, String> {
+        if !Self::has_mode(upper_mnemonic, spec.absolute_mode) {
+            return Err(Self::invalid_force_error(
+                OperandForce::DataBank,
+                upper_mnemonic,
+            ));
+        }
+        if (0..=0xFFFF).contains(&val) {
+            return Ok((spec.absolute_ctor)(val as u16, span));
+        }
+        if (0..=0xFF_FFFF).contains(&val) {
+            let absolute_bank = ((val as u32) >> 16) as u8;
+            if !spec.assumed_known {
+                return Err(Self::bank_unknown_error(spec.assumed_key, upper_mnemonic));
+            }
+            if absolute_bank != spec.assumed_bank {
+                return Err(Self::bank_mismatch_error(
+                    val as u32,
+                    absolute_bank,
+                    spec.assumed_bank,
+                    spec.assumed_key,
+                ));
+            }
+            return Ok((spec.absolute_ctor)((val as u32 & 0xFFFF) as u16, span));
+        }
+        Err(format!(
+            "Address {} out of 24-bit range for explicit ',b'",
+            val
+        ))
+    }
 }
 
 impl CpuHandler for M65816CpuHandler {
@@ -513,37 +557,18 @@ impl CpuHandler for M65816CpuHandler {
                                 if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
                                     return Err(Self::invalid_force_error(force, &upper_mnemonic));
                                 }
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=0xFFFF).contains(&val) {
-                                    return Ok(vec![Operand::Absolute(val as u16, span)]);
-                                }
-                                if (0..=0xFF_FFFF).contains(&val) {
-                                    let absolute_bank = ((val as u32) >> 16) as u8;
-                                    if !assumed_known {
-                                        return Err(Self::bank_unknown_error(
-                                            assumed_key,
-                                            &upper_mnemonic,
-                                        ));
-                                    }
-                                    if absolute_bank != assumed_bank {
-                                        return Err(Self::bank_mismatch_error(
-                                            val as u32,
-                                            absolute_bank,
-                                            assumed_bank,
-                                            assumed_key,
-                                        ));
-                                    }
-                                    return Ok(vec![Operand::Absolute(
-                                        (val as u32 & 0xFFFF) as u16,
-                                        span,
-                                    )]);
-                                }
-                                return Err(format!(
-                                    "Address {} out of 24-bit range for explicit ',b'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_data_bank_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    DataBankForceSpec {
+                                        assumed_bank,
+                                        assumed_known,
+                                        assumed_key,
+                                        absolute_mode: AddressMode::Absolute,
+                                        absolute_ctor: Operand::Absolute,
+                                    },
+                                )?]);
                             }
                             OperandForce::ProgramBank => {
                                 if !matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
@@ -730,37 +755,18 @@ impl CpuHandler for M65816CpuHandler {
                                 ));
                             }
                             OperandForce::DataBank => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=0xFFFF).contains(&val) {
-                                    return Ok(vec![Operand::AbsoluteX(val as u16, span)]);
-                                }
-                                if (0..=0xFF_FFFF).contains(&val) {
-                                    let absolute_bank = ((val as u32) >> 16) as u8;
-                                    if !assumed_known {
-                                        return Err(Self::bank_unknown_error(
-                                            assumed_key,
-                                            &upper_mnemonic,
-                                        ));
-                                    }
-                                    if absolute_bank != assumed_bank {
-                                        return Err(Self::bank_mismatch_error(
-                                            val as u32,
-                                            absolute_bank,
-                                            assumed_bank,
-                                            assumed_key,
-                                        ));
-                                    }
-                                    return Ok(vec![Operand::AbsoluteX(
-                                        (val as u32 & 0xFFFF) as u16,
-                                        span,
-                                    )]);
-                                }
-                                return Err(format!(
-                                    "Address {} out of 24-bit range for explicit ',b'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_data_bank_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    DataBankForceSpec {
+                                        assumed_bank,
+                                        assumed_known,
+                                        assumed_key,
+                                        absolute_mode: AddressMode::AbsoluteX,
+                                        absolute_ctor: Operand::AbsoluteX,
+                                    },
+                                )?]);
                             }
                             OperandForce::ProgramBank => {
                                 return Err(Self::invalid_force_error(force, &upper_mnemonic));
@@ -861,37 +867,18 @@ impl CpuHandler for M65816CpuHandler {
                                 )?]);
                             }
                             OperandForce::DataBank => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=0xFFFF).contains(&val) {
-                                    return Ok(vec![Operand::AbsoluteY(val as u16, span)]);
-                                }
-                                if (0..=0xFF_FFFF).contains(&val) {
-                                    let absolute_bank = ((val as u32) >> 16) as u8;
-                                    if !assumed_known {
-                                        return Err(Self::bank_unknown_error(
-                                            "dbr",
-                                            &upper_mnemonic,
-                                        ));
-                                    }
-                                    if absolute_bank != assumed_bank {
-                                        return Err(Self::bank_mismatch_error(
-                                            val as u32,
-                                            absolute_bank,
-                                            assumed_bank,
-                                            "dbr",
-                                        ));
-                                    }
-                                    return Ok(vec![Operand::AbsoluteY(
-                                        (val as u32 & 0xFFFF) as u16,
-                                        span,
-                                    )]);
-                                }
-                                return Err(format!(
-                                    "Address {} out of 24-bit range for explicit ',b'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_data_bank_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    DataBankForceSpec {
+                                        assumed_bank,
+                                        assumed_known,
+                                        assumed_key: "dbr",
+                                        absolute_mode: AddressMode::AbsoluteY,
+                                        absolute_ctor: Operand::AbsoluteY,
+                                    },
+                                )?]);
                             }
                             OperandForce::Long | OperandForce::ProgramBank => {
                                 return Err(Self::invalid_force_error(force, &upper_mnemonic));
