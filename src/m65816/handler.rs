@@ -463,6 +463,28 @@ impl M65816CpuHandler {
         ))
     }
 
+    fn resolve_forced_long_operand(
+        upper_mnemonic: &str,
+        val: i64,
+        span: crate::core::tokenizer::Span,
+        long_mode: AddressMode,
+        long_ctor: fn(u32, crate::core::tokenizer::Span) -> Operand,
+    ) -> Result<Operand, String> {
+        if !Self::has_mode(upper_mnemonic, long_mode) {
+            return Err(Self::invalid_force_error(
+                OperandForce::Long,
+                upper_mnemonic,
+            ));
+        }
+        if (0..=0xFF_FFFF).contains(&val) {
+            return Ok(long_ctor(val as u32, span));
+        }
+        Err(format!(
+            "Address {} out of 24-bit range for explicit ',l'",
+            val
+        ))
+    }
+
     fn resolve_symbol_bank_operand(
         upper_mnemonic: &str,
         val: i64,
@@ -652,16 +674,13 @@ impl CpuHandler for M65816CpuHandler {
                                 )?]);
                             }
                             OperandForce::Long => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=0xFF_FFFF).contains(&val) {
-                                    return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
-                                }
-                                return Err(format!(
-                                    "Address {} out of 24-bit range for explicit ',l'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_long_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    AddressMode::AbsoluteLong,
+                                    Operand::AbsoluteLong,
+                                )?]);
                             }
                             OperandForce::DataBank => {
                                 if matches!(upper_mnemonic.as_str(), "JMP" | "JSR") {
@@ -832,16 +851,13 @@ impl CpuHandler for M65816CpuHandler {
                                 )?]);
                             }
                             OperandForce::Long => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=0xFF_FFFF).contains(&val) {
-                                    return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
-                                }
-                                return Err(format!(
-                                    "Address {} out of 24-bit range for explicit ',l'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_long_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    AddressMode::AbsoluteLongX,
+                                    Operand::AbsoluteLongX,
+                                )?]);
                             }
                             OperandForce::DataBank => {
                                 return Ok(vec![Self::resolve_forced_data_bank_operand(
