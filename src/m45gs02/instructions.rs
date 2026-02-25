@@ -570,3 +570,74 @@ pub fn has_mnemonic(mnemonic: &str) -> bool {
         .iter()
         .any(|entry| entry.mnemonic == upper)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn dataset_mode_key(mode: AddressMode) -> &'static str {
+        match mode {
+            AddressMode::Implied => "imp",
+            AddressMode::Accumulator => "accumulator",
+            AddressMode::Immediate => "immediate",
+            AddressMode::ZeroPage => "zero_page",
+            AddressMode::ZeroPageX => "zero_page_x",
+            AddressMode::ZeroPageY => "zero_page_y",
+            AddressMode::Absolute => "absolute",
+            AddressMode::AbsoluteX => "absolute_x",
+            AddressMode::AbsoluteY => "absolute_y",
+            AddressMode::Indirect => "indirect",
+            AddressMode::IndexedIndirectX => "indexed_indirect_x",
+            AddressMode::IndirectIndexedY => "indirect_indexed_zp_y",
+            AddressMode::Relative => "relative",
+            AddressMode::RelativeLong => "relative_long",
+            AddressMode::IndirectIndexedZ => "indirect_indexed_zp_z",
+            AddressMode::ZeroPageIndirect => "zero_page_indirect",
+            AddressMode::AbsoluteIndexedIndirect => "absolute_indexed_indirect",
+            AddressMode::StackRelative => "stack_relative",
+            AddressMode::StackRelativeIndirectIndexedY => "stack_relative_indirect_indexed_y",
+            AddressMode::AbsoluteLong => "absolute_long",
+            AddressMode::AbsoluteLongX => "absolute_long_x",
+            AddressMode::IndirectLong => "indirect_long",
+            AddressMode::DirectPageIndirectLongY => "direct_page_indirect_long_y",
+            AddressMode::DirectPageIndirectLong => "direct_page_indirect_long",
+            AddressMode::DirectPageIndirectLongZ => "bracket_indirect_long_z",
+            AddressMode::BlockMove => "block_move",
+        }
+    }
+
+    #[test]
+    fn cpu_instruction_table_pairs_are_present_in_curated_dataset() {
+        let dataset = include_str!("../../documentation/45gs02/opcode_dataset_v0_1.csv");
+
+        let dataset_pairs: BTreeSet<String> = dataset
+            .lines()
+            .skip(1)
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                let mut fields = trimmed.splitn(3, ',');
+                let mnemonic = fields.next()?;
+                let mode = fields.next()?;
+                Some(format!("{},{}", mnemonic.to_ascii_uppercase(), mode))
+            })
+            .collect();
+
+        let mut missing_pairs = Vec::new();
+        for entry in CPU_INSTRUCTION_TABLE {
+            let key = format!("{},{}", entry.mnemonic, dataset_mode_key(entry.mode));
+            if !dataset_pairs.contains(&key) {
+                missing_pairs.push(key);
+            }
+        }
+
+        assert!(
+            missing_pairs.is_empty(),
+            "CPU instruction table entries missing from curated dataset: {}",
+            missing_pairs.join(", ")
+        );
+    }
+}
