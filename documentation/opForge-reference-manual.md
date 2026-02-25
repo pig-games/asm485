@@ -15,7 +15,8 @@ opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, W
 - Optional listing, Intel HEX, and binary outputs.
 
 The `.cpu` directive currently accepts `8080` (alias for `8085`), `8085`, `z80`,
-`6502`, `m6502`, `65c02`, `65816`, `65c816`, and `w65c816`.
+`6502`, `m6502`, `65c02`, `65816`, `65c816`, `w65c816`, `45gs02`, `m45gs02`,
+`mega65`, `4510`, and `csg4510`.
 
 ## 2. Usage tips
 
@@ -457,9 +458,14 @@ Examples in the repo:
 .cpu 65816
 .cpu 65c816
 .cpu w65c816
+.cpu 45gs02
+.cpu m45gs02
+.cpu mega65
+.cpu 4510
+.cpu csg4510
 ```
 
-Planned (not currently supported): `45gs02`, `68000` and related CPUs.
+Planned (not currently supported): `68000` and related CPUs.
 
 65816 support includes the phase-1 instruction set and phase-2 24-bit addressing work:
 - Implements selected 65816 mnemonics and operand forms.

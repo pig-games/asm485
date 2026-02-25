@@ -1,0 +1,34 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 implied stack/control opcode overrides
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 2600                    4          .org $2600
+----                                5  
+----                                6  start
+2600    F8                          7          php
+2601    38                          8          pha
+2602    4A                          9          phy
+2603    18                         10          plp
+2604    58                         11          pla
+2605    6A                         12          ply
+2606    CA                         13          phx
+2607    EA                         14          plx
+2608    40                         15          rti
+----                               16  
+----                               17          .end
+
+Lines: 17  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2600 (9728)
+
+Total memory is 9 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2600    F8 38 4A 18 58 6A CA EA 40

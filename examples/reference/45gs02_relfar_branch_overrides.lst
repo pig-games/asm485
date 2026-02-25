@@ -1,0 +1,61 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 relfar branch opcode overrides
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 2800                    4          .org $2800
+----                                5  
+----                                6  start
+2800    13 FD 00                    7          bpl far_bpl
+2803    33 FB 00                    8          bmi far_bmi
+2806    53 F9 00                    9          bvc far_bvc
+2809    73 F7 00                   10          bvs far_bvs
+280C    63 F5 00                   11          bsr far_bsr
+280F    83 F3 00                   12          bra far_bra
+2812    93 F1 00                   13          bcc far_bcc
+2815    B3 EF 00                   14          bcs far_bcs
+2818    D3 ED 00                   15          bne far_bne
+281B    F3 EB 00                   16          beq far_beq
+281E    60                         17          rts
+----                               18  
+----    EQU 2900                   19          .org $2900
+----                               20  
+2900    60                         21  far_bpl rts
+2901    60                         22  far_bmi rts
+2902    60                         23  far_bvc rts
+2903    60                         24  far_bvs rts
+2904    60                         25  far_bsr rts
+2905    60                         26  far_bra rts
+2906    60                         27  far_bcc rts
+2907    60                         28  far_bcs rts
+2908    60                         29  far_bne rts
+2909    60                         30  far_beq rts
+----                               31  
+----                               32          .end
+
+Lines: 32  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2800 (10240)
+far_bpl         : 2900 (10496)
+far_bmi         : 2901 (10497)
+far_bvc         : 2902 (10498)
+far_bvs         : 2903 (10499)
+far_bsr         : 2904 (10500)
+far_bra         : 2905 (10501)
+far_bcc         : 2906 (10502)
+far_bcs         : 2907 (10503)
+far_bne         : 2908 (10504)
+far_beq         : 2909 (10505)
+
+Total memory is 41 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2800    13 FD 00 33 FB 00 53 F9 00 73 F7 00 63 F5 00 83
+2810    F3 00 93 F1 00 B3 EF 00 D3 ED 00 F3 EB 00 60
+2900    60 60 60 60 60 60 60 60 60 60

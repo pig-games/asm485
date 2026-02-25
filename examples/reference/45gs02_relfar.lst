@@ -1,0 +1,39 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 relfar branch selection
+----                                2  ; Verifies automatic short-vs-far branch resolution
+----                                3  
+----                                4          .cpu 45gs02
+----    EQU 0800                    5          .org $0800
+----                                6  
+----                                7  start
+0800    13 02 01                    8          bpl far_target      ; out of short range -> relfar opcode
+0803    80 02                       9          bra short_target    ; in range -> regular relative opcode
+0805    EA                         10          nop
+----                               11  short_target
+0806    EA                         12          nop
+----                               13  
+----    EQU 0905                   14          .org $0905
+----                               15  
+----                               16  far_target
+0905    60                         17          rts
+----                               18  
+----                               19          .end
+
+Lines: 19  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0800 (2048)
+short_target    : 0806 (2054)
+far_target      : 0905 (2309)
+
+Total memory is 8 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0800    13 02 01 80 02 EA EA
+0905    60

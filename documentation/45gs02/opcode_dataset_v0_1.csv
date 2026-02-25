@@ -1,0 +1,118 @@
+mnemonic,address_mode_key,opcode_hex,operand_bytes,prefix_sequence,constraints,source_anchor
+MAP,imp,5C,0,none,45GS02 extension instruction,mega65-book-2.txt:24952-25012
+EOM,imp,EA,0,none,End-of-MAP instruction (shares opcode with NOP semantics by context),mega65-book-2.txt:6212-6230
+RTS,immediate,62,1,none,45GS02 extension immediate RTS form,mega65-book-2.txt:25012-25810
+BPL,relative,10,1,none,45GS02 short relative BPL opcode variant,mega65-book-2.txt:25012-25810
+BMI,relative,30,1,none,45GS02 short relative BMI opcode variant,mega65-book-2.txt:25012-25810
+BVC,relative,50,1,none,45GS02 short relative BVC opcode variant,mega65-book-2.txt:25012-25810
+BVS,relative,70,1,none,45GS02 short relative BVS opcode variant,mega65-book-2.txt:25012-25810
+BRA,relative,80,1,none,45GS02 short relative BRA opcode variant,mega65-book-2.txt:25012-25810
+BCC,relative,90,1,none,45GS02 short relative BCC opcode variant,mega65-book-2.txt:25012-25810
+BCS,relative,B0,1,none,45GS02 short relative BCS opcode variant,mega65-book-2.txt:25012-25810
+BNE,relative,D0,1,none,45GS02 short relative BNE opcode variant,mega65-book-2.txt:25012-25810
+BEQ,relative,F0,1,none,45GS02 short relative BEQ opcode variant,mega65-book-2.txt:25012-25810
+BPL,relative_long,13,2,none,45GS02 relfar BPL opcode variant,mega65-book-2.txt:25012-25810
+BMI,relative_long,33,2,none,45GS02 relfar BMI opcode variant,mega65-book-2.txt:25012-25810
+BVC,relative_long,53,2,none,45GS02 relfar BVC opcode variant,mega65-book-2.txt:25012-25810
+BSR,relative_long,63,2,none,45GS02 relfar BSR opcode variant,mega65-book-2.txt:25012-25810
+BVS,relative_long,73,2,none,45GS02 relfar BVS opcode variant,mega65-book-2.txt:25012-25810
+BRA,relative_long,83,2,none,45GS02 relfar BRA opcode variant,mega65-book-2.txt:25012-25810
+BCC,relative_long,93,2,none,45GS02 relfar BCC opcode variant,mega65-book-2.txt:25012-25810
+BCS,relative_long,B3,2,none,45GS02 relfar BCS opcode variant,mega65-book-2.txt:25012-25810
+BNE,relative_long,D3,2,none,45GS02 relfar BNE opcode variant,mega65-book-2.txt:25012-25810
+BEQ,relative_long,F3,2,none,45GS02 relfar BEQ opcode variant,mega65-book-2.txt:25012-25810
+AND,immediate,19,1,none,45GS02 immediate AND opcode variant,mega65-book-2.txt:25012-25810
+EOR,immediate,39,1,none,45GS02 immediate EOR opcode variant,mega65-book-2.txt:25012-25810
+ADC,immediate,59,1,none,45GS02 immediate ADC opcode variant,mega65-book-2.txt:25012-25810
+LDA,immediate,99,1,none,45GS02 immediate LDA opcode variant,mega65-book-2.txt:25012-25810
+BIT,immediate,79,1,none,45GS02 immediate BIT opcode variant,mega65-book-2.txt:25012-25810
+CMP,immediate,B9,1,none,45GS02 immediate CMP opcode variant,mega65-book-2.txt:25012-25810
+ORA,absolute_y,09,2,none,45GS02 absolute,Y ORA opcode variant,mega65-book-2.txt:25012-25810
+AND,absolute_y,29,2,none,45GS02 absolute,Y AND opcode variant,mega65-book-2.txt:25012-25810
+EOR,absolute_y,49,2,none,45GS02 absolute,Y EOR opcode variant,mega65-book-2.txt:25012-25810
+ADC,absolute_y,69,2,none,45GS02 absolute,Y ADC opcode variant,mega65-book-2.txt:25012-25810
+STA,absolute_y,89,2,none,45GS02 absolute,Y STA opcode variant,mega65-book-2.txt:25012-25810
+LDA,absolute_y,A9,2,none,45GS02 absolute,Y LDA opcode variant,mega65-book-2.txt:25012-25810
+CMP,absolute_y,C9,2,none,45GS02 absolute,Y CMP opcode variant,mega65-book-2.txt:25012-25810
+SBC,absolute_y,E9,2,none,45GS02 absolute,Y SBC opcode variant,mega65-book-2.txt:25012-25810
+ORA,absolute_x,0D,2,none,45GS02 absolute,X ORA opcode variant,mega65-book-2.txt:25012-25810
+AND,absolute_x,2D,2,none,45GS02 absolute,X AND opcode variant,mega65-book-2.txt:25012-25810
+EOR,absolute_x,4D,2,none,45GS02 absolute,X EOR opcode variant,mega65-book-2.txt:25012-25810
+ADC,absolute_x,6D,2,none,45GS02 absolute,X ADC opcode variant,mega65-book-2.txt:25012-25810
+STY,absolute_x,7B,2,none,45GS02 absolute,X STY opcode variant,mega65-book-2.txt:25012-25810
+STY,absolute,7C,2,none,45GS02 absolute STY opcode variant,mega65-book-2.txt:25012-25810
+STX,absolute,7E,2,none,45GS02 absolute STX opcode variant,mega65-book-2.txt:25012-25810
+STX,absolute_y,8B,2,none,45GS02 absolute,Y STX opcode variant,mega65-book-2.txt:25012-25810
+BRK,imp,00,0,none,45GS02 implied BRK opcode variant,mega65-book-2.txt:25012-25810
+PHP,imp,F8,0,none,45GS02 implied PHP opcode variant,mega65-book-2.txt:25012-25810
+PHA,imp,38,0,none,45GS02 implied PHA opcode variant,mega65-book-2.txt:25012-25810
+PHY,imp,4A,0,none,45GS02 implied PHY opcode variant,mega65-book-2.txt:25012-25810
+PLP,imp,18,0,none,45GS02 implied PLP opcode variant,mega65-book-2.txt:25012-25810
+PLA,imp,58,0,none,45GS02 implied PLA opcode variant,mega65-book-2.txt:25012-25810
+PLY,imp,6A,0,none,45GS02 implied PLY opcode variant,mega65-book-2.txt:25012-25810
+PHX,imp,CA,0,none,45GS02 implied PHX opcode variant,mega65-book-2.txt:25012-25810
+PLX,imp,EA,0,none,45GS02 implied PLX opcode variant,mega65-book-2.txt:25012-25810
+RTI,imp,40,0,none,45GS02 implied RTI opcode variant,mega65-book-2.txt:25012-25810
+CLC,imp,08,0,none,45GS02 implied CLC opcode variant,mega65-book-2.txt:25012-25810
+SEC,imp,28,0,none,45GS02 implied SEC opcode variant,mega65-book-2.txt:25012-25810
+CLI,imp,48,0,none,45GS02 implied CLI opcode variant,mega65-book-2.txt:25012-25810
+SEI,imp,68,0,none,45GS02 implied SEI opcode variant,mega65-book-2.txt:25012-25810
+CLV,imp,A8,0,none,45GS02 implied CLV opcode variant,mega65-book-2.txt:25012-25810
+CLD,imp,C8,0,none,45GS02 implied CLD opcode variant,mega65-book-2.txt:25012-25810
+SED,imp,E8,0,none,45GS02 implied SED opcode variant,mega65-book-2.txt:25012-25810
+DEY,imp,78,0,none,45GS02 implied DEY opcode variant,mega65-book-2.txt:25012-25810
+TXA,imp,7A,0,none,45GS02 implied TXA opcode variant,mega65-book-2.txt:25012-25810
+TYA,imp,88,0,none,45GS02 implied TYA opcode variant,mega65-book-2.txt:25012-25810
+TXS,imp,8A,0,none,45GS02 implied TXS opcode variant,mega65-book-2.txt:25012-25810
+TAY,imp,98,0,none,45GS02 implied TAY opcode variant,mega65-book-2.txt:25012-25810
+TAX,imp,9A,0,none,45GS02 implied TAX opcode variant,mega65-book-2.txt:25012-25810
+TSX,imp,AA,0,none,45GS02 implied TSX opcode variant,mega65-book-2.txt:25012-25810
+INY,imp,B8,0,none,45GS02 implied INY opcode variant,mega65-book-2.txt:25012-25810
+DEX,imp,BA,0,none,45GS02 implied DEX opcode variant,mega65-book-2.txt:25012-25810
+INX,imp,D8,0,none,45GS02 implied INX opcode variant,mega65-book-2.txt:25012-25810
+STA,absolute_x,8D,2,none,45GS02 absolute,X STA opcode variant,mega65-book-2.txt:25012-25810
+LDA,absolute_x,AD,2,none,45GS02 absolute,X LDA opcode variant,mega65-book-2.txt:25012-25810
+CMP,absolute_x,CD,2,none,45GS02 absolute,X CMP opcode variant,mega65-book-2.txt:25012-25810
+SBC,absolute_x,ED,2,none,45GS02 absolute,X SBC opcode variant,mega65-book-2.txt:25012-25810
+ORA,immediate,F9,1,none,45GS02 immediate ORA opcode variant,mega65-book-2.txt:25012-25810
+SBC,immediate,D9,1,none,45GS02 immediate SBC opcode variant,mega65-book-2.txt:25012-25810
+JSR,indirect,22,2,none,45GS02 extension JSR indirect absolute form,mega65-book-2.txt:25012-25810
+JSR,absolute_indexed_indirect,23,2,none,45GS02 extension JSR indirect absolute indexed by X,mega65-book-2.txt:25012-25810
+NEG,imp,42,0,none,Prefix-capable negate opcode used by compound instructions,mega65-book-2.txt:27744-27749
+LDA,indirect_indexed_zp_y,B1,1,NOP,Flat-memory sugar lowers (,Z) to NOP + (zp),Y,mega65-book-2.txt:27744-27749
+LDA,bracket_indirect_long_z,B1,1,NOP,Bracket sugar lowers [,Z] to NOP + (zp),Y in current implementation,mega65-book-2.txt:27744-27749
+STA,indirect_indexed_zp_y,91,1,NOP,Flat-memory write sugar lowers (,Z) to NOP + (zp),Y,mega65-book-2.txt:27744-27749
+STA,stack_relative_indirect_indexed_y,82,1,none,45GS02 extension stack-relative indirect indexed store,mega65-book-2.txt:25012-25810
+LDA,stack_relative_indirect_indexed_y,E2,1,none,45GS02 extension stack-relative indirect indexed load,mega65-book-2.txt:25012-25810
+STZ,absolute,8C,2,none,45GS02 extension store-zero absolute,mega65-book-2.txt:25012-25810
+STZ,absolute_x,8E,2,none,45GS02 extension store-zero absolute indexed by X,mega65-book-2.txt:25012-25810
+ADCQ,immediate,69,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before ADC,mega65-book-2.txt:25012-25413
+LDQ,absolute,AD,2,NEG NEG,Q pseudo-register form emits two NEG prefixes before LDA,mega65-book-2.txt:25012-25413
+LDQ,immediate,A9,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before LDA,mega65-book-2.txt:25012-25413
+STQ,zero_page,85,1,NEG NEG,Q pseudo-register form emits two NEG prefixes before STA,mega65-book-2.txt:25012-25413
+STQ,absolute,8D,2,NEG NEG,Q pseudo-register form emits two NEG prefixes before STA,mega65-book-2.txt:25012-25413
+STQ,indirect_indexed_zp_y,91,1,NEG NEG NOP,Combined Q+flat form emits NEG NEG and NOP before base STA mode,mega65-book-2.txt:27744-27749
+CLE,imp,02,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+SEE,imp,03,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+INZ,imp,0B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TYS,imp,1B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+DEZ,imp,2B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TAZ,imp,3B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TAB,imp,4B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TZA,imp,5B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+TBA,imp,6B,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+PHZ,imp,CB,0,none,45GS02 extension push-Z register instruction,mega65-book-2.txt:25012-25810
+PLZ,imp,EB,0,none,45GS02 extension pull-Z register instruction,mega65-book-2.txt:25012-25810
+TSY,imp,FB,0,none,45GS02 extension implied instruction,mega65-book-2.txt:25012-25810
+LDZ,immediate,A3,1,none,45GS02 extension load-Z immediate,mega65-book-2.txt:25012-25810
+LDZ,absolute,9B,2,none,45GS02 extension load-Z absolute,mega65-book-2.txt:25012-25810
+LDZ,absolute_x,AB,2,none,45GS02 extension load-Z absolute indexed by X,mega65-book-2.txt:25012-25810
+CPZ,immediate,C2,1,none,45GS02 extension compare-with-Z immediate,mega65-book-2.txt:25012-25810
+CPZ,zero_page,D4,1,none,45GS02 extension compare-with-Z zero-page,mega65-book-2.txt:25012-25810
+CPZ,absolute,CC,2,none,45GS02 extension compare-with-Z absolute,mega65-book-2.txt:25012-25810
+DEW,zero_page,C3,1,none,45GS02 extension decrement-word at base page address,mega65-book-2.txt:25012-25810
+INW,zero_page,E3,1,none,45GS02 extension increment-word at base page address,mega65-book-2.txt:25012-25810
+ASW,absolute,BB,2,none,45GS02 extension arithmetic-shift-word absolute,mega65-book-2.txt:25012-25810
+ROW,absolute,DB,2,none,45GS02 extension rotate-word absolute,mega65-book-2.txt:25012-25810
+PHW,immediate,F4,2,none,45GS02 extension push-word immediate,mega65-book-2.txt:25012-25810
+PHW,absolute,EC,2,none,45GS02 extension push-word absolute,mega65-book-2.txt:25012-25810

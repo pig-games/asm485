@@ -1,0 +1,30 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 STY/STX absolute-family opcode overrides
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 2300                    4          .org $2300
+----                                5  
+----                                6  start
+2300    7B 00 30                    7          sty $3000,x
+2303    7C 02 30                    8          sty $3002
+2306    7E 04 30                    9          stx $3004
+2309    8B 06 30                   10          stx $3006,y
+230C    60                         11          rts
+----                               12  
+----                               13          .end
+
+Lines: 13  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2300 (8960)
+
+Total memory is 13 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2300    7B 00 30 7C 02 30 7E 04 30 8B 06 30 60

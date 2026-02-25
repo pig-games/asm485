@@ -1,0 +1,28 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 word direct-page operations
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 0C00                    4          .org $0C00
+----                                5  
+----                                6  start
+0C00    C3 20                       7          dew $20
+0C02    E3 21                       8          inw $21
+0C04    60                          9          rts
+----                               10  
+----                               11          .end
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0c00 (3072)
+
+Total memory is 5 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0C00    C3 20 E3 21 60

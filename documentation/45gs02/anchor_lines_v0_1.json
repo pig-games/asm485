@@ -1,0 +1,17 @@
+{
+  "anchors": {
+    "appendix_k": 622,
+    "appendix_l": 656,
+    "compound_instructions": 27744,
+    "instruction_set_4510": 24952,
+    "opcode_table_4510_45gs02": 25012
+  },
+  "patterns": {
+    "appendix_k": "45GS02 Microprocessor",
+    "appendix_l": "45GS02 & 6502 Instruction Sets",
+    "compound_instructions": "45GS02 COMPOUND INSTRUCTIONS",
+    "instruction_set_4510": "4510 INSTRUCTION SET",
+    "opcode_table_4510_45gs02": "Opcode T able 4510/45GS02"
+  },
+  "source": "documentation/_pdf_extract/mega65-book-2.txt"
+}

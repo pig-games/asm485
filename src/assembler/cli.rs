@@ -59,7 +59,7 @@ fn with_env_lock<T>(action: impl FnOnce() -> T) -> T {
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const LONG_ABOUT: &str =
-    "Multi-CPU assembler supporting Intel 8080/8085, Zilog Z80, MOS 6502, and WDC 65C02.
+    "Multi-CPU assembler supporting Intel 8080/8085, Zilog Z80, MOS 6502, WDC 65C02, WDC 65816, and CSG 45GS02.
 
 Outputs are opt-in: specify at least one of -l/--list, -x/--hex, or -b/--bin.
 If no outputs are specified for a single input, the assembler defaults to list+hex
@@ -74,7 +74,7 @@ With multiple inputs, -o must be a directory and explicit output filenames are n
 #[command(
     name = "opForge",
     version = VERSION,
-    about = "Multi-CPU assembler (8080/8085/Z80/6502/65C02) with expressions, directives and macro support",
+    about = "Multi-CPU assembler (8080/8085/Z80/6502/65C02/65816/45GS02) with expressions, directives and macro support",
     long_about = LONG_ABOUT
 )]
 pub struct Cli {

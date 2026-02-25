@@ -1,0 +1,28 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 stack-relative indirect indexed Y forms
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 1100                    4          .org $1100
+----                                5  
+----                                6  start
+1100    82 20                       7          sta ($20,s),y
+1102    E2 21                       8          lda ($21,s),y
+1104    60                          9          rts
+----                               10  
+----                               11          .end
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1100 (4352)
+
+Total memory is 5 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1100    82 20 E2 21 60

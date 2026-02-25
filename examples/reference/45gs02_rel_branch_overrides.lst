@@ -1,0 +1,45 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 short relative branch opcode overrides
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 2700                    4          .org $2700
+----                                5  
+----                                6  start
+2700    10 01                       7          bpl l1
+2702    30 02                       8  l1      bmi l2
+2704    50 03                       9  l2      bvc l3
+2706    70 04                      10  l3      bvs l4
+2708    80 05                      11  l4      bra l5
+270A    90 06                      12  l5      bcc l6
+270C    B0 07                      13  l6      bcs l7
+270E    D0 08                      14  l7      bne l8
+2710    F0 09                      15  l8      beq done
+2712    60                         16  done    rts
+----                               17  
+----                               18          .end
+
+Lines: 18  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2700 (9984)
+l1              : 2702 (9986)
+l2              : 2704 (9988)
+l3              : 2706 (9990)
+l4              : 2708 (9992)
+l5              : 270a (9994)
+l6              : 270c (9996)
+l7              : 270e (9998)
+l8              : 2710 (10000)
+done            : 2712 (10002)
+
+Total memory is 19 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2700    10 01 30 02 50 03 70 04 80 05 90 06 B0 07 D0 08
+2710    F0 09 60

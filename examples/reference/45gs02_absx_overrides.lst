@@ -1,0 +1,35 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 absolute,X opcode overrides
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 2200                    4          .org $2200
+----                                5  
+----                                6  start
+2200    0D 00 21                    7          ora $2100,x
+2203    2D 02 21                    8          and $2102,x
+2206    4D 04 21                    9          eor $2104,x
+2209    6D 06 21                   10          adc $2106,x
+220C    8D 08 21                   11          sta $2108,x
+220F    AD 0A 21                   12          lda $210A,x
+2212    CD 0C 21                   13          cmp $210C,x
+2215    ED 0E 21                   14          sbc $210E,x
+2218    60                         15          rts
+----                               16  
+----                               17          .end
+
+Lines: 17  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2200 (8704)
+
+Total memory is 25 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2200    0D 00 21 2D 02 21 4D 04 21 6D 06 21 8D 08 21 AD
+2210    0A 21 CD 0C 21 ED 0E 21 60

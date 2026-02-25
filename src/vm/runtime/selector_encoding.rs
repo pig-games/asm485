@@ -211,6 +211,7 @@ fn parse_mode_key_lower(mode_key_lower: &str) -> Option<AddressMode> {
         "indirect" => Some(AddressMode::Indirect),
         "indexedindirectx" => Some(AddressMode::IndexedIndirectX),
         "indirectindexedy" => Some(AddressMode::IndirectIndexedY),
+        "indirectindexedz" => Some(AddressMode::IndirectIndexedZ),
         "relative" => Some(AddressMode::Relative),
         "relativelong" => Some(AddressMode::RelativeLong),
         "zeropageindirect" => Some(AddressMode::ZeroPageIndirect),
@@ -222,6 +223,7 @@ fn parse_mode_key_lower(mode_key_lower: &str) -> Option<AddressMode> {
         "indirectlong" => Some(AddressMode::IndirectLong),
         "directpageindirectlong" => Some(AddressMode::DirectPageIndirectLong),
         "directpageindirectlongy" => Some(AddressMode::DirectPageIndirectLongY),
+        "directpageindirectlongz" => Some(AddressMode::DirectPageIndirectLongZ),
         "blockmove" => Some(AddressMode::BlockMove),
         _ => None,
     }

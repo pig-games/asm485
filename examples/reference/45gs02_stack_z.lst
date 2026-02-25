@@ -1,0 +1,28 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 stack transfer operations for Z register
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 0E00                    4          .org $0E00
+----                                5  
+----                                6  start
+0E00    CB                          7          phz
+0E01    EB                          8          plz
+0E02    60                          9          rts
+----                               10  
+----                               11          .end
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 0e00 (3584)
+
+Total memory is 3 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0E00    CB EB 60

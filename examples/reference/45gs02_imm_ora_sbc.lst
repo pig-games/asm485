@@ -1,0 +1,28 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 immediate ORA/SBC opcode variants
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 1300                    4          .org $1300
+----                                5  
+----                                6  start
+1300    F9 12                       7          ora #$12
+1302    D9 34                       8          sbc #$34
+1304    60                          9          rts
+----                               10  
+----                               11          .end
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1300 (4864)
+
+Total memory is 5 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1300    F9 12 D9 34 60

@@ -64,6 +64,7 @@ use crate::families::intel8080::{
 };
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 use crate::i8085::module::I8085CpuModule;
+use crate::m45gs02::module::M45GS02CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::vm::builder::build_hierarchy_package_from_registry;
@@ -3889,10 +3890,11 @@ impl<'a> AsmLine<'a> {
             .map_mnemonic(mnemonic, family_operands.as_ref())
             .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
 
+        let vm_instruction_runtime_supported_for_cpu = self.cpu != crate::m45gs02::module::CPU_ID;
         let family_runtime_authoritative =
             crate::vm::rollout::package_runtime_default_enabled_for_family(
                 pipeline.family_id.as_str(),
-            );
+            ) && vm_instruction_runtime_supported_for_cpu;
 
         {
             let allow = match self.opthread_form_allows_mnemonic(&pipeline, &mapped_mnemonic) {
@@ -3929,8 +3931,9 @@ impl<'a> AsmLine<'a> {
             if let Some(model) = self.opthread_execution_model.as_ref() {
                 let runtime_expr_force_host =
                     self.portable_expr_runtime_force_host_for_family(pipeline.family_id.as_str());
-                let strict_runtime_parse_resolve =
-                    model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
+                let strict_runtime_parse_resolve = model
+                    .expr_resolution_is_strict_for_family(pipeline.family_id.as_str())
+                    && vm_instruction_runtime_supported_for_cpu;
                 let runtime_expr_bytes_authoritative = (strict_runtime_parse_resolve
                     || family_runtime_authoritative)
                     && !runtime_expr_force_host;
@@ -4097,7 +4100,8 @@ impl<'a> AsmLine<'a> {
 
         if let Some(model) = self.opthread_execution_model.as_ref() {
             let strict_runtime_vm_programs = family_runtime_authoritative
-                || model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str());
+                || (model.expr_resolution_is_strict_for_family(pipeline.family_id.as_str())
+                    && vm_instruction_runtime_supported_for_cpu);
             match model.encode_instruction(
                 self.cpu.as_str(),
                 None,

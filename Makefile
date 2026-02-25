@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Erik van der Tier
 
-.PHONY: build release clippy reference reference-test test test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-vm-mos6502 ci-vm-intel8080 manual-pdf
+.PHONY: build release clippy reference reference-test test test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-vm-mos6502 ci-vm-intel8080 build-vm-45gs02-package manual-pdf
 
 MANUAL_MD := documentation/opForge-reference-manual.md
 MANUAL_PDF := documentation/opForge-reference-manual.pdf
@@ -48,6 +48,9 @@ ci-vm-intel8080:
 	make test
 	make test-vm-rollout-criteria
 	make test-vm-runtime-intel
+
+build-vm-45gs02-package:
+	cargo run --bin build_vm_45gs02_package -- target/vm/45gs02_hierarchy.opcpu
 
 reference-test:
 	cargo test examples_match_reference_outputs

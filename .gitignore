@@ -48,3 +48,6 @@ AGENTS.md
 # Local workspace-only content (temporary)
 /skills/
 /worktrees/
+
+# Generated PDF text extractions (local reference)
+/documentation/_pdf_extract/

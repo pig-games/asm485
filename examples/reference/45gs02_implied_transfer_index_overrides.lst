@@ -1,0 +1,36 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; 45GS02 implied transfer/index opcode overrides
+----                                2  
+----                                3          .cpu 45gs02
+----    EQU 2400                    4          .org $2400
+----                                5  
+----                                6  start
+2400    78                          7          dey
+2401    7A                          8          txa
+2402    8A                          9          txs
+2403    88                         10          tya
+2404    98                         11          tay
+2405    9A                         12          tax
+2406    AA                         13          tsx
+2407    B8                         14          iny
+2408    BA                         15          dex
+2409    D8                         16          inx
+240A    60                         17          rts
+----                               18  
+----                               19          .end
+
+Lines: 19  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 2400 (9216)
+
+Total memory is 11 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+2400    78 7A 8A 88 98 9A AA B8 BA D8 60
