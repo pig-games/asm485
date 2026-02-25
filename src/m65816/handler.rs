@@ -798,6 +798,19 @@ impl CpuHandler for M65816CpuHandler {
                     ) {
                         return Ok(vec![resolved]);
                     }
+
+                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage)
+                        || Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
+                    {
+                        return Ok(vec![
+                            crate::families::mos6502::operand_resolution::resolve_direct(
+                                &upper_mnemonic,
+                                expr,
+                                ctx,
+                                Self::has_mode,
+                            )?,
+                        ]);
+                    }
                 }
                 FamilyOperand::DirectX(expr) => {
                     let unresolved =
@@ -939,6 +952,19 @@ impl CpuHandler for M65816CpuHandler {
                     ) {
                         return Ok(vec![resolved]);
                     }
+
+                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX)
+                        || Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
+                    {
+                        return Ok(vec![
+                            crate::families::mos6502::operand_resolution::resolve_direct_x(
+                                &upper_mnemonic,
+                                expr,
+                                ctx,
+                                Self::has_mode,
+                            )?,
+                        ]);
+                    }
                 }
                 FamilyOperand::DirectY(expr) => {
                     let val = ctx.eval_expr(expr)?;
@@ -1029,6 +1055,19 @@ impl CpuHandler for M65816CpuHandler {
                         },
                     ) {
                         return Ok(vec![resolved]);
+                    }
+
+                    if Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageY)
+                        || Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
+                    {
+                        return Ok(vec![
+                            crate::families::mos6502::operand_resolution::resolve_direct_y(
+                                &upper_mnemonic,
+                                expr,
+                                ctx,
+                                Self::has_mode,
+                            )?,
+                        ]);
                     }
                 }
                 FamilyOperand::IndexedIndirectX(expr) => {
