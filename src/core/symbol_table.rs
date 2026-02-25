@@ -6,6 +6,7 @@
 use crate::core::parser::{UseItem, UseParam};
 use crate::core::tokenizer::Span;
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
@@ -73,6 +74,14 @@ pub enum SymbolTableResult {
 
 pub const MAX_ENTRIES: usize = 66000;
 
+fn normalized_ascii_upper_lookup_key(name: &str) -> Cow<'_, str> {
+    if name.bytes().any(|byte| byte.is_ascii_lowercase()) {
+        Cow::Owned(name.to_ascii_uppercase())
+    } else {
+        Cow::Borrowed(name)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct SymbolTable {
     entries: Vec<SymbolTableEntry>,
@@ -95,10 +104,11 @@ impl SymbolTable {
     }
 
     pub fn register_module(&mut self, name: &str) -> SymbolTableResult {
-        let key = name.to_ascii_uppercase();
-        if self.module_index.contains_key(&key) {
+        let key = normalized_ascii_upper_lookup_key(name);
+        if self.module_index.contains_key(key.as_ref()) {
             return SymbolTableResult::Duplicate;
         }
+        let key = key.into_owned();
         let idx = self.module_info.len();
         self.module_info.push(ModuleInfo {
             name: name.to_string(),
@@ -110,7 +120,8 @@ impl SymbolTable {
 
     #[must_use]
     pub fn has_module(&self, name: &str) -> bool {
-        self.module_index.contains_key(&name.to_ascii_uppercase())
+        let key = normalized_ascii_upper_lookup_key(name);
+        self.module_index.contains_key(key.as_ref())
     }
 
     pub fn add_import(&mut self, module: &str, import: ModuleImport) -> ImportResult {
@@ -161,16 +172,16 @@ impl SymbolTable {
     }
 
     fn module_info(&self, name: &str) -> Option<&ModuleInfo> {
-        let key = name.to_ascii_uppercase();
+        let key = normalized_ascii_upper_lookup_key(name);
         self.module_index
-            .get(&key)
+            .get(key.as_ref())
             .map(|&idx| &self.module_info[idx])
     }
 
     fn module_info_mut(&mut self, name: &str) -> Option<&mut ModuleInfo> {
-        let key = name.to_ascii_uppercase();
+        let key = normalized_ascii_upper_lookup_key(name);
         self.module_index
-            .get(&key)
+            .get(key.as_ref())
             .copied()
             .map(|idx| &mut self.module_info[idx])
     }
@@ -257,8 +268,8 @@ impl SymbolTable {
                             // Validate compile-time symbols (macro/segment/statement)
                             let dep_canonical = import.module_id.to_ascii_lowercase();
                             if let Some(symbols) = known_compile_time_symbols.get(&dep_canonical) {
-                                if let Some(visibility) =
-                                    symbols.get(&item.name.to_ascii_uppercase())
+                                if let Some(visibility) = symbols
+                                    .get(normalized_ascii_upper_lookup_key(&item.name).as_ref())
                                 {
                                     if *visibility == SymbolVisibility::Private {
                                         issues.push(ImportIssue {
@@ -306,8 +317,8 @@ impl SymbolTable {
         visited: &mut HashSet<String>,
         issues: &mut Vec<ImportIssue>,
     ) {
-        let module_upper = module.to_ascii_uppercase();
-        if visited.contains(&module_upper) {
+        let module_upper = normalized_ascii_upper_lookup_key(module);
+        if visited.contains(module_upper.as_ref()) {
             return;
         }
         if let Some(pos) = visiting
@@ -333,7 +344,7 @@ impl SymbolTable {
             }
         }
         visiting.pop();
-        visited.insert(module_upper);
+        visited.insert(module_upper.into_owned());
     }
 
     fn push_cycle_issue(&self, from: &str, to: &str, issues: &mut Vec<ImportIssue>) {
@@ -364,8 +375,8 @@ impl SymbolTable {
             return SymbolTableResult::TableFull;
         }
 
-        let key = name.to_ascii_uppercase();
-        if let Some(&idx) = self.index.get(&key) {
+        let key = normalized_ascii_upper_lookup_key(name);
+        if let Some(&idx) = self.index.get(key.as_ref()) {
             let entry = &mut self.entries[idx];
             if entry.rw {
                 entry.val = val;
@@ -373,6 +384,7 @@ impl SymbolTable {
             }
             return SymbolTableResult::Duplicate;
         }
+        let key = key.into_owned();
 
         let idx = self.entries.len();
         self.entries.push(SymbolTableEntry {
@@ -408,14 +420,14 @@ impl SymbolTable {
 
     #[must_use]
     pub fn entry(&self, name: &str) -> Option<&SymbolTableEntry> {
-        let key = name.to_ascii_uppercase();
-        self.index.get(&key).map(|&idx| &self.entries[idx])
+        let key = normalized_ascii_upper_lookup_key(name);
+        self.index.get(key.as_ref()).map(|&idx| &self.entries[idx])
     }
 
     pub fn entry_mut(&mut self, name: &str) -> Option<&mut SymbolTableEntry> {
-        let key = name.to_ascii_uppercase();
+        let key = normalized_ascii_upper_lookup_key(name);
         self.index
-            .get(&key)
+            .get(key.as_ref())
             .copied()
             .map(|idx| &mut self.entries[idx])
     }
@@ -438,6 +450,20 @@ mod tests {
     use super::{ImportResult, ModuleImport, SymbolTable, SymbolTableResult, SymbolVisibility};
     use crate::core::parser::{Expr, UseItem, UseParam};
     use crate::core::tokenizer::Span;
+    use std::borrow::Cow;
+
+    #[test]
+    fn normalized_lookup_key_borrows_uppercase_input() {
+        let key = super::normalized_ascii_upper_lookup_key("CORE.UTILS");
+        assert!(matches!(key, Cow::Borrowed("CORE.UTILS")));
+    }
+
+    #[test]
+    fn normalized_lookup_key_owns_lowercase_input() {
+        let key = super::normalized_ascii_upper_lookup_key("core.utils");
+        assert!(matches!(key, Cow::Owned(_)));
+        assert_eq!(key.as_ref(), "CORE.UTILS");
+    }
 
     #[test]
     fn add_and_lookup_are_case_insensitive() {
