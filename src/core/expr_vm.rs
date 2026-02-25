@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::core::expr::{apply_binary, apply_unary, parse_number};
 use crate::core::parser::{BinaryOp, Expr, UnaryOp};
+use crate::core::symbol_stability::is_symbol_unstable;
 use crate::core::tokenizer::Span;
 
 pub const EXPR_VM_OPCODE_VERSION_V1: u16 = 0x0001;
@@ -363,10 +364,12 @@ pub fn eval_portable_expr_program(
                 };
 
                 has_symbol_refs = true;
-                if ctx.lookup_symbol(symbol_name).is_none()
-                    || (ctx.pass() > 1
-                        && matches!(ctx.symbol_is_finalized(symbol_name), Some(false)))
-                {
+                if is_symbol_unstable(
+                    symbol_name,
+                    ctx.pass(),
+                    |symbol| ctx.lookup_symbol(symbol).is_some(),
+                    |symbol| ctx.symbol_is_finalized(symbol),
+                ) {
                     has_unstable_symbols = true;
                 }
 
@@ -463,10 +466,12 @@ pub fn expr_program_has_unstable_symbols(
                         format!("symbol index out of range: {}", symbol_idx),
                     ));
                 };
-                if ctx.lookup_symbol(symbol_name).is_none()
-                    || (ctx.pass() > 1
-                        && matches!(ctx.symbol_is_finalized(symbol_name), Some(false)))
-                {
+                if is_symbol_unstable(
+                    symbol_name,
+                    ctx.pass(),
+                    |symbol| ctx.lookup_symbol(symbol).is_some(),
+                    |symbol| ctx.symbol_is_finalized(symbol),
+                ) {
                     return Ok(true);
                 }
             }

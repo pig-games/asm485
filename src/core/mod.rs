@@ -33,6 +33,7 @@ pub mod preprocess;
 pub mod registry;
 pub mod report;
 pub mod source_map;
+pub mod symbol_stability;
 pub mod symbol_table;
 pub mod text_encoding;
 pub mod text_utils;

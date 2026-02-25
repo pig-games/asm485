@@ -25,3 +25,27 @@ pub fn highlight_line(line: &str, column: Option<usize>, use_color: bool) -> Str
         _ => line.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::highlight_line;
+
+    #[test]
+    fn highlight_line_marks_requested_column() {
+        let out = highlight_line("LDA #$01", Some(2), false);
+        assert!(out.contains("LDA #$01"));
+        assert!(out.contains(" ^"));
+    }
+
+    #[test]
+    fn highlight_line_out_of_bounds_appends_marker() {
+        let out = highlight_line("ABC", Some(10), false);
+        assert!(out.contains("ABC"));
+        assert!(out.ends_with("   ^"));
+    }
+
+    #[test]
+    fn highlight_line_without_column_returns_original() {
+        assert_eq!(highlight_line("NOP", None, false), "NOP");
+    }
+}
