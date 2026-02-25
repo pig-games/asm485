@@ -114,16 +114,10 @@ impl SymbolTable {
     }
 
     pub fn add_import(&mut self, module: &str, import: ModuleImport) -> ImportResult {
-        let info = match self.module_info_mut(module) {
-            Some(info) => info,
-            None => {
-                self.module_info.push(ModuleInfo {
-                    name: module.to_string(),
-                    imports: Vec::new(),
-                });
-                self.module_info_mut(module).expect("module info")
-            }
-        };
+        if self.module_info_mut(module).is_none() {
+            let _ = self.register_module(module);
+        }
+        let info = self.module_info_mut(module).expect("module info");
 
         if let Some(alias) = &import.alias {
             if info
@@ -577,6 +571,31 @@ mod tests {
             table.add_import("alpha", import),
             ImportResult::SelectiveCollision
         );
+    }
+
+    #[test]
+    fn add_import_registers_missing_module_case_insensitively() {
+        let mut table = SymbolTable::new();
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        };
+        let import = ModuleImport {
+            module_id: "beta".to_string(),
+            alias: Some("M".to_string()),
+            items: Vec::new(),
+            params: Vec::new(),
+            span,
+        };
+
+        assert_eq!(table.add_import("Core.Utils", import), ImportResult::Ok);
+        assert!(table.has_module("core.utils"));
+        let imports = table
+            .module_imports("CORE.UTILS")
+            .expect("module imports should exist");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].module_id, "beta");
     }
 
     #[test]
