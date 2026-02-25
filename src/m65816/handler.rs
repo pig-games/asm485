@@ -48,8 +48,8 @@ struct HighBankResolutionSpec {
     assumed_key: &'static str,
     absolute_mode: AddressMode,
     absolute_ctor: fn(u16, crate::core::tokenizer::Span) -> Operand,
-    long_mode: AddressMode,
-    long_ctor: fn(u32, crate::core::tokenizer::Span) -> Operand,
+    long_mode: Option<AddressMode>,
+    long_ctor: Option<fn(u32, crate::core::tokenizer::Span) -> Operand>,
 }
 
 impl Default for M65816CpuHandler {
@@ -515,8 +515,10 @@ impl M65816CpuHandler {
             return Ok(Some((spec.absolute_ctor)(absolute_value, span)));
         }
 
-        if Self::has_mode(upper_mnemonic, spec.long_mode) {
-            return Ok(Some((spec.long_ctor)(val as u32, span)));
+        if let (Some(long_mode), Some(long_ctor)) = (spec.long_mode, spec.long_ctor) {
+            if Self::has_mode(upper_mnemonic, long_mode) {
+                return Ok(Some(long_ctor(val as u32, span)));
+            }
         }
 
         if Self::has_mode(upper_mnemonic, spec.absolute_mode) {
@@ -734,8 +736,8 @@ impl CpuHandler for M65816CpuHandler {
                             assumed_key,
                             absolute_mode: AddressMode::Absolute,
                             absolute_ctor: Operand::Absolute,
-                            long_mode: AddressMode::AbsoluteLong,
-                            long_ctor: Operand::AbsoluteLong,
+                            long_mode: Some(AddressMode::AbsoluteLong),
+                            long_ctor: Some(Operand::AbsoluteLong),
                         },
                     )? {
                         return Ok(vec![resolved]);
@@ -878,8 +880,8 @@ impl CpuHandler for M65816CpuHandler {
                             assumed_key,
                             absolute_mode: AddressMode::AbsoluteX,
                             absolute_ctor: Operand::AbsoluteX,
-                            long_mode: AddressMode::AbsoluteLongX,
-                            long_ctor: Operand::AbsoluteLongX,
+                            long_mode: Some(AddressMode::AbsoluteLongX),
+                            long_ctor: Some(Operand::AbsoluteLongX),
                         },
                     )? {
                         return Ok(vec![resolved]);
@@ -961,26 +963,21 @@ impl CpuHandler for M65816CpuHandler {
                         }
                     }
 
-                    if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
-                        let absolute_bank = ((val as u32) >> 16) as u8;
-                        let absolute_value = (val as u32 & 0xFFFF) as u16;
-                        if assumed_known
-                            && absolute_bank == assumed_bank
-                            && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
-                        {
-                            return Ok(vec![Operand::AbsoluteY(absolute_value, span)]);
-                        }
-                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY) {
-                            if !assumed_known {
-                                return Err(Self::bank_unknown_error("dbr", &upper_mnemonic));
-                            }
-                            return Err(Self::bank_mismatch_error(
-                                val as u32,
-                                absolute_bank,
-                                assumed_bank,
-                                "dbr",
-                            ));
-                        }
+                    if let Some(resolved) = Self::resolve_high_bank_operand(
+                        &upper_mnemonic,
+                        val,
+                        span,
+                        HighBankResolutionSpec {
+                            assumed_bank,
+                            assumed_known,
+                            assumed_key: "dbr",
+                            absolute_mode: AddressMode::AbsoluteY,
+                            absolute_ctor: Operand::AbsoluteY,
+                            long_mode: None,
+                            long_ctor: None,
+                        },
+                    )? {
+                        return Ok(vec![resolved]);
                     }
 
                     if let Some(resolved) = Self::resolve_direct_page_window_operand(
