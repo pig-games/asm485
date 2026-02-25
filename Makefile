@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Erik van der Tier
 
-.PHONY: build release clippy reference reference-test test test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-vm-mos6502 ci-vm-intel8080 build-vm-45gs02-package manual-pdf
+.PHONY: build release clean fmt clippy audit reference reference-test test test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-vm-mos6502 ci-vm-intel8080 build-vm-45gs02-package manual-pdf
 
 MANUAL_MD := documentation/opForge-reference-manual.md
 MANUAL_PDF := documentation/opForge-reference-manual.pdf
@@ -14,8 +14,17 @@ release:
 	cargo clippy -- -D warnings
 	cargo build --release
 
+clean:
+	cargo clean
+
+fmt:
+	cargo fmt --all
+
 clippy:
 	cargo clippy -- -D warnings
+
+audit:
+	cargo audit
 
 test:
 	cargo test
