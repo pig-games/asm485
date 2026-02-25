@@ -18,6 +18,13 @@ pub struct M65816CpuHandler {
     baseline: crate::m65c02::M65C02CpuHandler,
 }
 
+struct DirectPageResolutionSpec {
+    zero_page_mode: AddressMode,
+    absolute_mode: AddressMode,
+    zero_page_ctor: fn(u8, crate::core::tokenizer::Span) -> Operand,
+    absolute_ctor: fn(u16, crate::core::tokenizer::Span) -> Operand,
+}
+
 impl Default for M65816CpuHandler {
     fn default() -> Self {
         Self::new()
@@ -327,6 +334,64 @@ impl M65816CpuHandler {
             context
         )
     }
+
+    fn resolve_forced_direct_page_operand(
+        upper_mnemonic: &str,
+        val: i64,
+        span: crate::core::tokenizer::Span,
+        ctx: &dyn AssemblerContext,
+        zero_page_mode: AddressMode,
+        zero_page_ctor: fn(u8, crate::core::tokenizer::Span) -> Operand,
+    ) -> Result<Operand, String> {
+        if !Self::has_mode(upper_mnemonic, zero_page_mode) {
+            return Err(Self::invalid_force_error(
+                OperandForce::DirectPage,
+                upper_mnemonic,
+            ));
+        }
+        if (0..=255).contains(&val) {
+            return Ok(zero_page_ctor(val as u8, span));
+        }
+        if (0..=0xFFFF).contains(&val) {
+            let absolute_value = val as u16;
+            if let Some(dp_offset) =
+                Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
+            {
+                return Ok(zero_page_ctor(dp_offset, span));
+            }
+            return Err(format!(
+                "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
+            ));
+        }
+        Err(format!(
+            "Address {} out of 16-bit range for explicit ',d'",
+            val
+        ))
+    }
+
+    fn resolve_direct_page_window_operand(
+        upper_mnemonic: &str,
+        expr: &crate::core::parser::Expr,
+        val: i64,
+        span: crate::core::tokenizer::Span,
+        ctx: &dyn AssemblerContext,
+        spec: DirectPageResolutionSpec,
+    ) -> Option<Operand> {
+        if (0..=0xFFFF).contains(&val) && Self::has_mode(upper_mnemonic, spec.zero_page_mode) {
+            let absolute_value = val as u16;
+            if let Some(dp_offset) =
+                Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
+            {
+                if expr_has_unstable_symbols(expr, ctx)
+                    && Self::has_mode(upper_mnemonic, spec.absolute_mode)
+                {
+                    return Some((spec.absolute_ctor)(absolute_value, span));
+                }
+                return Some((spec.zero_page_ctor)(dp_offset, span));
+            }
+        }
+        None
+    }
 }
 
 impl CpuHandler for M65816CpuHandler {
@@ -423,30 +488,14 @@ impl CpuHandler for M65816CpuHandler {
                     if let Some(force) = force_override {
                         match force {
                             OperandForce::DirectPage => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=255).contains(&val) {
-                                    return Ok(vec![Operand::ZeroPage(val as u8, span)]);
-                                }
-                                if (0..=0xFFFF).contains(&val) {
-                                    let absolute_value = val as u16;
-                                    if let Some(dp_offset) =
-                                        Self::direct_page_offset_for_absolute_address(
-                                            absolute_value,
-                                            ctx,
-                                        )
-                                    {
-                                        return Ok(vec![Operand::ZeroPage(dp_offset, span)]);
-                                    }
-                                    return Err(format!(
-                                        "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
-                                    ));
-                                }
-                                return Err(format!(
-                                    "Address {} out of 16-bit range for explicit ',d'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_direct_page_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    ctx,
+                                    AddressMode::ZeroPage,
+                                    Operand::ZeroPage,
+                                )?]);
                             }
                             OperandForce::Long => {
                                 if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
@@ -591,20 +640,20 @@ impl CpuHandler for M65816CpuHandler {
                         }
                     }
 
-                    if (0..=0xFFFF).contains(&val)
-                        && Self::has_mode(&upper_mnemonic, AddressMode::ZeroPage)
-                    {
-                        let absolute_value = val as u16;
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
-                        {
-                            if expr_has_unstable_symbols(expr, ctx)
-                                && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
-                            {
-                                return Ok(vec![Operand::Absolute(absolute_value, span)]);
-                            }
-                            return Ok(vec![Operand::ZeroPage(dp_offset, span)]);
-                        }
+                    if let Some(resolved) = Self::resolve_direct_page_window_operand(
+                        &upper_mnemonic,
+                        expr,
+                        val,
+                        span,
+                        ctx,
+                        DirectPageResolutionSpec {
+                            zero_page_mode: AddressMode::ZeroPage,
+                            absolute_mode: AddressMode::Absolute,
+                            zero_page_ctor: Operand::ZeroPage,
+                            absolute_ctor: Operand::Absolute,
+                        },
+                    ) {
+                        return Ok(vec![resolved]);
                     }
                 }
                 FamilyOperand::DirectX(expr) => {
@@ -659,30 +708,14 @@ impl CpuHandler for M65816CpuHandler {
                     if let Some(force) = force_override {
                         match force {
                             OperandForce::DirectPage => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=255).contains(&val) {
-                                    return Ok(vec![Operand::ZeroPageX(val as u8, span)]);
-                                }
-                                if (0..=0xFFFF).contains(&val) {
-                                    let absolute_value = val as u16;
-                                    if let Some(dp_offset) =
-                                        Self::direct_page_offset_for_absolute_address(
-                                            absolute_value,
-                                            ctx,
-                                        )
-                                    {
-                                        return Ok(vec![Operand::ZeroPageX(dp_offset, span)]);
-                                    }
-                                    return Err(format!(
-                                        "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
-                                    ));
-                                }
-                                return Err(format!(
-                                    "Address {} out of 16-bit range for explicit ',d'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_direct_page_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    ctx,
+                                    AddressMode::ZeroPageX,
+                                    Operand::ZeroPageX,
+                                )?]);
                             }
                             OperandForce::Long => {
                                 if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
@@ -791,20 +824,20 @@ impl CpuHandler for M65816CpuHandler {
                         }
                     }
 
-                    if (0..=0xFFFF).contains(&val)
-                        && Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageX)
-                    {
-                        let absolute_value = val as u16;
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
-                        {
-                            if expr_has_unstable_symbols(expr, ctx)
-                                && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
-                            {
-                                return Ok(vec![Operand::AbsoluteX(absolute_value, span)]);
-                            }
-                            return Ok(vec![Operand::ZeroPageX(dp_offset, span)]);
-                        }
+                    if let Some(resolved) = Self::resolve_direct_page_window_operand(
+                        &upper_mnemonic,
+                        expr,
+                        val,
+                        span,
+                        ctx,
+                        DirectPageResolutionSpec {
+                            zero_page_mode: AddressMode::ZeroPageX,
+                            absolute_mode: AddressMode::AbsoluteX,
+                            zero_page_ctor: Operand::ZeroPageX,
+                            absolute_ctor: Operand::AbsoluteX,
+                        },
+                    ) {
+                        return Ok(vec![resolved]);
                     }
                 }
                 FamilyOperand::DirectY(expr) => {
@@ -818,30 +851,14 @@ impl CpuHandler for M65816CpuHandler {
                     if let Some(force) = force_override {
                         match force {
                             OperandForce::DirectPage => {
-                                if !Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageY) {
-                                    return Err(Self::invalid_force_error(force, &upper_mnemonic));
-                                }
-                                if (0..=255).contains(&val) {
-                                    return Ok(vec![Operand::ZeroPageY(val as u8, span)]);
-                                }
-                                if (0..=0xFFFF).contains(&val) {
-                                    let absolute_value = val as u16;
-                                    if let Some(dp_offset) =
-                                        Self::direct_page_offset_for_absolute_address(
-                                            absolute_value,
-                                            ctx,
-                                        )
-                                    {
-                                        return Ok(vec![Operand::ZeroPageY(dp_offset, span)]);
-                                    }
-                                    return Err(format!(
-                                        "Address ${absolute_value:04X} is outside the direct-page window for explicit ',d'"
-                                    ));
-                                }
-                                return Err(format!(
-                                    "Address {} out of 16-bit range for explicit ',d'",
-                                    val
-                                ));
+                                return Ok(vec![Self::resolve_forced_direct_page_operand(
+                                    &upper_mnemonic,
+                                    val,
+                                    span,
+                                    ctx,
+                                    AddressMode::ZeroPageY,
+                                    Operand::ZeroPageY,
+                                )?]);
                             }
                             OperandForce::DataBank => {
                                 if !Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY) {
@@ -924,20 +941,20 @@ impl CpuHandler for M65816CpuHandler {
                         }
                     }
 
-                    if (0..=0xFFFF).contains(&val)
-                        && Self::has_mode(&upper_mnemonic, AddressMode::ZeroPageY)
-                    {
-                        let absolute_value = val as u16;
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(absolute_value, ctx)
-                        {
-                            if expr_has_unstable_symbols(expr, ctx)
-                                && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteY)
-                            {
-                                return Ok(vec![Operand::AbsoluteY(absolute_value, span)]);
-                            }
-                            return Ok(vec![Operand::ZeroPageY(dp_offset, span)]);
-                        }
+                    if let Some(resolved) = Self::resolve_direct_page_window_operand(
+                        &upper_mnemonic,
+                        expr,
+                        val,
+                        span,
+                        ctx,
+                        DirectPageResolutionSpec {
+                            zero_page_mode: AddressMode::ZeroPageY,
+                            absolute_mode: AddressMode::AbsoluteY,
+                            zero_page_ctor: Operand::ZeroPageY,
+                            absolute_ctor: Operand::AbsoluteY,
+                        },
+                    ) {
+                        return Ok(vec![resolved]);
                     }
                 }
                 FamilyOperand::IndexedIndirectX(expr) => {
