@@ -422,6 +422,7 @@ pub struct Preprocessor {
     in_asm_macro: bool,
     include_roots: Vec<PathBuf>,
     seen_files: HashSet<PathBuf>,
+    include_stack: Vec<PathBuf>,
     max_depth: usize,
 }
 
@@ -438,6 +439,7 @@ impl Preprocessor {
             in_asm_macro: false,
             include_roots: Vec::new(),
             seen_files: HashSet::new(),
+            include_stack: Vec::new(),
             max_depth,
         }
     }
@@ -460,7 +462,8 @@ impl Preprocessor {
         self.cond_state.clear();
         self.in_asm_macro = false;
         self.seen_files.clear();
-        self.process_file_internal(path)
+        self.include_stack.clear();
+        self.process_file_internal(Path::new(path))
     }
 
     pub fn lines(&self) -> &[String] {
@@ -473,13 +476,26 @@ impl Preprocessor {
         files
     }
 
-    fn process_file_internal(&mut self, path: &str) -> Result<(), PreprocessError> {
-        self.seen_files.insert(PathBuf::from(path));
+    fn process_file_internal(&mut self, path: &Path) -> Result<(), PreprocessError> {
+        let identity = self.include_identity(path);
+        if let Some(start_idx) = self.include_stack.iter().position(|item| *item == identity) {
+            return Err(self.include_cycle_error(start_idx, &identity));
+        }
+
+        self.include_stack.push(identity.clone());
+        self.seen_files.insert(identity);
+
+        let path_text = path.to_string_lossy().to_string();
         let file = match File::open(path) {
             Ok(f) => f,
-            Err(_) => return Err(PreprocessError::new(format!("Error opening file: {path}"))),
+            Err(_) => {
+                self.include_stack.pop();
+                return Err(PreprocessError::new(format!(
+                    "Error opening file: {path_text}"
+                )));
+            }
         };
-        let base_dir = dirname(path);
+        let base_dir = dirname(path_text.as_str());
         let mut reader = io::BufReader::new(file);
         let mut line = String::new();
         let mut line_num: u32 = 0;
@@ -487,7 +503,12 @@ impl Preprocessor {
             line.clear();
             let read = match reader.read_line(&mut line) {
                 Ok(n) => n,
-                Err(_) => return Err(PreprocessError::new(format!("Error reading file: {path}"))),
+                Err(_) => {
+                    self.include_stack.pop();
+                    return Err(PreprocessError::new(format!(
+                        "Error reading file: {path_text}"
+                    )));
+                }
             };
             if read == 0 {
                 break;
@@ -505,9 +526,26 @@ impl Preprocessor {
                 }
                 _ => {}
             }
-            self.process_line(&line, &base_dir, line_num, path)?;
+            if let Err(err) = self.process_line(&line, &base_dir, line_num, &path_text) {
+                self.include_stack.pop();
+                return Err(err);
+            }
         }
+        self.include_stack.pop();
         Ok(())
+    }
+
+    fn include_identity(&self, path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn include_cycle_error(&self, start_idx: usize, reentered: &Path) -> PreprocessError {
+        let mut chain: Vec<String> = self.include_stack[start_idx..]
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect();
+        chain.push(reentered.to_string_lossy().to_string());
+        PreprocessError::new(format!("INCLUDE cycle detected: {}", chain.join(" -> ")))
     }
 
     fn process_line(
@@ -662,7 +700,7 @@ impl Preprocessor {
         }
         let (path, searched) = self.resolve_include_path(base_dir, r);
         if let Some(path) = path {
-            return self.process_file_internal(path.to_string_lossy().as_ref());
+            return self.process_file_internal(path.as_path());
         }
 
         let searched_text = searched
@@ -722,6 +760,7 @@ impl Default for Preprocessor {
             in_asm_macro: false,
             include_roots: Vec::new(),
             seen_files: HashSet::new(),
+            include_stack: Vec::new(),
             max_depth: 64,
         }
     }
@@ -972,5 +1011,68 @@ mod tests {
         assert!(message.contains(project.join("missing.inc").to_string_lossy().as_ref()));
         assert!(message.contains(inc_a.join("missing.inc").to_string_lossy().as_ref()));
         assert!(message.contains(inc_b.join("missing.inc").to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn include_self_cycle_reports_chain() {
+        let project = temp_dir();
+        let main = project.join("main.asm");
+        fs::write(&main, ".include \"main.asm\"\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        let err = pp.process_file(main.to_str().unwrap()).unwrap_err();
+        let message = err.message();
+
+        assert!(message.contains("INCLUDE cycle detected:"));
+        let main_text = main.to_string_lossy().to_string();
+        assert_eq!(message.matches(&main_text).count(), 2);
+    }
+
+    #[test]
+    fn include_multi_hop_cycle_reports_full_chain() {
+        let project = temp_dir();
+        let a = project.join("a.asm");
+        let b = project.join("b.asm");
+        let c = project.join("c.asm");
+
+        fs::write(&a, ".include \"b.asm\"\n").unwrap();
+        fs::write(&b, ".include \"c.asm\"\n").unwrap();
+        fs::write(&c, ".include \"a.asm\"\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        let err = pp.process_file(a.to_str().unwrap()).unwrap_err();
+        let message = err.message();
+
+        assert!(message.contains("INCLUDE cycle detected:"));
+        assert!(message.contains("a.asm"));
+        assert!(message.contains("b.asm"));
+        assert!(message.contains("c.asm"));
+        assert!(message.contains("->"));
+        assert!(message.ends_with("a.asm"));
+    }
+
+    #[test]
+    fn repeat_include_without_cycle_is_allowed() {
+        let project = temp_dir();
+        let common = project.join("common.inc");
+        let main = project.join("main.asm");
+
+        fs::write(&common, "VALUE .const 1\n").unwrap();
+        fs::write(
+            &main,
+            ".include \"common.inc\"\n.include \"common.inc\"\n.byte VALUE\n",
+        )
+        .unwrap();
+
+        let mut pp = Preprocessor::new();
+        pp.process_file(main.to_str().unwrap()).unwrap();
+        let lines = pp.lines();
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("VALUE .const 1"))
+                .count(),
+            2
+        );
     }
 }
