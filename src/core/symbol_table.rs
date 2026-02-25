@@ -578,4 +578,52 @@ mod tests {
             ImportResult::SelectiveCollision
         );
     }
+
+    #[test]
+    fn module_imports_lookup_is_case_insensitive() {
+        let mut table = SymbolTable::new();
+        assert_eq!(table.register_module("Core.Utils"), SymbolTableResult::Ok);
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        };
+        let import = ModuleImport {
+            module_id: "math".to_string(),
+            alias: Some("M".to_string()),
+            items: Vec::new(),
+            params: Vec::new(),
+            span,
+        };
+        assert_eq!(table.add_import("core.utils", import), ImportResult::Ok);
+
+        let imports = table
+            .module_imports("CORE.UTILS")
+            .expect("module imports should exist");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].module_id, "math");
+        assert_eq!(imports[0].alias.as_deref(), Some("M"));
+    }
+
+    #[test]
+    fn resolve_import_alias_is_case_insensitive_for_module_and_alias() {
+        let mut table = SymbolTable::new();
+        assert_eq!(table.register_module("alpha"), SymbolTableResult::Ok);
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        };
+        let import = ModuleImport {
+            module_id: "beta".to_string(),
+            alias: Some("MathLib".to_string()),
+            items: Vec::new(),
+            params: Vec::new(),
+            span,
+        };
+        assert_eq!(table.add_import("ALPHA", import), ImportResult::Ok);
+
+        assert_eq!(table.resolve_import_alias("alpha", "mathlib"), Some("beta"));
+        assert_eq!(table.resolve_import_alias("ALPHA", "MATHLIB"), Some("beta"));
+    }
 }
