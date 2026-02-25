@@ -730,6 +730,72 @@ mod tests {
         );
     }
 
+    #[test]
+    fn apply_fixits_in_place_updates_multiple_lines() {
+        let dir = create_temp_dir("fixit-multi-line");
+        let file = dir.join("sample.asm");
+        fs::write(&file, "lda #1\nsta $0200\ninx\n").expect("write source");
+
+        let fixits = vec![
+            PlannedFixit {
+                file: file.clone(),
+                line: 1,
+                col_start: 6,
+                col_end: 7,
+                replacement: "2".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+            PlannedFixit {
+                file: file.clone(),
+                line: 2,
+                col_start: 5,
+                col_end: 10,
+                replacement: "$0300".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+        ];
+
+        let guards = capture_fixit_guards(&fixits).expect("capture guards");
+        let applied = apply_fixits_in_place(&fixits, Some(&guards)).expect("apply fixits");
+        assert_eq!(applied, 2);
+
+        let content = fs::read_to_string(&file).expect("read source");
+        assert_eq!(content, "lda #2\nsta $0300\ninx\n");
+    }
+
+    #[test]
+    fn apply_fixits_in_place_updates_single_line_with_non_overlapping_edits() {
+        let dir = create_temp_dir("fixit-single-line-multi");
+        let file = dir.join("sample.asm");
+        fs::write(&file, "lda #1, x\n").expect("write source");
+
+        let fixits = vec![
+            PlannedFixit {
+                file: file.clone(),
+                line: 1,
+                col_start: 6,
+                col_end: 7,
+                replacement: "2".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+            PlannedFixit {
+                file: file.clone(),
+                line: 1,
+                col_start: 9,
+                col_end: 10,
+                replacement: "y".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+        ];
+
+        let guards = capture_fixit_guards(&fixits).expect("capture guards");
+        let applied = apply_fixits_in_place(&fixits, Some(&guards)).expect("apply fixits");
+        assert_eq!(applied, 2);
+
+        let content = fs::read_to_string(&file).expect("read source");
+        assert_eq!(content, "lda #2, y\n");
+    }
+
     fn create_temp_dir(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
