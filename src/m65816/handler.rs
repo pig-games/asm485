@@ -318,6 +318,13 @@ impl M65816CpuHandler {
         }
     }
 
+    fn direct_page_offset_for_value(value: i64, ctx: &dyn AssemblerContext) -> Option<u8> {
+        if (0..=0xFFFF).contains(&value) {
+            return Self::direct_page_offset_for_absolute_address(value as u16, ctx);
+        }
+        None
+    }
+
     fn bank_mismatch_error(
         address: u32,
         actual_bank: u8,
@@ -1122,12 +1129,8 @@ impl CpuHandler for M65816CpuHandler {
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::IndexedIndirectX(val as u8, span)]);
                     }
-                    if (0..=0xFFFF).contains(&val) {
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
-                        {
-                            return Ok(vec![Operand::IndexedIndirectX(dp_offset, span)]);
-                        }
+                    if let Some(dp_offset) = Self::direct_page_offset_for_value(val, ctx) {
+                        return Ok(vec![Operand::IndexedIndirectX(dp_offset, span)]);
                     }
                     return Err(format!(
                         "Indexed indirect address {} out of direct-page range (0-255)",
@@ -1146,12 +1149,8 @@ impl CpuHandler for M65816CpuHandler {
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::IndirectIndexedY(val as u8, span)]);
                     }
-                    if (0..=0xFFFF).contains(&val) {
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
-                        {
-                            return Ok(vec![Operand::IndirectIndexedY(dp_offset, span)]);
-                        }
+                    if let Some(dp_offset) = Self::direct_page_offset_for_value(val, ctx) {
+                        return Ok(vec![Operand::IndirectIndexedY(dp_offset, span)]);
                     }
                     return Err(format!(
                         "Indirect indexed address {} out of direct-page range (0-255)",
@@ -1253,12 +1252,8 @@ impl CpuHandler for M65816CpuHandler {
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::ZeroPageIndirect(val as u8, span)]);
                     }
-                    if (0..=0xFFFF).contains(&val) {
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
-                        {
-                            return Ok(vec![Operand::ZeroPageIndirect(dp_offset, span)]);
-                        }
+                    if let Some(dp_offset) = Self::direct_page_offset_for_value(val, ctx) {
+                        return Ok(vec![Operand::ZeroPageIndirect(dp_offset, span)]);
                     }
                     return Err(format!(
                         "Direct-page indirect address {} out of range (0-255)",
@@ -1316,12 +1311,8 @@ impl CpuHandler for M65816CpuHandler {
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::DirectPageIndirectLong(val as u8, span)]);
                     }
-                    if (0..=0xFFFF).contains(&val) {
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
-                        {
-                            return Ok(vec![Operand::DirectPageIndirectLong(dp_offset, span)]);
-                        }
+                    if let Some(dp_offset) = Self::direct_page_offset_for_value(val, ctx) {
+                        return Ok(vec![Operand::DirectPageIndirectLong(dp_offset, span)]);
                     }
                     return Err(format!(
                         "Bracketed direct-page indirect operand {} out of range (0-255)",
@@ -1337,12 +1328,8 @@ impl CpuHandler for M65816CpuHandler {
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::DirectPageIndirectLongY(val as u8, span)]);
                     }
-                    if (0..=0xFFFF).contains(&val) {
-                        if let Some(dp_offset) =
-                            Self::direct_page_offset_for_absolute_address(val as u16, ctx)
-                        {
-                            return Ok(vec![Operand::DirectPageIndirectLongY(dp_offset, span)]);
-                        }
+                    if let Some(dp_offset) = Self::direct_page_offset_for_value(val, ctx) {
+                        return Ok(vec![Operand::DirectPageIndirectLongY(dp_offset, span)]);
                     }
                     return Err(format!(
                         "Bracketed direct-page indirect indexed operand {} out of range (0-255)",
