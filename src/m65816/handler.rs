@@ -42,6 +42,16 @@ struct SymbolBankResolutionSpec {
     long_ctor: fn(u32, crate::core::tokenizer::Span) -> Operand,
 }
 
+struct HighBankResolutionSpec {
+    assumed_bank: u8,
+    assumed_known: bool,
+    assumed_key: &'static str,
+    absolute_mode: AddressMode,
+    absolute_ctor: fn(u16, crate::core::tokenizer::Span) -> Operand,
+    long_mode: AddressMode,
+    long_ctor: fn(u32, crate::core::tokenizer::Span) -> Operand,
+}
+
 impl Default for M65816CpuHandler {
     fn default() -> Self {
         Self::new()
@@ -484,6 +494,45 @@ impl M65816CpuHandler {
 
         Ok(None)
     }
+
+    fn resolve_high_bank_operand(
+        upper_mnemonic: &str,
+        val: i64,
+        span: crate::core::tokenizer::Span,
+        spec: HighBankResolutionSpec,
+    ) -> Result<Option<Operand>, String> {
+        if !((0..=0xFF_FFFF).contains(&val) && val > 0xFFFF) {
+            return Ok(None);
+        }
+
+        let absolute_bank = ((val as u32) >> 16) as u8;
+        let absolute_value = (val as u32 & 0xFFFF) as u16;
+
+        if spec.assumed_known
+            && absolute_bank == spec.assumed_bank
+            && Self::has_mode(upper_mnemonic, spec.absolute_mode)
+        {
+            return Ok(Some((spec.absolute_ctor)(absolute_value, span)));
+        }
+
+        if Self::has_mode(upper_mnemonic, spec.long_mode) {
+            return Ok(Some((spec.long_ctor)(val as u32, span)));
+        }
+
+        if Self::has_mode(upper_mnemonic, spec.absolute_mode) {
+            if !spec.assumed_known {
+                return Err(Self::bank_unknown_error(spec.assumed_key, upper_mnemonic));
+            }
+            return Err(Self::bank_mismatch_error(
+                val as u32,
+                absolute_bank,
+                spec.assumed_bank,
+                spec.assumed_key,
+            ));
+        }
+
+        Ok(None)
+    }
 }
 
 impl CpuHandler for M65816CpuHandler {
@@ -675,29 +724,21 @@ impl CpuHandler for M65816CpuHandler {
                         return Ok(vec![resolved]);
                     }
 
-                    if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
-                        let absolute_bank = ((val as u32) >> 16) as u8;
-                        let absolute_value = (val as u32 & 0xFFFF) as u16;
-                        if assumed_known
-                            && absolute_bank == assumed_bank
-                            && Self::has_mode(&upper_mnemonic, AddressMode::Absolute)
-                        {
-                            return Ok(vec![Operand::Absolute(absolute_value, span)]);
-                        }
-                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLong) {
-                            return Ok(vec![Operand::AbsoluteLong(val as u32, span)]);
-                        }
-                        if Self::has_mode(&upper_mnemonic, AddressMode::Absolute) {
-                            if !assumed_known {
-                                return Err(Self::bank_unknown_error(assumed_key, &upper_mnemonic));
-                            }
-                            return Err(Self::bank_mismatch_error(
-                                val as u32,
-                                absolute_bank,
-                                assumed_bank,
-                                assumed_key,
-                            ));
-                        }
+                    if let Some(resolved) = Self::resolve_high_bank_operand(
+                        &upper_mnemonic,
+                        val,
+                        span,
+                        HighBankResolutionSpec {
+                            assumed_bank,
+                            assumed_known,
+                            assumed_key,
+                            absolute_mode: AddressMode::Absolute,
+                            absolute_ctor: Operand::Absolute,
+                            long_mode: AddressMode::AbsoluteLong,
+                            long_ctor: Operand::AbsoluteLong,
+                        },
+                    )? {
+                        return Ok(vec![resolved]);
                     }
 
                     if let Some(resolved) = Self::resolve_direct_page_window_operand(
@@ -827,29 +868,21 @@ impl CpuHandler for M65816CpuHandler {
                         return Ok(vec![resolved]);
                     }
 
-                    if (0..=0xFF_FFFF).contains(&val) && val > 0xFFFF {
-                        let absolute_bank = ((val as u32) >> 16) as u8;
-                        let absolute_value = (val as u32 & 0xFFFF) as u16;
-                        if assumed_known
-                            && absolute_bank == assumed_bank
-                            && Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX)
-                        {
-                            return Ok(vec![Operand::AbsoluteX(absolute_value, span)]);
-                        }
-                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteLongX) {
-                            return Ok(vec![Operand::AbsoluteLongX(val as u32, span)]);
-                        }
-                        if Self::has_mode(&upper_mnemonic, AddressMode::AbsoluteX) {
-                            if !assumed_known {
-                                return Err(Self::bank_unknown_error(assumed_key, &upper_mnemonic));
-                            }
-                            return Err(Self::bank_mismatch_error(
-                                val as u32,
-                                absolute_bank,
-                                assumed_bank,
-                                assumed_key,
-                            ));
-                        }
+                    if let Some(resolved) = Self::resolve_high_bank_operand(
+                        &upper_mnemonic,
+                        val,
+                        span,
+                        HighBankResolutionSpec {
+                            assumed_bank,
+                            assumed_known,
+                            assumed_key,
+                            absolute_mode: AddressMode::AbsoluteX,
+                            absolute_ctor: Operand::AbsoluteX,
+                            long_mode: AddressMode::AbsoluteLongX,
+                            long_ctor: Operand::AbsoluteLongX,
+                        },
+                    )? {
+                        return Ok(vec![resolved]);
                     }
 
                     if let Some(resolved) = Self::resolve_direct_page_window_operand(
