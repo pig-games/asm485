@@ -18,7 +18,7 @@ use crate::families::mos6502::module::{
 };
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
-use crate::m45gs02::module::M45GS02CpuModule;
+use crate::m45gs02::module::{M45GS02CpuModule, CPU_ID as m45gs02_cpu_id};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;

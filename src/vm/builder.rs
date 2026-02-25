@@ -623,6 +623,7 @@ pub fn build_hierarchy_chunks_from_registry(
             |entry| entry.mode,
             |entry| entry.opcode,
         );
+        emit_m45gs02_prefixed_programs(&mut tables, &mut selectors);
     }
     if registered_cpu_ids.contains(M65816_CPU_ID.as_str()) {
         let m65816_handler = M65816CpuHandler::new();
