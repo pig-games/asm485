@@ -11,6 +11,17 @@ use crate::m45gs02::instructions::{has_mnemonic, lookup_instruction};
 
 const OPCODE_NEG: u8 = 0x42;
 const OPCODE_NOP: u8 = 0xEA;
+const Q_MNEMONIC_MAP: [(&str, &str); 9] = [
+    ("LDQ", "LDA"),
+    ("STQ", "STA"),
+    ("ADCQ", "ADC"),
+    ("ANDQ", "AND"),
+    ("CMPQ", "CMP"),
+    ("EORQ", "EOR"),
+    ("LDAQ", "LDA"),
+    ("ORAQ", "ORA"),
+    ("SBCQ", "SBC"),
+];
 
 #[derive(Debug)]
 pub struct M45GS02CpuHandler {
@@ -35,18 +46,10 @@ impl M45GS02CpuHandler {
     }
 
     fn map_q_mnemonic(mnemonic: &str) -> Option<&'static str> {
-        match mnemonic.to_ascii_uppercase().as_str() {
-            "LDQ" => Some("LDA"),
-            "STQ" => Some("STA"),
-            "ADCQ" => Some("ADC"),
-            "ANDQ" => Some("AND"),
-            "CMPQ" => Some("CMP"),
-            "EORQ" => Some("EOR"),
-            "LDAQ" => Some("LDA"),
-            "ORAQ" => Some("ORA"),
-            "SBCQ" => Some("SBC"),
-            _ => None,
-        }
+        let upper = mnemonic.to_ascii_uppercase();
+        Q_MNEMONIC_MAP
+            .iter()
+            .find_map(|(q, mapped)| (*q == upper.as_str()).then_some(*mapped))
     }
 
     fn map_mnemonic(mnemonic: &str) -> (&str, bool) {
@@ -66,6 +69,70 @@ impl M45GS02CpuHandler {
 
     fn has_cpu_mode(mnemonic: &str, mode: AddressMode) -> bool {
         lookup_instruction(mnemonic, mode).is_some()
+    }
+
+    fn resolve_relfar_branch_operand(
+        upper_mnemonic: &str,
+        expr: &crate::core::parser::Expr,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Operand, String> {
+        let target = ctx.eval_expr(expr)?;
+        let span = expr_span(expr);
+
+        if upper_mnemonic == "BSR" {
+            // BSR is always encoded as relfar on 45GS02, so the offset base is PC+3.
+            let far_offset = target - (ctx.current_address() as i64 + 3);
+            if !(-32768..=32767).contains(&far_offset) {
+                if ctx.pass() > 1 {
+                    return Err(format!(
+                        "Far branch target out of range: offset {}",
+                        far_offset
+                    ));
+                }
+                return Ok(Operand::RelativeLong(0, span));
+            }
+            return Ok(Operand::RelativeLong(far_offset as i16, span));
+        }
+
+        let short_offset = target - (ctx.current_address() as i64 + 2);
+        if (-128..=127).contains(&short_offset) {
+            return Ok(Operand::Relative(short_offset as i8, span));
+        }
+
+        // Non-BSR far-branch fallback uses relfar encoding, so the offset base is PC+3.
+        let far_offset = target - (ctx.current_address() as i64 + 3);
+        if !(-32768..=32767).contains(&far_offset) {
+            if ctx.pass() > 1 {
+                return Err(format!(
+                    "Far branch target out of range: offset {}",
+                    far_offset
+                ));
+            }
+            return Ok(Operand::RelativeLong(0, span));
+        }
+
+        Ok(Operand::RelativeLong(far_offset as i16, span))
+    }
+
+    fn rewrite_operands_for_45gs02_encode(operands: &[Operand]) -> (Vec<u8>, Vec<Operand>) {
+        let mut prefixes = Vec::new();
+        let mut mapped_operands = Vec::with_capacity(operands.len());
+
+        for operand in operands {
+            match operand {
+                Operand::IndirectIndexedZ(value, span) => {
+                    prefixes.push(OPCODE_NOP);
+                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
+                }
+                Operand::DirectPageIndirectLongZ(value, span) => {
+                    prefixes.push(OPCODE_NOP);
+                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
+                }
+                _ => mapped_operands.push(operand.clone()),
+            }
+        }
+
+        (prefixes, mapped_operands)
     }
 }
 
@@ -93,40 +160,11 @@ impl CpuHandler for M45GS02CpuHandler {
                 _ => unreachable!(),
             };
 
-            let target = ctx.eval_expr(expr)?;
-            let span = expr_span(expr);
-
-            if upper_mnemonic == "BSR" {
-                let far_offset = target - (ctx.current_address() as i64 + 3);
-                if !(-32768..=32767).contains(&far_offset) {
-                    if ctx.pass() > 1 {
-                        return Err(format!(
-                            "Far branch target out of range: offset {}",
-                            far_offset
-                        ));
-                    }
-                    return Ok(vec![Operand::RelativeLong(0, span)]);
-                }
-                return Ok(vec![Operand::RelativeLong(far_offset as i16, span)]);
-            }
-
-            let short_offset = target - (ctx.current_address() as i64 + 2);
-            if (-128..=127).contains(&short_offset) {
-                return Ok(vec![Operand::Relative(short_offset as i8, span)]);
-            }
-
-            let far_offset = target - (ctx.current_address() as i64 + 3);
-            if !(-32768..=32767).contains(&far_offset) {
-                if ctx.pass() > 1 {
-                    return Err(format!(
-                        "Far branch target out of range: offset {}",
-                        far_offset
-                    ));
-                }
-                return Ok(vec![Operand::RelativeLong(0, span)]);
-            }
-
-            return Ok(vec![Operand::RelativeLong(far_offset as i16, span)]);
+            return Ok(vec![Self::resolve_relfar_branch_operand(
+                &upper_mnemonic,
+                expr,
+                ctx,
+            )?]);
         }
 
         if family_operands.is_empty() {
@@ -296,26 +334,14 @@ impl CpuHandler for M45GS02CpuHandler {
         }
 
         let (mapped_mnemonic, q_prefix) = Self::map_mnemonic(&upper);
+        let (operand_prefixes, mapped_operands) =
+            Self::rewrite_operands_for_45gs02_encode(operands);
         let mut prefixes = Vec::new();
         if q_prefix {
             prefixes.push(OPCODE_NEG);
             prefixes.push(OPCODE_NEG);
         }
-
-        let mut mapped_operands = Vec::with_capacity(operands.len());
-        for operand in operands {
-            match operand {
-                Operand::IndirectIndexedZ(value, span) => {
-                    prefixes.push(OPCODE_NOP);
-                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
-                }
-                Operand::DirectPageIndirectLongZ(value, span) => {
-                    prefixes.push(OPCODE_NOP);
-                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
-                }
-                _ => mapped_operands.push(operand.clone()),
-            }
-        }
+        prefixes.extend(operand_prefixes);
 
         let encoded = match <crate::m65c02::M65C02CpuHandler as CpuHandler>::encode_instruction(
             &self.baseline,
