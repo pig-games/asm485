@@ -7,7 +7,7 @@
 //! function passed to [`Tokenizer::with_register_checker`].
 
 use crate::core::text_utils::{is_ident_char, is_ident_start, is_space};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Function type for checking if an identifier is a register name.
 pub type RegisterChecker = Arc<dyn Fn(&str) -> bool + Send + Sync>;
@@ -18,10 +18,16 @@ pub fn no_registers(_ident: &str) -> bool {
 }
 
 pub fn register_checker_none() -> RegisterChecker {
-    register_checker_from_fn(no_registers)
+    static NONE_CHECKER: OnceLock<RegisterChecker> = OnceLock::new();
+    NONE_CHECKER
+        .get_or_init(|| register_checker_from_fn(no_registers))
+        .clone()
 }
 
 pub fn register_checker_from_fn(func: fn(&str) -> bool) -> RegisterChecker {
+    if std::ptr::fn_addr_eq(func, no_registers as fn(&str) -> bool) {
+        return Arc::new(no_registers);
+    }
     Arc::new(func)
 }
 
@@ -641,6 +647,7 @@ fn hex_digit(c: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{OperatorKind, TokenKind, Tokenizer};
+    use std::sync::Arc;
 
     fn test_registers(ident: &str) -> bool {
         matches!(ident, "A" | "B" | "AF" | "AF'")
@@ -768,6 +775,14 @@ mod tests {
             }
             other => panic!("Expected number token for 0B8H, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn register_checker_none_reuses_shared_arc() {
+        let first = super::register_checker_none();
+        let second = super::register_checker_none();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!first("A"));
     }
 
     #[test]
