@@ -18,7 +18,7 @@ pub struct ConditionalContext {
     pub kind: ConditionalBlockKind,
     pub nest_level: u8,
     pub skip_level: u8,
-    pub sub_type: i32,
+    pub sub_type: TokenValue,
     pub matched: bool,
     pub skipping: bool,
     pub switch_value: Option<u32>,
@@ -31,8 +31,8 @@ impl ConditionalContext {
             None => 1,
         };
         let sub_type = match kind {
-            ConditionalBlockKind::If => TokenValue::If as i32,
-            ConditionalBlockKind::Switch => TokenValue::Switch as i32,
+            ConditionalBlockKind::If => TokenValue::If,
+            ConditionalBlockKind::Switch => TokenValue::Switch,
         };
         Self {
             kind,

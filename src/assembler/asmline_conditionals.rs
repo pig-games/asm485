@@ -156,7 +156,7 @@ impl<'a> AsmLine<'a> {
                         err_span,
                     );
                 };
-                if ctx.sub_type == TokenValue::Else as i32 {
+                if ctx.sub_type == TokenValue::Else {
                     let err_span = if kind == ConditionalKind::ElseIf {
                         expr_err_span
                     } else {
@@ -171,9 +171,9 @@ impl<'a> AsmLine<'a> {
                     );
                 }
                 let sub_type = if kind == ConditionalKind::Else {
-                    TokenValue::Else as i32
+                    TokenValue::Else
                 } else {
-                    TokenValue::ElseIf as i32
+                    TokenValue::ElseIf
                 };
                 if !ctx.skipping {
                     ctx.skipping = true;
@@ -244,7 +244,7 @@ impl<'a> AsmLine<'a> {
                         expr_err_span,
                     );
                 }
-                if sub_type == TokenValue::Default as i32 {
+                if sub_type == TokenValue::Default {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
@@ -273,7 +273,7 @@ impl<'a> AsmLine<'a> {
                         }
                     }
                 }
-                let sub_type = TokenValue::Case as i32;
+                let sub_type = TokenValue::Case;
                 let Some(ctx) = self.cond_stack.last_mut() else {
                     return self.failure_at_span(
                         LineStatus::Error,
@@ -338,7 +338,7 @@ impl<'a> AsmLine<'a> {
                         end_span,
                     );
                 };
-                if ctx.sub_type == TokenValue::Default as i32 {
+                if ctx.sub_type == TokenValue::Default {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
@@ -347,7 +347,7 @@ impl<'a> AsmLine<'a> {
                         end_span,
                     );
                 }
-                ctx.sub_type = TokenValue::Default as i32;
+                ctx.sub_type = TokenValue::Default;
                 if ctx.matched {
                     ctx.skipping = true;
                 } else {
