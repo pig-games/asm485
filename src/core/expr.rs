@@ -78,6 +78,11 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
             .ok_or_else(|| EvalError::with_span("Current address ($) not available", *span)),
 
         Expr::String(bytes, span) => {
+            // Expression string literals intentionally support only byte-sized
+            // and word-sized forms for legacy assembler semantics:
+            // - 1 byte  => that byte value
+            // - 2 bytes => big-endian packed word
+            // Longer strings are rejected in expression context.
             if bytes.is_empty() {
                 Err(EvalError::with_span(
                     "Empty string not allowed in expression",
@@ -559,5 +564,39 @@ mod tests {
         let span = Span::default();
         assert!(apply_binary(BinaryOp::Divide, 10, 0, span).is_err());
         assert!(apply_binary(BinaryOp::Mod, 10, 0, span).is_err());
+    }
+
+    #[test]
+    fn eval_expr_string_accepts_single_byte() {
+        let span = Span::default();
+        let expr = Expr::String(vec![0x41], span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        assert_eq!(eval_expr(&expr, &ctx).unwrap(), 0x41);
+    }
+
+    #[test]
+    fn eval_expr_string_accepts_two_bytes_as_word() {
+        let span = Span::default();
+        let expr = Expr::String(vec![0x12, 0x34], span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        assert_eq!(eval_expr(&expr, &ctx).unwrap(), 0x1234);
+    }
+
+    #[test]
+    fn eval_expr_string_rejects_empty() {
+        let span = Span::default();
+        let expr = Expr::String(Vec::new(), span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        let err = eval_expr(&expr, &ctx).unwrap_err();
+        assert!(err.message.contains("Empty string"));
+    }
+
+    #[test]
+    fn eval_expr_string_rejects_more_than_two_bytes() {
+        let span = Span::default();
+        let expr = Expr::String(vec![0x01, 0x02, 0x03], span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        let err = eval_expr(&expr, &ctx).unwrap_err();
+        assert!(err.message.contains("Multi-character string"));
     }
 }
