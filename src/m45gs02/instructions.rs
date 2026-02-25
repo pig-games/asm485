@@ -24,6 +24,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "BPL",
+        mode: AddressMode::Relative,
+        opcode: 0x10,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BPL",
         mode: AddressMode::RelativeLong,
         opcode: 0x13,
     },
@@ -39,8 +44,18 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "BMI",
+        mode: AddressMode::Relative,
+        opcode: 0x30,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BMI",
         mode: AddressMode::RelativeLong,
         opcode: 0x33,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BVC",
+        mode: AddressMode::Relative,
+        opcode: 0x50,
     },
     CpuInstructionEntry {
         mnemonic: "BVC",
@@ -51,6 +66,11 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
         mnemonic: "BSR",
         mode: AddressMode::RelativeLong,
         opcode: 0x63,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BVS",
+        mode: AddressMode::Relative,
+        opcode: 0x70,
     },
     CpuInstructionEntry {
         mnemonic: "BVS",
@@ -74,8 +94,18 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "BRA",
+        mode: AddressMode::Relative,
+        opcode: 0x80,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BRA",
         mode: AddressMode::RelativeLong,
         opcode: 0x83,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BCC",
+        mode: AddressMode::Relative,
+        opcode: 0x90,
     },
     CpuInstructionEntry {
         mnemonic: "BCC",
@@ -84,13 +114,28 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     },
     CpuInstructionEntry {
         mnemonic: "BCS",
+        mode: AddressMode::Relative,
+        opcode: 0xB0,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BCS",
         mode: AddressMode::RelativeLong,
         opcode: 0xB3,
     },
     CpuInstructionEntry {
         mnemonic: "BNE",
+        mode: AddressMode::Relative,
+        opcode: 0xD0,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BNE",
         mode: AddressMode::RelativeLong,
         opcode: 0xD3,
+    },
+    CpuInstructionEntry {
+        mnemonic: "BEQ",
+        mode: AddressMode::Relative,
+        opcode: 0xF0,
     },
     CpuInstructionEntry {
         mnemonic: "BEQ",
