@@ -9,6 +9,7 @@ use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
 use crate::families::mos6502::Operand;
 use crate::i8085::module::I8085CpuModule;
+use crate::m45gs02::module::M45GS02CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 use crate::vm::builder::{
@@ -88,6 +89,7 @@ fn parity_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
+    registry.register_cpu(Box::new(M45GS02CpuModule));
     registry
 }
 
@@ -97,6 +99,7 @@ fn mos6502_family_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
+    registry.register_cpu(Box::new(M45GS02CpuModule));
     registry
 }
 
@@ -2481,6 +2484,77 @@ fn execution_model_encodes_m65816_block_move_from_expr_operands() {
         .encode_instruction_from_exprs("65816", None, "MVN", &operands, &ctx)
         .expect("vm expr encode should succeed");
     assert_eq!(bytes, Some(vec![0x54, 0x01, 0x02]));
+}
+
+#[test]
+fn execution_model_encodes_45gs02_plain_table_form_from_expr_operands() {
+    let registry = mos6502_family_registry();
+
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    let ctx = TestAssemblerContext::new();
+    let bytes = model
+        .encode_instruction_from_exprs("45gs02", None, "MAP", &[], &ctx)
+        .expect("vm expr encode should succeed");
+    assert_eq!(bytes, Some(vec![0x5C]));
+}
+
+#[test]
+fn execution_model_encodes_45gs02_q_prefix_from_expr_operands() {
+    let registry = mos6502_family_registry();
+
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    let span = Span::default();
+    let operands = vec![Expr::Immediate(
+        Box::new(Expr::Number("1".to_string(), span)),
+        span,
+    )];
+    let ctx = TestAssemblerContext::new();
+    let bytes = model
+        .encode_instruction_from_exprs("45gs02", None, "ADCQ", &operands, &ctx)
+        .expect("vm expr encode should succeed");
+    assert_eq!(bytes, Some(vec![0x42, 0x42, 0x69, 0x01]));
+}
+
+#[test]
+fn execution_model_encodes_45gs02_flat_memory_form_from_expr_operands() {
+    let registry = mos6502_family_registry();
+
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    let span = Span::default();
+    let operands = vec![
+        Expr::Indirect(Box::new(Expr::Number("32".to_string(), span)), span),
+        Expr::Register("Z".to_string(), span),
+    ];
+    let ctx = TestAssemblerContext::new();
+    let bytes = model
+        .encode_instruction_from_exprs("45gs02", None, "LDA", &operands, &ctx)
+        .expect("vm expr encode should succeed");
+    assert_eq!(bytes, Some(vec![0xEA, 0xB1, 0x20]));
+}
+
+#[test]
+fn execution_model_encodes_45gs02_bsr_pass1_placeholder_and_pass2_error() {
+    let registry = mos6502_family_registry();
+
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    let span = Span::default();
+    let operands = vec![Expr::Number("50000".to_string(), span)];
+
+    let mut pass1_ctx = TestAssemblerContext::new();
+    pass1_ctx.pass = 1;
+    pass1_ctx.addr = 0;
+    let pass1 = model
+        .encode_instruction_from_exprs("45gs02", None, "BSR", &operands, &pass1_ctx)
+        .expect("pass1 vm expr encode should succeed");
+    assert_eq!(pass1, Some(vec![0x63, 0x00, 0x00]));
+
+    let mut pass2_ctx = TestAssemblerContext::new();
+    pass2_ctx.pass = 2;
+    pass2_ctx.addr = 0;
+    let err = model
+        .encode_instruction_from_exprs("45gs02", None, "BSR", &operands, &pass2_ctx)
+        .expect_err("pass2 vm expr encode should reject out-of-range relfar");
+    assert!(err.to_string().contains("Long branch target out of range"));
 }
 
 #[test]

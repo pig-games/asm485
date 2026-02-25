@@ -18,7 +18,7 @@ use crate::families::mos6502::module::{
 };
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
-use crate::m45gs02::module::M45GS02CpuModule;
+use crate::m45gs02::module::{M45GS02CpuModule, CPU_ID as m45gs02_cpu_id};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
@@ -8144,7 +8144,7 @@ fn vm_runtime_model_is_available_for_mos6502_family_cpus() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
 
-    for cpu in [m6502_cpu_id, m65c02_cpu_id, m65816_cpu_id] {
+    for cpu in [m6502_cpu_id, m65c02_cpu_id, m65816_cpu_id, m45gs02_cpu_id] {
         let asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
         assert!(
             asm.opthread_execution_model.is_some(),
@@ -10301,11 +10301,93 @@ fn collect_mos6502_native_baseline_snapshot() -> String {
     rows.join("\n") + "\n"
 }
 
+fn collect_m45gs02_vm_baseline_snapshot() -> String {
+    let mut cases = vec![
+        ("M45GS02_VM:MAP".to_string(), "    MAP".to_string()),
+        (
+            "M45GS02_VM:Q_PREFIX_ADCQ_IMM".to_string(),
+            "    ADCQ #$10".to_string(),
+        ),
+        (
+            "M45GS02_VM:FLAT_Z_LDA".to_string(),
+            "    LDA ($10),Z".to_string(),
+        ),
+        (
+            "M45GS02_VM:RELFAR_BSR_OK".to_string(),
+            "    BSR $0004".to_string(),
+        ),
+        (
+            "M45GS02_VM:RELFAR_BSR_RANGE_ERR".to_string(),
+            "    BSR $9000".to_string(),
+        ),
+    ];
+
+    cases.sort();
+
+    let mut rows = Vec::with_capacity(cases.len());
+    for (case_id, line) in cases {
+        let native = assemble_line_with_runtime_mode_no_injection(m45gs02_cpu_id, &line, false);
+        let runtime = assemble_line_with_runtime_mode_no_injection(m45gs02_cpu_id, &line, true);
+
+        assert!(
+            runtime.3,
+            "45GS02 family should initialize VM model for VM baseline case {}",
+            case_id
+        );
+        assert_eq!(runtime.0, native.0, "status mismatch for {}", case_id);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for {}", case_id);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for {}", case_id);
+
+        let status_name = match runtime.0 {
+            LineStatus::Ok => "ok",
+            LineStatus::Error => "error",
+            other => panic!("unexpected status {:?} for '{}'", other, line),
+        };
+        let bytes = if runtime.0 == LineStatus::Ok {
+            runtime
+                .2
+                .into_iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join("")
+        } else {
+            String::new()
+        };
+        let diag = runtime.1.unwrap_or_default().replace(['\t', '\n'], " ");
+        rows.push(format!("{case_id}\t{line}\t{status_name}\t{bytes}\t{diag}"));
+    }
+
+    rows.join("\n") + "\n"
+}
+
 #[test]
 fn mos6502_native_baseline_matches_reference() {
     let baseline_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("examples/vm/reference/mos6502_native_baseline.tsv");
     let snapshot = collect_mos6502_native_baseline_snapshot();
+
+    if std::env::var("opForge_UPDATE_VM_BASELINE").is_ok() {
+        if let Some(parent) = baseline_path.parent() {
+            fs::create_dir_all(parent).expect("create baseline directory");
+        }
+        fs::write(&baseline_path, &snapshot).expect("write baseline snapshot");
+    }
+
+    let expected = fs::read_to_string(&baseline_path).unwrap_or_else(|err| {
+        panic!(
+            "missing baseline file {}: {} (run with opForge_UPDATE_VM_BASELINE=1)",
+            baseline_path.display(),
+            err
+        )
+    });
+    assert_eq!(snapshot, expected);
+}
+
+#[test]
+fn m45gs02_vm_baseline_matches_reference() {
+    let baseline_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/vm/reference/m45gs02_vm_baseline.tsv");
+    let snapshot = collect_m45gs02_vm_baseline_snapshot();
 
     if std::env::var("opForge_UPDATE_VM_BASELINE").is_ok() {
         if let Some(parent) = baseline_path.parent() {

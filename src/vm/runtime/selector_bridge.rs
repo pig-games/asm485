@@ -778,6 +778,12 @@ pub(super) fn selector_input_from_family_operands(
             expr1: None,
             force: None,
         }),
+        [FamilyOperand::IndirectIndexedZ(expr)] => Some(SelectorInput {
+            shape_key: "indirect_indexed_z".to_string(),
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
         [FamilyOperand::Indirect(expr)] => Some(SelectorInput {
             shape_key: "indirect".to_string(),
             expr0: Some(expr),
@@ -792,6 +798,12 @@ pub(super) fn selector_input_from_family_operands(
         }),
         [FamilyOperand::IndirectLongY(expr)] => Some(SelectorInput {
             shape_key: "indirect_long_y".to_string(),
+            expr0: Some(expr),
+            expr1: None,
+            force: None,
+        }),
+        [FamilyOperand::IndirectLongZ(expr)] => Some(SelectorInput {
+            shape_key: "indirect_long_z".to_string(),
             expr0: Some(expr),
             expr1: None,
             force: None,

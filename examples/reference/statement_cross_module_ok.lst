@@ -1,4 +1,4 @@
-opForge Assembler v0.9.2
+opForge Assembler v0.9.3
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  .module statement.export.lib
