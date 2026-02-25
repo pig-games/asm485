@@ -66,7 +66,11 @@ pub enum TokenKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumberLiteral {
+    // Raw number lexeme captured by the tokenizer. Semantic interpretation
+    // (including suffix disambiguation edge cases) is handled later by
+    // expression parsing/evaluation.
     pub text: String,
+    // Lexical base hint from tokenizer scanning rules.
     pub base: u32,
 }
 
@@ -743,6 +747,27 @@ mod tests {
         let _ = tok.next_token().unwrap();
         let t = tok.next_token().unwrap();
         assert!(matches!(t.kind, TokenKind::Number(_)));
+    }
+
+    #[test]
+    fn tokenizes_ambiguous_hex_suffix_literals_as_single_number_token() {
+        let mut tok = Tokenizer::new("$BB", 1);
+        match tok.next_token().unwrap().kind {
+            TokenKind::Number(num) => {
+                assert_eq!(num.text, "$BB");
+                assert_eq!(num.base, 16);
+            }
+            other => panic!("Expected number token for $BB, got {:?}", other),
+        }
+
+        let mut tok = Tokenizer::new("0B8H", 1);
+        match tok.next_token().unwrap().kind {
+            TokenKind::Number(num) => {
+                assert_eq!(num.text, "0B8H");
+                assert_eq!(num.base, 16);
+            }
+            other => panic!("Expected number token for 0B8H, got {:?}", other),
+        }
     }
 
     #[test]
