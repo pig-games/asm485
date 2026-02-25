@@ -8,7 +8,10 @@
 //! instruction encoding.
 
 use crate::core::assembler::expression::expr_span;
-use crate::core::family::{expr_has_unstable_symbols, AssemblerContext, CpuHandler, EncodeResult};
+use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
+use crate::families::mos6502::operand_resolution::{
+    resolve_direct, resolve_direct_x, resolve_direct_y,
+};
 use crate::families::mos6502::{
     has_mnemonic as has_family_mnemonic, lookup_instruction as lookup_family_instruction,
     AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand,
@@ -179,56 +182,17 @@ impl CpuHandler for M65C02CpuHandler {
                         } else {
                             Operand::Relative(offset as i8, span)
                         }
-                    } else if (0..=255).contains(&val) {
-                        if expr_has_unstable_symbols(expr, ctx)
-                            && Self::has_mode(mnemonic, AddressMode::Absolute)
-                        {
-                            Operand::Absolute(val as u16, span)
-                        } else {
-                            // Prefer zero page when possible
-                            Operand::ZeroPage(val as u8, span)
-                        }
-                    } else if (0..=65535).contains(&val) {
-                        Operand::Absolute(val as u16, span)
                     } else {
-                        return Err(format!("Address {} out of 16-bit range", val));
+                        resolve_direct(mnemonic, expr, ctx, Self::has_mode)?
                     }
                 }
 
                 FamilyOperand::DirectX(expr) => {
-                    let val = ctx.eval_expr(expr)?;
-                    let span = expr_span(expr);
-                    if (0..=255).contains(&val) {
-                        if expr_has_unstable_symbols(expr, ctx)
-                            && Self::has_mode(mnemonic, AddressMode::AbsoluteX)
-                        {
-                            Operand::AbsoluteX(val as u16, span)
-                        } else {
-                            Operand::ZeroPageX(val as u8, span)
-                        }
-                    } else if (0..=65535).contains(&val) {
-                        Operand::AbsoluteX(val as u16, span)
-                    } else {
-                        return Err(format!("Address {} out of 16-bit range", val));
-                    }
+                    resolve_direct_x(mnemonic, expr, ctx, Self::has_mode)?
                 }
 
                 FamilyOperand::DirectY(expr) => {
-                    let val = ctx.eval_expr(expr)?;
-                    let span = expr_span(expr);
-                    if (0..=255).contains(&val) {
-                        if expr_has_unstable_symbols(expr, ctx)
-                            && Self::has_mode(mnemonic, AddressMode::AbsoluteY)
-                        {
-                            Operand::AbsoluteY(val as u16, span)
-                        } else {
-                            Operand::ZeroPageY(val as u8, span)
-                        }
-                    } else if (0..=65535).contains(&val) {
-                        Operand::AbsoluteY(val as u16, span)
-                    } else {
-                        return Err(format!("Address {} out of 16-bit range", val));
-                    }
+                    resolve_direct_y(mnemonic, expr, ctx, Self::has_mode)?
                 }
 
                 FamilyOperand::IndexedIndirectX(expr) => {
