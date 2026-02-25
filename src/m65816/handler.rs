@@ -1438,8 +1438,103 @@ impl CpuHandler for M65816CpuHandler {
 #[cfg(test)]
 mod tests {
     use super::M65816CpuHandler;
+    use crate::core::family::{AssemblerContext, CpuHandler};
+    use crate::core::parser::Expr;
+    use crate::core::symbol_table::SymbolTable;
+    use crate::core::tokenizer::Span;
+    use crate::families::mos6502::{FamilyOperand, Operand};
+    use crate::m65816::state;
     use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE;
     use std::collections::BTreeSet;
+    use std::collections::HashMap;
+
+    struct TestContext {
+        values: HashMap<String, i64>,
+        present_symbols: std::collections::HashSet<String>,
+        finalized_symbols: HashMap<String, bool>,
+        cpu_flags: HashMap<String, u32>,
+        symbols: SymbolTable,
+        pass: u8,
+        current_address: u32,
+    }
+
+    impl TestContext {
+        fn with_direct_page_window(direct_page: u16) -> Self {
+            let mut cpu_flags = HashMap::new();
+            cpu_flags.insert(state::DIRECT_PAGE_KEY.to_string(), direct_page as u32);
+            cpu_flags.insert(state::DIRECT_PAGE_KNOWN_KEY.to_string(), 1);
+            cpu_flags.insert(state::DATA_BANK_KNOWN_KEY.to_string(), 1);
+            cpu_flags.insert(state::PROGRAM_BANK_KNOWN_KEY.to_string(), 1);
+            Self {
+                values: HashMap::new(),
+                present_symbols: std::collections::HashSet::new(),
+                finalized_symbols: HashMap::new(),
+                cpu_flags,
+                symbols: SymbolTable::new(),
+                pass: 2,
+                current_address: 0,
+            }
+        }
+
+        fn with_symbol_value(mut self, name: &str, value: i64, finalized: bool) -> Self {
+            self.values.insert(name.to_string(), value);
+            self.present_symbols.insert(name.to_string());
+            self.finalized_symbols.insert(name.to_string(), finalized);
+            self
+        }
+    }
+
+    impl AssemblerContext for TestContext {
+        fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+            match expr {
+                Expr::Identifier(name, _) | Expr::Register(name, _) => self
+                    .values
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| format!("missing test value for {name}")),
+                Expr::Number(text, _) => text
+                    .parse::<i64>()
+                    .map_err(|_| format!("invalid test number: {text}")),
+                _ => Err("unsupported test expression".to_string()),
+            }
+        }
+
+        fn symbols(&self) -> &SymbolTable {
+            &self.symbols
+        }
+
+        fn has_symbol(&self, name: &str) -> bool {
+            self.present_symbols.contains(name)
+        }
+
+        fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
+            self.finalized_symbols.get(name).copied()
+        }
+
+        fn current_address(&self) -> u32 {
+            self.current_address
+        }
+
+        fn pass(&self) -> u8 {
+            self.pass
+        }
+
+        fn cpu_state_flag(&self, key: &str) -> Option<u32> {
+            self.cpu_flags.get(key).copied()
+        }
+    }
+
+    fn span() -> Span {
+        Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        }
+    }
+
+    fn unresolved_symbol_expr(name: &str) -> Expr {
+        Expr::Identifier(name.to_string(), span())
+    }
 
     fn expected_m65c02_only_exclusions() -> BTreeSet<&'static str> {
         BTreeSet::from([
@@ -1475,5 +1570,50 @@ mod tests {
                 "{mnemonic} must remain excluded for 65816"
             );
         }
+    }
+
+    #[test]
+    fn direct_unstable_symbol_uses_absolute_inside_direct_page_window() {
+        let handler = M65816CpuHandler::new();
+        let ctx =
+            TestContext::with_direct_page_window(0x1200).with_symbol_value("target", 0x1234, false);
+        let operands = vec![FamilyOperand::Direct(unresolved_symbol_expr("target"))];
+
+        let resolved = handler
+            .resolve_operands("LDA", &operands, &ctx)
+            .expect("65816 direct operand should resolve");
+
+        assert_eq!(resolved.len(), 1);
+        assert!(matches!(resolved[0], Operand::Absolute(0x1234, _)));
+    }
+
+    #[test]
+    fn direct_x_unstable_symbol_uses_absolute_x_inside_direct_page_window() {
+        let handler = M65816CpuHandler::new();
+        let ctx =
+            TestContext::with_direct_page_window(0x1200).with_symbol_value("target", 0x1234, false);
+        let operands = vec![FamilyOperand::DirectX(unresolved_symbol_expr("target"))];
+
+        let resolved = handler
+            .resolve_operands("LDA", &operands, &ctx)
+            .expect("65816 direct,X operand should resolve");
+
+        assert_eq!(resolved.len(), 1);
+        assert!(matches!(resolved[0], Operand::AbsoluteX(0x1234, _)));
+    }
+
+    #[test]
+    fn direct_y_unstable_symbol_uses_absolute_y_inside_direct_page_window() {
+        let handler = M65816CpuHandler::new();
+        let ctx =
+            TestContext::with_direct_page_window(0x1200).with_symbol_value("target", 0x1234, false);
+        let operands = vec![FamilyOperand::DirectY(unresolved_symbol_expr("target"))];
+
+        let resolved = handler
+            .resolve_operands("LDX", &operands, &ctx)
+            .expect("65816 direct,Y operand should resolve");
+
+        assert_eq!(resolved.len(), 1);
+        assert!(matches!(resolved[0], Operand::AbsoluteY(0x1234, _)));
     }
 }
