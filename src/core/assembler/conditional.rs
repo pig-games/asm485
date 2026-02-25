@@ -3,13 +3,22 @@
 
 //! Conditional assembly state management.
 
-use crate::core::token_value::TokenValue;
-
 /// Kind of conditional block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConditionalBlockKind {
     If,
     Switch,
+}
+
+/// Conditional branch subtype for active block flow control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionalSubType {
+    If,
+    Else,
+    ElseIf,
+    Switch,
+    Case,
+    Default,
 }
 
 /// State of a conditional assembly block.
@@ -18,7 +27,7 @@ pub struct ConditionalContext {
     pub kind: ConditionalBlockKind,
     pub nest_level: u8,
     pub skip_level: u8,
-    pub sub_type: i32,
+    pub sub_type: ConditionalSubType,
     pub matched: bool,
     pub skipping: bool,
     pub switch_value: Option<u32>,
@@ -31,8 +40,8 @@ impl ConditionalContext {
             None => 1,
         };
         let sub_type = match kind {
-            ConditionalBlockKind::If => TokenValue::If as i32,
-            ConditionalBlockKind::Switch => TokenValue::Switch as i32,
+            ConditionalBlockKind::If => ConditionalSubType::If,
+            ConditionalBlockKind::Switch => ConditionalSubType::Switch,
         };
         Self {
             kind,

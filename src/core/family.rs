@@ -17,6 +17,7 @@
 //! - **CPU Handler**: Resolves ambiguous operands, encodes CPU-specific instructions
 
 use crate::core::parser::Expr;
+use crate::core::symbol_stability::is_symbol_unstable;
 use crate::core::symbol_table::SymbolTable;
 use crate::core::tokenizer::Span;
 
@@ -326,12 +327,12 @@ pub trait CpuHandler: Send + Sync {
 /// speculative sizing (e.g. zero-page vs absolute) can be trusted.
 pub fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> bool {
     match expr {
-        Expr::Identifier(name, _) | Expr::Register(name, _) => {
-            if !ctx.has_symbol(name) {
-                return true;
-            }
-            ctx.pass() > 1 && matches!(ctx.symbol_is_finalized(name), Some(false))
-        }
+        Expr::Identifier(name, _) | Expr::Register(name, _) => is_symbol_unstable(
+            name,
+            ctx.pass(),
+            |symbol| ctx.has_symbol(symbol),
+            |symbol| ctx.symbol_is_finalized(symbol),
+        ),
         Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
             expr_has_unstable_symbols(inner, ctx)
         }
@@ -353,5 +354,93 @@ pub fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> boo
             expr_has_unstable_symbols(left, ctx) || expr_has_unstable_symbols(right, ctx)
         }
         Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{expr_has_unstable_symbols, AssemblerContext};
+    use crate::core::parser::{BinaryOp, Expr};
+    use crate::core::symbol_table::SymbolTable;
+    use crate::core::tokenizer::Span;
+    use std::collections::HashMap;
+
+    struct TestCtx {
+        pass: u8,
+        symbols: SymbolTable,
+        finalized: HashMap<String, bool>,
+    }
+
+    impl TestCtx {
+        fn new(pass: u8, finalized: HashMap<String, bool>) -> Self {
+            Self {
+                pass,
+                symbols: SymbolTable::new(),
+                finalized,
+            }
+        }
+    }
+
+    impl AssemblerContext for TestCtx {
+        fn eval_expr(&self, _expr: &Expr) -> Result<i64, String> {
+            Err("not needed in these tests".to_string())
+        }
+
+        fn symbols(&self) -> &SymbolTable {
+            &self.symbols
+        }
+
+        fn has_symbol(&self, name: &str) -> bool {
+            self.finalized.contains_key(name)
+        }
+
+        fn symbol_is_finalized(&self, name: &str) -> Option<bool> {
+            self.finalized.get(name).copied()
+        }
+
+        fn current_address(&self) -> u32 {
+            0
+        }
+
+        fn pass(&self) -> u8 {
+            self.pass
+        }
+    }
+
+    fn span() -> Span {
+        Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        }
+    }
+
+    #[test]
+    fn unstable_symbol_detection_reports_unknown_identifier() {
+        let expr = Expr::Identifier("missing".to_string(), span());
+        let ctx = TestCtx::new(1, HashMap::new());
+        assert!(expr_has_unstable_symbols(&expr, &ctx));
+    }
+
+    #[test]
+    fn unstable_symbol_detection_accepts_finalized_identifier() {
+        let expr = Expr::Identifier("label".to_string(), span());
+        let ctx = TestCtx::new(2, HashMap::from([("label".to_string(), true)]));
+        assert!(!expr_has_unstable_symbols(&expr, &ctx));
+    }
+
+    #[test]
+    fn unstable_symbol_detection_traverses_expression_tree() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Identifier("left".to_string(), span())),
+            right: Box::new(Expr::Identifier("right".to_string(), span())),
+            span: span(),
+        };
+        let ctx = TestCtx::new(
+            2,
+            HashMap::from([("left".to_string(), true), ("right".to_string(), false)]),
+        );
+        assert!(expr_has_unstable_symbols(&expr, &ctx));
     }
 }

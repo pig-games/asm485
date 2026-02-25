@@ -4,14 +4,24 @@
 //! 45GS02 CPU handler implementation.
 
 use crate::core::assembler::expression::expr_span;
-use crate::core::family::{
-    expr_has_unstable_symbols, AssemblerContext, CpuHandler, EncodeResult, FamilyHandler,
-};
+use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler};
+use crate::families::mos6502::operand_resolution;
 use crate::families::mos6502::{AddressMode, FamilyOperand, MOS6502FamilyHandler, Operand};
 use crate::m45gs02::instructions::{has_mnemonic, lookup_instruction};
 
 const OPCODE_NEG: u8 = 0x42;
 const OPCODE_NOP: u8 = 0xEA;
+const Q_MNEMONIC_MAP: [(&str, &str); 9] = [
+    ("LDQ", "LDA"),
+    ("STQ", "STA"),
+    ("ADCQ", "ADC"),
+    ("ANDQ", "AND"),
+    ("CMPQ", "CMP"),
+    ("EORQ", "EOR"),
+    ("LDAQ", "LDA"),
+    ("ORAQ", "ORA"),
+    ("SBCQ", "SBC"),
+];
 
 #[derive(Debug)]
 pub struct M45GS02CpuHandler {
@@ -36,18 +46,10 @@ impl M45GS02CpuHandler {
     }
 
     fn map_q_mnemonic(mnemonic: &str) -> Option<&'static str> {
-        match mnemonic.to_ascii_uppercase().as_str() {
-            "LDQ" => Some("LDA"),
-            "STQ" => Some("STA"),
-            "ADCQ" => Some("ADC"),
-            "ANDQ" => Some("AND"),
-            "CMPQ" => Some("CMP"),
-            "EORQ" => Some("EOR"),
-            "LDAQ" => Some("LDA"),
-            "ORAQ" => Some("ORA"),
-            "SBCQ" => Some("SBC"),
-            _ => None,
-        }
+        let upper = mnemonic.to_ascii_uppercase();
+        Q_MNEMONIC_MAP
+            .iter()
+            .find_map(|(q, mapped)| (*q == upper.as_str()).then_some(*mapped))
     }
 
     fn map_mnemonic(mnemonic: &str) -> (&str, bool) {
@@ -67,6 +69,70 @@ impl M45GS02CpuHandler {
 
     fn has_cpu_mode(mnemonic: &str, mode: AddressMode) -> bool {
         lookup_instruction(mnemonic, mode).is_some()
+    }
+
+    fn resolve_relfar_branch_operand(
+        upper_mnemonic: &str,
+        expr: &crate::core::parser::Expr,
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Operand, String> {
+        let target = ctx.eval_expr(expr)?;
+        let span = expr_span(expr);
+
+        if upper_mnemonic == "BSR" {
+            // BSR is always encoded as relfar on 45GS02, so the offset base is PC+3.
+            let far_offset = target - (ctx.current_address() as i64 + 3);
+            if !(-32768..=32767).contains(&far_offset) {
+                if ctx.pass() > 1 {
+                    return Err(format!(
+                        "Far branch target out of range: offset {}",
+                        far_offset
+                    ));
+                }
+                return Ok(Operand::RelativeLong(0, span));
+            }
+            return Ok(Operand::RelativeLong(far_offset as i16, span));
+        }
+
+        let short_offset = target - (ctx.current_address() as i64 + 2);
+        if (-128..=127).contains(&short_offset) {
+            return Ok(Operand::Relative(short_offset as i8, span));
+        }
+
+        // Non-BSR far-branch fallback uses relfar encoding, so the offset base is PC+3.
+        let far_offset = target - (ctx.current_address() as i64 + 3);
+        if !(-32768..=32767).contains(&far_offset) {
+            if ctx.pass() > 1 {
+                return Err(format!(
+                    "Far branch target out of range: offset {}",
+                    far_offset
+                ));
+            }
+            return Ok(Operand::RelativeLong(0, span));
+        }
+
+        Ok(Operand::RelativeLong(far_offset as i16, span))
+    }
+
+    fn rewrite_operands_for_45gs02_encode(operands: &[Operand]) -> (Vec<u8>, Vec<Operand>) {
+        let mut prefixes = Vec::new();
+        let mut mapped_operands = Vec::with_capacity(operands.len());
+
+        for operand in operands {
+            match operand {
+                Operand::IndirectIndexedZ(value, span) => {
+                    prefixes.push(OPCODE_NOP);
+                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
+                }
+                Operand::DirectPageIndirectLongZ(value, span) => {
+                    prefixes.push(OPCODE_NOP);
+                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
+                }
+                _ => mapped_operands.push(operand.clone()),
+            }
+        }
+
+        (prefixes, mapped_operands)
     }
 }
 
@@ -94,40 +160,11 @@ impl CpuHandler for M45GS02CpuHandler {
                 _ => unreachable!(),
             };
 
-            let target = ctx.eval_expr(expr)?;
-            let span = expr_span(expr);
-
-            if upper_mnemonic == "BSR" {
-                let far_offset = target - (ctx.current_address() as i64 + 3);
-                if !(-32768..=32767).contains(&far_offset) {
-                    if ctx.pass() > 1 {
-                        return Err(format!(
-                            "Far branch target out of range: offset {}",
-                            far_offset
-                        ));
-                    }
-                    return Ok(vec![Operand::RelativeLong(0, span)]);
-                }
-                return Ok(vec![Operand::RelativeLong(far_offset as i16, span)]);
-            }
-
-            let short_offset = target - (ctx.current_address() as i64 + 2);
-            if (-128..=127).contains(&short_offset) {
-                return Ok(vec![Operand::Relative(short_offset as i8, span)]);
-            }
-
-            let far_offset = target - (ctx.current_address() as i64 + 3);
-            if !(-32768..=32767).contains(&far_offset) {
-                if ctx.pass() > 1 {
-                    return Err(format!(
-                        "Far branch target out of range: offset {}",
-                        far_offset
-                    ));
-                }
-                return Ok(vec![Operand::RelativeLong(0, span)]);
-            }
-
-            return Ok(vec![Operand::RelativeLong(far_offset as i16, span)]);
+            return Ok(vec![Self::resolve_relfar_branch_operand(
+                &upper_mnemonic,
+                expr,
+                ctx,
+            )?]);
         }
 
         if family_operands.is_empty() {
@@ -184,87 +221,36 @@ impl CpuHandler for M45GS02CpuHandler {
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute)
                     {
-                        let value = ctx.eval_expr(expr)?;
-                        let span = expr_span(expr);
-
-                        if !(0..=65535).contains(&value) {
-                            return Err(format!("Address {} out of 16-bit range", value));
-                        }
-
-                        let has_zp = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPage);
-                        let has_abs = Self::has_cpu_mode(&mapped_upper, AddressMode::Absolute);
-                        let unstable = expr_has_unstable_symbols(expr, ctx);
-
-                        if (0..=255).contains(&value) {
-                            if (!has_zp || unstable) && has_abs {
-                                return Ok(vec![Operand::Absolute(value as u16, span)]);
-                            }
-                            if has_zp {
-                                return Ok(vec![Operand::ZeroPage(value as u8, span)]);
-                            }
-                        }
-
-                        if has_abs {
-                            return Ok(vec![Operand::Absolute(value as u16, span)]);
-                        }
+                        return Ok(vec![operand_resolution::resolve_direct(
+                            &mapped_upper,
+                            expr,
+                            ctx,
+                            Self::has_cpu_mode,
+                        )?]);
                     }
                 }
                 FamilyOperand::DirectX(expr) => {
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageX)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteX)
                     {
-                        let value = ctx.eval_expr(expr)?;
-                        let span = expr_span(expr);
-
-                        if !(0..=65535).contains(&value) {
-                            return Err(format!("Address {} out of 16-bit range", value));
-                        }
-
-                        let has_zp_x = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageX);
-                        let has_abs_x = Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteX);
-                        let unstable = expr_has_unstable_symbols(expr, ctx);
-
-                        if (0..=255).contains(&value) {
-                            if (!has_zp_x || unstable) && has_abs_x {
-                                return Ok(vec![Operand::AbsoluteX(value as u16, span)]);
-                            }
-                            if has_zp_x {
-                                return Ok(vec![Operand::ZeroPageX(value as u8, span)]);
-                            }
-                        }
-
-                        if has_abs_x {
-                            return Ok(vec![Operand::AbsoluteX(value as u16, span)]);
-                        }
+                        return Ok(vec![operand_resolution::resolve_direct_x(
+                            &mapped_upper,
+                            expr,
+                            ctx,
+                            Self::has_cpu_mode,
+                        )?]);
                     }
                 }
                 FamilyOperand::DirectY(expr) => {
                     if Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageY)
                         || Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteY)
                     {
-                        let value = ctx.eval_expr(expr)?;
-                        let span = expr_span(expr);
-
-                        if !(0..=65535).contains(&value) {
-                            return Err(format!("Address {} out of 16-bit range", value));
-                        }
-
-                        let has_zp_y = Self::has_cpu_mode(&mapped_upper, AddressMode::ZeroPageY);
-                        let has_abs_y = Self::has_cpu_mode(&mapped_upper, AddressMode::AbsoluteY);
-                        let unstable = expr_has_unstable_symbols(expr, ctx);
-
-                        if (0..=255).contains(&value) {
-                            if (!has_zp_y || unstable) && has_abs_y {
-                                return Ok(vec![Operand::AbsoluteY(value as u16, span)]);
-                            }
-                            if has_zp_y {
-                                return Ok(vec![Operand::ZeroPageY(value as u8, span)]);
-                            }
-                        }
-
-                        if has_abs_y {
-                            return Ok(vec![Operand::AbsoluteY(value as u16, span)]);
-                        }
+                        return Ok(vec![operand_resolution::resolve_direct_y(
+                            &mapped_upper,
+                            expr,
+                            ctx,
+                            Self::has_cpu_mode,
+                        )?]);
                     }
                 }
                 FamilyOperand::IndexedIndirectX(expr)
@@ -348,26 +334,14 @@ impl CpuHandler for M45GS02CpuHandler {
         }
 
         let (mapped_mnemonic, q_prefix) = Self::map_mnemonic(&upper);
+        let (operand_prefixes, mapped_operands) =
+            Self::rewrite_operands_for_45gs02_encode(operands);
         let mut prefixes = Vec::new();
         if q_prefix {
             prefixes.push(OPCODE_NEG);
             prefixes.push(OPCODE_NEG);
         }
-
-        let mut mapped_operands = Vec::with_capacity(operands.len());
-        for operand in operands {
-            match operand {
-                Operand::IndirectIndexedZ(value, span) => {
-                    prefixes.push(OPCODE_NOP);
-                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
-                }
-                Operand::DirectPageIndirectLongZ(value, span) => {
-                    prefixes.push(OPCODE_NOP);
-                    mapped_operands.push(Operand::IndirectIndexedY(*value, *span));
-                }
-                _ => mapped_operands.push(operand.clone()),
-            }
-        }
+        prefixes.extend(operand_prefixes);
 
         let encoded = match <crate::m65c02::M65C02CpuHandler as CpuHandler>::encode_instruction(
             &self.baseline,

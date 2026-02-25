@@ -14,9 +14,7 @@ use serde_json::json;
 use opforge::assembler::cli::{
     validate_cli, Cli, DiagnosticsSinkConfig, DiagnosticsStyle, OutputFormat,
 };
-use opforge::core::assembler::error::{
-    build_context_lines, AsmRunError, AsmRunReport, Diagnostic, Severity,
-};
+use opforge::core::assembler::error::{build_context_lines, Diagnostic, Severity};
 
 struct DiagnosticsSink {
     writer: Option<Box<dyn Write>>,
@@ -51,9 +49,9 @@ impl DiagnosticsSink {
         }
     }
 
-    fn emit_report_diagnostics(
+    fn emit_diagnostics(
         &mut self,
-        report: &AsmRunReport,
+        source_lines: Option<&[String]>,
         diagnostics: &[Diagnostic],
         use_color: bool,
         format: OutputFormat,
@@ -62,26 +60,7 @@ impl DiagnosticsSink {
         for diag in diagnostics {
             self.emit_line(&format_diagnostic_line(
                 diag,
-                Some(report.source_lines()),
-                use_color,
-                format,
-                style,
-            ));
-        }
-    }
-
-    fn emit_error_diagnostics(
-        &mut self,
-        err: &AsmRunError,
-        diagnostics: &[Diagnostic],
-        use_color: bool,
-        format: OutputFormat,
-        style: DiagnosticsStyle,
-    ) {
-        for diag in diagnostics {
-            self.emit_line(&format_diagnostic_line(
-                diag,
-                Some(err.source_lines()),
+                source_lines,
                 use_color,
                 format,
                 style,
@@ -335,7 +314,7 @@ fn apply_fixits_in_place(
         if let Some(guards) = guards {
             verify_fixit_guards(guards, file)?;
         }
-        let mut text = std::fs::read_to_string(file)?;
+        let text = std::fs::read_to_string(file)?;
         let mut edits = edits;
         edits.sort_by_key(|edit| {
             (
@@ -343,12 +322,11 @@ fn apply_fixits_in_place(
                 std::cmp::Reverse(edit.col_start),
             )
         });
+        let mut lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
         for edit in edits {
-            let mut lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
             let target_idx = edit.line.saturating_sub(1) as usize;
             if target_idx >= lines.len() {
                 lines.push(edit.replacement.clone());
-                text = lines.join("\n");
                 applied += 1;
                 continue;
             }
@@ -365,15 +343,49 @@ fn apply_fixits_in_place(
             next.push_str(&edit.replacement);
             next.push_str(&line[b..]);
             lines[target_idx] = next;
-            text = lines.join("\n");
             applied += 1;
         }
+        let mut text = lines.join("\n");
         if !text.ends_with('\n') {
             text.push('\n');
         }
         std::fs::write(file, text)?;
     }
     Ok(applied)
+}
+
+fn handle_fixits(
+    sink: &mut DiagnosticsSink,
+    cli_config: &opforge::assembler::cli::CliConfig,
+    diagnostics: &[Diagnostic],
+    fallback: Option<&Path>,
+) {
+    if !(cli_config.apply_fixits || cli_config.fixits_dry_run || cli_config.fixits_output.is_some())
+    {
+        return;
+    }
+
+    let planned = collect_machine_applicable_fixits(diagnostics, fallback);
+    if fixits_have_overlaps(&planned) {
+        sink.emit_line("fixits: overlap detected; aborting fixit application");
+        return;
+    }
+
+    let guards = capture_fixit_guards(&planned);
+    if cli_config.apply_fixits {
+        match guards.and_then(|guards| apply_fixits_in_place(&planned, Some(&guards))) {
+            Ok(applied) => sink.emit_line(&format!("fixits: applied {applied} edits")),
+            Err(err) => sink.emit_line(&format!("fixits: apply failed: {err}")),
+        }
+    } else if cli_config.fixits_dry_run {
+        sink.emit_line(&format!("fixits: dry-run planned {} edits", planned.len()));
+    }
+
+    if let Some(path) = cli_config.fixits_output.as_deref() {
+        if let Err(err) = write_fixit_report(path, &planned, cli_config.apply_fixits) {
+            sink.emit_line(&format!("fixits: failed to write report: {err}"));
+        }
+    }
 }
 
 fn write_fixit_report(path: &Path, fixits: &[PlannedFixit], applied: bool) -> io::Result<()> {
@@ -448,47 +460,14 @@ fn main() {
                     .collect();
                 let fallback = cli_config.input_paths.first().map(PathBuf::as_path);
                 let diagnostics = with_fallback_file(diagnostics, fallback);
-                sink.emit_report_diagnostics(
-                    report,
+                sink.emit_diagnostics(
+                    Some(report.source_lines()),
                     &diagnostics,
                     use_color,
                     cli_config.output_format,
                     cli_config.diagnostics_style,
                 );
-
-                if cli_config.apply_fixits
-                    || cli_config.fixits_dry_run
-                    || cli_config.fixits_output.is_some()
-                {
-                    let planned = collect_machine_applicable_fixits(&diagnostics, fallback);
-                    if fixits_have_overlaps(&planned) {
-                        sink.emit_line("fixits: overlap detected; aborting fixit application");
-                    } else {
-                        let guards = capture_fixit_guards(&planned);
-                        if cli_config.apply_fixits {
-                            match guards
-                                .and_then(|guards| apply_fixits_in_place(&planned, Some(&guards)))
-                            {
-                                Ok(applied) => {
-                                    sink.emit_line(&format!("fixits: applied {applied} edits"))
-                                }
-                                Err(err) => sink.emit_line(&format!("fixits: apply failed: {err}")),
-                            }
-                        } else if cli_config.fixits_dry_run {
-                            sink.emit_line(&format!(
-                                "fixits: dry-run planned {} edits",
-                                planned.len()
-                            ));
-                        }
-                        if let Some(path) = cli_config.fixits_output.as_deref() {
-                            if let Err(err) =
-                                write_fixit_report(path, &planned, cli_config.apply_fixits)
-                            {
-                                sink.emit_line(&format!("fixits: failed to write report: {err}"));
-                            }
-                        }
-                    }
-                }
+                handle_fixits(&mut sink, &cli_config, &diagnostics, fallback);
             }
         }
         Err(err) => {
@@ -502,44 +481,14 @@ fn main() {
                 .collect();
             let fallback = cli_config.input_paths.first().map(PathBuf::as_path);
             let diagnostics = with_fallback_file(diagnostics, fallback);
-            sink.emit_error_diagnostics(
-                &err,
+            sink.emit_diagnostics(
+                Some(err.source_lines()),
                 &diagnostics,
                 use_color,
                 cli_config.output_format,
                 cli_config.diagnostics_style,
             );
-
-            if cli_config.apply_fixits
-                || cli_config.fixits_dry_run
-                || cli_config.fixits_output.is_some()
-            {
-                let planned = collect_machine_applicable_fixits(&diagnostics, fallback);
-                if fixits_have_overlaps(&planned) {
-                    sink.emit_line("fixits: overlap detected; aborting fixit application");
-                } else {
-                    let guards = capture_fixit_guards(&planned);
-                    if cli_config.apply_fixits {
-                        match guards
-                            .and_then(|guards| apply_fixits_in_place(&planned, Some(&guards)))
-                        {
-                            Ok(applied) => {
-                                sink.emit_line(&format!("fixits: applied {applied} edits"))
-                            }
-                            Err(err) => sink.emit_line(&format!("fixits: apply failed: {err}")),
-                        }
-                    } else if cli_config.fixits_dry_run {
-                        sink.emit_line(&format!("fixits: dry-run planned {} edits", planned.len()));
-                    }
-                    if let Some(path) = cli_config.fixits_output.as_deref() {
-                        if let Err(err) =
-                            write_fixit_report(path, &planned, cli_config.apply_fixits)
-                        {
-                            sink.emit_line(&format!("fixits: failed to write report: {err}"));
-                        }
-                    }
-                }
-            }
+            handle_fixits(&mut sink, &cli_config, &diagnostics, fallback);
 
             if cli_config.output_format != OutputFormat::Json
                 && !matches!(cli_config.diagnostics_sink, DiagnosticsSinkConfig::Disabled)
@@ -779,6 +728,72 @@ mod tests {
             err.to_string().contains("stale source detected"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn apply_fixits_in_place_updates_multiple_lines() {
+        let dir = create_temp_dir("fixit-multi-line");
+        let file = dir.join("sample.asm");
+        fs::write(&file, "lda #1\nsta $0200\ninx\n").expect("write source");
+
+        let fixits = vec![
+            PlannedFixit {
+                file: file.clone(),
+                line: 1,
+                col_start: 6,
+                col_end: 7,
+                replacement: "2".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+            PlannedFixit {
+                file: file.clone(),
+                line: 2,
+                col_start: 5,
+                col_end: 10,
+                replacement: "$0300".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+        ];
+
+        let guards = capture_fixit_guards(&fixits).expect("capture guards");
+        let applied = apply_fixits_in_place(&fixits, Some(&guards)).expect("apply fixits");
+        assert_eq!(applied, 2);
+
+        let content = fs::read_to_string(&file).expect("read source");
+        assert_eq!(content, "lda #2\nsta $0300\ninx\n");
+    }
+
+    #[test]
+    fn apply_fixits_in_place_updates_single_line_with_non_overlapping_edits() {
+        let dir = create_temp_dir("fixit-single-line-multi");
+        let file = dir.join("sample.asm");
+        fs::write(&file, "lda #1, x\n").expect("write source");
+
+        let fixits = vec![
+            PlannedFixit {
+                file: file.clone(),
+                line: 1,
+                col_start: 6,
+                col_end: 7,
+                replacement: "2".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+            PlannedFixit {
+                file: file.clone(),
+                line: 1,
+                col_start: 9,
+                col_end: 10,
+                replacement: "y".to_string(),
+                applicability: "machine-applicable".to_string(),
+            },
+        ];
+
+        let guards = capture_fixit_guards(&fixits).expect("capture guards");
+        let applied = apply_fixits_in_place(&fixits, Some(&guards)).expect("apply fixits");
+        assert_eq!(applied, 2);
+
+        let content = fs::read_to_string(&file).expect("read source");
+        assert_eq!(content, "lda #2, y\n");
     }
 
     fn create_temp_dir(label: &str) -> PathBuf {

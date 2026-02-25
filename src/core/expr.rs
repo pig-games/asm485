@@ -78,6 +78,11 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
             .ok_or_else(|| EvalError::with_span("Current address ($) not available", *span)),
 
         Expr::String(bytes, span) => {
+            // Expression string literals intentionally support only byte-sized
+            // and word-sized forms for legacy assembler semantics:
+            // - 1 byte  => that byte value
+            // - 2 bytes => big-endian packed word
+            // Longer strings are rejected in expression context.
             if bytes.is_empty() {
                 Err(EvalError::with_span(
                     "Empty string not allowed in expression",
@@ -371,6 +376,18 @@ impl EvalContext for SymbolTableContext<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn with_grouped_underscores(value: &str, group: usize) -> String {
+        let mut out = String::with_capacity(value.len() + value.len() / group);
+        for (idx, ch) in value.chars().rev().enumerate() {
+            if idx != 0 && idx % group == 0 {
+                out.push('_');
+            }
+            out.push(ch);
+        }
+        out.chars().rev().collect()
+    }
 
     #[test]
     fn parse_number_decimal() {
@@ -424,6 +441,42 @@ mod tests {
         assert_eq!(parse_number("1_000"), Some(1000));
         assert_eq!(parse_number("0xFF_FF"), Some(0xFFFF));
         assert_eq!(parse_number("0b1010_1010"), Some(0xAA));
+    }
+
+    proptest! {
+        #[test]
+        fn parse_number_decimal_round_trip_u32(value in any::<u32>()) {
+            let text = value.to_string();
+            prop_assert_eq!(parse_number(&text), Some(value as i64));
+        }
+
+        #[test]
+        fn parse_number_hex_round_trip_u32(value in any::<u32>()) {
+            let text = format!("0x{:X}", value);
+            prop_assert_eq!(parse_number(&text), Some(value as i64));
+        }
+
+        #[test]
+        fn parse_number_binary_round_trip_u16(value in any::<u16>()) {
+            let text = format!("0b{:b}", value);
+            prop_assert_eq!(parse_number(&text), Some(value as i64));
+        }
+
+        #[test]
+        fn parse_number_decimal_underscores_match_plain_u32(value in any::<u32>()) {
+            let plain = value.to_string();
+            let underscored = with_grouped_underscores(&plain, 3);
+            prop_assert_eq!(parse_number(&underscored), parse_number(&plain));
+        }
+
+        #[test]
+        fn parse_number_hex_underscores_match_plain_u32(value in any::<u32>()) {
+            let hex = format!("{:X}", value);
+            let grouped = with_grouped_underscores(&hex, 2);
+            let plain = format!("0x{}", hex);
+            let underscored = format!("0x{}", grouped);
+            prop_assert_eq!(parse_number(&underscored), parse_number(&plain));
+        }
     }
 
     #[test]
@@ -511,5 +564,39 @@ mod tests {
         let span = Span::default();
         assert!(apply_binary(BinaryOp::Divide, 10, 0, span).is_err());
         assert!(apply_binary(BinaryOp::Mod, 10, 0, span).is_err());
+    }
+
+    #[test]
+    fn eval_expr_string_accepts_single_byte() {
+        let span = Span::default();
+        let expr = Expr::String(vec![0x41], span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        assert_eq!(eval_expr(&expr, &ctx).unwrap(), 0x41);
+    }
+
+    #[test]
+    fn eval_expr_string_accepts_two_bytes_as_word() {
+        let span = Span::default();
+        let expr = Expr::String(vec![0x12, 0x34], span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        assert_eq!(eval_expr(&expr, &ctx).unwrap(), 0x1234);
+    }
+
+    #[test]
+    fn eval_expr_string_rejects_empty() {
+        let span = Span::default();
+        let expr = Expr::String(Vec::new(), span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        let err = eval_expr(&expr, &ctx).unwrap_err();
+        assert!(err.message.contains("Empty string"));
+    }
+
+    #[test]
+    fn eval_expr_string_rejects_more_than_two_bytes() {
+        let span = Span::default();
+        let expr = Expr::String(vec![0x01, 0x02, 0x03], span);
+        let ctx = SimpleEvalContext::new(|_| None);
+        let err = eval_expr(&expr, &ctx).unwrap_err();
+        assert!(err.message.contains("Multi-character string"));
     }
 }

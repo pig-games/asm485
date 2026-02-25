@@ -36,6 +36,7 @@ mod cpu_handler;
 mod handler;
 pub mod module;
 mod operand;
+pub(crate) mod operand_resolution;
 mod table;
 
 pub use cpu_handler::M6502CpuHandler;

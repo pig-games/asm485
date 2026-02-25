@@ -33,10 +33,10 @@ pub mod preprocess;
 pub mod registry;
 pub mod report;
 pub mod source_map;
+pub mod symbol_stability;
 pub mod symbol_table;
 pub mod text_encoding;
 pub mod text_utils;
-pub mod token_value;
 pub mod tokenizer;
 
 // Re-exports for convenience
@@ -51,7 +51,7 @@ pub use expr_vm::{
     EXPR_VM_OPCODE_VERSION_V1,
 };
 pub use family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler, FamilyParseError};
-pub use operand::{Operand, SizeSuffix};
+pub use operand::Operand;
 pub use parser::ParseError;
 pub use symbol_table::SymbolTable;
 pub use text_encoding::{TextEncodingError, TextEncodingRegistry};

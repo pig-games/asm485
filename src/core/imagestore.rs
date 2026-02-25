@@ -3,6 +3,8 @@
 
 // Image store with hex/bin output helpers.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -10,6 +12,21 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static IMAGE_STORE_COUNTER: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+thread_local! {
+    static IMAGE_STORE_FORCE_OPEN_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn run_with_forced_open_failure_for_tests<T>(f: impl FnOnce() -> T) -> T {
+    IMAGE_STORE_FORCE_OPEN_FAILURE.with(|force| force.set(true));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    IMAGE_STORE_FORCE_OPEN_FAILURE.with(|force| force.set(false));
+    match result {
+        Ok(value) => value,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
 
 /// On-disk entry size: 4 bytes big-endian address + 1 byte value.
 const ENTRY_SIZE: usize = 5;
@@ -25,15 +42,15 @@ struct ImageStoreEntry {
 /// Bytes are appended via `store`/`store_slice` and later emitted as
 /// Intel HEX or raw binary output files.
 pub struct ImageStore {
-    path: PathBuf,
-    file: File,
+    path: Option<PathBuf>,
+    file: Option<File>,
     entries: usize,
     write_error: Option<io::Error>,
 }
 
 impl ImageStore {
-    /// Create a new image store. `_max_entries` is reserved for future use.
-    pub fn new(_max_entries: usize) -> Self {
+    /// Create a new image store with the default address-space policy.
+    pub fn new() -> Self {
         let mut path = std::env::temp_dir();
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -42,6 +59,18 @@ impl ImageStore {
         let pid = std::process::id();
         let counter = IMAGE_STORE_COUNTER.fetch_add(1, Ordering::Relaxed);
         path.push(format!("opForge-image-{pid}-{nanos}-{counter}.bin"));
+        #[cfg(test)]
+        if IMAGE_STORE_FORCE_OPEN_FAILURE.with(Cell::get) {
+            return Self {
+                path: Some(path),
+                file: None,
+                entries: 0,
+                write_error: Some(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "ImageStore temp-file open forced to fail for tests",
+                )),
+            };
+        }
         match OpenOptions::new()
             .create(true)
             .write(true)
@@ -49,29 +78,22 @@ impl ImageStore {
             .open(&path)
         {
             Ok(file) => Self {
-                path,
-                file,
+                path: Some(path),
+                file: Some(file),
                 entries: 0,
                 write_error: None,
             },
-            Err(err) => {
-                // The file handle is never actually used when write_error is set
-                // (store/store_slice early-return), but we need a valid File value
-                // to satisfy the struct. Use a platform-appropriate null device.
-                let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
-                let file = File::open(null_path).unwrap_or_else(|_| {
-                    // Last resort: open current directory (read-only is fine since
-                    // we never write through this handle when write_error is Some).
-                    File::open(".").expect("BUG: cannot open fallback file handle")
-                });
-                Self {
-                    path,
-                    file,
-                    entries: 0,
-                    write_error: Some(err),
-                }
-            }
+            Err(err) => Self {
+                path: Some(path),
+                file: None,
+                entries: 0,
+                write_error: Some(err),
+            },
         }
+    }
+
+    pub fn init_error(&self) -> Option<&io::Error> {
+        self.write_error.as_ref()
     }
 
     /// Return the number of stored address/byte entries.
@@ -94,7 +116,13 @@ impl ImageStore {
         let mut buf = [0u8; ENTRY_SIZE];
         buf[..4].copy_from_slice(&addr.to_be_bytes());
         buf[4] = val;
-        if let Err(err) = self.file.write_all(&buf) {
+        let Some(file) = self.file.as_mut() else {
+            self.write_error = Some(io::Error::other(
+                "ImageStore unavailable: no writable temp file",
+            ));
+            return;
+        };
+        if let Err(err) = file.write_all(&buf) {
             self.write_error = Some(err);
             return;
         }
@@ -123,7 +151,12 @@ impl ImageStore {
     }
 
     fn read_entries(&self) -> io::Result<Vec<ImageStoreEntry>> {
-        let mut reader = BufReader::new(File::open(&self.path)?);
+        let Some(path) = self.path.as_ref() else {
+            return Err(io::Error::other(
+                "ImageStore unavailable: no readable temp file",
+            ));
+        };
+        let mut reader = BufReader::new(File::open(path)?);
         let mut entries = Vec::new();
         loop {
             let mut buf = [0u8; ENTRY_SIZE];
@@ -146,7 +179,9 @@ impl ImageStore {
         if let Some(err) = &self.write_error {
             return Err(io::Error::new(err.kind(), err.to_string()));
         }
-        self.file.sync_all()?;
+        if let Some(file) = self.file.as_ref() {
+            file.sync_all()?;
+        }
         Ok(())
     }
 
@@ -323,9 +358,17 @@ impl ImageStore {
     }
 }
 
+impl Default for ImageStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for ImageStore {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        if let Some(path) = self.path.as_ref() {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -348,6 +391,7 @@ fn write_extended_linear_address_record<W: Write>(out: &mut W, upper: u16) -> io
 
 #[cfg(test)]
 mod tests {
+    use super::run_with_forced_open_failure_for_tests;
     use super::ImageStore;
     use std::io;
 
@@ -381,7 +425,7 @@ mod tests {
 
     #[test]
     fn writes_hex_records_with_valid_checksums() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store_slice(0x1000, &[0x01, 0x02, 0x03]);
         let mut out = Vec::new();
         image.write_hex_file(&mut out, None).unwrap();
@@ -396,7 +440,7 @@ mod tests {
 
     #[test]
     fn includes_start_segment_record_when_requested() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store_slice(0x0000, &[0xaa]);
         let mut out = Vec::new();
         image.write_hex_file(&mut out, Some("1234")).unwrap();
@@ -413,7 +457,7 @@ mod tests {
 
     #[test]
     fn includes_start_linear_record_for_wide_start_address() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store_slice(0x123456, &[0xaa]);
         let mut out = Vec::new();
         image.write_hex_file(&mut out, Some("123456")).unwrap();
@@ -425,7 +469,7 @@ mod tests {
 
     #[test]
     fn write_bin_respects_range_and_fill() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store(0x0010, 0xaa);
         image.store(0x0012, 0xbb);
         let mut out = Vec::new();
@@ -438,7 +482,7 @@ mod tests {
 
     #[test]
     fn write_bin_rejects_descending_range() {
-        let image = ImageStore::new(65536);
+        let image = ImageStore::new();
         let mut out = Vec::new();
         let err = image
             .write_bin_file(&mut out, 0x2000, 0x1fff, 0xff)
@@ -451,7 +495,7 @@ mod tests {
 
     #[test]
     fn write_hex_emits_extended_linear_address_for_wide_addresses() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store(0x123456, 0xaa);
         image.store(0x123457, 0xbb);
         let mut out = Vec::new();
@@ -463,7 +507,7 @@ mod tests {
 
     #[test]
     fn output_range_supports_wide_addresses() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store(0x010000, 0xaa);
         let range = image.output_range().expect("range").expect("some range");
         assert_eq!(range, (0x010000, 0x010000));
@@ -471,7 +515,7 @@ mod tests {
 
     #[test]
     fn store_slice_reports_address_overflow() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.store_slice(u32::MAX, &[0xaa, 0xbb]);
         let mut out = Vec::new();
         let err = image
@@ -485,7 +529,7 @@ mod tests {
 
     #[test]
     fn store_reports_entry_count_overflow() {
-        let mut image = ImageStore::new(65536);
+        let mut image = ImageStore::new();
         image.entries = usize::MAX;
         image.store(0x1000, 0xaa);
         let mut out = Vec::new();
@@ -494,5 +538,19 @@ mod tests {
             .expect_err("overflow should be reported");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         assert!(err.to_string().contains("Image entry count overflow"));
+    }
+
+    #[test]
+    fn forced_temp_open_failure_surfaces_early() {
+        run_with_forced_open_failure_for_tests(|| {
+            let image = ImageStore::new();
+            let init_error = image.init_error().expect("init error should be present");
+            assert_eq!(init_error.kind(), io::ErrorKind::PermissionDenied);
+            let mut out = Vec::new();
+            let err = image
+                .write_hex_file(&mut out, None)
+                .expect_err("write should fail when init failed");
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        });
     }
 }

@@ -450,3 +450,111 @@ fn expr_text(expr: &Expr) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::family::AssemblerContext;
+    use crate::core::parser::{BinaryOp, Expr};
+    use crate::core::symbol_table::SymbolTable;
+    use crate::core::tokenizer::Span;
+    use std::collections::HashMap;
+
+    struct TestCtx {
+        addr: u32,
+        values: HashMap<String, i64>,
+        symbols: SymbolTable,
+    }
+
+    impl TestCtx {
+        fn new(addr: u32, values: HashMap<String, i64>) -> Self {
+            Self {
+                addr,
+                values,
+                symbols: SymbolTable::new(),
+            }
+        }
+    }
+
+    impl AssemblerContext for TestCtx {
+        fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+            match expr {
+                Expr::Identifier(name, _) | Expr::Register(name, _) => self
+                    .values
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| format!("missing value for {name}")),
+                Expr::Number(text, _) => text
+                    .parse::<i64>()
+                    .map_err(|_| format!("invalid test number: {text}")),
+                _ => Err("unsupported test expression".to_string()),
+            }
+        }
+
+        fn symbols(&self) -> &SymbolTable {
+            &self.symbols
+        }
+
+        fn has_symbol(&self, _name: &str) -> bool {
+            false
+        }
+
+        fn symbol_is_finalized(&self, _name: &str) -> Option<bool> {
+            None
+        }
+
+        fn current_address(&self) -> u32 {
+            self.addr
+        }
+
+        fn pass(&self) -> u8 {
+            1
+        }
+    }
+
+    fn span() -> Span {
+        Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        }
+    }
+
+    #[test]
+    fn initial_state_sets_expected_defaults() {
+        let state = initial_state();
+        assert_eq!(state.get(EMULATION_MODE_KEY), Some(&0));
+        assert_eq!(state.get(ACCUMULATOR_8BIT_KEY), Some(&1));
+        assert_eq!(state.get(INDEX_8BIT_KEY), Some(&1));
+        assert_eq!(state.get(DATA_BANK_KEY), Some(&0));
+        assert_eq!(state.get(DIRECT_PAGE_KEY), Some(&0));
+    }
+
+    #[test]
+    fn assume_directive_sets_dbr_auto_mode() {
+        let ctx = TestCtx::new(0x340000, HashMap::new());
+        let mut state = initial_state();
+        let operands = vec![Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Identifier("dbr".to_string(), span())),
+            right: Box::new(Expr::Identifier("auto".to_string(), span())),
+            span: span(),
+        }];
+
+        let handled = apply_runtime_directive("assume", &operands, &ctx, &mut state)
+            .expect("assume should parse");
+        assert!(handled);
+        assert_eq!(state.get(DATA_BANK_EXPLICIT_KEY), Some(&0));
+        assert_eq!(state.get(DATA_BANK_KNOWN_KEY), Some(&1));
+    }
+
+    #[test]
+    fn apply_after_encode_invalidates_bank_and_direct_page_knowledge() {
+        let mut state = initial_state();
+        apply_after_encode("PLB", &[], &mut state);
+        assert_eq!(state.get(DATA_BANK_KNOWN_KEY), Some(&0));
+
+        apply_after_encode("PLD", &[], &mut state);
+        assert_eq!(state.get(DIRECT_PAGE_KNOWN_KEY), Some(&0));
+    }
+}

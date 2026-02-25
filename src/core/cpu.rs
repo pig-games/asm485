@@ -93,3 +93,29 @@ impl EncodeError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CpuFamily, CpuType, EncodeError};
+    use crate::core::tokenizer::Span;
+
+    #[test]
+    fn cpu_identifiers_round_trip_strings() {
+        let family = CpuFamily::new("mos6502");
+        let cpu = CpuType::new("m6502");
+        assert_eq!(family.as_str(), "mos6502");
+        assert_eq!(cpu.as_str(), "m6502");
+    }
+
+    #[test]
+    fn encode_error_with_span_opt_preserves_span() {
+        let span = Span {
+            line: 12,
+            col_start: 3,
+            col_end: 7,
+        };
+        let err = EncodeError::with_span_opt("boom", Some(span));
+        assert_eq!(err.message, "boom");
+        assert_eq!(err.span, Some(span));
+    }
+}
