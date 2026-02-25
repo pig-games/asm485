@@ -54,22 +54,6 @@ impl M65816CpuHandler {
                 | "SMB5"
                 | "SMB6"
                 | "SMB7"
-                | "BBR0"
-                | "BBR1"
-                | "BBR2"
-                | "BBR3"
-                | "BBR4"
-                | "BBR5"
-                | "BBR6"
-                | "BBR7"
-                | "BBS0"
-                | "BBS1"
-                | "BBS2"
-                | "BBS3"
-                | "BBS4"
-                | "BBS5"
-                | "BBS6"
-                | "BBS7"
         )
     }
 
@@ -1390,5 +1374,48 @@ impl CpuHandler for M65816CpuHandler {
                 mnemonic,
             )
             || has_family_mnemonic(mnemonic)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::M65816CpuHandler;
+    use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE;
+    use std::collections::BTreeSet;
+
+    fn expected_m65c02_only_exclusions() -> BTreeSet<&'static str> {
+        BTreeSet::from([
+            "RMB0", "RMB1", "RMB2", "RMB3", "RMB4", "RMB5", "RMB6", "RMB7", "SMB0", "SMB1", "SMB2",
+            "SMB3", "SMB4", "SMB5", "SMB6", "SMB7",
+        ])
+    }
+
+    #[test]
+    fn m65c02_exclusion_list_stays_in_sync_with_65c02_table() {
+        let excluded = expected_m65c02_only_exclusions();
+
+        let mut from_table = BTreeSet::new();
+        for entry in CPU_INSTRUCTION_TABLE {
+            let upper = entry.mnemonic.to_ascii_uppercase();
+            if excluded.contains(upper.as_str()) {
+                from_table.insert(upper);
+            }
+        }
+
+        assert_eq!(
+            from_table,
+            excluded
+                .iter()
+                .map(|mnemonic| mnemonic.to_string())
+                .collect(),
+            "expected 65C02-only exclusion set should match mnemonics present in 65C02 table"
+        );
+
+        for mnemonic in &excluded {
+            assert!(
+                M65816CpuHandler::is_m65c02_only_mnemonic_for_65816(mnemonic),
+                "{mnemonic} must remain excluded for 65816"
+            );
+        }
     }
 }
