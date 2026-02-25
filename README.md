@@ -17,6 +17,36 @@ For full documentation on features and syntax, read the [opForge Reference Manua
 For VM host/boundary semantics, see [VM Boundary & Protocol Specification (v1)](documentation/vm-boundary-protocol-v1.md).
 For version-specific 65816 implementation scope and limits, see [RELEASE_NOTES_v0.9.3.md](RELEASE_NOTES_v0.9.3.md).
 
+## Installation
+
+Prerequisites:
+- Rust toolchain (`cargo`, `rustc`)
+- `cargo-audit` for security checks (`cargo install cargo-audit`)
+
+Build and install locally:
+
+    make build
+    cargo install --path .
+
+## Getting started
+
+Assemble a single source file to listing + hex output:
+
+    opForge -l -x -i examples/helloworld.asm
+
+Generate binary output from emitted address range:
+
+    opForge -b -i examples/helloworld.asm
+
+For full syntax and directive semantics, see the [reference manual](documentation/opForge-reference-manual.md).
+
+## Architecture overview
+
+- `src/core/`: CPU-agnostic tokenizer/parser/expressions/symbol table/diagnostics.
+- `src/assembler/`: orchestration, pass management, listing and output generation.
+- `src/families/` + CPU modules: family-shared operand handling and CPU-specific encoding.
+- `src/vm/`: VM/package/runtime components for deterministic tokenizer/parser/encode paths.
+
 Build:
 
     make
