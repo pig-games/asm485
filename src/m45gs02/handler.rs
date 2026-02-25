@@ -1063,6 +1063,34 @@ mod tests {
     }
 
     #[test]
+    fn encodes_relfar_branch_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let branch = |mnemonic: &str, expected: u8| {
+            let operand = Operand::RelativeLong(0x0102, Span::default());
+            match handler.encode_instruction(mnemonic, &[operand], &ctx) {
+                EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![expected, 0x02, 0x01]),
+                EncodeResult::NotFound => panic!("{mnemonic} relfar encoding not found"),
+                EncodeResult::Error(message, _span) => {
+                    panic!("{mnemonic} relfar encoding failed: {message}")
+                }
+            }
+        };
+
+        branch("bpl", 0x13);
+        branch("bmi", 0x33);
+        branch("bvc", 0x53);
+        branch("bvs", 0x73);
+        branch("bsr", 0x63);
+        branch("bra", 0x83);
+        branch("bcc", 0x93);
+        branch("bcs", 0xB3);
+        branch("bne", 0xD3);
+        branch("beq", 0xF3);
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();

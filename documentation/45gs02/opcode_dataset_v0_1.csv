@@ -11,6 +11,16 @@ BCC,relative,90,1,none,45GS02 short relative BCC opcode variant,mega65-book-2.tx
 BCS,relative,B0,1,none,45GS02 short relative BCS opcode variant,mega65-book-2.txt:25012-25810
 BNE,relative,D0,1,none,45GS02 short relative BNE opcode variant,mega65-book-2.txt:25012-25810
 BEQ,relative,F0,1,none,45GS02 short relative BEQ opcode variant,mega65-book-2.txt:25012-25810
+BPL,relative_long,13,2,none,45GS02 relfar BPL opcode variant,mega65-book-2.txt:25012-25810
+BMI,relative_long,33,2,none,45GS02 relfar BMI opcode variant,mega65-book-2.txt:25012-25810
+BVC,relative_long,53,2,none,45GS02 relfar BVC opcode variant,mega65-book-2.txt:25012-25810
+BSR,relative_long,63,2,none,45GS02 relfar BSR opcode variant,mega65-book-2.txt:25012-25810
+BVS,relative_long,73,2,none,45GS02 relfar BVS opcode variant,mega65-book-2.txt:25012-25810
+BRA,relative_long,83,2,none,45GS02 relfar BRA opcode variant,mega65-book-2.txt:25012-25810
+BCC,relative_long,93,2,none,45GS02 relfar BCC opcode variant,mega65-book-2.txt:25012-25810
+BCS,relative_long,B3,2,none,45GS02 relfar BCS opcode variant,mega65-book-2.txt:25012-25810
+BNE,relative_long,D3,2,none,45GS02 relfar BNE opcode variant,mega65-book-2.txt:25012-25810
+BEQ,relative_long,F3,2,none,45GS02 relfar BEQ opcode variant,mega65-book-2.txt:25012-25810
 AND,immediate,19,1,none,45GS02 immediate AND opcode variant,mega65-book-2.txt:25012-25810
 EOR,immediate,39,1,none,45GS02 immediate EOR opcode variant,mega65-book-2.txt:25012-25810
 ADC,immediate,59,1,none,45GS02 immediate ADC opcode variant,mega65-book-2.txt:25012-25810
