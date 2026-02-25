@@ -369,6 +369,16 @@ impl M65816CpuHandler {
         )
     }
 
+    fn ensure_direct_page_force_only(
+        force: OperandForce,
+        upper_mnemonic: &str,
+    ) -> Result<(), String> {
+        match force {
+            OperandForce::DirectPage => Ok(()),
+            _ => Err(Self::invalid_force_error(force, upper_mnemonic)),
+        }
+    }
+
     fn resolve_forced_direct_page_operand(
         upper_mnemonic: &str,
         val: i64,
@@ -1157,10 +1167,7 @@ impl CpuHandler for M65816CpuHandler {
                     let val = ctx.eval_expr(expr)?;
                     let span = crate::core::assembler::expression::expr_span(expr);
                     if let Some(force) = force_override {
-                        match force {
-                            OperandForce::DirectPage => {}
-                            _ => return Err(Self::invalid_force_error(force, &upper_mnemonic)),
-                        }
+                        Self::ensure_direct_page_force_only(force, &upper_mnemonic)?;
                     }
                     if (0..=255).contains(&val) {
                         return Ok(vec![Operand::IndirectIndexedY(val as u8, span)]);
@@ -1259,10 +1266,7 @@ impl CpuHandler for M65816CpuHandler {
                     }
 
                     if let Some(force) = force_override {
-                        match force {
-                            OperandForce::DirectPage => {}
-                            _ => return Err(Self::invalid_force_error(force, &upper_mnemonic)),
-                        }
+                        Self::ensure_direct_page_force_only(force, &upper_mnemonic)?;
                     }
 
                     if (0..=255).contains(&val) {
