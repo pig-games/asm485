@@ -156,7 +156,7 @@ impl<'a> AsmLine<'a> {
                         err_span,
                     );
                 };
-                if ctx.sub_type == TokenValue::Else {
+                if ctx.sub_type == ConditionalSubType::Else {
                     let err_span = if kind == ConditionalKind::ElseIf {
                         expr_err_span
                     } else {
@@ -171,9 +171,9 @@ impl<'a> AsmLine<'a> {
                     );
                 }
                 let sub_type = if kind == ConditionalKind::Else {
-                    TokenValue::Else
+                    ConditionalSubType::Else
                 } else {
-                    TokenValue::ElseIf
+                    ConditionalSubType::ElseIf
                 };
                 if !ctx.skipping {
                     ctx.skipping = true;
@@ -244,7 +244,7 @@ impl<'a> AsmLine<'a> {
                         expr_err_span,
                     );
                 }
-                if sub_type == TokenValue::Default {
+                if sub_type == ConditionalSubType::Default {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
@@ -273,7 +273,7 @@ impl<'a> AsmLine<'a> {
                         }
                     }
                 }
-                let sub_type = TokenValue::Case;
+                let sub_type = ConditionalSubType::Case;
                 let Some(ctx) = self.cond_stack.last_mut() else {
                     return self.failure_at_span(
                         LineStatus::Error,
@@ -338,7 +338,7 @@ impl<'a> AsmLine<'a> {
                         end_span,
                     );
                 };
-                if ctx.sub_type == TokenValue::Default {
+                if ctx.sub_type == ConditionalSubType::Default {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Conditional,
@@ -347,7 +347,7 @@ impl<'a> AsmLine<'a> {
                         end_span,
                     );
                 }
-                ctx.sub_type = TokenValue::Default;
+                ctx.sub_type = ConditionalSubType::Default;
                 if ctx.matched {
                     ctx.skipping = true;
                 } else {

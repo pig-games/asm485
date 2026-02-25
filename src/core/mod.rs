@@ -37,7 +37,6 @@ pub mod symbol_stability;
 pub mod symbol_table;
 pub mod text_encoding;
 pub mod text_utils;
-pub mod token_value;
 pub mod tokenizer;
 
 // Re-exports for convenience
