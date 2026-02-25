@@ -3,30 +3,25 @@
 
 // Image store with hex/bin output helpers.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(test)]
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static IMAGE_STORE_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
-static IMAGE_STORE_FORCE_OPEN_FAILURE: AtomicBool = AtomicBool::new(false);
-#[cfg(test)]
-static IMAGE_STORE_TEST_MUTEX: Mutex<()> = Mutex::new(());
+thread_local! {
+    static IMAGE_STORE_FORCE_OPEN_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
 
 #[cfg(test)]
 pub(crate) fn run_with_forced_open_failure_for_tests<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = IMAGE_STORE_TEST_MUTEX
-        .lock()
-        .expect("image store test mutex poisoned");
-    IMAGE_STORE_FORCE_OPEN_FAILURE.store(true, Ordering::Relaxed);
+    IMAGE_STORE_FORCE_OPEN_FAILURE.with(|force| force.set(true));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-    IMAGE_STORE_FORCE_OPEN_FAILURE.store(false, Ordering::Relaxed);
+    IMAGE_STORE_FORCE_OPEN_FAILURE.with(|force| force.set(false));
     match result {
         Ok(value) => value,
         Err(payload) => std::panic::resume_unwind(payload),
@@ -65,7 +60,7 @@ impl ImageStore {
         let counter = IMAGE_STORE_COUNTER.fetch_add(1, Ordering::Relaxed);
         path.push(format!("opForge-image-{pid}-{nanos}-{counter}.bin"));
         #[cfg(test)]
-        if IMAGE_STORE_FORCE_OPEN_FAILURE.load(Ordering::Relaxed) {
+        if IMAGE_STORE_FORCE_OPEN_FAILURE.with(Cell::get) {
             return Self {
                 path: Some(path),
                 file: None,
