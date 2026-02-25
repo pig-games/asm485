@@ -1036,6 +1036,33 @@ mod tests {
     }
 
     #[test]
+    fn encodes_relative_branch_overrides() {
+        let handler = M45GS02CpuHandler::new();
+        let ctx = TestContext::default();
+
+        let branch = |mnemonic: &str, expected: u8| {
+            let operand = Operand::Relative(6, Span::default());
+            match handler.encode_instruction(mnemonic, &[operand], &ctx) {
+                EncodeResult::Ok(bytes) => assert_eq!(bytes, vec![expected, 0x06]),
+                EncodeResult::NotFound => panic!("{mnemonic} relative encoding not found"),
+                EncodeResult::Error(message, _span) => {
+                    panic!("{mnemonic} relative encoding failed: {message}")
+                }
+            }
+        };
+
+        branch("bpl", 0x10);
+        branch("bmi", 0x30);
+        branch("bvc", 0x50);
+        branch("bvs", 0x70);
+        branch("bra", 0x80);
+        branch("bcc", 0x90);
+        branch("bcs", 0xB0);
+        branch("bne", 0xD0);
+        branch("beq", 0xF0);
+    }
+
+    #[test]
     fn resolves_jsr_indirect_forms() {
         let handler = M45GS02CpuHandler::new();
         let ctx = TestContext::default();
