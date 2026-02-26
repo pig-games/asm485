@@ -9,6 +9,7 @@
 //! - Extension table (8085-only instructions: RIM, SIM)
 
 pub mod extensions;
+pub mod formatter;
 pub mod handler;
 pub mod module;
 

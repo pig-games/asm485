@@ -12,9 +12,11 @@ use clap::Parser;
 use serde_json::json;
 
 use opforge::assembler::cli::{
-    validate_cli, Cli, DiagnosticsSinkConfig, DiagnosticsStyle, OutputFormat,
+    validate_cli, Cli, CliConfig, DiagnosticsSinkConfig, DiagnosticsStyle,
+    FormatterMode as CliFormatterMode, OutputFormat,
 };
 use opforge::core::assembler::error::{build_context_lines, Diagnostic, Severity};
+use opforge::formatter::{FormatMode, FormatterConfig, FormatterEngine};
 
 struct DiagnosticsSink {
     writer: Option<Box<dyn Write>>,
@@ -408,6 +410,92 @@ fn write_fixit_report(path: &Path, fixits: &[PlannedFixit], applied: bool) -> io
     std::fs::write(path, serialized)
 }
 
+fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
+    let Some(formatter) = cli_config.formatter.as_ref() else {
+        return Ok(0);
+    };
+    let formatter_config = if let Some(path) = formatter.config_path.as_deref() {
+        FormatterConfig::load_from_path(path)
+            .map_err(|err| format!("formatter config load failed: {err}"))?
+    } else {
+        FormatterConfig::default()
+    };
+    let engine = FormatterEngine::new(formatter_config);
+    let mode = match formatter.mode {
+        CliFormatterMode::Check => FormatMode::Check,
+        CliFormatterMode::Write => FormatMode::Write,
+        CliFormatterMode::Stdout => FormatMode::Stdout,
+    };
+
+    if mode == FormatMode::Stdout {
+        let input = cli_config
+            .input_paths
+            .first()
+            .ok_or_else(|| "--fmt-stdout requires exactly one input".to_string())?;
+        let rendered = engine
+            .format_path_to_string(input)
+            .map_err(|err| format!("formatter read failed: {err}"))?;
+        print!("{rendered}");
+        return Ok(0);
+    }
+
+    let report = engine
+        .run_paths_with_report(&cli_config.input_paths, mode)
+        .map_err(|err| format!("formatter run failed: {err}"))?;
+    let summary = report.summary;
+
+    for file in &report.files {
+        for diagnostic in &file.diagnostics {
+            eprintln!(
+                "fmt warning: {}:{}: {}",
+                file.path.display(),
+                diagnostic.line_number,
+                diagnostic.message
+            );
+        }
+    }
+
+    if cli_config.output_format == OutputFormat::Json {
+        println!(
+            "{}",
+            json!({
+                "schema": "opforge-formatter-v1",
+                "mode": match formatter.mode {
+                    CliFormatterMode::Check => "check",
+                    CliFormatterMode::Write => "write",
+                    CliFormatterMode::Stdout => "stdout",
+                },
+                "files_seen": summary.files_seen,
+                "files_changed": summary.files_changed,
+                "warnings": summary.warnings,
+                "files_with_warnings": summary.files_with_warnings,
+            })
+        );
+    } else {
+        match formatter.mode {
+            CliFormatterMode::Check => {
+                println!(
+                    "fmt: checked {} file(s), {} would change, {} warning(s)",
+                    summary.files_seen, summary.files_changed, summary.warnings
+                );
+            }
+            CliFormatterMode::Write => {
+                println!(
+                    "fmt: processed {} file(s), {} changed, {} warning(s)",
+                    summary.files_seen, summary.files_changed, summary.warnings
+                );
+            }
+            CliFormatterMode::Stdout => {}
+        }
+    }
+
+    if formatter.mode == CliFormatterMode::Check && summary.files_changed > 0 {
+        Ok(1)
+    } else {
+        Ok(0)
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     if cli.print_cpusupport {
@@ -433,6 +521,21 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if cli_config.formatter.is_some() {
+        match run_formatter_mode(&cli_config) {
+            Ok(code) => {
+                if code != 0 {
+                    std::process::exit(code);
+                }
+                return;
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     let mut sink = match DiagnosticsSink::from_config(&cli_config.diagnostics_sink) {
         Ok(sink) => sink,
@@ -503,6 +606,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use opforge::assembler::cli::{validate_cli, Cli as AsmCli};
     use opforge::core::assembler::error::{AsmError, AsmErrorKind};
     use std::fs;
     use std::process;
@@ -794,6 +899,246 @@ mod tests {
 
         let content = fs::read_to_string(&file).expect("read source");
         assert_eq!(content, "lda #2, y\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_check_returns_zero_for_clean_file() {
+        let dir = create_temp_dir("fmt-check");
+        let file = dir.join("input.asm");
+        fs::write(&file, "        lda #1\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-check",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn run_formatter_mode_check_returns_nonzero_for_unformatted_file() {
+        let dir = create_temp_dir("fmt-check-dirty");
+        let file = dir.join("input.asm");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-check",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn run_formatter_mode_write_updates_file_content() {
+        let dir = create_temp_dir("fmt-write");
+        let file = dir.join("input.asm");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_fmt_shorthand_updates_file_content() {
+        let dir = create_temp_dir("fmt-shorthand");
+        let file = dir.join("input.asm");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+
+        let cli = AsmCli::parse_from(["opForge", "--fmt", file.to_string_lossy().as_ref()]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_applies_fmt_config_overrides() {
+        let dir = create_temp_dir("fmt-config-write");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]\nlabel_alignment_column = 8\nmax_consecutive_blank_lines = 0\n",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_applies_style_config_overrides() {
+        let dir = create_temp_dir("fmt-style-config-write");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "Start: LDA #$ABCD, 1AFH ;c\n    STA $20\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]
+align_unlabeled_instructions = true
+label_colon_style = \"without\"
+label_case = \"lower\"
+mnemonic_case = \"lower\"
+hex_literal_case = \"lower\"
+",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start   lda #$abcd, 1afh  ;c\n        sta $20\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_splits_long_label_when_configured() {
+        let dir = create_temp_dir("fmt-style-config-split");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "VeryLongLabel lda #1\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]
+label_alignment_column = 8
+align_unlabeled_instructions = true
+split_long_label_instructions = true
+",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "VeryLongLabel\n        lda #1\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_applies_directive_and_register_case_overrides() {
+        let dir = create_temp_dir("fmt-style-config-directive-register");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, ".CpU z80\nLoop ld a,(ix+1)\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]
+directive_case = \"lower\"
+register_case = \"upper\"
+",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, ".cpu z80\nLoop    ld A, (IX+1)\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_does_not_autoload_default_config_file() {
+        let dir = create_temp_dir("fmt-config-no-autoload");
+        let file = dir.join("input.asm");
+        let default_config = dir.join(".opforgefmt.toml");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+        fs::write(&default_config, "[formatter]\nlabel_alignment_column = 8\n")
+            .expect("write default config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        // No implicit config discovery: defaults still apply without --fmt-config.
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_reports_invalid_fmt_config() {
+        let dir = create_temp_dir("fmt-config-invalid");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+        fs::write(&config_file, "unknown_key = true\n").expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-check",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let err = run_formatter_mode(&config).expect_err("invalid config should fail");
+        assert!(err.contains("formatter config load failed"));
+        assert!(err.contains("unknown key"));
     }
 
     fn create_temp_dir(label: &str) -> PathBuf {

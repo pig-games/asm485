@@ -11,6 +11,7 @@
 
 pub mod dialect;
 pub mod extensions;
+pub mod formatter;
 pub mod handler;
 pub mod module;
 
