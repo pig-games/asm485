@@ -175,23 +175,30 @@ pub struct Cli {
     )]
     pub print_cpusupport: bool,
     #[arg(
+        long = "fmt",
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["fmt_check", "fmt_write", "fmt_stdout"],
+        long_help = "Format input files in place. This is shorthand for --fmt-write."
+    )]
+    pub fmt: bool,
+    #[arg(
         long = "fmt-check",
         action = ArgAction::SetTrue,
-        conflicts_with_all = ["fmt_write", "fmt_stdout"],
+        conflicts_with_all = ["fmt", "fmt_write", "fmt_stdout"],
         long_help = "Check formatting for input files without writing changes."
     )]
     pub fmt_check: bool,
     #[arg(
         long = "fmt-write",
         action = ArgAction::SetTrue,
-        conflicts_with_all = ["fmt_check", "fmt_stdout"],
+        conflicts_with_all = ["fmt", "fmt_check", "fmt_stdout"],
         long_help = "Apply formatter changes in place for input files."
     )]
     pub fmt_write: bool,
     #[arg(
         long = "fmt-stdout",
         action = ArgAction::SetTrue,
-        conflicts_with_all = ["fmt_check", "fmt_write"],
+        conflicts_with_all = ["fmt", "fmt_check", "fmt_write"],
         long_help = "Format a single input file and write result to stdout."
     )]
     pub fmt_stdout: bool,
@@ -1084,7 +1091,9 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         env_fill_byte
     };
 
-    let formatter_mode = if cli.fmt_check {
+    let formatter_mode = if cli.fmt {
+        Some(FormatterMode::Write)
+    } else if cli.fmt_check {
         Some(FormatterMode::Check)
     } else if cli.fmt_write {
         Some(FormatterMode::Write)
@@ -1144,7 +1153,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 
     if cli.fmt_config.is_some() && formatter_mode.is_none() {
         return Err(cli_error(
-            "--fmt-config requires --fmt-check, --fmt-write, or --fmt-stdout",
+            "--fmt-config requires --fmt, --fmt-check, --fmt-write, or --fmt-stdout",
         ));
     }
 
@@ -1921,12 +1930,30 @@ mod tests {
     }
 
     #[test]
+    fn validate_cli_accepts_fmt_default_write_mode_with_infile() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "--fmt"]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let formatter = config.formatter.expect("formatter config");
+        assert_eq!(formatter.mode, FormatterMode::Write);
+        assert_eq!(config.input_paths, vec![PathBuf::from("prog.asm")]);
+    }
+
+    #[test]
+    fn validate_cli_accepts_fmt_default_write_mode_with_positional_input() {
+        let cli = Cli::parse_from(["opForge", "--fmt", "prog.asm"]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let formatter = config.formatter.expect("formatter config");
+        assert_eq!(formatter.mode, FormatterMode::Write);
+        assert_eq!(config.input_paths, vec![PathBuf::from("prog.asm")]);
+    }
+
+    #[test]
     fn validate_cli_rejects_fmt_config_without_formatter_mode() {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "--fmt-config", "fmt.toml"]);
         let err = validate_cli(&cli).expect_err("fmt-config without mode should fail");
         assert_eq!(
             err.to_string(),
-            "--fmt-config requires --fmt-check, --fmt-write, or --fmt-stdout"
+            "--fmt-config requires --fmt, --fmt-check, --fmt-write, or --fmt-stdout"
         );
     }
 

@@ -884,6 +884,21 @@ mod tests {
         assert_eq!(updated, "start:      lda #1, x  ;c\n");
     }
 
+    #[test]
+    fn run_formatter_mode_fmt_shorthand_updates_file_content() {
+        let dir = create_temp_dir("fmt-shorthand");
+        let file = dir.join("input.asm");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+
+        let cli = AsmCli::parse_from(["opForge", "--fmt", file.to_string_lossy().as_ref()]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:      lda #1, x  ;c\n");
+    }
+
     fn create_temp_dir(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
