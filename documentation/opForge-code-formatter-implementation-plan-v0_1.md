@@ -95,7 +95,7 @@ Progress update:
 
 ## [ ] Workstream B — Source-preserving analysis layer
 
-### [ ] Ticket FMT-003: Implement surface tokenizer with trivia retention
+### [x] Ticket FMT-003: Implement surface tokenizer with trivia retention
 Objective:
 - tokenize each line while preserving code/comment/whitespace trivia needed for re-render
 
@@ -118,6 +118,11 @@ Tests:
 
 Acceptance:
 - tokenizer round-trip reconstruction test passes for untouched mode.
+
+Progress update:
+- Added `src/formatter/surface_tokenizer.rs` with trivia-preserving line model (`SurfaceDocument`, `SurfaceLine`).
+- Implemented line ending retention (`LF`/`CRLF`/none), quote-aware comment splitting via shared core helper, and full source round-trip rendering.
+- Added tests for semicolon-in-string comment parsing, mixed tabs/spaces retention, and empty/whitespace-only lines.
 
 ---
 
