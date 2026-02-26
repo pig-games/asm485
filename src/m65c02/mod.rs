@@ -29,6 +29,7 @@
 //! - `BIT $abs,X` - Absolute,X for BIT instruction
 //! - `INC A`, `DEC A` - Accumulator mode for INC/DEC
 
+pub mod formatter;
 mod handler;
 pub mod instructions;
 pub mod module;

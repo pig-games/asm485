@@ -190,7 +190,7 @@ Progress update:
 
 ---
 
-### [ ] Ticket FMT-006: Formatting hook registry (family/dialect/cpu)
+### [x] Ticket FMT-006: Formatting hook registry (family/dialect/cpu)
 Objective:
 - provide modular extension points aligned with assembler layering
 
@@ -216,6 +216,18 @@ Tests:
 
 Acceptance:
 - all current registry CPUs resolve to formatter hook context without panic.
+
+Progress update:
+- Added `src/formatter/hooks.rs` and `src/formatter/hook_registry.rs` with explicit dialect/family/cpu/global hook traits and ordered dispatch.
+- Added no-op starter formatter adapters in family/CPU modules:
+  - `src/families/intel8080/formatter.rs`
+  - `src/families/mos6502/formatter.rs`
+  - `src/i8085/formatter.rs`
+  - `src/z80/formatter.rs`
+  - `src/m65c02/formatter.rs`
+  - `src/m65816/formatter.rs`
+  - `src/m45gs02/formatter.rs`
+- Added hook registry tests for all registered CPUs and deterministic dispatch ordering (`dialect -> family -> cpu -> global`).
 
 ---
 

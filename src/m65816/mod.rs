@@ -6,6 +6,7 @@
 //! This milestone adds the CPU registration and handler skeleton so `.cpu 65816`
 //! and its aliases resolve through the existing MOS 6502 family pipeline.
 
+pub mod formatter;
 mod handler;
 pub mod instructions;
 pub mod module;

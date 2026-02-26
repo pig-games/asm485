@@ -33,6 +33,7 @@
 //! - `($1234,X)` - Absolute Indexed Indirect (65C02 only)
 
 mod cpu_handler;
+pub mod formatter;
 mod handler;
 pub mod module;
 mod operand;

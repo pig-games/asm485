@@ -3,6 +3,7 @@
 
 //! 45GS02 CPU extension module.
 
+pub mod formatter;
 mod handler;
 pub mod instructions;
 pub mod module;
