@@ -5,11 +5,16 @@
 
 mod config;
 mod engine;
+mod state_tracker;
 mod surface_parser;
 mod surface_tokenizer;
 
 pub use config::FormatterConfig;
 pub use engine::{FormatMode, FormatterEngine, FormatterRunSummary};
+pub use state_tracker::{
+    ActivePipeline, LinePipelineState, StateTrackError, StateTrackWarning, StateTracker,
+    StateTrackerResult,
+};
 pub use surface_parser::{
     parse_document, parse_line, SurfaceLineKind, SurfaceParsedDocument, SurfaceParsedLine,
 };

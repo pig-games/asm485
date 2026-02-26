@@ -160,7 +160,7 @@ Progress update:
 
 ## [ ] Workstream C — Pipeline-aware formatting behavior
 
-### [ ] Ticket FMT-005: CPU/dialect state tracker
+### [x] Ticket FMT-005: CPU/dialect state tracker
 Objective:
 - track active CPU pipeline per line and expose resolved family/cpu/dialect metadata
 
@@ -182,6 +182,11 @@ Tests:
 
 Acceptance:
 - per-line resolved state snapshot tests are deterministic.
+
+Progress update:
+- Added `src/formatter/state_tracker.rs` with per-line pipeline tracking (`before`/`after` state snapshots) based on `.cpu` directives.
+- Implemented default formatter registry bootstrap aligned with current family/cpu registrations and CPU-default dialect lookup.
+- Added deterministic tests for mixed `.cpu` transitions, quoted CPU operands, unknown `.cpu` warnings with state preservation, and invalid initial CPU override errors.
 
 ---
 
