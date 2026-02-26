@@ -6,6 +6,32 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CaseStyle {
+    #[default]
+    Keep,
+    Upper,
+    Lower,
+}
+
+impl CaseStyle {
+    pub fn apply(self, value: &str) -> String {
+        match self {
+            CaseStyle::Keep => value.to_string(),
+            CaseStyle::Upper => value.to_ascii_uppercase(),
+            CaseStyle::Lower => value.to_ascii_lowercase(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LabelColonStyle {
+    #[default]
+    Keep,
+    With,
+    Without,
+}
+
 /// Formatter settings used by the formatting engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatterConfig {
@@ -13,6 +39,10 @@ pub struct FormatterConfig {
     pub preserve_final_newline: bool,
     pub label_alignment_column: usize,
     pub max_consecutive_blank_lines: usize,
+    pub label_colon_style: LabelColonStyle,
+    pub label_case: CaseStyle,
+    pub mnemonic_case: CaseStyle,
+    pub hex_literal_case: CaseStyle,
 }
 
 impl Default for FormatterConfig {
@@ -22,6 +52,10 @@ impl Default for FormatterConfig {
             preserve_final_newline: true,
             label_alignment_column: 12,
             max_consecutive_blank_lines: 1,
+            label_colon_style: LabelColonStyle::Keep,
+            label_case: CaseStyle::Keep,
+            mnemonic_case: CaseStyle::Keep,
+            hex_literal_case: CaseStyle::Keep,
         }
     }
 }
@@ -117,6 +151,16 @@ impl FormatterConfig {
                     config.max_consecutive_blank_lines =
                         parse_usize(path, line_no, key, value, false)?
                 }
+                "label_colon_style" => {
+                    config.label_colon_style = parse_label_colon_style(path, line_no, key, value)?
+                }
+                "label_case" => config.label_case = parse_case_style(path, line_no, key, value)?,
+                "mnemonic_case" | "opcode_case" => {
+                    config.mnemonic_case = parse_case_style(path, line_no, key, value)?
+                }
+                "hex_literal_case" => {
+                    config.hex_literal_case = parse_case_style(path, line_no, key, value)?
+                }
                 "profile" => {
                     let profile = parse_string(path, line_no, key, value)?;
                     if !profile.eq_ignore_ascii_case("safe-preserve") {
@@ -165,6 +209,7 @@ fn normalize_dedup_key(key: &str) -> String {
     match key {
         "code_column" => "label_alignment_column".to_string(),
         "max_blank_lines" => "max_consecutive_blank_lines".to_string(),
+        "opcode_case" => "mnemonic_case".to_string(),
         other => other.to_string(),
     }
 }
@@ -234,6 +279,44 @@ fn parse_string(
     Ok(value.to_string())
 }
 
+fn parse_case_style(
+    path: &Path,
+    line_no: usize,
+    key: &str,
+    value: &str,
+) -> Result<CaseStyle, FormatterConfigError> {
+    let normalized = parse_string(path, line_no, key, value)?;
+    match normalized.to_ascii_lowercase().as_str() {
+        "keep" => Ok(CaseStyle::Keep),
+        "upper" => Ok(CaseStyle::Upper),
+        "lower" => Ok(CaseStyle::Lower),
+        _ => Err(config_error(
+            path,
+            line_no,
+            format!("invalid case style for '{}': {}", key, value),
+        )),
+    }
+}
+
+fn parse_label_colon_style(
+    path: &Path,
+    line_no: usize,
+    key: &str,
+    value: &str,
+) -> Result<LabelColonStyle, FormatterConfigError> {
+    let normalized = parse_string(path, line_no, key, value)?;
+    match normalized.to_ascii_lowercase().as_str() {
+        "keep" => Ok(LabelColonStyle::Keep),
+        "with" => Ok(LabelColonStyle::With),
+        "without" => Ok(LabelColonStyle::Without),
+        _ => Err(config_error(
+            path,
+            line_no,
+            format!("invalid label colon style for '{}': {}", key, value),
+        )),
+    }
+}
+
 fn strip_toml_comment(line: &str) -> &str {
     let mut in_single = false;
     let mut in_double = false;
@@ -257,7 +340,7 @@ fn strip_toml_comment(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{FormatterConfig, FormatterConfigError};
+    use super::{CaseStyle, FormatterConfig, FormatterConfigError, LabelColonStyle};
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -271,6 +354,10 @@ mod tests {
         assert!(cfg.preserve_final_newline);
         assert_eq!(cfg.label_alignment_column, 12);
         assert_eq!(cfg.max_consecutive_blank_lines, 1);
+        assert_eq!(cfg.label_colon_style, LabelColonStyle::Keep);
+        assert_eq!(cfg.label_case, CaseStyle::Keep);
+        assert_eq!(cfg.mnemonic_case, CaseStyle::Keep);
+        assert_eq!(cfg.hex_literal_case, CaseStyle::Keep);
     }
 
     #[test]
@@ -298,11 +385,19 @@ max_consecutive_blank_lines = 2
 profile = \"safe-preserve\"
 code_column = 10
 max_blank_lines = 0
+label_colon_style = \"without\"
+label_case = \"lower\"
+opcode_case = \"lower\"
+hex_literal_case = \"lower\"
 ",
         );
         let cfg = FormatterConfig::load_from_path(&path).expect("load config");
         assert_eq!(cfg.label_alignment_column, 10);
         assert_eq!(cfg.max_consecutive_blank_lines, 0);
+        assert_eq!(cfg.label_colon_style, LabelColonStyle::Without);
+        assert_eq!(cfg.label_case, CaseStyle::Lower);
+        assert_eq!(cfg.mnemonic_case, CaseStyle::Lower);
+        assert_eq!(cfg.hex_literal_case, CaseStyle::Lower);
     }
 
     #[test]
@@ -337,6 +432,20 @@ code_column = 9
         );
         let err = FormatterConfig::load_from_path(&path).expect_err("duplicate should fail");
         assert_error_contains(&err, "duplicate key 'code_column'");
+    }
+
+    #[test]
+    fn load_from_path_rejects_invalid_case_style() {
+        let path = create_temp_config("bad-case", "mnemonic_case = \"camel\"\n");
+        let err = FormatterConfig::load_from_path(&path).expect_err("invalid case style");
+        assert_error_contains(&err, "invalid case style");
+    }
+
+    #[test]
+    fn load_from_path_rejects_invalid_label_colon_style() {
+        let path = create_temp_config("bad-colon", "label_colon_style = \"always\"\n");
+        let err = FormatterConfig::load_from_path(&path).expect_err("invalid colon style");
+        assert_error_contains(&err, "invalid label colon style");
     }
 
     fn assert_error_contains(err: &FormatterConfigError, needle: &str) {

@@ -438,7 +438,7 @@ If any formatter snapshots are intentionally updated:
 ---
 
 ## Deferred to Phase 2+
-- configurable casing transforms (`upper/lower`) as active rewrite policy
+- additional style transforms beyond current opt-in label/mnemonic/hex casing and label-colon controls
 - advanced alignment profiles
 - dialect canonicalization rewrite modes
 - shared fixit plumbing integration

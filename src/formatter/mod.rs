@@ -16,7 +16,7 @@ mod state_tracker;
 mod surface_parser;
 mod surface_tokenizer;
 
-pub use config::FormatterConfig;
+pub use config::{CaseStyle, FormatterConfig, LabelColonStyle};
 pub use diagnostics::{collect_fallback_diagnostics, FormatterDiagnostic};
 pub use engine::{
     FormatMode, FormatterEngine, FormatterFileReport, FormatterOutput, FormatterRunReport,

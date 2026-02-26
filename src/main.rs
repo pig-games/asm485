@@ -933,6 +933,39 @@ mod tests {
     }
 
     #[test]
+    fn run_formatter_mode_write_applies_style_config_overrides() {
+        let dir = create_temp_dir("fmt-style-config-write");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "Start: LDA #$ABCD, 1AFH ;c\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]
+label_colon_style = \"without\"
+label_case = \"lower\"
+mnemonic_case = \"lower\"
+hex_literal_case = \"lower\"
+",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start       lda #$abcd, 1afh  ;c\n");
+    }
+
+    #[test]
     fn run_formatter_mode_does_not_autoload_default_config_file() {
         let dir = create_temp_dir("fmt-config-no-autoload");
         let file = dir.join("input.asm");
