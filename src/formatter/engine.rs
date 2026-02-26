@@ -5,7 +5,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::FormatterConfig;
+use super::{parse_document, plan_document, render_plan, tokenize_source, FormatterConfig};
 
 /// Formatter execution mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,10 +23,6 @@ pub struct FormatterRunSummary {
 }
 
 /// Phase-1 formatter engine.
-///
-/// The implementation is intentionally conservative and semantic-preserving:
-/// it currently performs passthrough formatting while the source-preserving
-/// tokenizer/parser/planner are implemented.
 #[derive(Debug, Clone)]
 pub struct FormatterEngine {
     config: FormatterConfig,
@@ -42,8 +38,10 @@ impl FormatterEngine {
     }
 
     pub fn format_source(&self, source: &str) -> String {
-        let _ = &self.config;
-        source.to_string()
+        let doc = tokenize_source(source);
+        let parsed = parse_document(&doc);
+        let plan = plan_document(&doc, &parsed, &self.config);
+        render_plan(&plan, &doc, &self.config)
     }
 
     pub fn format_path_to_string(&self, path: &Path) -> io::Result<String> {
@@ -84,10 +82,22 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn format_source_is_passthrough_in_phase1() {
+    fn format_source_applies_safe_profile_normalization() {
         let engine = FormatterEngine::new(FormatterConfig::default());
-        let source = "start:  lda #$10   ; comment\n";
-        assert_eq!(engine.format_source(source), source);
+        let source = "start:  lda #$10,x ; comment\n";
+        assert_eq!(
+            engine.format_source(source),
+            "start:      lda #$10, x  ; comment\n"
+        );
+    }
+
+    #[test]
+    fn format_source_is_idempotent() {
+        let engine = FormatterEngine::new(FormatterConfig::default());
+        let source = "start:  lda #$10,x ; comment\n\n\n";
+        let once = engine.format_source(source);
+        let twice = engine.format_source(&once);
+        assert_eq!(once, twice);
     }
 
     #[test]
@@ -103,12 +113,22 @@ mod tests {
 
     #[test]
     fn format_path_to_string_returns_file_contents() {
-        let file = create_temp_file("path-to-string", "nop\n");
+        let file = create_temp_file("path-to-string", "start:  nop ;x\n");
         let engine = FormatterEngine::new(FormatterConfig::default());
         let output = engine
             .format_path_to_string(&file)
             .expect("format path to string");
-        assert_eq!(output, "nop\n");
+        assert_eq!(output, "start:      nop  ;x\n");
+    }
+
+    #[test]
+    fn format_source_can_normalize_line_endings_when_configured() {
+        let engine = FormatterEngine::new(FormatterConfig {
+            preserve_line_endings: false,
+            ..FormatterConfig::default()
+        });
+        let source = "start:  nop ;x\r\n";
+        assert_eq!(engine.format_source(source), "start:      nop  ;x\n");
     }
 
     fn create_temp_file(label: &str, content: &str) -> PathBuf {

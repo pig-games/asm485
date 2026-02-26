@@ -231,7 +231,7 @@ Progress update:
 
 ---
 
-## [ ] Workstream D — Planner/renderer and safe profile
+## [x] Workstream D — Planner/renderer and safe profile
 
 ### [x] Ticket FMT-007: Planner for safe-preserve normalization
 Objective:
@@ -269,7 +269,7 @@ Progress update:
 
 ---
 
-### [ ] Ticket FMT-008: Renderer and idempotence contract
+### [x] Ticket FMT-008: Renderer and idempotence contract
 Objective:
 - render planned output with stable newline and spacing policy
 
@@ -287,6 +287,15 @@ Tests:
 
 Acceptance:
 - idempotence property tests pass for all Phase 1 fixtures.
+
+Progress update:
+- Added `src/formatter/renderer.rs` and integrated renderer flow into `FormatterEngine::format_source`.
+- Formatter engine now runs `tokenize -> parse -> plan -> render` in Phase 1 safe profile mode.
+- Implemented renderer line-ending behavior:
+  - preserve per-line endings by default
+  - optional normalization to `LF` when configured
+  - final newline policy controlled by config
+- Added idempotence and newline-behavior tests across `engine` and `renderer`.
 
 ---
 

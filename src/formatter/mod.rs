@@ -8,6 +8,7 @@ mod engine;
 mod hook_registry;
 mod hooks;
 mod planner;
+mod renderer;
 mod state_tracker;
 mod surface_parser;
 mod surface_tokenizer;
@@ -20,6 +21,7 @@ pub use hooks::{
     FormatterHookContext, GlobalFormatterHook, NoopGlobalFormatterHook,
 };
 pub use planner::{plan_document, FormatPlan, PlannedLine};
+pub use renderer::render_plan;
 pub use state_tracker::{
     ActivePipeline, LinePipelineState, StateTrackError, StateTrackWarning, StateTracker,
     StateTrackerResult,
