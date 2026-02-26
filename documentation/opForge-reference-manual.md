@@ -785,6 +785,9 @@ Validation is strict:
 - without `--fmt-config`, formatter runs always use built-in defaults and do not
   auto-discover `.opforgefmt.toml`
 
+V2 note: `label_case` is planned to become symbol-aware so label usage tokens
+are case-normalized alongside label definitions.
+
 ## 8. Messages
 
 Diagnostics include a line/column and a highlighted span in listings. Terminal

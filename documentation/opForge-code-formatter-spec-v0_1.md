@@ -245,6 +245,8 @@ Phase 1: Core safe formatter
 Phase 2: Optional style controls
 - casing controls for mnemonics/registers/directives
 - comment/alignment profiles
+- symbol-aware label casing so `label_case` updates label usages along with
+  label definitions
 
 Phase 3: Opt-in dialect canonicalization
 - explicit rewrite mode with preview/check support

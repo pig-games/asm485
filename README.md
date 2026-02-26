@@ -286,6 +286,8 @@ split_long_label_instructions = true
 values, and unsupported profile values are reported as formatter errors.
 Without `--fmt-config`, opForge always uses built-in formatter defaults and does
 not auto-discover `.opforgefmt.toml`.
+V2 note: `label_case` is planned to become symbol-aware so label usage tokens
+are case-normalized alongside label definitions.
 
 ## Linker Regions Workflow
 

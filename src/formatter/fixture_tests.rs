@@ -102,6 +102,18 @@ fn register_case_fixture_applies_when_enabled() {
     assert_eq!(output.rendered, expected);
 }
 
+#[test]
+fn label_case_fixture_changes_definition_without_rewriting_usages() {
+    let engine = FormatterEngine::new(FormatterConfig {
+        label_case: super::CaseStyle::Lower,
+        ..FormatterConfig::default()
+    });
+    let input = read_fixture("label_case_usage", "input");
+    let expected = read_fixture("label_case_usage", "expected");
+    let output = engine.format_source_with_diagnostics(&input);
+    assert_eq!(output.rendered, expected);
+}
+
 fn read_fixture(stem: &str, kind: &str) -> String {
     let path = fixture_path(stem, kind);
     fs::read_to_string(&path).unwrap_or_else(|err| {
