@@ -12,9 +12,11 @@ use clap::Parser;
 use serde_json::json;
 
 use opforge::assembler::cli::{
-    validate_cli, Cli, DiagnosticsSinkConfig, DiagnosticsStyle, OutputFormat,
+    validate_cli, Cli, CliConfig, DiagnosticsSinkConfig, DiagnosticsStyle,
+    FormatterMode as CliFormatterMode, OutputFormat,
 };
 use opforge::core::assembler::error::{build_context_lines, Diagnostic, Severity};
+use opforge::formatter::{FormatMode, FormatterConfig, FormatterEngine};
 
 struct DiagnosticsSink {
     writer: Option<Box<dyn Write>>,
@@ -408,6 +410,73 @@ fn write_fixit_report(path: &Path, fixits: &[PlannedFixit], applied: bool) -> io
     std::fs::write(path, serialized)
 }
 
+fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
+    let Some(formatter) = cli_config.formatter.as_ref() else {
+        return Ok(0);
+    };
+    let _ = formatter.config_path.as_ref();
+    let engine = FormatterEngine::new(FormatterConfig::default());
+    let mode = match formatter.mode {
+        CliFormatterMode::Check => FormatMode::Check,
+        CliFormatterMode::Write => FormatMode::Write,
+        CliFormatterMode::Stdout => FormatMode::Stdout,
+    };
+
+    if mode == FormatMode::Stdout {
+        let input = cli_config
+            .input_paths
+            .first()
+            .ok_or_else(|| "--fmt-stdout requires exactly one input".to_string())?;
+        let rendered = engine
+            .format_path_to_string(input)
+            .map_err(|err| format!("formatter read failed: {err}"))?;
+        print!("{rendered}");
+        return Ok(0);
+    }
+
+    let summary = engine
+        .run_paths(&cli_config.input_paths, mode)
+        .map_err(|err| format!("formatter run failed: {err}"))?;
+
+    if cli_config.output_format == OutputFormat::Json {
+        println!(
+            "{}",
+            json!({
+                "schema": "opforge-formatter-v1",
+                "mode": match formatter.mode {
+                    CliFormatterMode::Check => "check",
+                    CliFormatterMode::Write => "write",
+                    CliFormatterMode::Stdout => "stdout",
+                },
+                "files_seen": summary.files_seen,
+                "files_changed": summary.files_changed,
+            })
+        );
+    } else {
+        match formatter.mode {
+            CliFormatterMode::Check => {
+                println!(
+                    "fmt: checked {} file(s), {} would change",
+                    summary.files_seen, summary.files_changed
+                );
+            }
+            CliFormatterMode::Write => {
+                println!(
+                    "fmt: processed {} file(s), {} changed",
+                    summary.files_seen, summary.files_changed
+                );
+            }
+            CliFormatterMode::Stdout => {}
+        }
+    }
+
+    if formatter.mode == CliFormatterMode::Check && summary.files_changed > 0 {
+        Ok(1)
+    } else {
+        Ok(0)
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     if cli.print_cpusupport {
@@ -433,6 +502,21 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if cli_config.formatter.is_some() {
+        match run_formatter_mode(&cli_config) {
+            Ok(code) => {
+                if code != 0 {
+                    std::process::exit(code);
+                }
+                return;
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     let mut sink = match DiagnosticsSink::from_config(&cli_config.diagnostics_sink) {
         Ok(sink) => sink,
@@ -503,6 +587,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use opforge::assembler::cli::{validate_cli, Cli as AsmCli};
     use opforge::core::assembler::error::{AsmError, AsmErrorKind};
     use std::fs;
     use std::process;
@@ -728,6 +814,23 @@ mod tests {
             err.to_string().contains("stale source detected"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn run_formatter_mode_check_returns_zero_for_passthrough_engine() {
+        let dir = create_temp_dir("fmt-check");
+        let file = dir.join("input.asm");
+        fs::write(&file, "lda #1\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-check",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
     }
 
     fn create_temp_dir(label: &str) -> PathBuf {

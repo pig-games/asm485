@@ -16,6 +16,7 @@
 pub mod assembler;
 pub mod core;
 pub mod families;
+pub mod formatter;
 pub mod i8085;
 pub mod m45gs02;
 pub mod m65816;

@@ -175,6 +175,33 @@ pub struct Cli {
     )]
     pub print_cpusupport: bool,
     #[arg(
+        long = "fmt-check",
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["fmt_write", "fmt_stdout"],
+        long_help = "Check formatting for input files without writing changes."
+    )]
+    pub fmt_check: bool,
+    #[arg(
+        long = "fmt-write",
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["fmt_check", "fmt_stdout"],
+        long_help = "Apply formatter changes in place for input files."
+    )]
+    pub fmt_write: bool,
+    #[arg(
+        long = "fmt-stdout",
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["fmt_check", "fmt_write"],
+        long_help = "Format a single input file and write result to stdout."
+    )]
+    pub fmt_stdout: bool,
+    #[arg(
+        long = "fmt-config",
+        value_name = "FILE",
+        long_help = "Formatter config file path (used with formatter mode flags)."
+    )]
+    pub fmt_config: Option<PathBuf>,
+    #[arg(
         long = "cpu",
         value_name = "ID",
         long_help = "Select initial CPU profile before parsing source directives. In-source .cpu directives can still override later."
@@ -417,6 +444,19 @@ pub enum DiagnosticsStyle {
     #[default]
     Classic,
     Rustc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatterMode {
+    Check,
+    Write,
+    Stdout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatterOptions {
+    pub mode: FormatterMode,
+    pub config_path: Option<PathBuf>,
 }
 
 pub fn is_valid_hex_4(s: &str) -> bool {
@@ -1044,6 +1084,16 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         env_fill_byte
     };
 
+    let formatter_mode = if cli.fmt_check {
+        Some(FormatterMode::Check)
+    } else if cli.fmt_write {
+        Some(FormatterMode::Write)
+    } else if cli.fmt_stdout {
+        Some(FormatterMode::Stdout)
+    } else {
+        None
+    };
+
     let effective_pp_macro_depth = if cli.pp_macro_depth != 64 {
         cli.pp_macro_depth
     } else {
@@ -1091,6 +1141,87 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             Vec::new(),
         ));
     };
+
+    if cli.fmt_config.is_some() && formatter_mode.is_none() {
+        return Err(cli_error(
+            "--fmt-config requires --fmt-check, --fmt-write, or --fmt-stdout",
+        ));
+    }
+
+    if formatter_mode.is_some() {
+        if cli.apply_fixits || cli.fixits_dry_run || cli.fixits_output.is_some() {
+            return Err(cli_error(
+                "Formatter mode cannot be combined with fixit options",
+            ));
+        }
+        if cli.list_name.is_some()
+            || cli.hex_name.is_some()
+            || !cli.bin_outputs.is_empty()
+            || cli.go_addr.is_some()
+            || cli.outfile.is_some()
+            || cli.fill_byte.is_some()
+            || cli.dependencies_file.is_some()
+            || cli.dependencies_append
+            || cli.make_phony
+            || cli.labels_file.is_some()
+            || cli.vice_labels
+            || cli.ctags_labels
+        {
+            return Err(cli_error(
+                "Formatter mode cannot be combined with assembler output options",
+            ));
+        }
+        if formatter_mode == Some(FormatterMode::Stdout) && input_paths.len() != 1 {
+            return Err(cli_error("--fmt-stdout requires exactly one input"));
+        }
+        return Ok(CliConfig {
+            input_paths,
+            input_extensions,
+            cpu_override: effective_cpu,
+            defines: effective_defines,
+            go_addr: None,
+            bin_specs: Vec::new(),
+            fill_byte: 0xff,
+            fill_byte_set: false,
+            out_dir: None,
+            include_paths: effective_include_paths,
+            module_paths: effective_module_paths,
+            quiet: effective_quiet,
+            line_numbers: effective_line_numbers,
+            tab_size: effective_tab_size,
+            verbose_list: effective_verbose_list,
+            debug_conditionals: effective_cond_debug,
+            output_format: cli.format,
+            diagnostics_style: cli.diagnostics_style,
+            fixits_dry_run: false,
+            apply_fixits: false,
+            fixits_output: None,
+            diagnostics_sink: if effective_no_error {
+                DiagnosticsSinkConfig::Disabled
+            } else if let Some(path) = &effective_error_file {
+                DiagnosticsSinkConfig::File {
+                    path: path.clone(),
+                    append: effective_error_append,
+                }
+            } else {
+                DiagnosticsSinkConfig::Stderr
+            },
+            warning_policy: WarningPolicy {
+                emit_warnings: !effective_no_warn,
+                enable_all_warnings: effective_warn_all,
+                treat_warnings_as_errors: effective_warn_error,
+            },
+            labels_file: None,
+            label_output_format: LabelOutputFormat::Default,
+            dependency_output: None,
+            pp_macro_depth: effective_pp_macro_depth,
+            default_outputs: false,
+            formatter: formatter_mode.map(|mode| FormatterOptions {
+                mode,
+                config_path: cli.fmt_config.clone(),
+            }),
+        });
+    }
 
     let list_requested = cli.list_name.is_some();
     let hex_requested = cli.hex_name.is_some();
@@ -1326,6 +1457,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         }),
         pp_macro_depth: effective_pp_macro_depth,
         default_outputs,
+        formatter: None,
     })
 }
 
@@ -1360,6 +1492,7 @@ pub struct CliConfig {
     pub dependency_output: Option<DependencyOutputPolicy>,
     pub pp_macro_depth: usize,
     pub default_outputs: bool,
+    pub formatter: Option<FormatterOptions>,
 }
 
 #[cfg(test)]
@@ -1775,6 +1908,42 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Invalid -g/--go address; must be 4-8 hex digits"
+        );
+    }
+
+    #[test]
+    fn validate_cli_accepts_fmt_check_mode() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "--fmt-check"]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let formatter = config.formatter.expect("formatter config");
+        assert_eq!(formatter.mode, FormatterMode::Check);
+        assert!(formatter.config_path.is_none());
+    }
+
+    #[test]
+    fn validate_cli_rejects_fmt_config_without_formatter_mode() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "--fmt-config", "fmt.toml"]);
+        let err = validate_cli(&cli).expect_err("fmt-config without mode should fail");
+        assert_eq!(
+            err.to_string(),
+            "--fmt-config requires --fmt-check, --fmt-write, or --fmt-stdout"
+        );
+    }
+
+    #[test]
+    fn validate_cli_rejects_fmt_stdout_for_multiple_inputs() {
+        let cli = Cli::parse_from(["opForge", "-i", "a.asm", "-i", "b.asm", "--fmt-stdout"]);
+        let err = validate_cli(&cli).expect_err("fmt-stdout requires one input");
+        assert_eq!(err.to_string(), "--fmt-stdout requires exactly one input");
+    }
+
+    #[test]
+    fn validate_cli_rejects_formatter_mode_with_assembler_outputs() {
+        let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "--fmt-check", "-l"]);
+        let err = validate_cli(&cli).expect_err("fmt mode with output flags should fail");
+        assert_eq!(
+            err.to_string(),
+            "Formatter mode cannot be combined with assembler output options"
         );
     }
 

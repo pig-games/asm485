@@ -33,9 +33,9 @@ Done when:
 
 ---
 
-## Workstream A — Foundation and wiring
+## [x] Workstream A — Foundation and wiring
 
-### Ticket FMT-001: Create formatter module skeleton
+### [x] Ticket FMT-001: Create formatter module skeleton
 Objective:
 - establish formatter package layout and public API without behavior changes outside formatter paths
 
@@ -56,9 +56,13 @@ Tests:
 Acceptance:
 - code compiles with formatter module present and unused by CLI.
 
+Progress update:
+- Added `src/formatter/` skeleton (`mod.rs`, `config.rs`, `engine.rs`) with no-op Phase 1 engine and unit tests.
+- Exported formatter module from `src/lib.rs`.
+
 ---
 
-### Ticket FMT-002: Add CLI entrypoint for formatter
+### [x] Ticket FMT-002: Add CLI entrypoint for formatter
 Objective:
 - expose formatter invocation mode with explicit check/write/stdout behaviors
 
@@ -82,11 +86,16 @@ Tests:
 Acceptance:
 - user can invoke formatter mode from CLI and receive deterministic exit codes.
 
+Progress update:
+- Added `--fmt-check`, `--fmt-write`, `--fmt-stdout`, and `--fmt-config`.
+- Added formatter-mode CLI validation (conflicts, stdout single-input restriction, config flag requirement).
+- Wired formatter-mode execution path in `src/main.rs` to short-circuit assembler execution.
+
 ---
 
-## Workstream B — Source-preserving analysis layer
+## [ ] Workstream B — Source-preserving analysis layer
 
-### Ticket FMT-003: Implement surface tokenizer with trivia retention
+### [ ] Ticket FMT-003: Implement surface tokenizer with trivia retention
 Objective:
 - tokenize each line while preserving code/comment/whitespace trivia needed for re-render
 
@@ -112,7 +121,7 @@ Acceptance:
 
 ---
 
-### Ticket FMT-004: Implement surface line parser
+### [ ] Ticket FMT-004: Implement surface line parser
 Objective:
 - parse line envelopes for formatting decisions while retaining original lexemes
 
@@ -139,9 +148,9 @@ Acceptance:
 
 ---
 
-## Workstream C — Pipeline-aware formatting behavior
+## [ ] Workstream C — Pipeline-aware formatting behavior
 
-### Ticket FMT-005: CPU/dialect state tracker
+### [ ] Ticket FMT-005: CPU/dialect state tracker
 Objective:
 - track active CPU pipeline per line and expose resolved family/cpu/dialect metadata
 
@@ -166,7 +175,7 @@ Acceptance:
 
 ---
 
-### Ticket FMT-006: Formatting hook registry (family/dialect/cpu)
+### [ ] Ticket FMT-006: Formatting hook registry (family/dialect/cpu)
 Objective:
 - provide modular extension points aligned with assembler layering
 
@@ -195,9 +204,9 @@ Acceptance:
 
 ---
 
-## Workstream D — Planner/renderer and safe profile
+## [ ] Workstream D — Planner/renderer and safe profile
 
-### Ticket FMT-007: Planner for safe-preserve normalization
+### [ ] Ticket FMT-007: Planner for safe-preserve normalization
 Objective:
 - compute normalized line formatting plan under safe constraints
 
@@ -222,7 +231,7 @@ Acceptance:
 
 ---
 
-### Ticket FMT-008: Renderer and idempotence contract
+### [ ] Ticket FMT-008: Renderer and idempotence contract
 Objective:
 - render planned output with stable newline and spacing policy
 
@@ -243,9 +252,9 @@ Acceptance:
 
 ---
 
-## Workstream E — Diagnostics, fallback, and reporting
+## [ ] Workstream E — Diagnostics, fallback, and reporting
 
-### Ticket FMT-009: Formatter diagnostics and fallback path
+### [ ] Ticket FMT-009: Formatter diagnostics and fallback path
 Objective:
 - fail safely per line, never destroy ambiguous source
 
@@ -268,7 +277,7 @@ Acceptance:
 
 ---
 
-### Ticket FMT-010: Check/write/stdout modes and report output
+### [ ] Ticket FMT-010: Check/write/stdout modes and report output
 Objective:
 - finalize operational UX for local/editor/CI use
 
@@ -334,10 +343,10 @@ Rationale:
 
 ## Phase 1 completion gate
 Required final verification run:
-- `cargo fmt --all`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo audit`
-- `make test`
+- [ ] `cargo fmt --all`
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
+- [ ] `cargo audit`
+- [ ] `make test`
 
 If any formatter snapshots are intentionally updated:
 1. run tests first without snapshot updates
