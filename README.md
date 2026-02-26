@@ -187,6 +187,11 @@ Arguments:
     --fixits-dry-run             Plan machine-applicable fixits without writing files.
     --apply-fixits               Apply machine-applicable fixits.
     --fixits-output <FILE>       Write fixit planning/apply report JSON to FILE.
+    --fmt                        Format input files in place (shorthand for --fmt-write).
+    --fmt-check                  Check formatting for input files without writing changes.
+    --fmt-write                  Apply formatter changes in place for input files.
+    --fmt-stdout                 Format exactly one input file and write result to stdout.
+    --fmt-config <FILE>          Formatter config path (requires a formatter mode flag).
     --cpu <ID>                   Set initial CPU before parsing source directives.
     --print-capabilities         Print deterministic capability metadata and exit.
     --print-cpusupport           Print deterministic CPU support metadata and exit.
@@ -208,6 +213,8 @@ Address record for wider values in the output hex file.
 If `test.asm` is specified as the input with `-i` and `-l`/`-x` are used without filenames (and `-o` is not used), the outputs will be named `test.lst` and `test.hex`. Bytes not present in the assembly source are initialized to `FF` in binary image files.
 
 When multiple inputs are provided, `-o` must be a directory and explicit output filenames are not allowed; each input uses its own base name under the output directory.
+Formatter mode (`--fmt`, `--fmt-check`, `--fmt-write`, `--fmt-stdout`) requires at least one input and cannot be combined with assembler output flags or fixit options.
+`--fmt-stdout` requires exactly one input.
 
 ### Examples
     opForge -l -x -i test02.asm
@@ -237,6 +244,15 @@ creates:
 creates:
 * A hex file with wide-address records (ELA + start linear address)
 * A binary image file out.bin covering `$123400..$12341F`
+
+    opForge --fmt prog.asm
+formats `prog.asm` in place.
+
+    opForge --fmt-check -i prog.asm
+checks formatting and exits non-zero when changes are required.
+
+    opForge --fmt-stdout -i prog.asm
+prints formatted source to stdout.
 
 ## Linker Regions Workflow
 

@@ -87,7 +87,7 @@ Acceptance:
 - user can invoke formatter mode from CLI and receive deterministic exit codes.
 
 Progress update:
-- Added `--fmt-check`, `--fmt-write`, `--fmt-stdout`, and `--fmt-config`.
+- Added `--fmt` (shorthand for write mode), `--fmt-check`, `--fmt-write`, `--fmt-stdout`, and `--fmt-config`.
 - Added formatter-mode CLI validation (conflicts, stdout single-input restriction, config flag requirement).
 - Wired formatter-mode execution path in `src/main.rs` to short-circuit assembler execution.
 

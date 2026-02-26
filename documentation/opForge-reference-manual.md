@@ -732,6 +732,11 @@ Other options:
 - `-w, --no-warn`: suppress warning diagnostics.
 - `--Wall`: enable all warning classes (reserved for future groups).
 - `--Werror`: treat warnings as errors.
+- `--fmt`: format input files in place (shorthand for `--fmt-write`).
+- `--fmt-check`: check formatting for input files without writing changes.
+- `--fmt-write`: apply formatter changes in place for input files.
+- `--fmt-stdout`: format exactly one input file and write the result to stdout.
+- `--fmt-config <FILE>`: formatter config file path (requires a formatter mode flag).
 - `--cpu <ID>`: select initial CPU before source parsing (`.cpu` in source can still override later).
 - `--print-capabilities`: print deterministic capability metadata and exit.
 - `--print-cpusupport`: print deterministic CPU support metadata and exit.
@@ -748,6 +753,8 @@ Notes:
 - With multiple inputs, at least one output type (`-l`, `-x`, `-b`) must be selected.
 - If no outputs are specified for a single input, opForge defaults to list+hex
   when `.meta.output.name` (or `-o`) is available; otherwise output selection is required.
+- Formatter mode (`--fmt`, `--fmt-check`, `--fmt-write`, `--fmt-stdout`) requires at least one input and cannot be combined with assembler output flags or fixit options.
+- `--fmt-stdout` requires exactly one input.
 - `-b` without a range emits a binary that spans the emitted output.
 - `-g` writes a Start Segment Address record for 16-bit values and a Start Linear Address record for wider values.
 
