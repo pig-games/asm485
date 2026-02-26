@@ -93,7 +93,7 @@ Progress update:
 
 ---
 
-## [ ] Workstream B — Source-preserving analysis layer
+## [x] Workstream B — Source-preserving analysis layer
 
 ### [x] Ticket FMT-003: Implement surface tokenizer with trivia retention
 Objective:
@@ -126,7 +126,7 @@ Progress update:
 
 ---
 
-### [ ] Ticket FMT-004: Implement surface line parser
+### [x] Ticket FMT-004: Implement surface line parser
 Objective:
 - parse line envelopes for formatting decisions while retaining original lexemes
 
@@ -150,6 +150,11 @@ Tests:
 
 Acceptance:
 - parser classifies representative lines from each CPU family test corpus.
+
+Progress update:
+- Added `src/formatter/surface_parser.rs` with `SurfaceLineKind` classification and `SurfaceParsedLine` fallback marker support.
+- Implemented parser envelope classification for empty/comment-only/label-only/directive/instruction/assignment/unparsed lines while retaining raw code lexemes.
+- Added tests for label-with-colon, label-without-colon, directive/instruction classification, fallback marking, and document-level parsing.
 
 ---
 
