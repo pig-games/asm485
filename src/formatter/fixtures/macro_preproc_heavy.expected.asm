@@ -1,5 +1,5 @@
 .macro INC_A
-    inr a
+            inr a
 .endmacro
 .ifdef FLAG
 INC_A ; macro call
