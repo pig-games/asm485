@@ -7,6 +7,7 @@ mod config;
 mod engine;
 mod hook_registry;
 mod hooks;
+mod planner;
 mod state_tracker;
 mod surface_parser;
 mod surface_tokenizer;
@@ -18,6 +19,7 @@ pub use hooks::{
     CpuFormatterHook, DialectFormatterHook, FamilyFormatterHook, FormatterHints,
     FormatterHookContext, GlobalFormatterHook, NoopGlobalFormatterHook,
 };
+pub use planner::{plan_document, FormatPlan, PlannedLine};
 pub use state_tracker::{
     ActivePipeline, LinePipelineState, StateTrackError, StateTrackWarning, StateTracker,
     StateTrackerResult,

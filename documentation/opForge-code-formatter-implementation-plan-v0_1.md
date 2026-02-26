@@ -233,7 +233,7 @@ Progress update:
 
 ## [ ] Workstream D — Planner/renderer and safe profile
 
-### [ ] Ticket FMT-007: Planner for safe-preserve normalization
+### [x] Ticket FMT-007: Planner for safe-preserve normalization
 Objective:
 - compute normalized line formatting plan under safe constraints
 
@@ -255,6 +255,17 @@ Tests:
 
 Acceptance:
 - planner produces deterministic edit plans for mixed-family fixture files.
+
+Progress update:
+- Added `src/formatter/planner.rs` with a deterministic planning layer (`plan_document`) and explicit `FormatPlan`/`PlannedLine` output model.
+- Implemented Phase 1-safe normalization for directive/instruction lines:
+  - label-head alignment via config
+  - single-space head/tail separation
+  - `, ` operand comma spacing outside quoted strings
+  - minimum two spaces before inline comments
+  - configurable consecutive blank-line collapsing
+- Preserved fallback behavior for unparsed lines by passing original source through unchanged.
+- Added planner tests covering Intel-style and MOS-style lines, fallback preservation, blank-line collapsing, and no-op/idempotent inputs.
 
 ---
 
