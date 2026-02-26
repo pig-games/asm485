@@ -301,7 +301,7 @@ Progress update:
 
 ## [ ] Workstream E — Diagnostics, fallback, and reporting
 
-### [ ] Ticket FMT-009: Formatter diagnostics and fallback path
+### [x] Ticket FMT-009: Formatter diagnostics and fallback path
 Objective:
 - fail safely per line, never destroy ambiguous source
 
@@ -321,6 +321,12 @@ Tests:
 
 Acceptance:
 - formatter never drops lines on parse ambiguity.
+
+Progress update:
+- Added `src/formatter/diagnostics.rs` with fallback diagnostic collection for unparsed lines.
+- Extended formatter engine APIs with per-source and per-file diagnostics (`FormatterOutput`, `FormatterRunReport`).
+- `run_paths_with_report` now tracks warning counts and file-level warning presence while continuing formatting for mixed valid/invalid files.
+- Formatter CLI mode now emits fallback warnings with `file:line` context and includes warning counters in text/JSON summaries.
 
 ---
 

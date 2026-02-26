@@ -5,7 +5,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{parse_document, plan_document, render_plan, tokenize_source, FormatterConfig};
+use super::{
+    collect_fallback_diagnostics, parse_document, plan_document, render_plan, tokenize_source,
+    FormatterConfig, FormatterDiagnostic,
+};
 
 /// Formatter execution mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +23,27 @@ pub enum FormatMode {
 pub struct FormatterRunSummary {
     pub files_seen: usize,
     pub files_changed: usize,
+    pub warnings: usize,
+    pub files_with_warnings: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatterOutput {
+    pub rendered: String,
+    pub diagnostics: Vec<FormatterDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatterFileReport {
+    pub path: PathBuf,
+    pub changed: bool,
+    pub diagnostics: Vec<FormatterDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FormatterRunReport {
+    pub summary: FormatterRunSummary,
+    pub files: Vec<FormatterFileReport>,
 }
 
 /// Phase-1 formatter engine.
@@ -37,11 +61,20 @@ impl FormatterEngine {
         &self.config
     }
 
-    pub fn format_source(&self, source: &str) -> String {
+    pub fn format_source_with_diagnostics(&self, source: &str) -> FormatterOutput {
         let doc = tokenize_source(source);
         let parsed = parse_document(&doc);
+        let diagnostics = collect_fallback_diagnostics(&parsed);
         let plan = plan_document(&doc, &parsed, &self.config);
-        render_plan(&plan, &doc, &self.config)
+        let rendered = render_plan(&plan, &doc, &self.config);
+        FormatterOutput {
+            rendered,
+            diagnostics,
+        }
+    }
+
+    pub fn format_source(&self, source: &str) -> String {
+        self.format_source_with_diagnostics(source).rendered
     }
 
     pub fn format_path_to_string(&self, path: &Path) -> io::Result<String> {
@@ -54,20 +87,41 @@ impl FormatterEngine {
         paths: &[PathBuf],
         mode: FormatMode,
     ) -> io::Result<FormatterRunSummary> {
-        let mut summary = FormatterRunSummary::default();
+        let report = self.run_paths_with_report(paths, mode)?;
+        Ok(report.summary)
+    }
+
+    pub fn run_paths_with_report(
+        &self,
+        paths: &[PathBuf],
+        mode: FormatMode,
+    ) -> io::Result<FormatterRunReport> {
+        let mut report = FormatterRunReport {
+            summary: FormatterRunSummary::default(),
+            files: Vec::with_capacity(paths.len()),
+        };
         for path in paths {
-            summary.files_seen += 1;
+            report.summary.files_seen += 1;
             let input = fs::read_to_string(path)?;
-            let output = self.format_source(&input);
-            let changed = output != input;
+            let output = self.format_source_with_diagnostics(&input);
+            let changed = output.rendered != input;
             if changed {
-                summary.files_changed += 1;
+                report.summary.files_changed += 1;
                 if mode == FormatMode::Write {
-                    fs::write(path, output)?;
+                    fs::write(path, &output.rendered)?;
                 }
             }
+            if !output.diagnostics.is_empty() {
+                report.summary.warnings += output.diagnostics.len();
+                report.summary.files_with_warnings += 1;
+            }
+            report.files.push(FormatterFileReport {
+                path: path.clone(),
+                changed,
+                diagnostics: output.diagnostics,
+            });
         }
-        Ok(summary)
+        Ok(report)
     }
 }
 
@@ -129,6 +183,31 @@ mod tests {
         });
         let source = "start:  nop ;x\r\n";
         assert_eq!(engine.format_source(source), "start:      nop  ;x\n");
+    }
+
+    #[test]
+    fn format_source_reports_fallback_diagnostic_and_keeps_line() {
+        let engine = FormatterEngine::new(FormatterConfig::default());
+        let source = "    lda #1\n.+bad\n";
+        let output = engine.format_source_with_diagnostics(source);
+        assert_eq!(output.rendered, source);
+        assert_eq!(output.diagnostics.len(), 1);
+        assert_eq!(output.diagnostics[0].line_number, 2);
+    }
+
+    #[test]
+    fn run_paths_with_report_tracks_warnings_and_continues() {
+        let file = create_temp_file("run-paths-warnings", "start: lda #1 ;c\n.+bad\n");
+        let engine = FormatterEngine::new(FormatterConfig::default());
+        let report = engine
+            .run_paths_with_report(std::slice::from_ref(&file), FormatMode::Check)
+            .expect("run formatter report");
+        assert_eq!(report.summary.files_seen, 1);
+        assert_eq!(report.summary.files_changed, 1);
+        assert_eq!(report.summary.warnings, 1);
+        assert_eq!(report.summary.files_with_warnings, 1);
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(report.files[0].diagnostics.len(), 1);
     }
 
     fn create_temp_file(label: &str, content: &str) -> PathBuf {

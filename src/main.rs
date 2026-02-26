@@ -434,9 +434,21 @@ fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
         return Ok(0);
     }
 
-    let summary = engine
-        .run_paths(&cli_config.input_paths, mode)
+    let report = engine
+        .run_paths_with_report(&cli_config.input_paths, mode)
         .map_err(|err| format!("formatter run failed: {err}"))?;
+    let summary = report.summary;
+
+    for file in &report.files {
+        for diagnostic in &file.diagnostics {
+            eprintln!(
+                "fmt warning: {}:{}: {}",
+                file.path.display(),
+                diagnostic.line_number,
+                diagnostic.message
+            );
+        }
+    }
 
     if cli_config.output_format == OutputFormat::Json {
         println!(
@@ -450,20 +462,22 @@ fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
                 },
                 "files_seen": summary.files_seen,
                 "files_changed": summary.files_changed,
+                "warnings": summary.warnings,
+                "files_with_warnings": summary.files_with_warnings,
             })
         );
     } else {
         match formatter.mode {
             CliFormatterMode::Check => {
                 println!(
-                    "fmt: checked {} file(s), {} would change",
-                    summary.files_seen, summary.files_changed
+                    "fmt: checked {} file(s), {} would change, {} warning(s)",
+                    summary.files_seen, summary.files_changed, summary.warnings
                 );
             }
             CliFormatterMode::Write => {
                 println!(
-                    "fmt: processed {} file(s), {} changed",
-                    summary.files_seen, summary.files_changed
+                    "fmt: processed {} file(s), {} changed, {} warning(s)",
+                    summary.files_seen, summary.files_changed, summary.warnings
                 );
             }
             CliFormatterMode::Stdout => {}

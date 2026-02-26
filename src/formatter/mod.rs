@@ -4,6 +4,7 @@
 //! Source formatter scaffolding.
 
 mod config;
+mod diagnostics;
 mod engine;
 mod hook_registry;
 mod hooks;
@@ -14,7 +15,11 @@ mod surface_parser;
 mod surface_tokenizer;
 
 pub use config::FormatterConfig;
-pub use engine::{FormatMode, FormatterEngine, FormatterRunSummary};
+pub use diagnostics::{collect_fallback_diagnostics, FormatterDiagnostic};
+pub use engine::{
+    FormatMode, FormatterEngine, FormatterFileReport, FormatterOutput, FormatterRunReport,
+    FormatterRunSummary,
+};
 pub use hook_registry::{FormatterHookRegistry, ResolvedFormatterHooks};
 pub use hooks::{
     CpuFormatterHook, DialectFormatterHook, FamilyFormatterHook, FormatterHints,
