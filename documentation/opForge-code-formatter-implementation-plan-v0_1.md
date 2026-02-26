@@ -158,7 +158,7 @@ Progress update:
 
 ---
 
-## [ ] Workstream C — Pipeline-aware formatting behavior
+## [x] Workstream C — Pipeline-aware formatting behavior
 
 ### [x] Ticket FMT-005: CPU/dialect state tracker
 Objective:
@@ -299,7 +299,7 @@ Progress update:
 
 ---
 
-## [ ] Workstream E — Diagnostics, fallback, and reporting
+## [x] Workstream E — Diagnostics, fallback, and reporting
 
 ### [x] Ticket FMT-009: Formatter diagnostics and fallback path
 Objective:
@@ -330,7 +330,7 @@ Progress update:
 
 ---
 
-### [ ] Ticket FMT-010: Check/write/stdout modes and report output
+### [x] Ticket FMT-010: Check/write/stdout modes and report output
 Objective:
 - finalize operational UX for local/editor/CI use
 
@@ -353,6 +353,18 @@ Tests:
 
 Acceptance:
 - deterministic mode behavior and exit status across tests.
+
+Progress update:
+- Integrated formatter run reporting into CLI mode with stable text/JSON summary fields:
+  - `files_seen`
+  - `files_changed`
+  - `warnings`
+  - `files_with_warnings`
+- Confirmed formatter mode exit behavior:
+  - `--fmt-check` returns non-zero when formatting changes are required
+  - `--fmt-write` writes normalized output in place
+  - `--fmt-stdout` single-input guard remains enforced via CLI validation tests
+- Added main-entrypoint formatter mode tests for clean check mode, dirty check mode, and write mode file updates.
 
 ---
 
@@ -396,10 +408,10 @@ Rationale:
 
 ## Phase 1 completion gate
 Required final verification run:
-- [ ] `cargo fmt --all`
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
-- [ ] `cargo audit`
-- [ ] `make test`
+- [x] `cargo fmt --all`
+- [x] `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] `cargo audit`
+- [x] `make test`
 
 If any formatter snapshots are intentionally updated:
 1. run tests first without snapshot updates

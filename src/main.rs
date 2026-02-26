@@ -831,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn run_formatter_mode_check_returns_zero_for_passthrough_engine() {
+    fn run_formatter_mode_check_returns_zero_for_clean_file() {
         let dir = create_temp_dir("fmt-check");
         let file = dir.join("input.asm");
         fs::write(&file, "lda #1\n").expect("write source");
@@ -845,6 +845,43 @@ mod tests {
         let config = validate_cli(&cli).expect("validate cli");
         let code = run_formatter_mode(&config).expect("run formatter");
         assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn run_formatter_mode_check_returns_nonzero_for_unformatted_file() {
+        let dir = create_temp_dir("fmt-check-dirty");
+        let file = dir.join("input.asm");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-check",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn run_formatter_mode_write_updates_file_content() {
+        let dir = create_temp_dir("fmt-write");
+        let file = dir.join("input.asm");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:      lda #1, x  ;c\n");
     }
 
     fn create_temp_dir(label: &str) -> PathBuf {

@@ -80,10 +80,16 @@ pub fn parse_line(line: &SurfaceLine) -> SurfaceParsedLine {
                     tail: String::new(),
                     raw_code,
                 };
-            } else if code.as_bytes()[len].is_ascii_whitespace() || has_assignment_prefix(code, len)
-            {
-                label = Some(name);
-                cursor = len;
+            } else {
+                let next = skip_spaces_tabs(code, len);
+                let assign_at_split = has_assignment_prefix(code, len);
+                let assign_after_spaces = has_assignment_prefix(code, next);
+                let looks_like_label_prefix = next < code.len()
+                    && (code.as_bytes()[next] == b'.' || is_ident_start(code.as_bytes()[next]));
+                if assign_at_split || assign_after_spaces || looks_like_label_prefix {
+                    label = Some(name);
+                    cursor = next;
+                }
             }
         }
     }
@@ -237,6 +243,35 @@ mod tests {
         assert_eq!(parsed.label.as_deref(), Some("start"));
         assert_eq!(parsed.head.as_deref(), Some("lda"));
         assert_eq!(parsed.tail, " #1");
+    }
+
+    #[test]
+    fn parses_column_one_instruction_without_label() {
+        let line = SurfaceLine {
+            indent: String::new(),
+            code: "lda #1".to_string(),
+            comment: None,
+            line_ending: LineEnding::Lf,
+        };
+        let parsed = parse_line(&line);
+        assert_eq!(parsed.kind, SurfaceLineKind::Instruction);
+        assert_eq!(parsed.label, None);
+        assert_eq!(parsed.head.as_deref(), Some("lda"));
+        assert_eq!(parsed.tail, " #1");
+    }
+
+    #[test]
+    fn parses_assignment_with_space_after_symbol() {
+        let line = SurfaceLine {
+            indent: String::new(),
+            code: "value = $10".to_string(),
+            comment: None,
+            line_ending: LineEnding::Lf,
+        };
+        let parsed = parse_line(&line);
+        assert_eq!(parsed.kind, SurfaceLineKind::Assignment);
+        assert_eq!(parsed.label.as_deref(), Some("value"));
+        assert_eq!(parsed.head.as_deref(), Some("="));
     }
 
     #[test]
