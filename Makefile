@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Erik van der Tier
 
-.PHONY: build release clean fmt clippy audit reference reference-test test test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-vm-mos6502 ci-vm-intel8080 build-vm-45gs02-package manual-pdf
+.PHONY: build release clean fmt clippy audit reference reference-test test test-formatter test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-vm-mos6502 ci-vm-intel8080 build-vm-45gs02-package manual-pdf
 
 MANUAL_MD := documentation/opForge-reference-manual.md
 MANUAL_PDF := documentation/opForge-reference-manual.pdf
@@ -28,6 +28,21 @@ audit:
 
 test:
 	cargo test
+
+test-formatter:
+	cargo test formatter::fixture_tests::
+	cargo test run_formatter_mode_
+	cargo run --bin opforge -- \
+		-i src/formatter/fixtures/intel8085_intel.expected.asm \
+		-i src/formatter/fixtures/z80_zilog.expected.asm \
+		-i src/formatter/fixtures/m6502_basic.expected.asm \
+		-i src/formatter/fixtures/m65c02_basic.expected.asm \
+		-i src/formatter/fixtures/m65816_basic.expected.asm \
+		-i src/formatter/fixtures/m45gs02_basic.expected.asm \
+		-i src/formatter/fixtures/directives_heavy.expected.asm \
+		-i src/formatter/fixtures/macro_preproc_heavy.expected.asm \
+		-i src/formatter/fixtures/fallback_ambiguous.expected.asm \
+		--fmt-check
 
 test-vm-runtime:
 	cargo test vm_runtime_mos6502_

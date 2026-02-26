@@ -6,6 +6,8 @@
 mod config;
 mod diagnostics;
 mod engine;
+#[cfg(test)]
+mod fixture_tests;
 mod hook_registry;
 mod hooks;
 mod planner;

@@ -387,6 +387,21 @@ Test types:
 3. Safety fallback tests for malformed/partial lines.
 4. CLI behavior tests for mode and conflict handling.
 
+Progress update:
+- Added fixture corpus under `src/formatter/fixtures/` covering:
+  - `8085` (`intel8085_intel`)
+  - `z80` (`z80_zilog`)
+  - `m6502` (`m6502_basic`)
+  - `65c02` (`m65c02_basic`)
+  - `65816` (`m65816_basic`)
+  - `45gs02` (`m45gs02_basic`)
+  - directive-heavy and macro/preprocessor-heavy files
+  - malformed fallback fixture
+- Added fixture-driven formatter tests in `src/formatter/fixture_tests.rs`:
+  - golden snapshot comparisons (`input -> expected`)
+  - corpus idempotence checks (`fmt(fmt(x)) == fmt(x)`)
+  - fallback warning verification
+
 ---
 
 ## Suggested commit sequence (Phase 1)
