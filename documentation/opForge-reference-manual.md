@@ -774,6 +774,8 @@ Validation is strict:
 - duplicate keys are errors (including alias duplicates)
 - invalid value types are errors
 - unsupported `profile` values are errors
+- without `--fmt-config`, formatter runs always use built-in defaults and do not
+  auto-discover `.opforgefmt.toml`
 
 ## 8. Messages
 

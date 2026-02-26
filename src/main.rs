@@ -933,6 +933,30 @@ mod tests {
     }
 
     #[test]
+    fn run_formatter_mode_does_not_autoload_default_config_file() {
+        let dir = create_temp_dir("fmt-config-no-autoload");
+        let file = dir.join("input.asm");
+        let default_config = dir.join(".opforgefmt.toml");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+        fs::write(&default_config, "[formatter]\nlabel_alignment_column = 8\n")
+            .expect("write default config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        // No implicit config discovery: defaults still apply without --fmt-config.
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:      lda #1, x  ;c\n");
+    }
+
+    #[test]
     fn run_formatter_mode_reports_invalid_fmt_config() {
         let dir = create_temp_dir("fmt-config-invalid");
         let file = dir.join("input.asm");

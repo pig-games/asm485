@@ -267,6 +267,8 @@ max_consecutive_blank_lines = 1      # alias: max_blank_lines
 
 `--fmt-config` uses strict validation: unknown keys, duplicate keys, invalid
 values, and unsupported profile values are reported as formatter errors.
+Without `--fmt-config`, opForge always uses built-in formatter defaults and does
+not auto-discover `.opforgefmt.toml`.
 
 ## Linker Regions Workflow
 
