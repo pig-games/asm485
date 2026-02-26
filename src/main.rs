@@ -839,7 +839,7 @@ mod tests {
     fn run_formatter_mode_check_returns_zero_for_clean_file() {
         let dir = create_temp_dir("fmt-check");
         let file = dir.join("input.asm");
-        fs::write(&file, "lda #1\n").expect("write source");
+        fs::write(&file, "        lda #1\n").expect("write source");
 
         let cli = AsmCli::parse_from([
             "opForge",
@@ -886,7 +886,7 @@ mod tests {
         assert_eq!(code, 0);
 
         let updated = fs::read_to_string(&file).expect("read updated source");
-        assert_eq!(updated, "start:      lda #1, x  ;c\n");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
     }
 
     #[test]
@@ -901,7 +901,7 @@ mod tests {
         assert_eq!(code, 0);
 
         let updated = fs::read_to_string(&file).expect("read updated source");
-        assert_eq!(updated, "start:      lda #1, x  ;c\n");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
     }
 
     #[test]
@@ -963,10 +963,70 @@ hex_literal_case = \"lower\"
         assert_eq!(code, 0);
 
         let updated = fs::read_to_string(&file).expect("read updated source");
-        assert_eq!(
-            updated,
-            "start       lda #$abcd, 1afh  ;c\n            sta $20\n"
-        );
+        assert_eq!(updated, "start   lda #$abcd, 1afh  ;c\n        sta $20\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_splits_long_label_when_configured() {
+        let dir = create_temp_dir("fmt-style-config-split");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "VeryLongLabel lda #1\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]
+label_alignment_column = 8
+align_unlabeled_instructions = true
+split_long_label_instructions = true
+",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "VeryLongLabel\n        lda #1\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_applies_directive_and_register_case_overrides() {
+        let dir = create_temp_dir("fmt-style-config-directive-register");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, ".CpU z80\nLoop ld a,(ix+1)\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]
+directive_case = \"lower\"
+register_case = \"upper\"
+",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, ".cpu z80\nLoop    ld A, (IX+1)\n");
     }
 
     #[test]
@@ -990,7 +1050,7 @@ hex_literal_case = \"lower\"
 
         // No implicit config discovery: defaults still apply without --fmt-config.
         let updated = fs::read_to_string(&file).expect("read updated source");
-        assert_eq!(updated, "start:      lda #1, x  ;c\n");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
     }
 
     #[test]

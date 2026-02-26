@@ -16,15 +16,14 @@ pub fn render_plan(
 
     let mut out = String::new();
     for planned in &plan.lines {
-        let Some(line) = &planned.output else {
-            continue;
-        };
-        let rendered = if config.preserve_line_endings {
-            line.render()
-        } else {
-            normalize_rendered_line_ending(line)
-        };
-        out.push_str(&rendered);
+        for line in &planned.output {
+            let rendered = if config.preserve_line_endings {
+                line.render()
+            } else {
+                normalize_rendered_line_ending(line)
+            };
+            out.push_str(&rendered);
+        }
     }
 
     apply_final_newline_policy(
@@ -96,7 +95,7 @@ mod tests {
         let parsed = parse_document(&doc);
         let plan = plan_document(&doc, &parsed, &FormatterConfig::default());
         let rendered = render_plan(&plan, &doc, &FormatterConfig::default());
-        assert_eq!(rendered, "label:      mvi a, 1  ;c\r\n");
+        assert_eq!(rendered, "label:  mvi a, 1  ;c\r\n");
     }
 
     #[test]
@@ -110,7 +109,7 @@ mod tests {
             ..FormatterConfig::default()
         };
         let rendered = render_plan(&plan, &doc, &config);
-        assert_eq!(rendered, "label:      mvi a, 1  ;c\n");
+        assert_eq!(rendered, "label:  mvi a, 1  ;c\n");
     }
 
     #[test]
@@ -124,12 +123,12 @@ mod tests {
             preserve_final_newline: true,
             ..FormatterConfig::default()
         };
-        assert_eq!(render_plan(&plan, &doc, &keep_config), "lda #1");
+        assert_eq!(render_plan(&plan, &doc, &keep_config), "        lda #1");
 
         let drop_config = FormatterConfig {
             preserve_final_newline: false,
             ..FormatterConfig::default()
         };
-        assert_eq!(render_plan(&plan, &doc, &drop_config), "lda #1");
+        assert_eq!(render_plan(&plan, &doc, &drop_config), "        lda #1");
     }
 }

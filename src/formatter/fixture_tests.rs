@@ -65,6 +65,43 @@ fn colon_removal_fixture_applies_when_style_is_enabled() {
     assert_eq!(output.rendered, expected);
 }
 
+#[test]
+fn long_label_split_fixture_applies_at_boundary_when_enabled() {
+    let engine = FormatterEngine::new(FormatterConfig {
+        label_alignment_column: 8,
+        split_long_label_instructions: true,
+        ..FormatterConfig::default()
+    });
+    let input = read_fixture("label_split_boundary", "input");
+    let expected = read_fixture("label_split_boundary", "expected");
+    let output = engine.format_source_with_diagnostics(&input);
+    assert_eq!(output.rendered, expected);
+}
+
+#[test]
+fn directive_case_fixture_applies_when_enabled() {
+    let engine = FormatterEngine::new(FormatterConfig {
+        directive_case: super::CaseStyle::Lower,
+        ..FormatterConfig::default()
+    });
+    let input = read_fixture("directive_case", "input");
+    let expected = read_fixture("directive_case", "expected");
+    let output = engine.format_source_with_diagnostics(&input);
+    assert_eq!(output.rendered, expected);
+}
+
+#[test]
+fn register_case_fixture_applies_when_enabled() {
+    let engine = FormatterEngine::new(FormatterConfig {
+        register_case: super::CaseStyle::Upper,
+        ..FormatterConfig::default()
+    });
+    let input = read_fixture("register_case", "input");
+    let expected = read_fixture("register_case", "expected");
+    let output = engine.format_source_with_diagnostics(&input);
+    assert_eq!(output.rendered, expected);
+}
+
 fn read_fixture(stem: &str, kind: &str) -> String {
     let path = fixture_path(stem, kind);
     fs::read_to_string(&path).unwrap_or_else(|err| {

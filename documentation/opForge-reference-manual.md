@@ -765,12 +765,15 @@ Formatter config (`--fmt-config`) currently supports these keys:
 profile = "safe-preserve"            # only supported profile in Phase 1
 preserve_line_endings = true
 preserve_final_newline = true
-label_alignment_column = 12          # alias: code_column
+label_alignment_column = 8           # alias: code_column
 max_consecutive_blank_lines = 1      # alias: max_blank_lines
-align_unlabeled_instructions = false # align unlabeled opcodes to code column
+align_unlabeled_instructions = true  # align unlabeled opcodes to code column
+split_long_label_instructions = false # if label exceeds column, move mnemonic to next line
 label_colon_style = "keep"           # keep|with|without
+directive_case = "keep"              # keep|upper|lower
 label_case = "keep"                  # keep|upper|lower
 mnemonic_case = "keep"               # keep|upper|lower (alias: opcode_case)
+register_case = "keep"               # keep|upper|lower
 hex_literal_case = "keep"            # keep|upper|lower
 ```
 

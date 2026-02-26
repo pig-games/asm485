@@ -141,7 +141,7 @@ mod tests {
         let source = "start:  lda #$10,x ; comment\n";
         assert_eq!(
             engine.format_source(source),
-            "start:      lda #$10, x  ; comment\n"
+            "start:  lda #$10, x  ; comment\n"
         );
     }
 
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn run_paths_counts_seen_and_changed_for_check_mode() {
-        let file = create_temp_file("run-paths-check", "lda #1\n");
+        let file = create_temp_file("run-paths-check", "        lda #1\n");
         let engine = FormatterEngine::new(FormatterConfig::default());
         let summary = engine
             .run_paths(std::slice::from_ref(&file), FormatMode::Check)
@@ -172,7 +172,7 @@ mod tests {
         let output = engine
             .format_path_to_string(&file)
             .expect("format path to string");
-        assert_eq!(output, "start:      nop  ;x\n");
+        assert_eq!(output, "start:  nop  ;x\n");
     }
 
     #[test]
@@ -182,13 +182,13 @@ mod tests {
             ..FormatterConfig::default()
         });
         let source = "start:  nop ;x\r\n";
-        assert_eq!(engine.format_source(source), "start:      nop  ;x\n");
+        assert_eq!(engine.format_source(source), "start:  nop  ;x\n");
     }
 
     #[test]
     fn format_source_reports_fallback_diagnostic_and_keeps_line() {
         let engine = FormatterEngine::new(FormatterConfig::default());
-        let source = "    lda #1\n.+bad\n";
+        let source = "        lda #1\n.+bad\n";
         let output = engine.format_source_with_diagnostics(source);
         assert_eq!(output.rendered, source);
         assert_eq!(output.diagnostics.len(), 1);

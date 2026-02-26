@@ -40,9 +40,12 @@ pub struct FormatterConfig {
     pub label_alignment_column: usize,
     pub max_consecutive_blank_lines: usize,
     pub align_unlabeled_instructions: bool,
+    pub split_long_label_instructions: bool,
     pub label_colon_style: LabelColonStyle,
+    pub directive_case: CaseStyle,
     pub label_case: CaseStyle,
     pub mnemonic_case: CaseStyle,
+    pub register_case: CaseStyle,
     pub hex_literal_case: CaseStyle,
 }
 
@@ -51,12 +54,15 @@ impl Default for FormatterConfig {
         Self {
             preserve_line_endings: true,
             preserve_final_newline: true,
-            label_alignment_column: 12,
+            label_alignment_column: 8,
             max_consecutive_blank_lines: 1,
-            align_unlabeled_instructions: false,
+            align_unlabeled_instructions: true,
+            split_long_label_instructions: false,
             label_colon_style: LabelColonStyle::Keep,
+            directive_case: CaseStyle::Keep,
             label_case: CaseStyle::Keep,
             mnemonic_case: CaseStyle::Keep,
+            register_case: CaseStyle::Keep,
             hex_literal_case: CaseStyle::Keep,
         }
     }
@@ -156,12 +162,21 @@ impl FormatterConfig {
                 "align_unlabeled_instructions" => {
                     config.align_unlabeled_instructions = parse_bool(path, line_no, key, value)?
                 }
+                "split_long_label_instructions" => {
+                    config.split_long_label_instructions = parse_bool(path, line_no, key, value)?
+                }
                 "label_colon_style" => {
                     config.label_colon_style = parse_label_colon_style(path, line_no, key, value)?
+                }
+                "directive_case" => {
+                    config.directive_case = parse_case_style(path, line_no, key, value)?
                 }
                 "label_case" => config.label_case = parse_case_style(path, line_no, key, value)?,
                 "mnemonic_case" | "opcode_case" => {
                     config.mnemonic_case = parse_case_style(path, line_no, key, value)?
+                }
+                "register_case" => {
+                    config.register_case = parse_case_style(path, line_no, key, value)?
                 }
                 "hex_literal_case" => {
                     config.hex_literal_case = parse_case_style(path, line_no, key, value)?
@@ -357,12 +372,15 @@ mod tests {
         let cfg = FormatterConfig::default();
         assert!(cfg.preserve_line_endings);
         assert!(cfg.preserve_final_newline);
-        assert_eq!(cfg.label_alignment_column, 12);
+        assert_eq!(cfg.label_alignment_column, 8);
         assert_eq!(cfg.max_consecutive_blank_lines, 1);
-        assert!(!cfg.align_unlabeled_instructions);
+        assert!(cfg.align_unlabeled_instructions);
+        assert!(!cfg.split_long_label_instructions);
         assert_eq!(cfg.label_colon_style, LabelColonStyle::Keep);
+        assert_eq!(cfg.directive_case, CaseStyle::Keep);
         assert_eq!(cfg.label_case, CaseStyle::Keep);
         assert_eq!(cfg.mnemonic_case, CaseStyle::Keep);
+        assert_eq!(cfg.register_case, CaseStyle::Keep);
         assert_eq!(cfg.hex_literal_case, CaseStyle::Keep);
     }
 
@@ -392,9 +410,12 @@ profile = \"safe-preserve\"
 code_column = 10
 max_blank_lines = 0
 align_unlabeled_instructions = true
+split_long_label_instructions = true
 label_colon_style = \"without\"
+directive_case = \"lower\"
 label_case = \"lower\"
 opcode_case = \"lower\"
+register_case = \"upper\"
 hex_literal_case = \"lower\"
 ",
         );
@@ -402,9 +423,12 @@ hex_literal_case = \"lower\"
         assert_eq!(cfg.label_alignment_column, 10);
         assert_eq!(cfg.max_consecutive_blank_lines, 0);
         assert!(cfg.align_unlabeled_instructions);
+        assert!(cfg.split_long_label_instructions);
         assert_eq!(cfg.label_colon_style, LabelColonStyle::Without);
+        assert_eq!(cfg.directive_case, CaseStyle::Lower);
         assert_eq!(cfg.label_case, CaseStyle::Lower);
         assert_eq!(cfg.mnemonic_case, CaseStyle::Lower);
+        assert_eq!(cfg.register_case, CaseStyle::Upper);
         assert_eq!(cfg.hex_literal_case, CaseStyle::Lower);
     }
 
