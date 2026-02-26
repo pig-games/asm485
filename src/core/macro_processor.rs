@@ -550,7 +550,56 @@ impl MacroProcessor {
 
 #[cfg(test)]
 mod tests {
-    use super::MacroProcessor;
+    use super::{CompileTimeVisibility, MacroProcessor};
+
+    #[test]
+    fn visibility_index_tracks_public_and_private_macros() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            ".pub".to_string(),
+            "PUB .macro".to_string(),
+            "    .byte 1".to_string(),
+            ".endmacro".to_string(),
+            ".priv".to_string(),
+            "PRIV .macro".to_string(),
+            "    .byte 2".to_string(),
+            ".endmacro".to_string(),
+        ];
+
+        let _ = mp.expand(&lines).expect("expand");
+        let exports = mp.take_native_exports();
+        let visibility = exports.visibility_index();
+
+        assert_eq!(visibility.get("PUB"), Some(&CompileTimeVisibility::Public));
+        assert_eq!(
+            visibility.get("PRIV"),
+            Some(&CompileTimeVisibility::Private)
+        );
+    }
+
+    #[test]
+    fn inject_all_imports_only_public_macros() {
+        let mut producer = MacroProcessor::new();
+        let lines = vec![
+            ".pub".to_string(),
+            "PUB .macro".to_string(),
+            "    .byte 1".to_string(),
+            ".endmacro".to_string(),
+            ".priv".to_string(),
+            "PRIV .macro".to_string(),
+            "    .byte 2".to_string(),
+            ".endmacro".to_string(),
+        ];
+
+        let _ = producer.expand(&lines).expect("expand");
+        let exports = producer.take_native_exports();
+
+        let mut consumer = MacroProcessor::new();
+        consumer.inject_all(&exports);
+
+        assert!(consumer.macros.contains_key("PUB"));
+        assert!(!consumer.macros.contains_key("PRIV"));
+    }
 
     #[test]
     fn expands_simple_macro_with_params() {

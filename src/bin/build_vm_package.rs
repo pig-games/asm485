@@ -33,7 +33,7 @@ fn artifact_path_from_args() -> PathBuf {
     if let Some(path) = args.next() {
         PathBuf::from(path)
     } else {
-        PathBuf::from("target/vm/45gs02_hierarchy.opcpu")
+        PathBuf::from("target/vm/hierarchy.opcpu")
     }
 }
 

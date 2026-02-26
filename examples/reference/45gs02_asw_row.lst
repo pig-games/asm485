@@ -5,24 +5,21 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                2  .cpu 45gs02
 ----    EQU 0D00                    3  .org $0D00
 ----                                4  
-----                                5  asw $2000
-    5 | asw $2000
-         ^
-ERROR: otp001: parser VM emitted diagnostic slot 0
-----                                6  row $2002
-    6 | row $2002
-         ^
-ERROR: otp001: parser VM emitted diagnostic slot 0
-----                                7  rts
+0D00    BB 00 20                    5      asw $2000
+0D03    DB 02 20                    6      row $2002
+0D06    60                          7      rts
+----                                8  
+----                                9  .end
 
-Lines: 7  Errors: 2  Warnings: 0
+Lines: 9  Errors: 0  Warnings: 0
 
 SYMBOL TABLE
 
-rts             : 0d00 (3328)
 
-Total memory is 0 bytes
+Total memory is 7 bytes
 
 GENERATED OUTPUT
 
-(none)
+ADDR    BYTES
+------  -----------------------
+0D00    BB 00 20 DB 02 20 60

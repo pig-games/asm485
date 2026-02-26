@@ -31,7 +31,7 @@ use clap::Parser;
 use serde_json::json;
 
 use crate::core::assembler::conditional::{
-    ConditionalBlockKind, ConditionalContext, ConditionalStack,
+    ConditionalBlockKind, ConditionalContext, ConditionalStack, ConditionalSubType,
 };
 use crate::core::assembler::error::{
     AsmError, AsmErrorKind, AsmRunError, AsmRunReport, Diagnostic, Fixit, LineStatus, PassCounts,
@@ -56,7 +56,6 @@ use crate::core::registry::{
 use crate::core::source_map::SourceMap;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
-use crate::core::token_value::TokenValue;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
 #[cfg(test)]
 use std::cell::Cell;

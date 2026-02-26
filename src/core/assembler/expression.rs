@@ -388,3 +388,50 @@ pub fn binary_op_text(op: BinaryOp) -> &'static str {
         BinaryOp::LogicXor => "^^",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_number_text;
+    use crate::core::expr::parse_number;
+    use crate::core::tokenizer::{Span, TokenKind, Tokenizer};
+
+    #[test]
+    fn parse_number_text_matches_core_expr_on_ambiguous_suffix_literals() {
+        let span = Span {
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        };
+        for text in ["$BB", "0B8H", "101B", "1_0_1B"] {
+            let asm_val = match parse_number_text(text, span) {
+                Ok(value) => value,
+                Err(_) => panic!("asm parser should accept literal: {text}"),
+            };
+            let core_val = parse_number(text).expect("core expr should accept literal");
+            assert_eq!(asm_val, core_val as u32, "literal {text}");
+        }
+    }
+
+    #[test]
+    fn tokenizer_number_literals_round_trip_through_parse_number_text() {
+        let mut tok = Tokenizer::new("$BB 0B8H 101B", 1);
+        let mut values = Vec::new();
+
+        loop {
+            let token = tok.next_token().expect("tokenization should succeed");
+            match token.kind {
+                TokenKind::Number(num) => {
+                    let value = match parse_number_text(&num.text, token.span) {
+                        Ok(value) => value,
+                        Err(_) => panic!("number literal should parse: {}", num.text),
+                    };
+                    values.push(value);
+                }
+                TokenKind::End => break,
+                _ => {}
+            }
+        }
+
+        assert_eq!(values, vec![0xBB, 0x0B8, 0b101]);
+    }
+}

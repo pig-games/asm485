@@ -3,17 +3,30 @@
 
 // Image store with hex/bin output helpers.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static IMAGE_STORE_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
-static IMAGE_STORE_FORCE_OPEN_FAILURE: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static IMAGE_STORE_FORCE_OPEN_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn run_with_forced_open_failure_for_tests<T>(f: impl FnOnce() -> T) -> T {
+    IMAGE_STORE_FORCE_OPEN_FAILURE.with(|force| force.set(true));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    IMAGE_STORE_FORCE_OPEN_FAILURE.with(|force| force.set(false));
+    match result {
+        Ok(value) => value,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
 
 /// On-disk entry size: 4 bytes big-endian address + 1 byte value.
 const ENTRY_SIZE: usize = 5;
@@ -47,7 +60,7 @@ impl ImageStore {
         let counter = IMAGE_STORE_COUNTER.fetch_add(1, Ordering::Relaxed);
         path.push(format!("opForge-image-{pid}-{nanos}-{counter}.bin"));
         #[cfg(test)]
-        if IMAGE_STORE_FORCE_OPEN_FAILURE.load(Ordering::Relaxed) {
+        if IMAGE_STORE_FORCE_OPEN_FAILURE.with(Cell::get) {
             return Self {
                 path: Some(path),
                 file: None,
@@ -81,11 +94,6 @@ impl ImageStore {
 
     pub fn init_error(&self) -> Option<&io::Error> {
         self.write_error.as_ref()
-    }
-
-    #[cfg(test)]
-    fn force_open_failure_for_tests(force_failure: bool) {
-        IMAGE_STORE_FORCE_OPEN_FAILURE.store(force_failure, Ordering::Relaxed);
     }
 
     /// Return the number of stored address/byte entries.
@@ -383,6 +391,7 @@ fn write_extended_linear_address_record<W: Write>(out: &mut W, upper: u16) -> io
 
 #[cfg(test)]
 mod tests {
+    use super::run_with_forced_open_failure_for_tests;
     use super::ImageStore;
     use std::io;
 
@@ -533,15 +542,15 @@ mod tests {
 
     #[test]
     fn forced_temp_open_failure_surfaces_early() {
-        ImageStore::force_open_failure_for_tests(true);
-        let image = ImageStore::new();
-        let init_error = image.init_error().expect("init error should be present");
-        assert_eq!(init_error.kind(), io::ErrorKind::PermissionDenied);
-        let mut out = Vec::new();
-        let err = image
-            .write_hex_file(&mut out, None)
-            .expect_err("write should fail when init failed");
-        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
-        ImageStore::force_open_failure_for_tests(false);
+        run_with_forced_open_failure_for_tests(|| {
+            let image = ImageStore::new();
+            let init_error = image.init_error().expect("init error should be present");
+            assert_eq!(init_error.kind(), io::ErrorKind::PermissionDenied);
+            let mut out = Vec::new();
+            let err = image
+                .write_hex_file(&mut out, None)
+                .expect_err("write should fail when init failed");
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        });
     }
 }
