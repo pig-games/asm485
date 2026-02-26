@@ -758,6 +758,23 @@ Notes:
 - `-b` without a range emits a binary that spans the emitted output.
 - `-g` writes a Start Segment Address record for 16-bit values and a Start Linear Address record for wider values.
 
+Formatter config (`--fmt-config`) currently supports these keys:
+
+```toml
+[formatter]
+profile = "safe-preserve"            # only supported profile in Phase 1
+preserve_line_endings = true
+preserve_final_newline = true
+label_alignment_column = 12          # alias: code_column
+max_consecutive_blank_lines = 1      # alias: max_blank_lines
+```
+
+Validation is strict:
+- unknown keys are errors
+- duplicate keys are errors (including alias duplicates)
+- invalid value types are errors
+- unsupported `profile` values are errors
+
 ## 8. Messages
 
 Diagnostics include a line/column and a highlighted span in listings. Terminal

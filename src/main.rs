@@ -414,8 +414,13 @@ fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
     let Some(formatter) = cli_config.formatter.as_ref() else {
         return Ok(0);
     };
-    let _ = formatter.config_path.as_ref();
-    let engine = FormatterEngine::new(FormatterConfig::default());
+    let formatter_config = if let Some(path) = formatter.config_path.as_deref() {
+        FormatterConfig::load_from_path(path)
+            .map_err(|err| format!("formatter config load failed: {err}"))?
+    } else {
+        FormatterConfig::default()
+    };
+    let engine = FormatterEngine::new(formatter_config);
     let mode = match formatter.mode {
         CliFormatterMode::Check => FormatMode::Check,
         CliFormatterMode::Write => FormatMode::Write,
@@ -897,6 +902,56 @@ mod tests {
 
         let updated = fs::read_to_string(&file).expect("read updated source");
         assert_eq!(updated, "start:      lda #1, x  ;c\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_applies_fmt_config_overrides() {
+        let dir = create_temp_dir("fmt-config-write");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+        fs::write(
+            &config_file,
+            "[formatter]\nlabel_alignment_column = 8\nmax_consecutive_blank_lines = 0\n",
+        )
+        .expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "start:  lda #1, x  ;c\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_reports_invalid_fmt_config() {
+        let dir = create_temp_dir("fmt-config-invalid");
+        let file = dir.join("input.asm");
+        let config_file = dir.join("fmt.toml");
+        fs::write(&file, "start: lda #1,x ;c\n").expect("write source");
+        fs::write(&config_file, "unknown_key = true\n").expect("write config");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-check",
+            "--fmt-config",
+            config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let err = run_formatter_mode(&config).expect_err("invalid config should fail");
+        assert!(err.contains("formatter config load failed"));
+        assert!(err.contains("unknown key"));
     }
 
     fn create_temp_dir(label: &str) -> PathBuf {

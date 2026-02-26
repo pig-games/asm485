@@ -364,6 +364,8 @@ Progress update:
   - `--fmt-check` returns non-zero when formatting changes are required
   - `--fmt-write` writes normalized output in place
   - `--fmt-stdout` single-input guard remains enforced via CLI validation tests
+- Implemented `--fmt-config` runtime loading with strict validation and Phase 1-safe keys
+  (`profile`, line-ending/newline toggles, alignment, blank-line limits) plus alias support.
 - Added main-entrypoint formatter mode tests for clean check mode, dirty check mode, and write mode file updates.
 
 ---

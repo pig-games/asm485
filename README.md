@@ -254,6 +254,20 @@ checks formatting and exits non-zero when changes are required.
     opForge --fmt-stdout -i prog.asm
 prints formatted source to stdout.
 
+Formatter config files (`--fmt-config`) currently support these keys:
+
+```toml
+[formatter]
+profile = "safe-preserve"            # only supported profile in Phase 1
+preserve_line_endings = true
+preserve_final_newline = true
+label_alignment_column = 12          # alias: code_column
+max_consecutive_blank_lines = 1      # alias: max_blank_lines
+```
+
+`--fmt-config` uses strict validation: unknown keys, duplicate keys, invalid
+values, and unsupported profile values are reported as formatter errors.
+
 ## Linker Regions Workflow
 
 Use explicit region placement and output directives for section-based builds.
