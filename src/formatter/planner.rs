@@ -122,6 +122,8 @@ fn normalize_line(
         };
         code.push_str(&label_token);
         code.push_str(&" ".repeat(spacing.max(1)));
+    } else if parsed.kind == SurfaceLineKind::Instruction && config.align_unlabeled_instructions {
+        indent = " ".repeat(config.label_alignment_column);
     }
     let head = if parsed.kind == SurfaceLineKind::Instruction {
         config.mnemonic_case.apply(raw_head)
@@ -473,13 +475,14 @@ mod tests {
 
     #[test]
     fn planner_applies_opt_in_lowercase_style_and_colonless_labels() {
-        let source = "Start: LDA #$ABCD, 1AFH ; note\n";
+        let source = "Start: LDA #$ABCD, 1AFH ; note\n    STA $20\n";
         let doc = tokenize_source(source);
         let parsed = parse_document(&doc);
         let plan = plan_document(
             &doc,
             &parsed,
             &FormatterConfig {
+                align_unlabeled_instructions: true,
                 label_colon_style: LabelColonStyle::Without,
                 label_case: CaseStyle::Lower,
                 mnemonic_case: CaseStyle::Lower,
@@ -487,8 +490,11 @@ mod tests {
                 ..FormatterConfig::default()
             },
         );
-        assert_eq!(plan.render(), "start       lda #$abcd, 1afh  ; note\n");
-        assert_eq!(plan.changed_line_count(), 1);
+        assert_eq!(
+            plan.render(),
+            "start       lda #$abcd, 1afh  ; note\n            sta $20\n"
+        );
+        assert_eq!(plan.changed_line_count(), 2);
     }
 
     #[test]

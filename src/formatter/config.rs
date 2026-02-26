@@ -39,6 +39,7 @@ pub struct FormatterConfig {
     pub preserve_final_newline: bool,
     pub label_alignment_column: usize,
     pub max_consecutive_blank_lines: usize,
+    pub align_unlabeled_instructions: bool,
     pub label_colon_style: LabelColonStyle,
     pub label_case: CaseStyle,
     pub mnemonic_case: CaseStyle,
@@ -52,6 +53,7 @@ impl Default for FormatterConfig {
             preserve_final_newline: true,
             label_alignment_column: 12,
             max_consecutive_blank_lines: 1,
+            align_unlabeled_instructions: false,
             label_colon_style: LabelColonStyle::Keep,
             label_case: CaseStyle::Keep,
             mnemonic_case: CaseStyle::Keep,
@@ -150,6 +152,9 @@ impl FormatterConfig {
                 "max_consecutive_blank_lines" | "max_blank_lines" => {
                     config.max_consecutive_blank_lines =
                         parse_usize(path, line_no, key, value, false)?
+                }
+                "align_unlabeled_instructions" => {
+                    config.align_unlabeled_instructions = parse_bool(path, line_no, key, value)?
                 }
                 "label_colon_style" => {
                     config.label_colon_style = parse_label_colon_style(path, line_no, key, value)?
@@ -354,6 +359,7 @@ mod tests {
         assert!(cfg.preserve_final_newline);
         assert_eq!(cfg.label_alignment_column, 12);
         assert_eq!(cfg.max_consecutive_blank_lines, 1);
+        assert!(!cfg.align_unlabeled_instructions);
         assert_eq!(cfg.label_colon_style, LabelColonStyle::Keep);
         assert_eq!(cfg.label_case, CaseStyle::Keep);
         assert_eq!(cfg.mnemonic_case, CaseStyle::Keep);
@@ -385,6 +391,7 @@ max_consecutive_blank_lines = 2
 profile = \"safe-preserve\"
 code_column = 10
 max_blank_lines = 0
+align_unlabeled_instructions = true
 label_colon_style = \"without\"
 label_case = \"lower\"
 opcode_case = \"lower\"
@@ -394,6 +401,7 @@ hex_literal_case = \"lower\"
         let cfg = FormatterConfig::load_from_path(&path).expect("load config");
         assert_eq!(cfg.label_alignment_column, 10);
         assert_eq!(cfg.max_consecutive_blank_lines, 0);
+        assert!(cfg.align_unlabeled_instructions);
         assert_eq!(cfg.label_colon_style, LabelColonStyle::Without);
         assert_eq!(cfg.label_case, CaseStyle::Lower);
         assert_eq!(cfg.mnemonic_case, CaseStyle::Lower);

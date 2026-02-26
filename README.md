@@ -263,6 +263,7 @@ preserve_line_endings = true
 preserve_final_newline = true
 label_alignment_column = 12          # alias: code_column
 max_consecutive_blank_lines = 1      # alias: max_blank_lines
+align_unlabeled_instructions = false # align unlabeled opcodes to code column
 label_colon_style = "keep"           # keep|with|without
 label_case = "keep"                  # keep|upper|lower
 mnemonic_case = "keep"               # keep|upper|lower (alias: opcode_case)

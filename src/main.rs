@@ -937,10 +937,11 @@ mod tests {
         let dir = create_temp_dir("fmt-style-config-write");
         let file = dir.join("input.asm");
         let config_file = dir.join("fmt.toml");
-        fs::write(&file, "Start: LDA #$ABCD, 1AFH ;c\n").expect("write source");
+        fs::write(&file, "Start: LDA #$ABCD, 1AFH ;c\n    STA $20\n").expect("write source");
         fs::write(
             &config_file,
             "[formatter]
+align_unlabeled_instructions = true
 label_colon_style = \"without\"
 label_case = \"lower\"
 mnemonic_case = \"lower\"
@@ -962,7 +963,10 @@ hex_literal_case = \"lower\"
         assert_eq!(code, 0);
 
         let updated = fs::read_to_string(&file).expect("read updated source");
-        assert_eq!(updated, "start       lda #$abcd, 1afh  ;c\n");
+        assert_eq!(
+            updated,
+            "start       lda #$abcd, 1afh  ;c\n            sta $20\n"
+        );
     }
 
     #[test]
