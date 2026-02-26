@@ -95,6 +95,17 @@ fn normalize_line(
 ) -> Vec<SurfaceLine> {
     match parsed.kind {
         SurfaceLineKind::Directive | SurfaceLineKind::Instruction => {}
+        SurfaceLineKind::CommentOnly => {
+            if line.indent.is_empty() {
+                return vec![line.clone()];
+            }
+            return vec![SurfaceLine {
+                indent: " ".repeat(config.label_alignment_column),
+                code: String::new(),
+                comment: line.comment.clone(),
+                line_ending: line.line_ending,
+            }];
+        }
         SurfaceLineKind::LabelOnly => {
             if config.label_colon_style == LabelColonStyle::Keep
                 && config.label_case == CaseStyle::Keep
@@ -124,6 +135,10 @@ fn normalize_line(
         code.push_str(&current_label_token);
         code.push_str(&" ".repeat(spacing.max(1)));
         label_token = Some(current_label_token);
+    } else if parsed.kind == SurfaceLineKind::Directive {
+        if !line.indent.is_empty() {
+            indent = " ".repeat(config.label_alignment_column);
+        }
     } else if parsed.kind == SurfaceLineKind::Instruction && config.align_unlabeled_instructions {
         indent = " ".repeat(config.label_alignment_column);
     }
@@ -695,6 +710,29 @@ mod tests {
         );
         assert_eq!(plan.render(), ".cpu z80\nLoop    ld A, (IX+1)\n");
         assert_eq!(plan.changed_line_count(), 2);
+    }
+
+    #[test]
+    fn planner_aligns_indented_unlabeled_directives_to_code_column() {
+        let source = ".cpu 8085\n            .foo 1\n            .byte 2\n";
+        let doc = tokenize_source(source);
+        let parsed = parse_document(&doc);
+        let plan = plan_document(&doc, &parsed, &FormatterConfig::default());
+        assert_eq!(
+            plan.render(),
+            ".cpu 8085\n        .foo 1\n        .byte 2\n"
+        );
+        assert_eq!(plan.changed_line_count(), 2);
+    }
+
+    #[test]
+    fn planner_aligns_indented_comment_only_lines_to_code_column() {
+        let source = "; top\n            ; indented\n";
+        let doc = tokenize_source(source);
+        let parsed = parse_document(&doc);
+        let plan = plan_document(&doc, &parsed, &FormatterConfig::default());
+        assert_eq!(plan.render(), "; top\n        ; indented\n");
+        assert_eq!(plan.changed_line_count(), 1);
     }
 
     #[test]

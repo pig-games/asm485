@@ -14,6 +14,9 @@ const FIXTURE_STEMS: &[&str] = &[
     "m65816_basic",
     "m45gs02_basic",
     "directives_heavy",
+    "data_directives_alignment",
+    "directive_alignment",
+    "comment_alignment",
     "macro_preproc_heavy",
     "fallback_ambiguous",
 ];

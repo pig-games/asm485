@@ -732,9 +732,9 @@ Other options:
 - `-w, --no-warn`: suppress warning diagnostics.
 - `--Wall`: enable all warning classes (reserved for future groups).
 - `--Werror`: treat warnings as errors.
-- `--fmt`: format input files in place (shorthand for `--fmt-write`).
-- `--fmt-check`: check formatting for input files without writing changes.
-- `--fmt-write`: apply formatter changes in place for input files.
+- `--fmt`: format input files in place (shorthand for `--fmt-write`). Folder inputs also include linked module files.
+- `--fmt-check`: check formatting for input files without writing changes. Folder inputs include linked module files.
+- `--fmt-write`: apply formatter changes in place for input files. Folder inputs include linked module files.
 - `--fmt-stdout`: format exactly one input file and write the result to stdout.
 - `--fmt-config <FILE>`: formatter config file path (requires a formatter mode flag).
 - `--cpu <ID>`: select initial CPU before source parsing (`.cpu` in source can still override later).
@@ -767,8 +767,8 @@ preserve_line_endings = true
 preserve_final_newline = true
 label_alignment_column = 8           # alias: code_column
 max_consecutive_blank_lines = 1      # alias: max_blank_lines
-align_unlabeled_instructions = true  # align unlabeled opcodes to code column
-split_long_label_instructions = false # if label exceeds column, move mnemonic to next line
+align_unlabeled_instructions = true  # align unlabeled opcodes to code column (data directives also align)
+split_long_label_instructions = true  # if label exceeds column, move mnemonic to next line
 label_colon_style = "keep"           # keep|with|without
 directive_case = "keep"              # keep|upper|lower
 label_case = "keep"                  # keep|upper|lower

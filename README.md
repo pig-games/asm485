@@ -187,9 +187,9 @@ Arguments:
     --fixits-dry-run             Plan machine-applicable fixits without writing files.
     --apply-fixits               Apply machine-applicable fixits.
     --fixits-output <FILE>       Write fixit planning/apply report JSON to FILE.
-    --fmt                        Format input files in place (shorthand for --fmt-write).
-    --fmt-check                  Check formatting for input files without writing changes.
-    --fmt-write                  Apply formatter changes in place for input files.
+    --fmt                        Format input files in place (shorthand for --fmt-write). Folder inputs also format linked module files.
+    --fmt-check                  Check formatting for input files without writing changes. Folder inputs include linked module files.
+    --fmt-write                  Apply formatter changes in place for input files. Folder inputs include linked module files.
     --fmt-stdout                 Format exactly one input file and write result to stdout.
     --fmt-config <FILE>          Formatter config path (requires a formatter mode flag).
     --cpu <ID>                   Set initial CPU before parsing source directives.
@@ -248,6 +248,9 @@ creates:
     opForge --fmt prog.asm
 formats `prog.asm` in place.
 
+    opForge --fmt project/
+formats the resolved `main.*` root module and linked module files in `project/`.
+
     opForge --fmt-check -i prog.asm
 checks formatting and exits non-zero when changes are required.
 
@@ -263,8 +266,8 @@ preserve_line_endings = true
 preserve_final_newline = true
 label_alignment_column = 8           # alias: code_column
 max_consecutive_blank_lines = 1      # alias: max_blank_lines
-align_unlabeled_instructions = true  # align unlabeled opcodes to code column
-split_long_label_instructions = false # if label exceeds column, move mnemonic to next line
+align_unlabeled_instructions = true  # align unlabeled opcodes to code column (data directives also align)
+split_long_label_instructions = true  # if label exceeds column, move mnemonic to next line
 label_colon_style = "keep"           # keep|with|without
 directive_case = "keep"              # keep|upper|lower
 label_case = "keep"                  # keep|upper|lower

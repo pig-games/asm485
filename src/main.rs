@@ -15,6 +15,7 @@ use opforge::assembler::cli::{
     validate_cli, Cli, CliConfig, DiagnosticsSinkConfig, DiagnosticsStyle,
     FormatterMode as CliFormatterMode, OutputFormat,
 };
+use opforge::assembler::resolve_formatter_input_paths;
 use opforge::core::assembler::error::{build_context_lines, Diagnostic, Severity};
 use opforge::formatter::{FormatMode, FormatterConfig, FormatterEngine};
 
@@ -426,12 +427,14 @@ fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
         CliFormatterMode::Write => FormatMode::Write,
         CliFormatterMode::Stdout => FormatMode::Stdout,
     };
+    let formatter_paths = resolve_formatter_input_paths(cli_config)
+        .map_err(|err| format!("formatter target resolution failed: {err}"))?;
 
     if mode == FormatMode::Stdout {
-        let input = cli_config
-            .input_paths
-            .first()
-            .ok_or_else(|| "--fmt-stdout requires exactly one input".to_string())?;
+        if formatter_paths.len() != 1 {
+            return Err("--fmt-stdout requires exactly one resolved source file".to_string());
+        }
+        let input = &formatter_paths[0];
         let rendered = engine
             .format_path_to_string(input)
             .map_err(|err| format!("formatter read failed: {err}"))?;
@@ -440,7 +443,7 @@ fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
     }
 
     let report = engine
-        .run_paths_with_report(&cli_config.input_paths, mode)
+        .run_paths_with_report(&formatter_paths, mode)
         .map_err(|err| format!("formatter run failed: {err}"))?;
     let summary = report.summary;
 
@@ -971,6 +974,27 @@ mod tests {
     }
 
     #[test]
+    fn run_formatter_mode_fmt_shorthand_on_module_folder_formats_linked_files() {
+        let dir = create_temp_dir("fmt-module-folder");
+        let module_dir = dir.join("project");
+        fs::create_dir_all(&module_dir).expect("create module dir");
+        let root = module_dir.join("main.asm");
+        let helper = module_dir.join("helper.asm");
+        fs::write(&root, ".use helper\nstart: lda #1,x ;c\n").expect("write root source");
+        fs::write(&helper, "label: lda #2,x ;h\n").expect("write helper source");
+
+        let cli = AsmCli::parse_from(["opForge", "--fmt", module_dir.to_string_lossy().as_ref()]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let root_updated = fs::read_to_string(&root).expect("read root source");
+        assert_eq!(root_updated, ".use helper\nstart:  lda #1, x  ;c\n");
+        let helper_updated = fs::read_to_string(&helper).expect("read helper source");
+        assert_eq!(helper_updated, "label:  lda #2, x  ;h\n");
+    }
+
+    #[test]
     fn run_formatter_mode_write_applies_fmt_config_overrides() {
         let dir = create_temp_dir("fmt-config-write");
         let file = dir.join("input.asm");
@@ -1055,6 +1079,26 @@ split_long_label_instructions = true
             "--fmt-write",
             "--fmt-config",
             config_file.to_string_lossy().as_ref(),
+        ]);
+        let config = validate_cli(&cli).expect("validate cli");
+        let code = run_formatter_mode(&config).expect("run formatter");
+        assert_eq!(code, 0);
+
+        let updated = fs::read_to_string(&file).expect("read updated source");
+        assert_eq!(updated, "VeryLongLabel\n        lda #1\n");
+    }
+
+    #[test]
+    fn run_formatter_mode_write_splits_long_label_by_default() {
+        let dir = create_temp_dir("fmt-default-split");
+        let file = dir.join("input.asm");
+        fs::write(&file, "VeryLongLabel lda #1\n").expect("write source");
+
+        let cli = AsmCli::parse_from([
+            "opForge",
+            "-i",
+            file.to_string_lossy().as_ref(),
+            "--fmt-write",
         ]);
         let config = validate_cli(&cli).expect("validate cli");
         let code = run_formatter_mode(&config).expect("run formatter");

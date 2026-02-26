@@ -178,21 +178,21 @@ pub struct Cli {
         long = "fmt",
         action = ArgAction::SetTrue,
         conflicts_with_all = ["fmt_check", "fmt_write", "fmt_stdout"],
-        long_help = "Format input files in place. This is shorthand for --fmt-write."
+        long_help = "Format input files in place. For folder inputs, opForge resolves the root module and formats linked module files as well. This is shorthand for --fmt-write."
     )]
     pub fmt: bool,
     #[arg(
         long = "fmt-check",
         action = ArgAction::SetTrue,
         conflicts_with_all = ["fmt", "fmt_write", "fmt_stdout"],
-        long_help = "Check formatting for input files without writing changes."
+        long_help = "Check formatting for input files without writing changes. For folder inputs, linked module files are included."
     )]
     pub fmt_check: bool,
     #[arg(
         long = "fmt-write",
         action = ArgAction::SetTrue,
         conflicts_with_all = ["fmt", "fmt_check", "fmt_stdout"],
-        long_help = "Apply formatter changes in place for input files."
+        long_help = "Apply formatter changes in place for input files. For folder inputs, linked module files are included."
     )]
     pub fmt_write: bool,
     #[arg(

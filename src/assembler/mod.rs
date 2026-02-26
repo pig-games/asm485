@@ -266,6 +266,72 @@ pub fn run_with_cli(cli: &Cli) -> Result<Vec<AsmRunReport>, AsmRunError> {
     Ok(reports)
 }
 
+/// Resolve source files targeted by formatter mode.
+///
+/// File inputs map to their resolved root source file.
+/// Directory inputs expand to the root module plus all linked module/include
+/// source files discovered through the module graph loader.
+pub fn resolve_formatter_input_paths(config: &cli::CliConfig) -> Result<Vec<PathBuf>, AsmRunError> {
+    let mut resolved = Vec::new();
+    for input_path in &config.input_paths {
+        if input_path.is_dir() {
+            resolved.extend(resolve_formatter_module_paths(input_path, config)?);
+            continue;
+        }
+        let (asm_name, _) = input_base_from_path(input_path, &config.input_extensions)?;
+        resolved.push(PathBuf::from(asm_name));
+    }
+    Ok(resolved)
+}
+
+fn resolve_formatter_module_paths(
+    input_path: &Path,
+    config: &cli::CliConfig,
+) -> Result<Vec<PathBuf>, AsmRunError> {
+    let (asm_name, _) = input_base_from_path(input_path, &config.input_extensions)?;
+    let root_path = PathBuf::from(asm_name);
+    let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
+        &root_path,
+        &config.defines,
+        &config.include_paths,
+        config.pp_macro_depth,
+    )?;
+    let graph = load_module_graph(
+        &root_path,
+        root_lines,
+        &config.defines,
+        &config.include_paths,
+        &config.module_paths,
+        config.pp_macro_depth,
+    )?;
+
+    let mut files = HashSet::new();
+    for path in root_dependency_files {
+        if is_formatter_source_path(&path, &config.input_extensions) {
+            files.insert(path);
+        }
+    }
+    for path in graph.dependency_files {
+        if is_formatter_source_path(&path, &config.input_extensions) {
+            files.insert(path);
+        }
+    }
+    files.insert(root_path);
+
+    let mut sorted: Vec<PathBuf> = files.into_iter().collect();
+    sorted.sort();
+    Ok(sorted)
+}
+
+fn is_formatter_source_path(path: &Path, ext_policy: &cli::InputExtensionPolicy) -> bool {
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    ext_policy
+        .asm_exts
+        .iter()
+        .chain(ext_policy.inc_exts.iter())
+        .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+}
+
 fn run_one(
     cli: &Cli,
     asm_name: &str,

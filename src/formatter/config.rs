@@ -57,7 +57,7 @@ impl Default for FormatterConfig {
             label_alignment_column: 8,
             max_consecutive_blank_lines: 1,
             align_unlabeled_instructions: true,
-            split_long_label_instructions: false,
+            split_long_label_instructions: true,
             label_colon_style: LabelColonStyle::Keep,
             directive_case: CaseStyle::Keep,
             label_case: CaseStyle::Keep,
@@ -375,7 +375,7 @@ mod tests {
         assert_eq!(cfg.label_alignment_column, 8);
         assert_eq!(cfg.max_consecutive_blank_lines, 1);
         assert!(cfg.align_unlabeled_instructions);
-        assert!(!cfg.split_long_label_instructions);
+        assert!(cfg.split_long_label_instructions);
         assert_eq!(cfg.label_colon_style, LabelColonStyle::Keep);
         assert_eq!(cfg.directive_case, CaseStyle::Keep);
         assert_eq!(cfg.label_case, CaseStyle::Keep);
