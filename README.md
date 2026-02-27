@@ -2,8 +2,10 @@
 Multi-target assembler with expressions, directives, and preprocessor macros. It also supports true modules
 with visibility control alongside textual includes (`.include`).
 
-This is a multi-target assembler for Intel 8080 family processors (currently 8080, 8085, and Z80) and MOS 6502
-family processors (currently 6502, 65C02, and 65816).
+This is a multi-target assembler for:
+- Intel 8080 family processors (currently 8080 alias, 8085, and Z80).
+- MOS 6502 family processors (currently 6502, 65C02, 65816, and 45GS02).
+- Motorola 6800 family processors (currently 6809 and HD6309).
 
 It is partly inspired by [64tass](https://tass64.sourceforge.net) in terms of features and notational style.
 It produces optional Intel Hex, listing, and binary image outputs selected by command-line arguments.
@@ -15,7 +17,7 @@ It also supports patterned `.statement` definitions for custom statement syntax,
 
 For full documentation on features and syntax, read the [opForge Reference Manual](documentation/opForge-reference-manual.md).
 For VM host/boundary semantics, see [VM Boundary & Protocol Specification (v1)](documentation/vm-boundary-protocol-v1.md).
-For version-specific 65816 implementation scope and limits, see [RELEASE_NOTES_v0.9.3.md](RELEASE_NOTES_v0.9.3.md).
+For latest release-scope implementation notes, see [RELEASE_NOTES_v0.9.4.md](RELEASE_NOTES_v0.9.4.md).
 
 ## Installation
 
