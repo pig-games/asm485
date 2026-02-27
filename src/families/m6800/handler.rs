@@ -11,7 +11,7 @@ use crate::core::tokenizer::Span;
 
 use super::is_register;
 use super::operand::{AddressMode, FamilyOperand, IndexedAutoMode, Operand};
-use super::table::{has_mnemonic, lookup_instruction};
+use super::table::{has_mnemonic, lookup_instruction, lookup_prefixed_instruction};
 
 #[derive(Debug, Default)]
 pub struct M6800FamilyHandler;
@@ -312,11 +312,13 @@ impl FamilyHandler for M6800FamilyHandler {
             }
         };
 
-        let Some(entry) = lookup_instruction(mnemonic, mode) else {
+        let mut bytes = if let Some(entry) = lookup_instruction(mnemonic, mode) {
+            vec![entry.opcode]
+        } else if let Some(entry) = lookup_prefixed_instruction(mnemonic, mode) {
+            entry.opcode_bytes.to_vec()
+        } else {
             return EncodeResult::NotFound;
         };
-
-        let mut bytes = vec![entry.opcode];
         match operands {
             [] => {}
             [Operand::Immediate8(value, _)] | [Operand::Direct(value, _)] => bytes.push(*value),

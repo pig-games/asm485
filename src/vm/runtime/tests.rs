@@ -3038,16 +3038,28 @@ fn execution_model_m6800_expr_encode_supports_m6809_and_hd6309_paths() {
     let lda_imm = model
         .encode_instruction_from_exprs("m6809", None, "LDA", &m6809_immediate, &ctx)
         .expect("m6809 immediate should resolve");
+    let ldy_imm = model
+        .encode_instruction_from_exprs("m6809", None, "LDY", &m6809_immediate, &ctx)
+        .expect("m6809 prefixed immediate should resolve");
     let lda_indexed = model
         .encode_instruction_from_exprs("m6809", None, "LDA", &m6809_indexed, &ctx)
         .expect("m6809 indexed should resolve");
+    let sty_indexed = model
+        .encode_instruction_from_exprs("m6809", None, "STY", &m6809_indexed, &ctx)
+        .expect("m6809 prefixed indexed should resolve");
     let sexw = model
         .encode_instruction_from_exprs("hd6309", None, "SEXW", &[], &ctx)
         .expect("hd6309 extension should resolve");
+    let h6309_ldy = model
+        .encode_instruction_from_exprs("hd6309", None, "LDY", &m6809_immediate, &ctx)
+        .expect("hd6309 baseline prefixed immediate should resolve");
 
     assert_eq!(lda_imm, Some(vec![0x86, 0x42]));
+    assert_eq!(ldy_imm, Some(vec![0x10, 0x8E, 0x00, 0x42]));
     assert_eq!(lda_indexed, Some(vec![0xA6, 0x00]));
+    assert_eq!(sty_indexed, Some(vec![0x10, 0xAF, 0x00]));
     assert_eq!(sexw, Some(vec![0x14]));
+    assert_eq!(h6309_ldy, Some(vec![0x10, 0x8E, 0x00, 0x42]));
 }
 
 #[test]

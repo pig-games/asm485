@@ -11,6 +11,7 @@ use crate::families::intel8080::table::FAMILY_INSTRUCTION_TABLE as INTEL8080_FAM
 use crate::families::m6800::module::FAMILY_ID as M6800_FAMILY_ID;
 use crate::families::m6800::AddressMode as M6800AddressMode;
 use crate::families::m6800::FAMILY_INSTRUCTION_TABLE as M6800_FAMILY_INSTRUCTION_TABLE;
+use crate::families::m6800::PREFIXED_FAMILY_INSTRUCTION_TABLE as M6800_PREFIXED_FAMILY_INSTRUCTION_TABLE;
 use crate::families::mos6502::module::FAMILY_ID as MOS6502_FAMILY_ID;
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
 use crate::hd6309::instructions::CPU_INSTRUCTION_TABLE as HD6309_CPU_INSTRUCTION_TABLE;
@@ -587,6 +588,14 @@ pub fn build_hierarchy_chunks_from_registry(
             |entry| entry.mnemonic,
             |entry| entry.mode,
             |entry| entry.opcode,
+        );
+        emit_m6800_prefixed_table_programs(
+            M6800_PREFIXED_FAMILY_INSTRUCTION_TABLE,
+            ScopedOwner::Family(M6800_FAMILY_ID.as_str().to_string()),
+            &mut tables,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode_bytes,
         );
     }
     if registered_cpu_ids.contains(HD6309_CPU_ID.as_str()) {

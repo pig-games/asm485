@@ -26,6 +26,11 @@ fn family_form_mnemonics() -> Vec<String> {
         .iter()
         .map(|entry| entry.mnemonic.to_ascii_lowercase())
         .collect();
+    mnemonics.extend(
+        super::table::PREFIXED_FAMILY_INSTRUCTION_TABLE
+            .iter()
+            .map(|entry| entry.mnemonic.to_ascii_lowercase()),
+    );
     mnemonics.sort();
     mnemonics.dedup();
     mnemonics

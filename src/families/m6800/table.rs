@@ -11,6 +11,12 @@ pub struct FamilyInstructionEntry {
     pub opcode: u8,
 }
 
+pub struct PrefixedFamilyInstructionEntry {
+    pub mnemonic: &'static str,
+    pub mode: AddressMode,
+    pub opcode_bytes: &'static [u8],
+}
+
 pub static FAMILY_INSTRUCTION_TABLE: &[FamilyInstructionEntry] = &[
     FamilyInstructionEntry {
         mnemonic: "NOP",
@@ -354,6 +360,44 @@ pub static FAMILY_INSTRUCTION_TABLE: &[FamilyInstructionEntry] = &[
     },
 ];
 
+pub static PREFIXED_FAMILY_INSTRUCTION_TABLE: &[PrefixedFamilyInstructionEntry] = &[
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "LDY",
+        mode: AddressMode::Immediate16,
+        opcode_bytes: &[0x10, 0x8E],
+    },
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "LDY",
+        mode: AddressMode::Direct,
+        opcode_bytes: &[0x10, 0x9E],
+    },
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "LDY",
+        mode: AddressMode::Indexed,
+        opcode_bytes: &[0x10, 0xAE],
+    },
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "LDY",
+        mode: AddressMode::Extended,
+        opcode_bytes: &[0x10, 0xBE],
+    },
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "STY",
+        mode: AddressMode::Direct,
+        opcode_bytes: &[0x10, 0x9F],
+    },
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "STY",
+        mode: AddressMode::Indexed,
+        opcode_bytes: &[0x10, 0xAF],
+    },
+    PrefixedFamilyInstructionEntry {
+        mnemonic: "STY",
+        mode: AddressMode::Extended,
+        opcode_bytes: &[0x10, 0xBF],
+    },
+];
+
 pub fn lookup_instruction(
     mnemonic: &str,
     mode: AddressMode,
@@ -367,4 +411,16 @@ pub fn has_mnemonic(mnemonic: &str) -> bool {
     FAMILY_INSTRUCTION_TABLE
         .iter()
         .any(|entry| entry.mnemonic.eq_ignore_ascii_case(mnemonic))
+        || PREFIXED_FAMILY_INSTRUCTION_TABLE
+            .iter()
+            .any(|entry| entry.mnemonic.eq_ignore_ascii_case(mnemonic))
+}
+
+pub fn lookup_prefixed_instruction(
+    mnemonic: &str,
+    mode: AddressMode,
+) -> Option<&'static PrefixedFamilyInstructionEntry> {
+    PREFIXED_FAMILY_INSTRUCTION_TABLE
+        .iter()
+        .find(|entry| entry.mode == mode && entry.mnemonic.eq_ignore_ascii_case(mnemonic))
 }

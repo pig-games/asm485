@@ -4318,6 +4318,10 @@ fn m6809_can_assemble_basic_instructions() {
         vec![0x8E, 0x45, 0x67]
     );
     assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDY #$4567"),
+        vec![0x10, 0x8E, 0x45, 0x67]
+    );
+    assert_eq!(
         assemble_bytes(m6809_cpu_id, "    LDU #$89AB"),
         vec![0xCE, 0x89, 0xAB]
     );
@@ -4356,6 +4360,10 @@ fn m6809_indexed_and_register_list_modes_encode() {
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    STB A,X"),
         vec![0xE7, 0x86]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STY $20,X"),
+        vec![0x10, 0xAF, 0x88, 0x20]
     );
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    JSR $20,X"),
@@ -4409,6 +4417,22 @@ fn m6809_extended_and_direct_modes_encode() {
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    STX $20"),
         vec![0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDY $20"),
+        vec![0x10, 0x9E, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDY $1234"),
+        vec![0x10, 0xBE, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STY $20"),
+        vec![0x10, 0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STY $1234"),
+        vec![0x10, 0xBF, 0x12, 0x34]
     );
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    STU $1234"),
@@ -4554,6 +4578,22 @@ fn hd6309_supports_extension_instruction() {
     assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRW"), vec![0x10, 0x5F]);
     assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRE"), vec![0x11, 0x4F]);
     assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRF"), vec![0x11, 0x5F]);
+}
+
+#[test]
+fn hd6309_supports_6809_prefixed_ldy_sty_instructions() {
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    LDY #$1234"),
+        vec![0x10, 0x8E, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    STY $20"),
+        vec![0x10, 0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    STY $20,X"),
+        vec![0x10, 0xAF, 0x88, 0x20]
+    );
 }
 
 #[test]
