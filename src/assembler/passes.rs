@@ -1,3 +1,8 @@
+//! Assembler run/pass orchestration.
+//!
+//! This module owns CLI-driven run flow, formatter input resolution, source
+//! expansion/module loading, and pass1/pass2 execution sequencing.
+
 use super::*;
 
 /// Run the assembler with command-line arguments.

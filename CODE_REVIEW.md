@@ -352,12 +352,12 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 7) A1: Split `src/assembler/mod.rs` without behavior drift
 
-- [ ] Extract output emitters into `src/assembler/output/` (listing, hex, bin, prg, map).
-- [ ] Extract pass orchestration into `src/assembler/passes/` (`pass1`, `pass2`, shared context).
-- [ ] Keep existing public APIs and CLI behavior stable.
-- [ ] Move code in small commits with compile+test after each move.
-- [ ] Add/adjust module-level docs describing flow boundaries.
-- [ ] Validate: byte-for-byte output parity on representative examples before/after refactor.
+- [x] Extract output emitters into `src/assembler/output/` (listing, hex, bin, prg, map).
+- [x] Extract pass orchestration into `src/assembler/passes/` (`pass1`, `pass2`, shared context).
+- [x] Keep existing public APIs and CLI behavior stable.
+- [x] Move code in small commits with compile+test after each move.
+- [x] Add/adjust module-level docs describing flow boundaries.
+- [x] Validate: byte-for-byte output parity on representative examples before/after refactor.
 
 **Definition of done:** Smaller assembler modules, unchanged behavior, and parity confirmed.
 
@@ -404,7 +404,7 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] PR3: C4 numeric validation + tests.
 - [x] PR4: C3 linker/section edge-case tests/fixes.
 - [x] PR5: B1 opcode uniqueness + E1 6809/HD6309 coverage.
-- [ ] PR6: A1 assembler module split with parity proof.
+- [x] PR6: A1 assembler module split with parity proof.
 - [ ] PR7: B4/B5/A4-F2 stabilization tasks.
 
 ### Rollback & risk controls

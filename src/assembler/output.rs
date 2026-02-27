@@ -1,3 +1,8 @@
+//! Assembler output emission helpers.
+//!
+//! This module owns file-emission and payload-construction routines for
+//! linker/export/map/label/dependency outputs used by the assembler run pipeline.
+
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
