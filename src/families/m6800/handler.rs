@@ -86,6 +86,54 @@ impl M6800FamilyHandler {
             _ => None,
         }
     }
+
+    fn parse_indexed_indirect(expr: &Expr, span: Span) -> Result<FamilyOperand, FamilyParseError> {
+        let Expr::IndirectLong(inner, _) = expr else {
+            return Err(FamilyParseError::new(
+                "not an indirect-long expression",
+                span,
+            ));
+        };
+        match &**inner {
+            Expr::Tuple(elements, _) if elements.len() == 2 => {
+                let Some((base, _)) = Self::parse_register_expr(&elements[1]) else {
+                    return Err(FamilyParseError::new(
+                        "invalid indexed indirect base register",
+                        expr_span(&elements[1]),
+                    ));
+                };
+                if !Self::is_index_base_register(&base) {
+                    return Err(FamilyParseError::new(
+                        "invalid indexed indirect base register",
+                        expr_span(&elements[1]),
+                    ));
+                }
+                if let Some((register_offset, _)) = Self::parse_register_expr(&elements[0]) {
+                    if matches!(register_offset.as_str(), "A" | "B" | "D") {
+                        return Ok(FamilyOperand::IndexedIndirectRegisterOffset {
+                            offset: register_offset,
+                            base,
+                            span,
+                        });
+                    }
+                }
+                Ok(FamilyOperand::IndexedIndirect {
+                    offset: elements[0].clone(),
+                    base: Some(base),
+                    span,
+                })
+            }
+            Expr::Tuple(_, tuple_span) => Err(FamilyParseError::new(
+                "invalid indexed indirect tuple shape",
+                *tuple_span,
+            )),
+            inner_expr => Ok(FamilyOperand::IndexedIndirect {
+                offset: inner_expr.clone(),
+                base: None,
+                span,
+            }),
+        }
+    }
 }
 
 impl FamilyHandler for M6800FamilyHandler {
@@ -99,6 +147,13 @@ impl FamilyHandler for M6800FamilyHandler {
     ) -> Result<Vec<Self::FamilyOperand>, FamilyParseError> {
         if exprs.is_empty() {
             return Ok(Vec::new());
+        }
+
+        if exprs.len() == 1 {
+            if let Expr::IndirectLong(_, _) = &exprs[0] {
+                let span = expr_span(&exprs[0]);
+                return Self::parse_indexed_indirect(&exprs[0], span).map(|op| vec![op]);
+            }
         }
 
         if Self::is_stack_register_list_mnemonic(mnemonic) {

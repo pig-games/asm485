@@ -30,7 +30,17 @@ pub enum FamilyOperand {
         base: String,
         span: Span,
     },
+    IndexedIndirect {
+        offset: Expr,
+        base: Option<String>,
+        span: Span,
+    },
     IndexedRegisterOffset {
+        offset: String,
+        base: String,
+        span: Span,
+    },
+    IndexedIndirectRegisterOffset {
         offset: String,
         base: String,
         span: Span,
@@ -45,7 +55,9 @@ impl FamilyOperand {
             Self::Register(_, span) => *span,
             Self::RegisterList(_, span)
             | Self::Indexed { span, .. }
+            | Self::IndexedIndirect { span, .. }
             | Self::IndexedRegisterOffset { span, .. } => *span,
+            Self::IndexedIndirectRegisterOffset { span, .. } => *span,
             Self::Immediate(expr) | Self::Direct(expr) => expr_span(expr),
         }
     }

@@ -81,6 +81,17 @@ impl M6809CpuHandler {
         Some(mode | (base_code << 5))
     }
 
+    fn indexed_register_postbyte_indirect(offset_register: &str, base: &str) -> Option<u8> {
+        let base_code = Self::index_register_code(base)?;
+        let mode = match offset_register.to_ascii_uppercase().as_str() {
+            "B" => 0x95,
+            "A" => 0x96,
+            "D" => 0x9B,
+            _ => return None,
+        };
+        Some(mode | (base_code << 5))
+    }
+
     fn indexed_numeric_encoding(value: i64, base: &str) -> Result<(u8, Vec<u8>), String> {
         if base.eq_ignore_ascii_case("PC") {
             if (-128..=127).contains(&value) {
@@ -117,6 +128,44 @@ impl M6809CpuHandler {
             return Ok((0x89 | (base_code << 5), vec![(word >> 8) as u8, word as u8]));
         }
         Err(format!("indexed displacement {} out of range", value))
+    }
+
+    fn indexed_numeric_encoding_indirect(value: i64, base: &str) -> Result<(u8, Vec<u8>), String> {
+        if base.eq_ignore_ascii_case("PC") {
+            if (-128..=127).contains(&value) {
+                return Ok((0x9C, vec![value as i8 as u8]));
+            }
+            if (-32768..=32767).contains(&value) {
+                let word = value as i16 as u16;
+                return Ok((0x9D, vec![(word >> 8) as u8, word as u8]));
+            }
+            return Err(format!(
+                "indirect indexed PC-relative displacement {} out of range",
+                value
+            ));
+        }
+
+        let Some(base_code) = Self::index_register_code(base) else {
+            return Err(format!(
+                "invalid indexed indirect base register {}",
+                base.to_ascii_uppercase()
+            ));
+        };
+
+        if value == 0 {
+            return Ok((0x94 | (base_code << 5), Vec::new()));
+        }
+        if (-128..=127).contains(&value) {
+            return Ok((0x98 | (base_code << 5), vec![value as i8 as u8]));
+        }
+        if (-32768..=32767).contains(&value) {
+            let word = value as i16 as u16;
+            return Ok((0x99 | (base_code << 5), vec![(word >> 8) as u8, word as u8]));
+        }
+        Err(format!(
+            "indirect indexed displacement {} out of range",
+            value
+        ))
     }
 
     fn register_list_bit(mnemonic: &str, register: &str) -> Option<u8> {
@@ -183,6 +232,47 @@ impl CpuHandler for M6809CpuHandler {
                     let Some(postbyte) = Self::indexed_register_postbyte(offset, base) else {
                         return Err(format!(
                             "invalid indexed register offset form {},{}",
+                            offset.to_ascii_uppercase(),
+                            base.to_ascii_uppercase()
+                        ));
+                    };
+                    result.push(Operand::Indexed {
+                        postbyte,
+                        extra: Vec::new(),
+                        span: *span,
+                    });
+                }
+                FamilyOperand::IndexedIndirect { offset, base, span } => {
+                    if let Some(base) = base {
+                        let value = ctx.eval_expr(offset)?;
+                        let (postbyte, extra) =
+                            Self::indexed_numeric_encoding_indirect(value, base)?;
+                        result.push(Operand::Indexed {
+                            postbyte,
+                            extra,
+                            span: *span,
+                        });
+                    } else {
+                        let value = ctx.eval_expr(offset)?;
+                        if !(0..=0xFFFF).contains(&value) {
+                            return Err(format!(
+                                "indirect extended address {} out of 16-bit range",
+                                value
+                            ));
+                        }
+                        let word = value as u16;
+                        result.push(Operand::Indexed {
+                            postbyte: 0x9F,
+                            extra: vec![(word >> 8) as u8, word as u8],
+                            span: *span,
+                        });
+                    }
+                }
+                FamilyOperand::IndexedIndirectRegisterOffset { offset, base, span } => {
+                    let Some(postbyte) = Self::indexed_register_postbyte_indirect(offset, base)
+                    else {
+                        return Err(format!(
+                            "invalid indexed indirect register offset form {},{}",
                             offset.to_ascii_uppercase(),
                             base.to_ascii_uppercase()
                         ));

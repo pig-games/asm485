@@ -4327,6 +4327,22 @@ fn m6809_indexed_and_register_list_modes_encode() {
         assemble_bytes(m6809_cpu_id, "    JMP A,X"),
         vec![0x6E, 0x86]
     );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [$20,X]"),
+        vec![0xA6, 0x98, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [A,X]"),
+        vec![0xA6, 0x96]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [$1234]"),
+        vec![0xA6, 0x9F, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [4,PC]"),
+        vec![0xA6, 0x9C, 0x04]
+    );
 }
 
 #[test]
