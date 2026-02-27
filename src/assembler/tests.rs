@@ -316,6 +316,44 @@ fn assemble_i8085_line_with_expr_vm_opt_in(
     (status, message, asm.bytes().to_vec())
 }
 
+fn assemble_line_with_expr_vm_force_host(
+    cpu: crate::core::cpu::CpuType,
+    family_id: &str,
+    line: &str,
+    start_addr: u32,
+    symbol_seed: Option<(u32, bool)>,
+    force_host: bool,
+) -> (LineStatus, Option<String>, Vec<u8>) {
+    let mut symbols = SymbolTable::new();
+    if let Some((value, finalized)) = symbol_seed {
+        assert_eq!(
+            symbols.add("target", value, false, SymbolVisibility::Private, None),
+            SymbolTableResult::Ok,
+            "seed symbol add should succeed"
+        );
+        if finalized {
+            assert_eq!(
+                symbols.update("target", value),
+                SymbolTableResult::Ok,
+                "seed symbol finalize should succeed"
+            );
+        }
+    }
+
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+    if force_host {
+        asm.opthread_expr_eval_force_host_families
+            .push(family_id.to_string());
+    }
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process(line, 1, start_addr, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec())
+}
+
 type AssembleEntriesResult = Result<(Vec<(u32, u8)>, Vec<String>), String>;
 
 fn assemble_source_entries_with_runtime_mode(
@@ -8754,11 +8792,21 @@ fn vm_expr_parser_rollout_criteria_all_registered_families_have_policy_and_check
 }
 
 #[test]
-fn vm_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
+fn vm_expr_parser_rollout_criteria_mos_intel_and_motorola_default_authoritative() {
     assert!(crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("mos6502"));
     assert!(
         crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("intel8080")
     );
+    assert!(
+        crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("motorola6800")
+    );
+}
+
+#[test]
+fn vm_expr_eval_rollout_criteria_mos_intel_and_motorola_default_authoritative() {
+    assert!(crate::vm::rollout::portable_expr_runtime_default_enabled_for_family("mos6502"));
+    assert!(crate::vm::rollout::portable_expr_runtime_default_enabled_for_family("intel8080"));
+    assert!(crate::vm::rollout::portable_expr_runtime_default_enabled_for_family("motorola6800"));
 }
 
 #[test]
@@ -9261,6 +9309,42 @@ fn vm_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_host_fal
     asm.clear_scopes();
 
     let status = asm.process("    MVI A, ($10 + 1)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported expression parser contract opcode version"),
+        "expected expression parser contract compatibility failure, got: {message}"
+    );
+}
+
+#[test]
+fn vm_runtime_motorola6800_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("motorola6800"))
+        })
+        .cloned()
+        .expect("motorola6800 family expr parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6809".to_string());
+    cpu_override.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+    chunks.expr_parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #($10 + 1)", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
     assert_eq!(status, LineStatus::Error);
     assert!(
@@ -9781,6 +9865,71 @@ fn vm_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_portable
 }
 
 #[test]
+fn vm_runtime_motorola6800_unresolved_and_unstable_symbol_parity_native_vs_portable_eval() {
+    for cpu in [m6809_cpu_id, hd6309_cpu_id] {
+        let unresolved_native = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #missing_symbol",
+            0x1000,
+            None,
+            true,
+        );
+        let unresolved_runtime = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #missing_symbol",
+            0x1000,
+            None,
+            false,
+        );
+        assert_eq!(unresolved_runtime.0, unresolved_native.0);
+        assert_eq!(unresolved_runtime.1, unresolved_native.1);
+        assert_eq!(unresolved_runtime.2, unresolved_native.2);
+
+        let unstable_native = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, false)),
+            true,
+        );
+        let unstable_runtime = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, false)),
+            false,
+        );
+        assert_eq!(unstable_runtime.0, unstable_native.0);
+        assert_eq!(unstable_runtime.1, unstable_native.1);
+        assert_eq!(unstable_runtime.2, unstable_native.2);
+
+        let finalized_native = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, true)),
+            true,
+        );
+        let finalized_runtime = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, true)),
+            false,
+        );
+        assert_eq!(finalized_runtime.0, finalized_native.0);
+        assert_eq!(finalized_runtime.1, finalized_native.1);
+        assert_eq!(finalized_runtime.2, finalized_native.2);
+    }
+}
+
+#[test]
 fn vm_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
     let corpus = [
         "    MVI A, ((1 + 2 * 3) == 7 ? $2A : $55)",
@@ -9803,6 +9952,73 @@ fn vm_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_
             "runtime diagnostics non-deterministic"
         );
         assert_eq!(runtime_b.2, runtime_a.2, "runtime bytes non-deterministic");
+    }
+}
+
+#[test]
+fn vm_runtime_motorola6800_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
+    let corpus = [
+        "    LDA #((1 + 2 * 3) == 7 ? $2A : $55)",
+        "    LDA #(($ + 2) > $1000 ? $11 : $22)",
+        "    LDA #((<$1234) + ($80 >> 3))",
+    ];
+
+    for cpu in [m6809_cpu_id, hd6309_cpu_id] {
+        for line in corpus {
+            let native = assemble_line_with_expr_vm_force_host(
+                cpu,
+                "motorola6800",
+                line,
+                0x1000,
+                None,
+                true,
+            );
+            let runtime_a = assemble_line_with_expr_vm_force_host(
+                cpu,
+                "motorola6800",
+                line,
+                0x1000,
+                None,
+                false,
+            );
+            let runtime_b = assemble_line_with_expr_vm_force_host(
+                cpu,
+                "motorola6800",
+                line,
+                0x1000,
+                None,
+                false,
+            );
+
+            assert_eq!(
+                runtime_a.0,
+                native.0,
+                "status mismatch for '{}' on {}",
+                line,
+                cpu.as_str()
+            );
+            assert_eq!(
+                runtime_a.1,
+                native.1,
+                "diagnostic mismatch for '{}' on {}",
+                line,
+                cpu.as_str()
+            );
+            assert_eq!(
+                runtime_a.2,
+                native.2,
+                "byte mismatch for '{}' on {}",
+                line,
+                cpu.as_str()
+            );
+
+            assert_eq!(runtime_b.0, runtime_a.0, "runtime status non-deterministic");
+            assert_eq!(
+                runtime_b.1, runtime_a.1,
+                "runtime diagnostics non-deterministic"
+            );
+            assert_eq!(runtime_b.2, runtime_a.2, "runtime bytes non-deterministic");
+        }
     }
 }
 
@@ -9837,6 +10053,40 @@ fn vm_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_authoritati
     assert!(
         message.to_ascii_lowercase().contains("ope007"),
         "expected default intel8080-family VM eval path to enforce expr budgets, got: {message}"
+    );
+}
+
+#[test]
+fn vm_runtime_motorola6800_eval_expr_uses_portable_eval_by_default_when_authoritative() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("motorola6800"))
+        })
+        .cloned()
+        .expect("motorola6800 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6809".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #3", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected default motorola6800-family VM eval path to enforce expr budgets, got: {message}"
     );
 }
 
@@ -10181,13 +10431,15 @@ fn vm_runtime_mos6502_parity_corpus_matches_native_mode() {
 
 #[test]
 fn vm_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
-    // The mos6502 family is currently VM-eval enabled by default in rollout policy.
+    // VM-eval-enabled families should keep byte+diagnostic parity with host mode.
     // Verify representative family CPUs keep byte+diagnostic parity with host mode.
     let corpus = [
         (m6502_cpu_id, "    LDA #$10"),
         (m65c02_cpu_id, "    BRA $0004"),
         (m65816_cpu_id, "    LDA $123456,k"),
         (m65816_cpu_id, "    JMP $1234"),
+        (m6809_cpu_id, "    LDA #((1 + 2) * 3)"),
+        (hd6309_cpu_id, "    LDA #((1 + 2) * 3)"),
     ];
 
     for (cpu, line) in corpus {
@@ -10212,6 +10464,14 @@ fn vm_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
         (m65c02_cpu_id, "    BRA $0004"),
         (m65816_cpu_id, "    LDA [$10],Y"),
         (m65816_cpu_id, "    LDA $123456,l"),
+        (m6809_cpu_id, "LABEL: LDA #$10 ; trailing comment"),
+        (m6809_cpu_id, "    LDA ,X++"),
+        (m6809_cpu_id, "    LDA [$20,X]"),
+        (m6809_cpu_id, "    PSHS A,B,CC"),
+        (m6809_cpu_id, "    TFR A,B"),
+        (m6809_cpu_id, "    LBRA $0004"),
+        (hd6309_cpu_id, "    SEXW"),
+        (hd6309_cpu_id, "    CLRD"),
     ];
 
     for (cpu, line) in corpus {

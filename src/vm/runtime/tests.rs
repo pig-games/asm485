@@ -1668,6 +1668,30 @@ fn runtime_expression_parser_honors_operator_precedence_directly() {
 }
 
 #[test]
+fn runtime_expression_parser_supports_bracket_tuple_indirect_long_forms() {
+    let (tokens, end_span) = tokenize_core_expr_tokens("[$20,X]", 1);
+    let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+        .parse_expr_from_tokens()
+        .expect("direct runtime parser should parse bracket tuple");
+
+    match expr {
+        Expr::IndirectLong(inner, _) => match *inner {
+            Expr::Tuple(elements, _) => {
+                assert_eq!(elements.len(), 2);
+                assert!(matches!(elements[0], Expr::Number(_, _)));
+                assert!(matches!(
+                    elements[1],
+                    Expr::Register(ref reg, _) | Expr::Identifier(ref reg, _)
+                        if reg.eq_ignore_ascii_case("X")
+                ));
+            }
+            other => panic!("expected tuple inside indirect-long, got {other:?}"),
+        },
+        other => panic!("expected indirect-long tuple AST, got {other:?}"),
+    }
+}
+
+#[test]
 fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
     let registry = mos6502_family_registry();
 
@@ -1870,8 +1894,12 @@ fn execution_model_tokenizer_vm_parity_checklist_resolves_for_certified_families
     let intel = model
         .resolve_tokenizer_vm_parity_checklist("z80", None)
         .expect("intel8080 checklist resolution");
+    let motorola = model
+        .resolve_tokenizer_vm_parity_checklist("m6809", None)
+        .expect("motorola6800 checklist resolution");
     assert!(mos.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
     assert!(intel.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+    assert!(motorola.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
 }
 
 #[test]
@@ -1912,8 +1940,12 @@ fn execution_model_expr_parser_vm_parity_checklist_resolves_for_certified_famili
     let intel = model
         .resolve_expr_parser_vm_parity_checklist("z80", None)
         .expect("intel8080 checklist resolution");
+    let motorola = model
+        .resolve_expr_parser_vm_parity_checklist("m6809", None)
+        .expect("motorola6800 checklist resolution");
     assert!(mos.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
     assert!(intel.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+    assert!(motorola.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
 }
 
 #[test]
@@ -1958,6 +1990,18 @@ fn execution_model_parser_certification_checklists_return_expr_and_instruction_t
     assert_eq!(
         checklists.instruction_parse_encode_checklist,
         Some("phase6-mos6502-rollout-criteria")
+    );
+
+    let motorola = model
+        .resolve_parser_certification_checklists("m6809", None)
+        .expect("motorola checklist resolution");
+    assert_eq!(
+        motorola.expression_parser_checklist,
+        Some("phase8-motorola6800-expr-parser-vm-authoritative")
+    );
+    assert_eq!(
+        motorola.instruction_parse_encode_checklist,
+        Some("phase6-motorola6800-rollout-criteria")
     );
 }
 
@@ -2571,6 +2615,7 @@ fn execution_model_reports_expr_resolver_support_by_family() {
     assert!(model.supports_expr_resolution_for_family("mos6502"));
     assert!(model.supports_expr_resolution_for_family("MOS6502"));
     assert!(model.supports_expr_resolution_for_family("intel8080"));
+    assert!(model.supports_expr_resolution_for_family("motorola6800"));
 }
 
 #[test]
