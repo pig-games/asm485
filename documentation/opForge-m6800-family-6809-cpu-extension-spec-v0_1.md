@@ -219,6 +219,24 @@ Exit criteria:
 - VM/native encode parity is demonstrated for baseline 6809 and 6309 extension samples
 - tokenizer/parser/expr rollout policies for `motorola6800` are promoted only after checklist completion
 
+## Implementation Progress Checklist
+
+- [x] Register `motorola6800` family and canonical `motorola680x` dialect.
+- [x] Register CPUs `m6809` and `hd6309` with aliases (including `h6309` and `hitachi6309`).
+- [x] Wire family/CPU modules into assembler, formatter hooks, VM builder/runtime registries.
+- [x] Implement baseline 6809 operand resolution for inherent/immediate/direct/extended/relative modes.
+- [x] Implement baseline indexed encoding path (`n,R`, `A/B/D,R`, including `PC` displacement forms).
+- [x] Implement register-pair (`TFR`/`EXG`) and register-list (`PSHS`/`PULS`/`PSHU`/`PULU`) encoding with diagnostics.
+- [x] Add branch range diagnostics and boundaries for short and long branches.
+- [x] Add initial HD6309 extension support (`SEXW`) and reject it under `.cpu m6809`.
+- [x] Add 6809/6309 example sources and reference `.hex/.lst` fixtures.
+- [x] Sync README and reference manual CPU support documentation.
+- [x] Add next release-notes draft entry for this feature set (`RELEASE_NOTES_v0.9.4.md`).
+- [ ] Add canonical 6809 indexed parser forms for zero-offset and auto inc/dec spellings (for example `,X`, `,X+`, `,--S`).
+- [ ] Add 6809 indirect indexed bracketed forms (for example `[,X]`, `[n,X]`, `[n,PC]`) and diagnostics.
+- [ ] Expand HD6309 instruction coverage beyond seed extensions.
+- [ ] Promote Motorola 6800-family VM encode/runtime parity from staged to complete (Phase 4).
+
 ## Risks and Open Decisions
 1. Direct vs extended force syntax:
    - Many 6809 assemblers use `<`/`>` forcing conventions.
