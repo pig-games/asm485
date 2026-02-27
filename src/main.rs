@@ -244,6 +244,38 @@ fn with_fallback_file(
         .collect()
 }
 
+fn filter_recoverable_diagnostics(
+    diagnostics: &[Diagnostic],
+    emit_warnings: bool,
+) -> Vec<Diagnostic> {
+    diagnostics
+        .iter()
+        .filter(|diag| emit_warnings || diag.severity() != Severity::Warning)
+        .cloned()
+        .collect()
+}
+
+fn emit_recoverable_diagnostics(
+    sink: &mut DiagnosticsSink,
+    source_lines: &[String],
+    diagnostics: &[Diagnostic],
+    cli_config: &CliConfig,
+    fallback: Option<&Path>,
+    use_color: bool,
+) -> Vec<Diagnostic> {
+    let diagnostics =
+        filter_recoverable_diagnostics(diagnostics, cli_config.warning_policy.emit_warnings);
+    let diagnostics = with_fallback_file(diagnostics, fallback);
+    sink.emit_diagnostics(
+        Some(source_lines),
+        &diagnostics,
+        use_color,
+        cli_config.output_format,
+        cli_config.diagnostics_style,
+    );
+    diagnostics
+}
+
 fn fixits_have_overlaps(fixits: &[PlannedFixit]) -> bool {
     let mut by_file: std::collections::HashMap<&Path, Vec<&PlannedFixit>> =
         std::collections::HashMap::new();
@@ -555,44 +587,27 @@ fn main() {
                 return;
             }
             for report in &reports {
-                let diagnostics: Vec<Diagnostic> = report
-                    .diagnostics()
-                    .iter()
-                    .filter(|diag| {
-                        cli_config.warning_policy.emit_warnings
-                            || diag.severity() != Severity::Warning
-                    })
-                    .cloned()
-                    .collect();
                 let fallback = cli_config.input_paths.first().map(PathBuf::as_path);
-                let diagnostics = with_fallback_file(diagnostics, fallback);
-                sink.emit_diagnostics(
-                    Some(report.source_lines()),
-                    &diagnostics,
+                let diagnostics = emit_recoverable_diagnostics(
+                    &mut sink,
+                    report.source_lines(),
+                    report.diagnostics(),
+                    &cli_config,
+                    fallback,
                     use_color,
-                    cli_config.output_format,
-                    cli_config.diagnostics_style,
                 );
                 handle_fixits(&mut sink, &cli_config, &diagnostics, fallback);
             }
         }
         Err(err) => {
-            let diagnostics: Vec<Diagnostic> = err
-                .diagnostics()
-                .iter()
-                .filter(|diag| {
-                    cli_config.warning_policy.emit_warnings || diag.severity() != Severity::Warning
-                })
-                .cloned()
-                .collect();
             let fallback = cli_config.input_paths.first().map(PathBuf::as_path);
-            let diagnostics = with_fallback_file(diagnostics, fallback);
-            sink.emit_diagnostics(
-                Some(err.source_lines()),
-                &diagnostics,
+            let diagnostics = emit_recoverable_diagnostics(
+                &mut sink,
+                err.source_lines(),
+                err.diagnostics(),
+                &cli_config,
+                fallback,
                 use_color,
-                cli_config.output_format,
-                cli_config.diagnostics_style,
             );
             handle_fixits(&mut sink, &cli_config, &diagnostics, fallback);
 
@@ -643,6 +658,48 @@ mod tests {
         assert!(value["notes"].is_array());
         assert!(value["help"].is_array());
         assert!(value["fixits"].is_array());
+    }
+
+    #[test]
+    fn filter_recoverable_diagnostics_preserves_mixed_order() {
+        let diagnostics = vec![
+            Diagnostic::new(
+                1,
+                Severity::Warning,
+                AsmError::new(AsmErrorKind::Assembler, "warn-1", None),
+            )
+            .with_code("w1"),
+            Diagnostic::new(
+                2,
+                Severity::Error,
+                AsmError::new(AsmErrorKind::Assembler, "err-1", None),
+            )
+            .with_code("e1"),
+            Diagnostic::new(
+                3,
+                Severity::Warning,
+                AsmError::new(AsmErrorKind::Assembler, "warn-2", None),
+            )
+            .with_code("w2"),
+            Diagnostic::new(
+                4,
+                Severity::Error,
+                AsmError::new(AsmErrorKind::Assembler, "err-2", None),
+            )
+            .with_code("e2"),
+        ];
+
+        let visible_errors_only = filter_recoverable_diagnostics(&diagnostics, false);
+        let errors_only_codes: Vec<&str> =
+            visible_errors_only.iter().map(|diag| diag.code()).collect();
+        assert_eq!(errors_only_codes, vec!["e1", "e2"]);
+
+        let visible_with_warnings = filter_recoverable_diagnostics(&diagnostics, true);
+        let with_warnings_codes: Vec<&str> = visible_with_warnings
+            .iter()
+            .map(|diag| diag.code())
+            .collect();
+        assert_eq!(with_warnings_codes, vec!["w1", "e1", "w2", "e2"]);
     }
 
     #[test]

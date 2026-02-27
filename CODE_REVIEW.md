@@ -365,9 +365,9 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 8) B4: Standardize error propagation boundaries
 
-- [ ] Define and document fatal vs recoverable diagnostic boundaries per pipeline phase.
-- [ ] Normalize entrypoint formatting/printing path to one diagnostic sink.
-- [ ] Add tests for mixed-error scenarios to confirm stable reporting order.
+- [x] Define and document fatal vs recoverable diagnostic boundaries per pipeline phase.
+- [x] Normalize entrypoint formatting/printing path to one diagnostic sink.
+- [x] Add tests for mixed-error scenarios to confirm stable reporting order.
 
 #### 9) B5: Reduce formatter brittleness
 
