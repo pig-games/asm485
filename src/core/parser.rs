@@ -609,15 +609,31 @@ impl Parser {
 
         let mut operands = Vec::new();
         if self.index < self.tokens.len() {
-            match self.parse_expr() {
-                Ok(expr) => operands.push(expr),
-                Err(err) => {
-                    operands.push(Expr::Error(err.message, err.span));
-                    return Ok(LineAst::Statement {
-                        label,
-                        mnemonic,
-                        operands,
-                    });
+            if self.consume_comma() {
+                let comma_span = self.prev_span();
+                operands.push(Expr::Number("0".to_string(), comma_span));
+                match self.parse_expr() {
+                    Ok(expr) => operands.push(expr),
+                    Err(err) => {
+                        operands.push(Expr::Error(err.message, err.span));
+                        return Ok(LineAst::Statement {
+                            label,
+                            mnemonic,
+                            operands,
+                        });
+                    }
+                }
+            } else {
+                match self.parse_expr() {
+                    Ok(expr) => operands.push(expr),
+                    Err(err) => {
+                        operands.push(Expr::Error(err.message, err.span));
+                        return Ok(LineAst::Statement {
+                            label,
+                            mnemonic,
+                            operands,
+                        });
+                    }
                 }
             }
             while self.consume_comma() {

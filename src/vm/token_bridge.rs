@@ -515,7 +515,18 @@ fn parse_instruction_at(
 
     let mut operands: Vec<Expr> = Vec::new();
     if idx < tokens.len() {
-        for (start, end) in split_top_level_comma_ranges(tokens, idx, tokens.len()) {
+        for (range_idx, (start, end)) in split_top_level_comma_ranges(tokens, idx, tokens.len())
+            .into_iter()
+            .enumerate()
+        {
+            if range_idx == 0 && start == end {
+                let span = tokens
+                    .get(start)
+                    .map(|token| token.span)
+                    .unwrap_or(end_span);
+                operands.push(Expr::Number("0".to_string(), span));
+                continue;
+            }
             parse_operand_expr_range(
                 tokens,
                 start,

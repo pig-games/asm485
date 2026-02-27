@@ -4343,6 +4343,7 @@ fn m6809_indexed_and_register_list_modes_encode() {
         assemble_bytes(m6809_cpu_id, "    LDA [4,PC]"),
         vec![0xA6, 0x9C, 0x04]
     );
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    LDA ,X"), vec![0xA6, 0x00]);
 }
 
 #[test]

@@ -3,6 +3,7 @@
 .org $1000
 
 start:
+    LDA ,X
     LDA $20,X
     LDA A,Y
     LDA [$20,X]
