@@ -181,10 +181,18 @@ fn normalize_line(
             instruction_code = instruction_code.trim_end_matches([' ', '\t']).to_string();
             instruction_code.push_str("  ");
         }
+        let Some(label_code) = label_token else {
+            return vec![SurfaceLine {
+                indent,
+                code,
+                comment,
+                line_ending: line.line_ending,
+            }];
+        };
         return vec![
             SurfaceLine {
                 indent: String::new(),
-                code: label_token.expect("label token"),
+                code: label_code,
                 comment: None,
                 line_ending: split_inserted_line_ending(line.line_ending),
             },

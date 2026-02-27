@@ -129,11 +129,20 @@ impl ConditionalState {
             .iter()
             .take(self.stack.len().saturating_sub(1))
             .all(|frame| frame.active);
-        if self.stack.last().unwrap().in_else {
+        let Some(last_frame) = self.stack.last() else {
+            return Err(PreprocessError::new(
+                "Internal preprocessor error: missing conditional frame",
+            ));
+        };
+        if last_frame.in_else {
             return Err(PreprocessError::new("ELSE found after ELSE"));
         }
 
-        let frame = self.stack.last_mut().unwrap();
+        let Some(frame) = self.stack.last_mut() else {
+            return Err(PreprocessError::new(
+                "Internal preprocessor error: missing mutable conditional frame",
+            ));
+        };
         if name.is_empty() {
             frame.active = parent_active && !frame.any_true;
             frame.any_true = true;
@@ -301,7 +310,13 @@ impl<'a> MacroExpander<'a> {
                                 p += 1;
                             }
                             if p >= bytes.len() {
-                                out_lines.last_mut().unwrap().push_str(tok);
+                                if let Some(last) = out_lines.last_mut() {
+                                    last.push_str(tok);
+                                } else {
+                                    return Err(PreprocessError::new(
+                                        "Internal preprocessor error: output buffer unexpectedly empty",
+                                    ));
+                                }
                                 i = j;
                                 continue;
                             }
@@ -348,7 +363,13 @@ impl<'a> MacroExpander<'a> {
                                 expanded_parts.extend(rec);
                             }
                             if !expanded_parts.is_empty() {
-                                out_lines.last_mut().unwrap().push_str(&expanded_parts[0]);
+                                if let Some(last) = out_lines.last_mut() {
+                                    last.push_str(&expanded_parts[0]);
+                                } else {
+                                    return Err(PreprocessError::new(
+                                        "Internal preprocessor error: output buffer unexpectedly empty",
+                                    ));
+                                }
                                 for part in expanded_parts.iter().skip(1) {
                                     out_lines.push(part.clone());
                                 }
@@ -358,10 +379,22 @@ impl<'a> MacroExpander<'a> {
                         }
                     }
                 }
-                out_lines.last_mut().unwrap().push_str(tok);
+                if let Some(last) = out_lines.last_mut() {
+                    last.push_str(tok);
+                } else {
+                    return Err(PreprocessError::new(
+                        "Internal preprocessor error: output buffer unexpectedly empty",
+                    ));
+                }
                 i = j;
             } else {
-                out_lines.last_mut().unwrap().push(c);
+                if let Some(last) = out_lines.last_mut() {
+                    last.push(c);
+                } else {
+                    return Err(PreprocessError::new(
+                        "Internal preprocessor error: output buffer unexpectedly empty",
+                    ));
+                }
                 i += 1;
             }
         }
@@ -477,6 +510,13 @@ impl Preprocessor {
     }
 
     fn process_file_internal(&mut self, path: &Path) -> Result<(), PreprocessError> {
+        if self.include_stack.len() >= self.max_depth {
+            return Err(PreprocessError::new(format!(
+                "INCLUDE nesting exceeded maximum depth ({})",
+                self.max_depth
+            )));
+        }
+
         let identity = self.include_identity(path);
         if let Some(start_idx) = self.include_stack.iter().position(|item| *item == identity) {
             return Err(self.include_cycle_error(start_idx, &identity));
@@ -1074,5 +1114,23 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn include_depth_limit_errors_when_nesting_exceeds_max_depth() {
+        let project = temp_dir();
+        let a = project.join("a.asm");
+        let b = project.join("b.asm");
+        let c = project.join("c.asm");
+
+        fs::write(&a, ".include \"b.asm\"\n").unwrap();
+        fs::write(&b, ".include \"c.asm\"\n").unwrap();
+        fs::write(&c, ".byte 1\n").unwrap();
+
+        let mut pp = Preprocessor::with_max_depth(2);
+        let err = pp.process_file(a.to_str().unwrap()).unwrap_err();
+        assert!(err
+            .message()
+            .contains("INCLUDE nesting exceeded maximum depth"));
     }
 }

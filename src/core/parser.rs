@@ -929,7 +929,7 @@ impl Parser {
             }
 
             if in_boundary && self.peek_kind(TokenKind::CloseBrace) {
-                let token = self.next().expect("token");
+                let token = self.expect_next(|| "Missing closing }]".to_string())?;
                 return Err(ParseError {
                     message: "Missing closing }]".to_string(),
                     span: token.span,
