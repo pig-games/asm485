@@ -213,11 +213,11 @@ Exit criteria:
 - add VM operand-shape mapping for `motorola6800` family modes (`Immediate16`, indexed, register-list, branches)
 - add VM instruction selector entries for baseline `m6809` table and `hd6309` extension table
 - add runtime/native parity tests for `m6809` and `hd6309` mnemonic/mode coverage
-- keep rollout policy staged as non-authoritative until parity checklists pass
+- keep rollout policy staged as non-authoritative until parity checklists pass, then promote to authoritative
 
 Exit criteria:
 - VM/native encode parity is demonstrated for baseline 6809 and 6309 extension samples
-- tokenizer/parser/expr rollout policies for `motorola6800` are promoted only after checklist completion
+- tokenizer/parser/expr rollout policies for `motorola6800` are promoted after checklist completion
 
 ## Implementation Progress Checklist
 
@@ -236,6 +236,10 @@ Exit criteria:
 - [x] Add 6809 indirect indexed bracketed forms (baseline complete for `[n,X]`, `[n,PC]`, `[n]`, and register-offset bracket forms) with diagnostics.
 - [x] Expand HD6309 instruction coverage beyond seed extensions (inherent extension set now includes `SEXW`, `CLRD`, `CLRW`, `CLRE`, `CLRF`).
 - [x] Promote Motorola 6800-family VM encode/runtime parity from staged to complete (Phase 4).
+- [x] Promote Motorola 6800-family expression-eval VM rollout to authoritative (Phase 7 parity complete).
+- [x] Promote Motorola 6800-family expression-parser VM rollout to authoritative (Phase 8 parity complete).
+- [x] Add Motorola 6800-family tokenizer/parser parity corpus coverage to runtime/native parity tests.
+- [x] Add Motorola 6800-family parity checklist/certification coverage in VM runtime metadata tests.
 
 ## Risks and Open Decisions
 1. Direct vs extended force syntax:

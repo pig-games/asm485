@@ -48,4 +48,5 @@ Validated with targeted and full test gates during implementation:
 ## Upgrade Notes
 
 - No breaking directive/macro syntax changes were introduced for existing families.
-- Motorola 6800-family VM runtime encode parity is now promoted to authoritative rollout for instruction encode paths.
+- Motorola 6800-family VM rollout is now aligned with other authoritative families:
+  instruction encode/runtime, expression evaluation VM, and expression parser VM are all default-authoritative.
