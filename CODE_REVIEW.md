@@ -377,9 +377,9 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 10) A4/F2: VM feature-gate containment
 
-- [ ] Confirm core assembler tests run without VM features and remain green.
-- [ ] Add CI matrix split: core (default features) vs VM feature paths.
-- [ ] Document boundaries so VM changes cannot silently affect core behavior.
+- [x] Confirm core assembler tests run without VM features and remain green.
+- [x] Add CI matrix split: core (default features) vs VM feature paths.
+- [x] Document boundaries so VM changes cannot silently affect core behavior.
 
 ### Phase 5 — Medium/low cleanup (only after phases 1–4)
 

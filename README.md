@@ -70,6 +70,10 @@ Run the full test suite:
 
     make test
 
+Run the core assembler lane explicitly (no optional VM feature lanes):
+
+    make test-core
+
 Run VM parity smoke checks (optional feature lane):
 
     make test-vm-parity
@@ -97,6 +101,15 @@ Run the local MOS6502 CI gate bundle:
 Run the local Intel8080-family CI gate bundle:
 
     make ci-vm-intel8080
+
+Run the local core CI gate bundle:
+
+    make ci-core
+
+Validation lane boundaries:
+- `ci-core` / `test-core`: core assembler behavior without optional VM feature lanes.
+- `ci-vm-mos6502` and `ci-vm-intel8080`: VM-focused lanes layered on top of `test-core`.
+- This split prevents VM feature-path regressions from silently altering core-lane expectations.
 
 VM rollout status (VM runtime is default):
 - Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
