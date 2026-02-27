@@ -405,7 +405,14 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] PR4: C3 linker/section edge-case tests/fixes.
 - [x] PR5: B1 opcode uniqueness + E1 6809/HD6309 coverage.
 - [x] PR6: A1 assembler module split with parity proof.
-- [ ] PR7: B4/B5/A4-F2 stabilization tasks.
+- [x] PR7: B4/B5/A4-F2 stabilization tasks.
+
+### Completion wrap-up
+
+- [x] All phase 1–5 checklist items are complete.
+- [x] Security hardening follow-up (G1/G2/G3) is implemented and validated.
+- [x] Documentation sync follow-up (E3) is complete and reflected in the manual.
+- [x] Repeated quality-gate validation (`ci-core`) remained green through final state.
 
 ### Rollback & risk controls
 
