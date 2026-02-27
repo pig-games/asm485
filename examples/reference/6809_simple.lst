@@ -1,0 +1,26 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Basic Motorola 6809 smoke fixture
+----                                2  .cpu m6809
+----    EQU 1000                    3  .org $1000
+----                                4  
+----                                5  start
+1000    12                          6      NOP
+1001    86 2A                       7      LDA #$2A
+1003    CC 12 34                    8      LDD #$1234
+1006    39                          9      RTS
+
+Lines: 9  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1000 (4096)
+
+Total memory is 7 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    12 86 2A CC 12 34 39

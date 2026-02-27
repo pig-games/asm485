@@ -870,6 +870,13 @@ impl HierarchyExecutionModel {
             true,
             true,
         );
+        register_fn_resolver(
+            &mut expr_resolvers,
+            "motorola6800",
+            HierarchyExecutionModel::select_candidates_from_exprs_m6800,
+            true,
+            false,
+        );
         let mut diag_templates = HashMap::new();
         for entry in diagnostics {
             diag_templates.insert(
@@ -1258,6 +1265,10 @@ const TOKENIZER_VM_CERTIFICATIONS: &[TokenizerVmCertification] = &[
         family_id: "intel8080",
         parity_checklist: "Phase 5 tokenizer parity corpus and deterministic fuzz gates",
     },
+    TokenizerVmCertification {
+        family_id: "motorola6800",
+        parity_checklist: "Phase 5 tokenizer parity corpus and deterministic fuzz gates",
+    },
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1273,6 +1284,10 @@ const EXPR_PARSER_VM_CERTIFICATIONS: &[ExprParserVmCertification] = &[
     },
     ExprParserVmCertification {
         family_id: "intel8080",
+        parity_checklist: "Phase 8 expression parser VM parity corpus and deterministic diff gates",
+    },
+    ExprParserVmCertification {
+        family_id: "motorola6800",
         parity_checklist: "Phase 8 expression parser VM parity corpus and deterministic diff gates",
     },
 ];

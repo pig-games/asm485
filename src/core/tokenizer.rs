@@ -434,10 +434,27 @@ impl<'a> Tokenizer<'a> {
         if self.current_byte() == b'\'' {
             self.cursor += 1;
         }
-        let text = String::from_utf8_lossy(&self.input[start..self.cursor]).to_string();
+        let mut text = String::from_utf8_lossy(&self.input[start..self.cursor]).to_string();
         let upper = text.to_ascii_uppercase();
+        let is_register_token = (self.is_register)(&upper);
 
-        let kind = if (self.is_register)(&upper) {
+        if is_register_token {
+            // Preserve canonical indexed-register postfix spellings like X+, X++.
+            let first = self.current_byte();
+            if first == b'+' {
+                let second = self.peek_raw_byte(1);
+                let suffix_len = if second == b'+' { 2 } else { 1 };
+                let after = self.peek_raw_byte(suffix_len);
+                if Self::is_indexed_suffix_terminator(after) {
+                    for _ in 0..suffix_len {
+                        self.cursor += 1;
+                        text.push('+');
+                    }
+                }
+            }
+        }
+
+        let kind = if is_register_token {
             TokenKind::Register(text)
         } else {
             TokenKind::Identifier(text)
@@ -447,6 +464,10 @@ impl<'a> Tokenizer<'a> {
             kind,
             span: Span::new(self.line_num, start, self.cursor),
         })
+    }
+
+    fn is_indexed_suffix_terminator(byte: u8) -> bool {
+        byte == 0 || byte.is_ascii_whitespace() || matches!(byte, b',' | b')' | b']' | b'}' | b';')
     }
 
     /// Scan a number literal using Intel-style suffix notation

@@ -19,6 +19,7 @@ impl Assembler {
     pub(crate) fn new() -> Self {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(Motorola6800FamilyModule));
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(I8085CpuModule));
         registry.register_cpu(Box::new(Z80CpuModule));
@@ -26,6 +27,8 @@ impl Assembler {
         registry.register_cpu(Box::new(M65C02CpuModule));
         registry.register_cpu(Box::new(M65816CpuModule));
         registry.register_cpu(Box::new(M45GS02CpuModule));
+        registry.register_cpu(Box::new(M6809CpuModule));
+        registry.register_cpu(Box::new(HD6309CpuModule));
 
         Self {
             symbols: SymbolTable::new(),
@@ -507,7 +510,10 @@ impl Assembler {
         // `8080` is retained as a defensive alias for direct helper calls/tests,
         // even though registry-backed Intel-family resolution currently canonicalizes
         // to concrete CPU ids (`8085`/`z80`).
-        matches!(cpu.as_str(), "m6502" | "65c02" | "8080" | "8085" | "z80")
+        matches!(
+            cpu.as_str(),
+            "m6502" | "65c02" | "8080" | "8085" | "z80" | "m6809" | "hd6309"
+        )
     }
 
     fn diagnostic_from_asmline(
@@ -598,6 +604,8 @@ mod tests {
         assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("8080")));
         assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("8085")));
         assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("z80")));
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("m6809")));
+        assert!(Assembler::cpu_warns_for_wide_output(CpuType::new("hd6309")));
         assert!(!Assembler::cpu_warns_for_wide_output(CpuType::new("65816")));
         assert!(!Assembler::cpu_warns_for_wide_output(CpuType::new(
             "45gs02"
@@ -631,6 +639,8 @@ mod tests {
             CpuType::new("m6502"),
             CpuType::new("65c02"),
             CpuType::new("8085"),
+            CpuType::new("m6809"),
+            CpuType::new("hd6309"),
         ] {
             let diagnostics = run_legacy_cross_boundary_case(cpu);
             assert!(

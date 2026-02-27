@@ -6,12 +6,15 @@ use crate::core::parser::{
 use crate::core::registry::{ModuleRegistry, VmEncodeCandidate};
 use crate::core::tokenizer::{ConditionalKind, Span, Token, TokenKind, Tokenizer};
 use crate::families::intel8080::module::Intel8080FamilyModule;
+use crate::families::m6800::module::Motorola6800FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule, MOS6502Operands};
 use crate::families::mos6502::Operand;
+use crate::hd6309::module::HD6309CpuModule;
 use crate::i8085::module::I8085CpuModule;
 use crate::m45gs02::module::M45GS02CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
+use crate::m6809::module::M6809CpuModule;
 use crate::vm::builder::{
     build_hierarchy_chunks_from_registry, build_hierarchy_package_from_registry,
 };
@@ -83,6 +86,7 @@ fn tokenize_host_line_with_policy(
 fn parity_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
     registry.register_family(Box::new(Intel8080FamilyModule));
+    registry.register_family(Box::new(Motorola6800FamilyModule));
     registry.register_family(Box::new(MOS6502FamilyModule));
     registry.register_cpu(Box::new(I8085CpuModule));
     registry.register_cpu(Box::new(Z80CpuModule));
@@ -90,6 +94,8 @@ fn parity_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
     registry.register_cpu(Box::new(M45GS02CpuModule));
+    registry.register_cpu(Box::new(M6809CpuModule));
+    registry.register_cpu(Box::new(HD6309CpuModule));
     registry
 }
 
@@ -1662,6 +1668,30 @@ fn runtime_expression_parser_honors_operator_precedence_directly() {
 }
 
 #[test]
+fn runtime_expression_parser_supports_bracket_tuple_indirect_long_forms() {
+    let (tokens, end_span) = tokenize_core_expr_tokens("[$20,X]", 1);
+    let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+        .parse_expr_from_tokens()
+        .expect("direct runtime parser should parse bracket tuple");
+
+    match expr {
+        Expr::IndirectLong(inner, _) => match *inner {
+            Expr::Tuple(elements, _) => {
+                assert_eq!(elements.len(), 2);
+                assert!(matches!(elements[0], Expr::Number(_, _)));
+                assert!(matches!(
+                    elements[1],
+                    Expr::Register(ref reg, _) | Expr::Identifier(ref reg, _)
+                        if reg.eq_ignore_ascii_case("X")
+                ));
+            }
+            other => panic!("expected tuple inside indirect-long, got {other:?}"),
+        },
+        other => panic!("expected indirect-long tuple AST, got {other:?}"),
+    }
+}
+
+#[test]
 fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
     let registry = mos6502_family_registry();
 
@@ -1864,8 +1894,12 @@ fn execution_model_tokenizer_vm_parity_checklist_resolves_for_certified_families
     let intel = model
         .resolve_tokenizer_vm_parity_checklist("z80", None)
         .expect("intel8080 checklist resolution");
+    let motorola = model
+        .resolve_tokenizer_vm_parity_checklist("m6809", None)
+        .expect("motorola6800 checklist resolution");
     assert!(mos.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
     assert!(intel.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+    assert!(motorola.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
 }
 
 #[test]
@@ -1906,8 +1940,12 @@ fn execution_model_expr_parser_vm_parity_checklist_resolves_for_certified_famili
     let intel = model
         .resolve_expr_parser_vm_parity_checklist("z80", None)
         .expect("intel8080 checklist resolution");
+    let motorola = model
+        .resolve_expr_parser_vm_parity_checklist("m6809", None)
+        .expect("motorola6800 checklist resolution");
     assert!(mos.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
     assert!(intel.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
+    assert!(motorola.is_some_and(|value| value.to_ascii_lowercase().contains("parity")));
 }
 
 #[test]
@@ -1952,6 +1990,18 @@ fn execution_model_parser_certification_checklists_return_expr_and_instruction_t
     assert_eq!(
         checklists.instruction_parse_encode_checklist,
         Some("phase6-mos6502-rollout-criteria")
+    );
+
+    let motorola = model
+        .resolve_parser_certification_checklists("m6809", None)
+        .expect("motorola checklist resolution");
+    assert_eq!(
+        motorola.expression_parser_checklist,
+        Some("phase8-motorola6800-expr-parser-vm-authoritative")
+    );
+    assert_eq!(
+        motorola.instruction_parse_encode_checklist,
+        Some("phase6-motorola6800-rollout-criteria")
     );
 }
 
@@ -2565,6 +2615,7 @@ fn execution_model_reports_expr_resolver_support_by_family() {
     assert!(model.supports_expr_resolution_for_family("mos6502"));
     assert!(model.supports_expr_resolution_for_family("MOS6502"));
     assert!(model.supports_expr_resolution_for_family("intel8080"));
+    assert!(model.supports_expr_resolution_for_family("motorola6800"));
 }
 
 #[test]
@@ -2956,7 +3007,59 @@ fn execution_model_defer_native_diagnostics_uses_resolver_capability() {
 
     assert!(model.defer_native_diagnostics_on_expr_none("intel8080"));
     assert!(!model.defer_native_diagnostics_on_expr_none("mos6502"));
+    assert!(!model.defer_native_diagnostics_on_expr_none("motorola6800"));
     assert!(!model.defer_native_diagnostics_on_expr_none("unknown"));
+}
+
+#[test]
+fn execution_model_m6800_expr_resolver_is_strict() {
+    let registry = parity_registry();
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    assert!(model.supports_expr_resolution_for_family("motorola6800"));
+    assert!(model.expr_resolution_is_strict_for_family("motorola6800"));
+}
+
+#[test]
+fn execution_model_m6800_expr_encode_supports_m6809_and_hd6309_paths() {
+    let registry = parity_registry();
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    let span = Span::default();
+    let ctx = TestAssemblerContext::new();
+
+    let m6809_immediate = [Expr::Immediate(
+        Box::new(Expr::Number("66".to_string(), span)),
+        span,
+    )];
+    let m6809_indexed = [
+        Expr::Number("0".to_string(), span),
+        Expr::Identifier("X".to_string(), span),
+    ];
+
+    let lda_imm = model
+        .encode_instruction_from_exprs("m6809", None, "LDA", &m6809_immediate, &ctx)
+        .expect("m6809 immediate should resolve");
+    let ldy_imm = model
+        .encode_instruction_from_exprs("m6809", None, "LDY", &m6809_immediate, &ctx)
+        .expect("m6809 prefixed immediate should resolve");
+    let lda_indexed = model
+        .encode_instruction_from_exprs("m6809", None, "LDA", &m6809_indexed, &ctx)
+        .expect("m6809 indexed should resolve");
+    let sty_indexed = model
+        .encode_instruction_from_exprs("m6809", None, "STY", &m6809_indexed, &ctx)
+        .expect("m6809 prefixed indexed should resolve");
+    let sexw = model
+        .encode_instruction_from_exprs("hd6309", None, "SEXW", &[], &ctx)
+        .expect("hd6309 extension should resolve");
+    let h6309_ldy = model
+        .encode_instruction_from_exprs("hd6309", None, "LDY", &m6809_immediate, &ctx)
+        .expect("hd6309 baseline prefixed immediate should resolve");
+
+    assert_eq!(lda_imm, Some(vec![0x86, 0x42]));
+    assert_eq!(ldy_imm, Some(vec![0x10, 0x8E, 0x00, 0x42]));
+    assert_eq!(lda_indexed, Some(vec![0xA6, 0x00]));
+    assert_eq!(sty_indexed, Some(vec![0x10, 0xAF, 0x00]));
+    assert_eq!(sexw, Some(vec![0x14]));
+    assert_eq!(h6309_ldy, Some(vec![0x10, 0x8E, 0x00, 0x42]));
 }
 
 #[test]

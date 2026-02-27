@@ -13,10 +13,12 @@ use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
 use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
 use crate::families::intel8080::module::Intel8080FamilyModule;
+use crate::families::m6800::module::Motorola6800FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
+use crate::hd6309::module::{HD6309CpuModule, CPU_ID as hd6309_cpu_id};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
 use crate::m45gs02::module::{M45GS02CpuModule, CPU_ID as m45gs02_cpu_id};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
@@ -24,6 +26,7 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
+use crate::m6809::module::{M6809CpuModule, CPU_ID as m6809_cpu_id};
 use crate::vm::builder::build_hierarchy_chunks_from_registry;
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::hierarchy::ScopedOwner;
@@ -52,6 +55,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn default_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
     registry.register_family(Box::new(Intel8080FamilyModule));
+    registry.register_family(Box::new(Motorola6800FamilyModule));
     registry.register_family(Box::new(MOS6502FamilyModule));
     registry.register_cpu(Box::new(I8085CpuModule));
     registry.register_cpu(Box::new(Z80CpuModule));
@@ -59,6 +63,8 @@ fn default_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
     registry.register_cpu(Box::new(M45GS02CpuModule));
+    registry.register_cpu(Box::new(M6809CpuModule));
+    registry.register_cpu(Box::new(HD6309CpuModule));
     registry
 }
 
@@ -301,6 +307,44 @@ fn assemble_i8085_line_with_expr_vm_opt_in(
     if enable_portable_expr_vm {
         asm.opthread_expr_eval_opt_in_families
             .push("intel8080".to_string());
+    }
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process(line, 1, start_addr, 2);
+    let message = asm.error().map(|err| err.to_string());
+    (status, message, asm.bytes().to_vec())
+}
+
+fn assemble_line_with_expr_vm_force_host(
+    cpu: crate::core::cpu::CpuType,
+    family_id: &str,
+    line: &str,
+    start_addr: u32,
+    symbol_seed: Option<(u32, bool)>,
+    force_host: bool,
+) -> (LineStatus, Option<String>, Vec<u8>) {
+    let mut symbols = SymbolTable::new();
+    if let Some((value, finalized)) = symbol_seed {
+        assert_eq!(
+            symbols.add("target", value, false, SymbolVisibility::Private, None),
+            SymbolTableResult::Ok,
+            "seed symbol add should succeed"
+        );
+        if finalized {
+            assert_eq!(
+                symbols.update("target", value),
+                SymbolTableResult::Ok,
+                "seed symbol finalize should succeed"
+            );
+        }
+    }
+
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, cpu, &registry);
+    if force_host {
+        asm.opthread_expr_eval_force_host_families
+            .push(family_id.to_string());
     }
     asm.clear_conditionals();
     asm.clear_scopes();
@@ -1224,6 +1268,8 @@ fn cpusupport_report_has_stable_shape() {
     assert!(text.starts_with("opforge-cpusupport-v1\n"));
     assert!(text.lines().any(|line| line.starts_with("cpu=8085;")));
     assert!(text.lines().any(|line| line.starts_with("cpu=m6502;")));
+    assert!(text.lines().any(|line| line.starts_with("cpu=m6809;")));
+    assert!(text.lines().any(|line| line.starts_with("cpu=hd6309;")));
 }
 
 #[test]
@@ -1234,6 +1280,8 @@ fn cpusupport_report_json_has_stable_shape() {
     let cpus = value["cpus"].as_array().expect("cpus array");
     assert!(cpus.iter().any(|entry| entry["cpu"] == "8085"));
     assert!(cpus.iter().any(|entry| entry["cpu"] == "m6502"));
+    assert!(cpus.iter().any(|entry| entry["cpu"] == "m6809"));
+    assert!(cpus.iter().any(|entry| entry["cpu"] == "hd6309"));
     assert!(cpus
         .iter()
         .all(|entry| entry.get("family").is_some() && entry.get("default_dialect").is_some()));
@@ -4233,6 +4281,363 @@ fn unknown_cpu_diagnostic_lists_65816_and_aliases() {
     assert!(message.contains("65816"), "unexpected message: {message}");
     assert!(message.contains("65c816"), "unexpected message: {message}");
     assert!(message.contains("w65c816"), "unexpected message: {message}");
+}
+
+#[test]
+fn cpu_6809_and_hd6309_aliases_are_accepted() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu m6809", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 6809", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu mc6809", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu hd6309", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 6309", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu m6309", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu h6309", 0, 1), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".cpu hitachi6309", 0, 1),
+        LineStatus::Ok
+    );
+}
+
+#[test]
+fn m6809_can_assemble_basic_instructions() {
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    NOP"), vec![0x12]);
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA #$2A"),
+        vec![0x86, 0x2A]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDD #$1234"),
+        vec![0xCC, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDX #$4567"),
+        vec![0x8E, 0x45, 0x67]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDY #$4567"),
+        vec![0x10, 0x8E, 0x45, 0x67]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDU #$89AB"),
+        vec![0xCE, 0x89, 0xAB]
+    );
+}
+
+#[test]
+fn m6809_indexed_and_register_list_modes_encode() {
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA $20,X"),
+        vec![0xA6, 0x88, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA A,X"),
+        vec![0xA6, 0x86]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHS A,B,CC"),
+        vec![0x34, 0x07]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHU A,B,S"),
+        vec![0x36, 0x46]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    BCC $0012"),
+        vec![0x24, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    BLO $0012"),
+        vec![0x25, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STA $20,X"),
+        vec![0xA7, 0x88, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STB A,X"),
+        vec![0xE7, 0x86]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STY $20,X"),
+        vec![0x10, 0xAF, 0x88, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JSR $20,X"),
+        vec![0xAD, 0x88, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JMP A,X"),
+        vec![0x6E, 0x86]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [$20,X]"),
+        vec![0xA6, 0x98, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [A,X]"),
+        vec![0xA6, 0x96]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [$1234]"),
+        vec![0xA6, 0x9F, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA [4,PC]"),
+        vec![0xA6, 0x9C, 0x04]
+    );
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    LDA ,X"), vec![0xA6, 0x00]);
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,X+"),
+        vec![0xA6, 0x80]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,X++"),
+        vec![0xA6, 0x81]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,-X"),
+        vec![0xA6, 0x82]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,--S"),
+        vec![0xA6, 0xE3]
+    );
+}
+
+#[test]
+fn m6809_extended_and_direct_modes_encode() {
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STA $1234"),
+        vec![0xB7, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STX $20"),
+        vec![0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDY $20"),
+        vec![0x10, 0x9E, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDY $1234"),
+        vec![0x10, 0xBE, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STY $20"),
+        vec![0x10, 0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STY $1234"),
+        vec![0x10, 0xBF, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STU $1234"),
+        vec![0xFF, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JSR $1234"),
+        vec![0xBD, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JMP $1234"),
+        vec![0x7E, 0x12, 0x34]
+    );
+}
+
+#[test]
+fn m6809_reports_register_list_validation_errors() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    PSHS $20");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("REGISTER-LIST"),
+        "unexpected error message: {message}"
+    );
+
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    PSHS S");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("INVALID REGISTER S"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn m6809_reports_indexed_auto_inc_dec_validation_errors() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    LDA 1,X+");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message
+            .to_ascii_uppercase()
+            .contains("AUTO INC/DEC FORM DOES NOT ALLOW DISPLACEMENT"),
+        "unexpected error message: {message}"
+    );
+
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    LDA ,PC+");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message
+            .to_ascii_uppercase()
+            .contains("REQUIRES X/Y/U/S BASE REGISTER"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn m6809_reports_invalid_register_pairs_for_tfr_exg() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    TFR A,X");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message
+            .to_ascii_uppercase()
+            .contains("INVALID REGISTER PAIR A,X"),
+        "unexpected error message: {message}"
+    );
+
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    TFR A,B"),
+        vec![0x1F, 0x89]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    EXG X,Y"),
+        vec![0x1E, 0x12]
+    );
+}
+
+#[test]
+fn m6809_branch_range_boundaries_are_validated() {
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    BRA $0081", 1, 0, 2), LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[0x20, 0x7F]);
+    }
+
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    BRA $0082", 1, 0, 2), LineStatus::Error);
+        let message = asm
+            .error()
+            .expect("branch out-of-range should produce an error")
+            .message()
+            .to_string();
+        assert!(
+            message.contains("Branch target out of range"),
+            "unexpected message: {message}"
+        );
+    }
+
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    LBRA $8002", 1, 0, 2), LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[0x16, 0x7F, 0xFF]);
+    }
+
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    LBRA $8003", 1, 0, 2), LineStatus::Error);
+        let message = asm
+            .error()
+            .expect("long-branch out-of-range should produce an error")
+            .message()
+            .to_string();
+        assert!(
+            message.contains("Long branch target out of range"),
+            "unexpected message: {message}"
+        );
+    }
+}
+
+#[test]
+fn hd6309_supports_extension_instruction() {
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    SEXW"), vec![0x14]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRD"), vec![0x10, 0x4F]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRW"), vec![0x10, 0x5F]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRE"), vec![0x11, 0x4F]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRF"), vec![0x11, 0x5F]);
+}
+
+#[test]
+fn hd6309_supports_6809_prefixed_ldy_sty_instructions() {
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    LDY #$1234"),
+        vec![0x10, 0x8E, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    STY $20"),
+        vec![0x10, 0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    STY $20,X"),
+        vec![0x10, 0xAF, 0x88, 0x20]
+    );
+}
+
+#[test]
+fn m6809_rejects_hd6309_extension_instruction() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    SEXW");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("SEXW"),
+        "unexpected error message: {message}"
+    );
+
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    CLRD");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("CLRD"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn unknown_cpu_diagnostic_lists_6809_and_hd6309_aliases() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, ".cpu nope6309", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+
+    let message = asm
+        .error()
+        .expect("expected unknown cpu error")
+        .message()
+        .to_string();
+    assert!(message.contains("m6809"), "unexpected message: {message}");
+    assert!(message.contains("6809"), "unexpected message: {message}");
+    assert!(message.contains("hd6309"), "unexpected message: {message}");
+    assert!(message.contains("6309"), "unexpected message: {message}");
+    assert!(message.contains("h6309"), "unexpected message: {message}");
+    assert!(
+        message.contains("hitachi6309"),
+        "unexpected message: {message}"
+    );
 }
 
 #[test]
@@ -8177,6 +8582,18 @@ fn vm_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokenization()
     assert!(z80_asm.opthread_execution_model.is_some());
 }
 
+#[test]
+fn vm_runtime_model_is_available_for_motorola6800_family_cpus() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    let m6809_asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+    assert!(m6809_asm.opthread_execution_model.is_some());
+
+    let hd6309_asm = AsmLine::with_cpu(&mut symbols, hd6309_cpu_id, &registry);
+    assert!(hd6309_asm.opthread_execution_model.is_some());
+}
+
 #[cfg(feature = "vm-runtime-opcpu-artifact")]
 #[test]
 fn vm_runtime_artifact_path_is_target_relative() {
@@ -8357,6 +8774,45 @@ fn vm_rollout_criteria_mos6502_parity_and_determinism_gate() {
 }
 
 #[test]
+fn vm_rollout_criteria_motorola6800_parity_and_determinism_gate() {
+    assert_eq!(
+        family_runtime_mode("motorola6800"),
+        FamilyRuntimeMode::Authoritative
+    );
+    assert!(package_runtime_default_enabled_for_family("motorola6800"));
+
+    let source = [
+        "    .cpu m6809",
+        "    .org $1000",
+        "start:",
+        "    LDA #$2A",
+        "    LDA ,X+",
+        "    BNE start",
+        "    LBRA done",
+        "done:",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime_a = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    let runtime_b = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source re-run should be deterministic");
+
+    assert_eq!(runtime_a.0, native.0, "bytes/reloc parity mismatch");
+    assert_eq!(runtime_a.1, native.1, "diagnostic parity mismatch");
+    assert_eq!(
+        runtime_b.0, runtime_a.0,
+        "runtime bytes are non-deterministic"
+    );
+    assert_eq!(
+        runtime_b.1, runtime_a.1,
+        "runtime diagnostics are non-deterministic"
+    );
+}
+
+#[test]
 fn vm_expr_parser_rollout_criteria_all_registered_families_have_policy_and_checklist() {
     let registry = default_registry();
     for family in registry.family_ids() {
@@ -8376,11 +8832,21 @@ fn vm_expr_parser_rollout_criteria_all_registered_families_have_policy_and_check
 }
 
 #[test]
-fn vm_expr_parser_rollout_criteria_mos_and_intel_default_authoritative() {
+fn vm_expr_parser_rollout_criteria_mos_intel_and_motorola_default_authoritative() {
     assert!(crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("mos6502"));
     assert!(
         crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("intel8080")
     );
+    assert!(
+        crate::vm::rollout::portable_expr_parser_runtime_default_enabled_for_family("motorola6800")
+    );
+}
+
+#[test]
+fn vm_expr_eval_rollout_criteria_mos_intel_and_motorola_default_authoritative() {
+    assert!(crate::vm::rollout::portable_expr_runtime_default_enabled_for_family("mos6502"));
+    assert!(crate::vm::rollout::portable_expr_runtime_default_enabled_for_family("intel8080"));
+    assert!(crate::vm::rollout::portable_expr_runtime_default_enabled_for_family("motorola6800"));
 }
 
 #[test]
@@ -8883,6 +9349,42 @@ fn vm_runtime_intel8085_expr_parser_contract_breakage_errors_instead_of_host_fal
     asm.clear_scopes();
 
     let status = asm.process("    MVI A, ($10 + 1)", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message
+            .to_ascii_lowercase()
+            .contains("unsupported expression parser contract opcode version"),
+        "expected expression parser contract compatibility failure, got: {message}"
+    );
+}
+
+#[test]
+fn vm_runtime_motorola6800_expr_parser_contract_breakage_errors_instead_of_host_fallback() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_parser_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("motorola6800"))
+        })
+        .cloned()
+        .expect("motorola6800 family expr parser contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6809".to_string());
+    cpu_override.opcode_version = EXPR_PARSER_VM_OPCODE_VERSION_V1.saturating_add(1);
+    chunks.expr_parser_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #($10 + 1)", 1, 0, 2);
     let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
     assert_eq!(status, LineStatus::Error);
     assert!(
@@ -9403,6 +9905,71 @@ fn vm_runtime_intel8085_unresolved_and_unstable_symbol_parity_native_vs_portable
 }
 
 #[test]
+fn vm_runtime_motorola6800_unresolved_and_unstable_symbol_parity_native_vs_portable_eval() {
+    for cpu in [m6809_cpu_id, hd6309_cpu_id] {
+        let unresolved_native = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #missing_symbol",
+            0x1000,
+            None,
+            true,
+        );
+        let unresolved_runtime = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #missing_symbol",
+            0x1000,
+            None,
+            false,
+        );
+        assert_eq!(unresolved_runtime.0, unresolved_native.0);
+        assert_eq!(unresolved_runtime.1, unresolved_native.1);
+        assert_eq!(unresolved_runtime.2, unresolved_native.2);
+
+        let unstable_native = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, false)),
+            true,
+        );
+        let unstable_runtime = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, false)),
+            false,
+        );
+        assert_eq!(unstable_runtime.0, unstable_native.0);
+        assert_eq!(unstable_runtime.1, unstable_native.1);
+        assert_eq!(unstable_runtime.2, unstable_native.2);
+
+        let finalized_native = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, true)),
+            true,
+        );
+        let finalized_runtime = assemble_line_with_expr_vm_force_host(
+            cpu,
+            "motorola6800",
+            "    LDA #target",
+            0x1000,
+            Some((0x002A, true)),
+            false,
+        );
+        assert_eq!(finalized_runtime.0, finalized_native.0);
+        assert_eq!(finalized_runtime.1, finalized_native.1);
+        assert_eq!(finalized_runtime.2, finalized_native.2);
+    }
+}
+
+#[test]
 fn vm_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
     let corpus = [
         "    MVI A, ((1 + 2 * 3) == 7 ? $2A : $55)",
@@ -9425,6 +9992,73 @@ fn vm_runtime_intel8085_ternary_precedence_and_dollar_parity_native_vs_portable_
             "runtime diagnostics non-deterministic"
         );
         assert_eq!(runtime_b.2, runtime_a.2, "runtime bytes non-deterministic");
+    }
+}
+
+#[test]
+fn vm_runtime_motorola6800_ternary_precedence_and_dollar_parity_native_vs_portable_eval() {
+    let corpus = [
+        "    LDA #((1 + 2 * 3) == 7 ? $2A : $55)",
+        "    LDA #(($ + 2) > $1000 ? $11 : $22)",
+        "    LDA #((<$1234) + ($80 >> 3))",
+    ];
+
+    for cpu in [m6809_cpu_id, hd6309_cpu_id] {
+        for line in corpus {
+            let native = assemble_line_with_expr_vm_force_host(
+                cpu,
+                "motorola6800",
+                line,
+                0x1000,
+                None,
+                true,
+            );
+            let runtime_a = assemble_line_with_expr_vm_force_host(
+                cpu,
+                "motorola6800",
+                line,
+                0x1000,
+                None,
+                false,
+            );
+            let runtime_b = assemble_line_with_expr_vm_force_host(
+                cpu,
+                "motorola6800",
+                line,
+                0x1000,
+                None,
+                false,
+            );
+
+            assert_eq!(
+                runtime_a.0,
+                native.0,
+                "status mismatch for '{}' on {}",
+                line,
+                cpu.as_str()
+            );
+            assert_eq!(
+                runtime_a.1,
+                native.1,
+                "diagnostic mismatch for '{}' on {}",
+                line,
+                cpu.as_str()
+            );
+            assert_eq!(
+                runtime_a.2,
+                native.2,
+                "byte mismatch for '{}' on {}",
+                line,
+                cpu.as_str()
+            );
+
+            assert_eq!(runtime_b.0, runtime_a.0, "runtime status non-deterministic");
+            assert_eq!(
+                runtime_b.1, runtime_a.1,
+                "runtime diagnostics non-deterministic"
+            );
+            assert_eq!(runtime_b.2, runtime_a.2, "runtime bytes non-deterministic");
+        }
     }
 }
 
@@ -9459,6 +10093,40 @@ fn vm_runtime_intel8085_eval_expr_uses_portable_eval_by_default_when_authoritati
     assert!(
         message.to_ascii_lowercase().contains("ope007"),
         "expected default intel8080-family VM eval path to enforce expr budgets, got: {message}"
+    );
+}
+
+#[test]
+fn vm_runtime_motorola6800_eval_expr_uses_portable_eval_by_default_when_authoritative() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+
+    let mut chunks =
+        build_hierarchy_chunks_from_registry(&registry).expect("hierarchy chunks build");
+    let mut cpu_override = chunks
+        .expr_contracts
+        .iter()
+        .find(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner.eq_ignore_ascii_case("motorola6800"))
+        })
+        .cloned()
+        .expect("motorola6800 family expr contract");
+    cpu_override.owner = ScopedOwner::Cpu("m6809".to_string());
+    cpu_override.max_eval_steps = 0;
+    chunks.expr_contracts.push(cpu_override);
+
+    asm.opthread_execution_model =
+        Some(HierarchyExecutionModel::from_chunks(chunks).expect("execution model build"));
+    asm.clear_conditionals();
+    asm.clear_scopes();
+
+    let status = asm.process("    LDA #3", 1, 0, 2);
+    let message = asm.error().map(|err| err.to_string()).unwrap_or_default();
+    assert_eq!(status, LineStatus::Error);
+    assert!(
+        message.to_ascii_lowercase().contains("ope007"),
+        "expected default motorola6800-family VM eval path to enforce expr budgets, got: {message}"
     );
 }
 
@@ -9803,13 +10471,15 @@ fn vm_runtime_mos6502_parity_corpus_matches_native_mode() {
 
 #[test]
 fn vm_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
-    // The mos6502 family is currently VM-eval enabled by default in rollout policy.
+    // VM-eval-enabled families should keep byte+diagnostic parity with host mode.
     // Verify representative family CPUs keep byte+diagnostic parity with host mode.
     let corpus = [
         (m6502_cpu_id, "    LDA #$10"),
         (m65c02_cpu_id, "    BRA $0004"),
         (m65816_cpu_id, "    LDA $123456,k"),
         (m65816_cpu_id, "    JMP $1234"),
+        (m6809_cpu_id, "    LDA #((1 + 2) * 3)"),
+        (hd6309_cpu_id, "    LDA #((1 + 2) * 3)"),
     ];
 
     for (cpu, line) in corpus {
@@ -9834,6 +10504,14 @@ fn vm_runtime_parser_tokenizer_parity_corpus_matches_native_mode() {
         (m65c02_cpu_id, "    BRA $0004"),
         (m65816_cpu_id, "    LDA [$10],Y"),
         (m65816_cpu_id, "    LDA $123456,l"),
+        (m6809_cpu_id, "LABEL: LDA #$10 ; trailing comment"),
+        (m6809_cpu_id, "    LDA ,X++"),
+        (m6809_cpu_id, "    LDA [$20,X]"),
+        (m6809_cpu_id, "    PSHS A,B,CC"),
+        (m6809_cpu_id, "    TFR A,B"),
+        (m6809_cpu_id, "    LBRA $0004"),
+        (hd6309_cpu_id, "    SEXW"),
+        (hd6309_cpu_id, "    CLRD"),
     ];
 
     for (cpu, line) in corpus {

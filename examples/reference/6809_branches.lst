@@ -1,0 +1,34 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Motorola 6809 branch fixture
+----                                2  .cpu m6809
+----    EQU 1000                    3  .org $1000
+----                                4  
+----                                5  start
+1000    24 02                       6      BCC near
+1002    21 05                       7      BRN end
+----                                8  near
+1004    26 03                       9      BNE end
+1006    16 00 01                   10      LBRA far
+----                               11  end
+1009    39                         12      RTS
+----                               13  far
+100A    39                         14      RTS
+
+Lines: 14  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1000 (4096)
+near            : 1004 (4100)
+end             : 1009 (4105)
+far             : 100a (4106)
+
+Total memory is 11 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    24 02 21 05 26 03 16 00 01 39 39

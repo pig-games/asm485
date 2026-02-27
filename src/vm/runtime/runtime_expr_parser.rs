@@ -372,21 +372,46 @@ impl RuntimeExpressionParser {
                 span: open_span,
             }) => {
                 let expr = self.parse_expr()?;
-                let close_span = self.current_span();
-                if !self.consume_kind(TokenKind::CloseBracket) {
-                    return Err(ParseError {
-                        message: "Missing ']'".to_string(),
-                        span: self.current_span(),
-                    });
-                }
-                Ok(Expr::IndirectLong(
-                    Box::new(expr),
-                    Span {
+                if self.consume_comma() {
+                    let mut elements = vec![expr];
+                    elements.push(self.parse_expr()?);
+                    while self.consume_comma() {
+                        elements.push(self.parse_expr()?);
+                    }
+
+                    let close_span = self.current_span();
+                    if !self.consume_kind(TokenKind::CloseBracket) {
+                        return Err(ParseError {
+                            message: "Missing ']' in tuple".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                    let span = Span {
                         line: open_span.line,
                         col_start: open_span.col_start,
                         col_end: close_span.col_end,
-                    },
-                ))
+                    };
+                    Ok(Expr::IndirectLong(
+                        Box::new(Expr::Tuple(elements, span)),
+                        span,
+                    ))
+                } else {
+                    let close_span = self.current_span();
+                    if !self.consume_kind(TokenKind::CloseBracket) {
+                        return Err(ParseError {
+                            message: "Missing ']'".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                    Ok(Expr::IndirectLong(
+                        Box::new(expr),
+                        Span {
+                            line: open_span.line,
+                            col_start: open_span.col_start,
+                            col_end: close_span.col_end,
+                        },
+                    ))
+                }
             }
             Some(token) => Err(ParseError {
                 message: "Unexpected token in expression".to_string(),

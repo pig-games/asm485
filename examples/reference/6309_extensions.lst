@@ -1,0 +1,29 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Hitachi HD6309 extension fixture
+----                                2  .cpu hd6309
+----    EQU 1000                    3  .org $1000
+----                                4  
+----                                5  start
+1000    14                          6      SEXW
+1001    10 4F                       7      CLRD
+1003    10 5F                       8      CLRW
+1005    11 4F                       9      CLRE
+1007    11 5F                      10      CLRF
+1009    86 11                      11      LDA #$11
+100B    39                         12      RTS
+
+Lines: 12  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1000 (4096)
+
+Total memory is 12 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    14 10 4F 10 5F 11 4F 11 5F 86 11 39

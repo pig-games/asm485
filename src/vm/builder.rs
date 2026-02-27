@@ -8,8 +8,14 @@ use crate::core::family::CpuHandler;
 use crate::core::registry::ModuleRegistry;
 use crate::families::intel8080::module::FAMILY_ID as INTEL8080_FAMILY_ID;
 use crate::families::intel8080::table::FAMILY_INSTRUCTION_TABLE as INTEL8080_FAMILY_INSTRUCTION_TABLE;
+use crate::families::m6800::module::FAMILY_ID as M6800_FAMILY_ID;
+use crate::families::m6800::AddressMode as M6800AddressMode;
+use crate::families::m6800::FAMILY_INSTRUCTION_TABLE as M6800_FAMILY_INSTRUCTION_TABLE;
+use crate::families::m6800::PREFIXED_FAMILY_INSTRUCTION_TABLE as M6800_PREFIXED_FAMILY_INSTRUCTION_TABLE;
 use crate::families::mos6502::module::FAMILY_ID as MOS6502_FAMILY_ID;
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
+use crate::hd6309::instructions::CPU_INSTRUCTION_TABLE as HD6309_CPU_INSTRUCTION_TABLE;
+use crate::hd6309::module::CPU_ID as HD6309_CPU_ID;
 use crate::i8085::extensions::I8085_EXTENSION_TABLE;
 use crate::i8085::module::CPU_ID as I8085_CPU_ID;
 use crate::m45gs02::instructions::CPU_INSTRUCTION_TABLE as M45GS02_CPU_INSTRUCTION_TABLE;
@@ -574,6 +580,35 @@ pub fn build_hierarchy_chunks_from_registry(
         }
     }
 
+    if registered_family_ids.contains(M6800_FAMILY_ID.as_str()) {
+        emit_m6800_table_programs(
+            M6800_FAMILY_INSTRUCTION_TABLE,
+            ScopedOwner::Family(M6800_FAMILY_ID.as_str().to_string()),
+            &mut tables,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode,
+        );
+        emit_m6800_prefixed_table_programs(
+            M6800_PREFIXED_FAMILY_INSTRUCTION_TABLE,
+            ScopedOwner::Family(M6800_FAMILY_ID.as_str().to_string()),
+            &mut tables,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode_bytes,
+        );
+    }
+    if registered_cpu_ids.contains(HD6309_CPU_ID.as_str()) {
+        emit_m6800_prefixed_table_programs(
+            HD6309_CPU_INSTRUCTION_TABLE,
+            ScopedOwner::Cpu(HD6309_CPU_ID.as_str().to_string()),
+            &mut tables,
+            |entry| entry.mnemonic,
+            |entry| entry.mode,
+            |entry| entry.opcode_bytes,
+        );
+    }
+
     if registered_family_ids.contains(MOS6502_FAMILY_ID.as_str()) {
         emit_mos_style_table_programs(
             FAMILY_INSTRUCTION_TABLE,
@@ -858,6 +893,86 @@ fn compile_opcode_program(opcode: u8, operand_count: usize) -> Vec<u8> {
     }
     program.push(OP_END);
     program
+}
+
+fn compile_prefixed_opcode_program(opcode_bytes: &[u8], operand_count: usize) -> Vec<u8> {
+    let mut program = Vec::with_capacity((opcode_bytes.len() * 2) + (operand_count * 2) + 1);
+    for opcode in opcode_bytes {
+        program.push(OP_EMIT_U8);
+        program.push(*opcode);
+    }
+    for operand_index in 0..operand_count {
+        program.push(OP_EMIT_OPERAND);
+        program.push(operand_index as u8);
+    }
+    program.push(OP_END);
+    program
+}
+
+fn m6800_mode_operand_count(mode: M6800AddressMode) -> usize {
+    match mode {
+        M6800AddressMode::Inherent => 0,
+        M6800AddressMode::Immediate8
+        | M6800AddressMode::Immediate16
+        | M6800AddressMode::Direct
+        | M6800AddressMode::Extended
+        | M6800AddressMode::Indexed
+        | M6800AddressMode::Relative8
+        | M6800AddressMode::Relative16
+        | M6800AddressMode::RegisterPair
+        | M6800AddressMode::RegisterList => 1,
+    }
+}
+
+fn emit_m6800_table_programs<T, I, FMnemonic, FMode, FOpcode>(
+    entries: I,
+    owner: ScopedOwner,
+    tables: &mut Vec<VmProgramDescriptor>,
+    mnemonic_of: FMnemonic,
+    mode_of: FMode,
+    opcode_of: FOpcode,
+) where
+    I: IntoIterator<Item = T>,
+    FMnemonic: Fn(&T) -> &str,
+    FMode: Fn(&T) -> M6800AddressMode,
+    FOpcode: Fn(&T) -> u8,
+{
+    for entry in entries {
+        let mode = mode_of(&entry);
+        tables.push(VmProgramDescriptor {
+            owner: owner.clone(),
+            mnemonic: mnemonic_of(&entry).to_string(),
+            mode_key: format!("{mode:?}"),
+            program: compile_opcode_program(opcode_of(&entry), m6800_mode_operand_count(mode)),
+        });
+    }
+}
+
+fn emit_m6800_prefixed_table_programs<T, I, FMnemonic, FMode, FOpcode>(
+    entries: I,
+    owner: ScopedOwner,
+    tables: &mut Vec<VmProgramDescriptor>,
+    mnemonic_of: FMnemonic,
+    mode_of: FMode,
+    opcode_bytes_of: FOpcode,
+) where
+    I: IntoIterator<Item = T>,
+    FMnemonic: Fn(&T) -> &str,
+    FMode: Fn(&T) -> M6800AddressMode,
+    FOpcode: Fn(&T) -> &[u8],
+{
+    for entry in entries {
+        let mode = mode_of(&entry);
+        tables.push(VmProgramDescriptor {
+            owner: owner.clone(),
+            mnemonic: mnemonic_of(&entry).to_string(),
+            mode_key: format!("{mode:?}"),
+            program: compile_prefixed_opcode_program(
+                opcode_bytes_of(&entry),
+                m6800_mode_operand_count(mode),
+            ),
+        });
+    }
 }
 
 fn prepend_u8_prefixes_to_program(program: &[u8], prefixes: &[u8]) -> Vec<u8> {
@@ -1423,12 +1538,15 @@ mod tests {
     use crate::core::registry::ModuleRegistry;
     use crate::families::intel8080::module::Intel8080FamilyModule;
     use crate::families::intel8080::table::lookup_instruction as lookup_intel_instruction;
+    use crate::families::m6800::module::Motorola6800FamilyModule;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+    use crate::hd6309::module::HD6309CpuModule;
     use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
     use crate::i8085::module::I8085CpuModule;
     use crate::m45gs02::module::M45GS02CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
+    use crate::m6809::module::M6809CpuModule;
     use crate::vm::intel8080_vm::{
         mode_key_for_instruction_entry, mode_key_for_z80_cb_register, mode_key_for_z80_half_index,
         mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
@@ -1446,6 +1564,7 @@ mod tests {
     fn test_registry() -> ModuleRegistry {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(Motorola6800FamilyModule));
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(I8085CpuModule));
         registry.register_cpu(Box::new(Z80CpuModule));
@@ -1453,6 +1572,8 @@ mod tests {
         registry.register_cpu(Box::new(M65C02CpuModule));
         registry.register_cpu(Box::new(M65816CpuModule));
         registry.register_cpu(Box::new(M45GS02CpuModule));
+        registry.register_cpu(Box::new(M6809CpuModule));
+        registry.register_cpu(Box::new(HD6309CpuModule));
         registry
     }
 
@@ -1462,9 +1583,9 @@ mod tests {
         let chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("builder should succeed");
 
-        assert_eq!(chunks.families.len(), 2);
-        assert_eq!(chunks.cpus.len(), 6);
-        assert_eq!(chunks.dialects.len(), 3);
+        assert_eq!(chunks.families.len(), 3);
+        assert_eq!(chunks.cpus.len(), 8);
+        assert_eq!(chunks.dialects.len(), 4);
         assert!(chunks
             .diagnostics
             .iter()
@@ -1545,6 +1666,21 @@ mod tests {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")
                 && entry.mnemonic == "djnz"
                 && entry.mode_key == mode_key_for_instruction_entry(djnz)
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "motorola6800")
+                && entry.mnemonic.eq_ignore_ascii_case("lda")
+                && entry.mode_key.eq_ignore_ascii_case("Immediate8")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Family(owner) if owner == "motorola6800")
+                && entry.mnemonic.eq_ignore_ascii_case("lbsr")
+                && entry.mode_key.eq_ignore_ascii_case("Relative16")
+        }));
+        assert!(chunks.tables.iter().any(|entry| {
+            matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "hd6309")
+                && entry.mnemonic.eq_ignore_ascii_case("sexw")
+                && entry.mode_key.eq_ignore_ascii_case("Inherent")
         }));
         assert!(chunks.tables.iter().any(|entry| {
             matches!(&entry.owner, ScopedOwner::Cpu(owner) if owner == "z80")

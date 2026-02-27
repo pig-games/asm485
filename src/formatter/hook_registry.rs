@@ -127,6 +127,13 @@ impl FormatterHookRegistry {
         ));
 
         self.register_dialect_hook(Box::new(
+            crate::families::m6800::formatter::Motorola680xDialectFormatterHook,
+        ));
+        self.register_family_hook(Box::new(
+            crate::families::m6800::formatter::Motorola6800FamilyFormatterHook,
+        ));
+
+        self.register_dialect_hook(Box::new(
             crate::families::mos6502::formatter::TransparentDialectFormatterHook,
         ));
         self.register_family_hook(Box::new(
@@ -141,6 +148,8 @@ impl FormatterHookRegistry {
         self.register_cpu_hook(Box::new(crate::m65c02::formatter::M65C02FormatterHook));
         self.register_cpu_hook(Box::new(crate::m65816::formatter::M65816FormatterHook));
         self.register_cpu_hook(Box::new(crate::m45gs02::formatter::M45GS02FormatterHook));
+        self.register_cpu_hook(Box::new(crate::m6809::formatter::M6809FormatterHook));
+        self.register_cpu_hook(Box::new(crate::hd6309::formatter::HD6309FormatterHook));
     }
 }
 
@@ -192,6 +201,16 @@ mod tests {
                 cpu: crate::m45gs02::module::CPU_ID,
                 family: MOS6502_FAMILY_ID,
                 dialect: DIALECT_TRANSPARENT.to_string(),
+            },
+            ActivePipeline {
+                cpu: crate::m6809::module::CPU_ID,
+                family: crate::families::m6800::module::FAMILY_ID,
+                dialect: crate::families::m6800::module::DIALECT_MOTOROLA680X.to_string(),
+            },
+            ActivePipeline {
+                cpu: crate::hd6309::module::CPU_ID,
+                family: crate::families::m6800::module::FAMILY_ID,
+                dialect: crate::families::m6800::module::DIALECT_MOTOROLA680X.to_string(),
             },
         ];
 

@@ -7,7 +7,7 @@ This manual is validated against opForge CLI `0.9.3` (crate `0.9.3`).
 
 ## 1. Introduction
 
-opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, WDC 65C02, and WDC 65816 code. It supports:
+opForge is a two-pass, multi-CPU assembler for Intel 8080/8085 and Z80, MOS 6502-family CPUs (6502/65C02/65816/45GS02), and Motorola 6800-family CPUs (6809/HD6309). It supports:
 - Dot-prefixed directives and conditionals.
 - A 64tass-inspired expression syntax (operators, precedence, ternary).
 - Preprocessor directives for includes and conditional compilation.
@@ -16,7 +16,8 @@ opForge is a two-pass, multi-CPU assembler for Intel 8080/8085, Z80, MOS 6502, W
 
 The `.cpu` directive currently accepts `8080` (alias for `8085`), `8085`, `z80`,
 `6502`, `m6502`, `65c02`, `65816`, `65c816`, `w65c816`, `45gs02`, `m45gs02`,
-`mega65`, `4510`, and `csg4510`.
+`mega65`, `4510`, `csg4510`, `6809`, `m6809`, `mc6809`, `6309`, `m6309`,
+`h6309`, `hitachi6309`, and `hd6309`.
 
 ## 2. Usage tips
 
@@ -463,6 +464,14 @@ Examples in the repo:
 .cpu mega65
 .cpu 4510
 .cpu csg4510
+.cpu 6809
+.cpu m6809
+.cpu mc6809
+.cpu 6309
+.cpu m6309
+.cpu h6309
+.cpu hitachi6309
+.cpu hd6309
 ```
 
 Planned (not currently supported): `68000` and related CPUs.
@@ -1087,8 +1096,8 @@ and `IYL`.
 
 ### Core abstractions
 
-- **CpuType**: concrete processor (I8085, Z80, M6502, M65C02, M65816)
-- **CpuFamily**: processor family (Intel8080, MOS6502)
+- **CpuType**: concrete processor (I8085, Z80, M6502, M65C02, M65816, M45GS02, M6809, HD6309)
+- **CpuFamily**: processor family (Intel8080, MOS6502, Motorola6800)
 
 ### Handler traits (summary)
 
