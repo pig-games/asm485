@@ -307,11 +307,11 @@ Use this as the implementation plan of record. Complete items in order; do not s
 #### 2) C1: Enforce recursion/depth safety in include + macro expansion
 
 - [x] Confirm a single shared depth-limit policy for preprocessor includes and macro expansion.
-- [ ] Add explicit circular include detection with cycle diagnostics.
-- [ ] Add explicit mutually recursive macro detection with cycle diagnostics.
+- [x] Add explicit circular include detection with cycle diagnostics.
+- [x] Add explicit mutually recursive macro detection with cycle diagnostics.
 - [x] Ensure `--pp-macro-depth` is enforced consistently at all expansion entry points.
-- [ ] Add tests: direct cycle, indirect cycle, boundary depth, over-limit depth, mixed include+macro recursion.
-- [ ] Validate: `make test` and verify diagnostics are deterministic.
+- [x] Add tests: direct cycle, indirect cycle, boundary depth, over-limit depth, mixed include+macro recursion.
+- [x] Validate: `make test` and verify diagnostics are deterministic.
 
 **Definition of done:** Recursive inputs terminate safely with stable diagnostics; no stack overflow paths.
 
