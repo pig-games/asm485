@@ -328,10 +328,10 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 4) C3: Section/linker edge-case coverage
 
-- [ ] Add tests for empty sections, overlapping `.place`, `.pack` overflow, repeated `.output` references.
-- [ ] Verify contiguous output adjacency diagnostics and section placement diagnostics.
-- [ ] Confirm failure modes are diagnostic-first (no partial corrupt output artifacts).
-- [ ] Validate with `make test` and focused linker test subset.
+- [x] Add tests for empty sections, overlapping `.place`, `.pack` overflow, repeated `.output` references.
+- [x] Verify contiguous output adjacency diagnostics and section placement diagnostics.
+- [x] Confirm failure modes are diagnostic-first (no partial corrupt output artifacts).
+- [x] Validate with `make test` and focused linker test subset.
 
 #### 5) B1: Instruction table duplication protection
 
@@ -402,7 +402,7 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] PR1: C2 panic removal + tests.
 - [x] PR2: C1 recursion/cycle enforcement + tests.
 - [x] PR3: C4 numeric validation + tests.
-- [ ] PR4: C3 linker/section edge-case tests/fixes.
+- [x] PR4: C3 linker/section edge-case tests/fixes.
 - [ ] PR5: B1 opcode uniqueness + E1 6809/HD6309 coverage.
 - [ ] PR6: A1 assembler module split with parity proof.
 - [ ] PR7: B4/B5/A4-F2 stabilization tasks.

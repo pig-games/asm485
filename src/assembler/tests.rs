@@ -3019,6 +3019,60 @@ fn pass1_errors_for_unknown_region_in_deferred_place() {
 }
 
 #[test]
+fn pass1_errors_when_section_is_placed_multiple_times() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".region ram, $1000, $10ff".to_string(),
+        ".section code".to_string(),
+        ".byte $aa".to_string(),
+        ".endsection".to_string(),
+        ".place code in ram".to_string(),
+        ".place code in ram".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.severity == Severity::Error
+            && diag
+                .error
+                .message()
+                .contains("Section has already been placed")
+    }));
+}
+
+#[test]
+fn pass1_errors_when_pack_overflows_region() {
+    let lines = vec![
+        ".module main".to_string(),
+        ".region ram, $1000, $1002".to_string(),
+        ".section a".to_string(),
+        ".byte 1,2".to_string(),
+        ".endsection".to_string(),
+        ".section b".to_string(),
+        ".byte 3,4".to_string(),
+        ".endsection".to_string(),
+        ".pack in ram : a, b".to_string(),
+        ".endmodule".to_string(),
+    ];
+
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors > 0);
+    assert!(assembler.diagnostics.iter().any(|diag| {
+        diag.severity == Severity::Error
+            && diag
+                .error
+                .message()
+                .contains("Section placement overflows region")
+    }));
+}
+
+#[test]
 fn pass1_errors_when_region_bound_section_is_not_placed() {
     let lines = vec![
         ".module main".to_string(),
@@ -7406,6 +7460,32 @@ fn root_metadata_linker_output_wide_image_mode_is_stored() {
 }
 
 #[test]
+fn root_metadata_linker_output_rejects_duplicate_section_references() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, ".module main", 0, 1);
+    assert_eq!(status, LineStatus::Ok);
+    let status = process_line(
+        &mut asm,
+        ".output \"build/out.bin\", format=bin, sections=code,code",
+        0,
+        1,
+    );
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error()
+            .unwrap()
+            .message()
+            .contains("Duplicate section name"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
 fn linker_output_fill_requires_image() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -7526,6 +7606,30 @@ fn linker_output_image_mode_rejects_out_of_span_section() {
         .expect_err("out-of-span should fail");
     assert_eq!(err.kind(), AsmErrorKind::Directive);
     assert!(err.message().contains("outside image span"));
+}
+
+#[test]
+fn linker_output_contiguous_bundle_allows_empty_sections() {
+    let assembler = run_passes(&[
+        ".module main",
+        ".region ram, $1000, $10ff",
+        ".section a",
+        ".endsection",
+        ".section b",
+        ".byte $bb",
+        ".endsection",
+        ".place a in ram",
+        ".place b in ram",
+        ".output \"build/out.bin\", format=bin, sections=a,b",
+        ".endmodule",
+    ]);
+    let output = assembler
+        .root_metadata
+        .linker_outputs
+        .first()
+        .expect("output directive");
+    let payload = build_linker_output_payload(output, assembler.sections()).expect("bundle");
+    assert_eq!(payload, vec![0xbb]);
 }
 
 #[test]

@@ -580,6 +580,18 @@ impl<'a> AsmLine<'a> {
                     span,
                 ));
             }
+            if sections
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(section))
+            {
+                return Err(self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    &format!("Duplicate section name in {directive} sections list"),
+                    Some(section),
+                    span,
+                ));
+            }
             sections.push(section.to_string());
         }
         Ok(())
