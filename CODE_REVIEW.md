@@ -319,12 +319,12 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 3) C4: Numeric validation hardening
 
-- [ ] Centralize numeric range validation helpers (addresses, counts, alignments, shifts).
-- [ ] Enforce CPU-aware address widths (16-bit default, 24-bit where applicable).
-- [ ] Enforce `.align` power-of-two and non-zero constraints.
-- [ ] Enforce non-negative and bounded `.ds`/`.fill` counts.
-- [ ] Add targeted tests for underflow/overflow/truncation edge cases.
-- [ ] Validate: no silent wraparound without diagnostic.
+- [x] Centralize numeric range validation helpers (addresses, counts, alignments, shifts).
+- [x] Enforce CPU-aware address widths (16-bit default, 24-bit where applicable).
+- [x] Enforce `.align` power-of-two and non-zero constraints.
+- [x] Enforce non-negative and bounded `.ds`/`.fill` counts.
+- [x] Add targeted tests for underflow/overflow/truncation edge cases.
+- [x] Validate: no silent wraparound without diagnostic.
 
 #### 4) C3: Section/linker edge-case coverage
 
@@ -399,9 +399,9 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 ### Suggested PR sequence (concrete, low-churn)
 
-- [ ] PR1: C2 panic removal + tests.
-- [ ] PR2: C1 recursion/cycle enforcement + tests.
-- [ ] PR3: C4 numeric validation + tests.
+- [x] PR1: C2 panic removal + tests.
+- [x] PR2: C1 recursion/cycle enforcement + tests.
+- [x] PR3: C4 numeric validation + tests.
 - [ ] PR4: C3 linker/section edge-case tests/fixes.
 - [ ] PR5: B1 opcode uniqueness + E1 6809/HD6309 coverage.
 - [ ] PR6: A1 assembler module split with parity proof.

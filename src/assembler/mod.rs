@@ -4377,10 +4377,54 @@ impl<'a> AsmLine<'a> {
                 } else if name.eq_ignore_ascii_case("long") {
                     Ok(4)
                 } else {
-                    self.eval_expr_for_data_directive(unit)
+                    self.eval_expr_for_non_negative_directive(unit, ".emit/.fill/.res unit")
                 }
             }
-            _ => self.eval_expr_for_data_directive(unit),
+            _ => self.eval_expr_for_non_negative_directive(unit, ".emit/.fill/.res unit"),
+        }
+    }
+
+    fn eval_expr_for_non_negative_directive(
+        &self,
+        expr: &Expr,
+        directive_name: &str,
+    ) -> Result<u32, AstEvalError> {
+        if let Some((name, span)) = self.find_private_symbol_in_expr(expr) {
+            return Err(AstEvalError {
+                error: self.visibility_error(&name),
+                span,
+            });
+        }
+
+        match AssemblerContext::eval_expr(self, expr) {
+            Ok(value) => {
+                if value < 0 {
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            &format!("Expected non-negative value for {directive_name}"),
+                            None,
+                        ),
+                        span: expr_span(expr),
+                    });
+                }
+
+                match u32::try_from(value) {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            &format!("Value out of supported range for {directive_name}"),
+                            None,
+                        ),
+                        span: expr_span(expr),
+                    }),
+                }
+            }
+            Err(message) => Err(AstEvalError {
+                error: AsmError::new(AsmErrorKind::Expression, &message, None),
+                span: expr_span(expr),
+            }),
         }
     }
 
@@ -4612,7 +4656,7 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let count = match self.eval_expr_for_data_directive(&operands[1]) {
+        let count = match self.eval_expr_for_non_negative_directive(&operands[1], ".res count") {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -4683,7 +4727,7 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let count = match self.eval_expr_for_data_directive(&operands[1]) {
+        let count = match self.eval_expr_for_non_negative_directive(&operands[1], ".fill count") {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(

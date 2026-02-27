@@ -2592,7 +2592,7 @@ fn align_rejects_span_beyond_legacy_max() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
     let mut asm = make_asm_line(&mut symbols, &registry);
-    let status = process_line(&mut asm, "    .align $10001", 1, 1);
+    let status = process_line(&mut asm, "    .align $20000", 1, 1);
     assert_eq!(status, LineStatus::Error);
     assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
     assert!(
@@ -2614,9 +2614,24 @@ fn align_supports_wide_span_on_65816() {
     let mut asm = make_asm_line(&mut symbols, &registry);
     let status = process_line(&mut asm, "    .cpu 65816", 0, 1);
     assert_eq!(status, LineStatus::Ok);
-    let status = process_line(&mut asm, "    .align $10001", 1, 1);
+    let status = process_line(&mut asm, "    .align $20000", 1, 1);
     assert_eq!(status, LineStatus::DirDs);
-    assert_eq!(asm.aux_value(), 0x10000);
+    assert_eq!(asm.aux_value(), 0x1FFFF);
+}
+
+#[test]
+fn align_rejects_non_power_of_two_boundary() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .align 3", 0x1000, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Directive);
+    assert!(
+        asm.error().unwrap().message().contains("power of two"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
 }
 
 #[test]
@@ -2649,6 +2664,21 @@ fn ds_supports_span_on_65816() {
     let status = process_line(&mut asm, "    .ds 2", 0xFFFF, 1);
     assert_eq!(status, LineStatus::DirDs);
     assert_eq!(asm.aux_value(), 2);
+}
+
+#[test]
+fn ds_rejects_negative_count_without_wrap() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .ds -1", 0x1000, 1);
+    assert_eq!(status, LineStatus::Error);
+    let error = asm.error().unwrap();
+    assert!(
+        error.message().contains("non-negative") || error.message().contains("exceeds max"),
+        "unexpected message: {}",
+        error.message()
+    );
 }
 
 #[test]
@@ -3464,6 +3494,21 @@ fn fill_supports_span_on_65816() {
 }
 
 #[test]
+fn fill_rejects_negative_count_without_wrap() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+    let status = process_line(&mut asm, "    .fill byte, -1, $ff", 0x1000, 2);
+    assert_eq!(status, LineStatus::Error);
+    assert_eq!(asm.error().unwrap().kind(), AsmErrorKind::Expression);
+    assert!(
+        asm.error().unwrap().message().contains("non-negative"),
+        "unexpected message: {}",
+        asm.error().unwrap().message()
+    );
+}
+
+#[test]
 fn byte_list_rejects_span_beyond_legacy_max() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -3726,6 +3771,21 @@ fn equ_defines_symbol_for_pass2() {
     let status = process_line(&mut asm, "    .word VAL+1", 0, 2);
     assert_eq!(status, LineStatus::Ok);
     assert_eq!(asm.bytes(), &[4, 0]);
+}
+
+#[test]
+fn const_supports_negative_values() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "NEG .const -1", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+    assert_eq!(asm.symbols().lookup("NEG"), Some(u32::MAX));
+
+    let status = process_line(&mut asm, "    .word NEG", 0, 2);
+    assert_eq!(status, LineStatus::Ok);
+    assert_eq!(asm.bytes(), &[0xFF, 0xFF]);
 }
 
 #[test]

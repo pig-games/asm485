@@ -47,7 +47,7 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let val = match self.eval_expr_for_data_directive(expr) {
+        let val = match self.eval_expr_for_non_negative_directive(expr, ".org address") {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -98,7 +98,7 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let val = match self.eval_expr_for_data_directive(expr) {
+        let val = match self.eval_expr_for_non_negative_directive(expr, ".align boundary") {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
@@ -116,6 +116,14 @@ impl<'a> AsmLine<'a> {
                 LineStatus::Error,
                 AsmErrorKind::Directive,
                 "Alignment must be greater than zero",
+                None,
+            );
+        }
+        if !align.is_power_of_two() {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Alignment must be a power of two",
                 None,
             );
         }
@@ -268,7 +276,7 @@ impl<'a> AsmLine<'a> {
                 )
             }
         };
-        let val = match self.eval_expr_for_data_directive(expr) {
+        let val = match self.eval_expr_for_non_negative_directive(expr, ".ds count") {
             Ok(value) => value,
             Err(err) => {
                 return self.failure_at_span(
