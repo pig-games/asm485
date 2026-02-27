@@ -234,7 +234,7 @@ Exit criteria:
 - [x] Add next release-notes draft entry for this feature set (`RELEASE_NOTES_v0.9.4.md`).
 - [ ] Add canonical 6809 indexed parser forms for zero-offset and auto inc/dec spellings (for example `,X`, `,X+`, `,--S`).
 - [x] Add 6809 indirect indexed bracketed forms (baseline complete for `[n,X]`, `[n,PC]`, `[n]`, and register-offset bracket forms) with diagnostics.
-- [ ] Expand HD6309 instruction coverage beyond seed extensions.
+- [x] Expand HD6309 instruction coverage beyond seed extensions (inherent extension set now includes `SEXW`, `CLRD`, `CLRW`, `CLRE`, `CLRF`).
 - [ ] Promote Motorola 6800-family VM encode/runtime parity from staged to complete (Phase 4).
 
 ## Risks and Open Decisions

@@ -8,14 +8,36 @@ use crate::families::m6800::AddressMode;
 pub struct CpuInstructionEntry {
     pub mnemonic: &'static str,
     pub mode: AddressMode,
-    pub opcode: u8,
+    pub opcode_bytes: &'static [u8],
 }
 
-pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[CpuInstructionEntry {
-    mnemonic: "SEXW",
-    mode: AddressMode::Inherent,
-    opcode: 0x14,
-}];
+pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
+    CpuInstructionEntry {
+        mnemonic: "SEXW",
+        mode: AddressMode::Inherent,
+        opcode_bytes: &[0x14],
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLRD",
+        mode: AddressMode::Inherent,
+        opcode_bytes: &[0x10, 0x4F],
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLRW",
+        mode: AddressMode::Inherent,
+        opcode_bytes: &[0x10, 0x5F],
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLRE",
+        mode: AddressMode::Inherent,
+        opcode_bytes: &[0x11, 0x4F],
+    },
+    CpuInstructionEntry {
+        mnemonic: "CLRF",
+        mode: AddressMode::Inherent,
+        opcode_bytes: &[0x11, 0x5F],
+    },
+];
 
 pub fn lookup_instruction(
     mnemonic: &str,

@@ -4,5 +4,9 @@
 
 start:
     SEXW
+    CLRD
+    CLRW
+    CLRE
+    CLRF
     LDA #$11
     RTS

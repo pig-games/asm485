@@ -15,7 +15,8 @@ starting with Motorola 6809 and Hitachi HD6309 CPU targets.
   - indexed baseline forms (`n,R`, `A/B/D,R` for index registers)
   - short and long branch core forms (`BRA`/conditionals and `LBRA`/`LBSR`)
   - register-pair and register-list ops (`TFR`, `EXG`, `PSHS`, `PULS`, `PSHU`, `PULU`)
-- HD6309 extension seed added: `SEXW` accepted only under `.cpu hd6309`.
+- HD6309 extension coverage added (accepted only under `.cpu hd6309`):
+  - `SEXW`, `CLRD`, `CLRW`, `CLRE`, `CLRF`.
 
 ## Added
 

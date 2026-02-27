@@ -4472,6 +4472,10 @@ fn m6809_branch_range_boundaries_are_validated() {
 #[test]
 fn hd6309_supports_extension_instruction() {
     assert_eq!(assemble_bytes(hd6309_cpu_id, "    SEXW"), vec![0x14]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRD"), vec![0x10, 0x4F]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRW"), vec![0x10, 0x5F]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRE"), vec![0x11, 0x4F]);
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    CLRF"), vec![0x11, 0x5F]);
 }
 
 #[test]
@@ -4481,6 +4485,14 @@ fn m6809_rejects_hd6309_extension_instruction() {
     let message = message.unwrap_or_default();
     assert!(
         message.to_ascii_uppercase().contains("SEXW"),
+        "unexpected error message: {message}"
+    );
+
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    CLRD");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("CLRD"),
         "unexpected error message: {message}"
     );
 }

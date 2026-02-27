@@ -57,7 +57,7 @@ impl CpuHandler for HD6309CpuHandler {
             super::instructions::lookup_instruction(mnemonic, AddressMode::Inherent)
         {
             if operands.is_empty() {
-                return EncodeResult::Ok(vec![entry.opcode]);
+                return EncodeResult::Ok(entry.opcode_bytes.to_vec());
             }
         }
         <M6809CpuHandler as CpuHandler>::encode_instruction(&self.baseline, mnemonic, operands, ctx)
