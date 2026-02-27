@@ -646,19 +646,24 @@ fn find_intel8080_family_entry(
 }
 
 fn emit_intel8080_prefix(bytes: &mut Vec<u8>, prefix: super::table::Prefix) {
+    const PREFIX_CB: u8 = 0xCB;
+    const PREFIX_DD: u8 = 0xDD;
+    const PREFIX_ED: u8 = 0xED;
+    const PREFIX_FD: u8 = 0xFD;
+
     match prefix {
         super::table::Prefix::None => {}
-        super::table::Prefix::Cb => bytes.push(0xCB),
-        super::table::Prefix::Dd => bytes.push(0xDD),
-        super::table::Prefix::Ed => bytes.push(0xED),
-        super::table::Prefix::Fd => bytes.push(0xFD),
+        super::table::Prefix::Cb => bytes.push(PREFIX_CB),
+        super::table::Prefix::Dd => bytes.push(PREFIX_DD),
+        super::table::Prefix::Ed => bytes.push(PREFIX_ED),
+        super::table::Prefix::Fd => bytes.push(PREFIX_FD),
         super::table::Prefix::DdCb => {
-            bytes.push(0xDD);
-            bytes.push(0xCB);
+            bytes.push(PREFIX_DD);
+            bytes.push(PREFIX_CB);
         }
         super::table::Prefix::FdCb => {
-            bytes.push(0xFD);
-            bytes.push(0xCB);
+            bytes.push(PREFIX_FD);
+            bytes.push(PREFIX_CB);
         }
     }
 }
