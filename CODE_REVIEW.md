@@ -384,7 +384,7 @@ Use this as the implementation plan of record. Complete items in order; do not s
 ### Phase 5 — Medium/low cleanup (only after phases 1–4)
 
 - [x] B2: Replace opcode-prefix magic numbers with named constants.
-- [ ] B3: Profile and reduce unnecessary clone/allocation hot spots.
+- [x] B3: Profile and reduce unnecessary clone/allocation hot spots.
 - [ ] E4/E5: Remove or relocate `scratch/` and `multi_error_probe_error.lst` artifacts.
 - [ ] G1/G2/G3: Tighten include/output path handling and expression safety checks.
 - [ ] E3: Run doc-sync workflow to keep manual/specs aligned with implemented behavior.

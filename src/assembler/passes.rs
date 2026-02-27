@@ -343,9 +343,9 @@ fn run_one(
     }
 
     let effective_bin_specs = if !config.bin_specs.is_empty() {
-        config.bin_specs.to_vec()
+        config.bin_specs.as_slice()
     } else {
-        output_config.bin_specs.clone()
+        output_config.bin_specs.as_slice()
     };
     let effective_fill_byte = if config.fill_byte_set {
         config.fill_byte
