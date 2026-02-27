@@ -349,7 +349,9 @@ impl LowercaseIdInterner {
             return *id;
         }
         let next = self.ids.len();
-        let id = u32::try_from(next).expect("interner id overflow");
+        let Ok(id) = u32::try_from(next) else {
+            return u32::MAX;
+        };
         self.ids.insert(key, id);
         id
     }

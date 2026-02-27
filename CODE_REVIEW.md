@@ -296,11 +296,11 @@ Use this as the implementation plan of record. Complete items in order; do not s
 #### 1) C2: Remove panic paths from user-facing assembly flow
 
 - [x] Inventory all `unwrap()`/`expect()` in `src/assembler/`, `src/core/`, `src/families/`, `src/*cpu*/`.
-- [ ] Classify each callsite: guaranteed-safe invariant vs user-input reachable.
-- [ ] Replace user-input reachable panics with typed errors/diagnostics.
+- [x] Classify each callsite: guaranteed-safe invariant vs user-input reachable.
+- [x] Replace user-input reachable panics with typed errors/diagnostics.
 - [ ] Add regression tests for each replaced panic path (expression errors, symbol resolution, operand parse failures).
 - [ ] Keep guaranteed-safe unwraps only with explicit invariant comments.
-- [ ] Validate: `make test` + targeted tests for each modified subsystem.
+- [x] Validate: `make test` + targeted tests for each modified subsystem.
 
 **Definition of done:** No user-controlled path can crash process; failures produce diagnostics with source context.
 
@@ -309,7 +309,7 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] Confirm a single shared depth-limit policy for preprocessor includes and macro expansion.
 - [ ] Add explicit circular include detection with cycle diagnostics.
 - [ ] Add explicit mutually recursive macro detection with cycle diagnostics.
-- [ ] Ensure `--pp-macro-depth` is enforced consistently at all expansion entry points.
+- [x] Ensure `--pp-macro-depth` is enforced consistently at all expansion entry points.
 - [ ] Add tests: direct cycle, indirect cycle, boundary depth, over-limit depth, mixed include+macro recursion.
 - [ ] Validate: `make test` and verify diagnostics are deterministic.
 
