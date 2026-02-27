@@ -342,11 +342,11 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 6) E1: Expand 6809/HD6309 matrix
 
-- [ ] Add table-driven tests for all addressing modes and prefix pages.
-- [ ] Add negative tests: HD6309-only opcodes rejected under `.cpu m6809`.
-- [ ] Add `TFR/EXG` same-size register constraint tests.
-- [ ] Add push/pull register-list ordering and encoding tests.
-- [ ] Validate with `make test` and review fixture diffs (if any) before update.
+- [x] Add table-driven tests for all addressing modes and prefix pages.
+- [x] Add negative tests: HD6309-only opcodes rejected under `.cpu m6809`.
+- [x] Add `TFR/EXG` same-size register constraint tests.
+- [x] Add push/pull register-list ordering and encoding tests.
+- [x] Validate with `make test` and review fixture diffs (if any) before update.
 
 ### Phase 3 — High-priority architecture cleanup (targeted, low-risk slices)
 
@@ -403,7 +403,7 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] PR2: C1 recursion/cycle enforcement + tests.
 - [x] PR3: C4 numeric validation + tests.
 - [x] PR4: C3 linker/section edge-case tests/fixes.
-- [ ] PR5: B1 opcode uniqueness + E1 6809/HD6309 coverage.
+- [x] PR5: B1 opcode uniqueness + E1 6809/HD6309 coverage.
 - [ ] PR6: A1 assembler module split with parity proof.
 - [ ] PR7: B4/B5/A4-F2 stabilization tasks.
 

@@ -4760,6 +4760,93 @@ fn hd6309_supports_6809_prefixed_ldy_sty_instructions() {
 }
 
 #[test]
+fn m6809_table_driven_addressing_mode_matrix_encodes() {
+    let cases = [
+        ("    NOP", vec![0x12]),
+        ("    LDA #$2A", vec![0x86, 0x2A]),
+        ("    LDA $20", vec![0x96, 0x20]),
+        ("    LDA $1234", vec![0xB6, 0x12, 0x34]),
+        ("    LDA ,X", vec![0xA6, 0x00]),
+        ("    LDA $20,X", vec![0xA6, 0x88, 0x20]),
+        ("    LDA [$1234]", vec![0xA6, 0x9F, 0x12, 0x34]),
+        ("    LDA [4,PC]", vec![0xA6, 0x9C, 0x04]),
+    ];
+
+    for (source, expected) in cases {
+        assert_eq!(assemble_bytes(m6809_cpu_id, source), expected, "{source}");
+    }
+}
+
+#[test]
+fn hd6309_table_driven_prefix_page_matrix_encodes() {
+    let cases = [
+        ("    LDY #$1234", vec![0x10, 0x8E, 0x12, 0x34]),
+        ("    STY $20", vec![0x10, 0x9F, 0x20]),
+        ("    STY $20,X", vec![0x10, 0xAF, 0x88, 0x20]),
+        ("    CLRD", vec![0x10, 0x4F]),
+        ("    CLRW", vec![0x10, 0x5F]),
+        ("    CLRE", vec![0x11, 0x4F]),
+        ("    CLRF", vec![0x11, 0x5F]),
+    ];
+
+    for (source, expected) in cases {
+        assert_eq!(assemble_bytes(hd6309_cpu_id, source), expected, "{source}");
+    }
+}
+
+#[test]
+fn m6809_rejects_hd6309_only_prefix_page_opcodes() {
+    for source in ["    SEXW", "    CLRD", "    CLRW", "    CLRE", "    CLRF"] {
+        let (status, message) = assemble_line_status(m6809_cpu_id, source);
+        assert_eq!(status, LineStatus::Error, "{source}");
+        let message = message.unwrap_or_default().to_ascii_uppercase();
+        let mnemonic = source.trim().to_ascii_uppercase();
+        assert!(
+            message.contains(&mnemonic),
+            "unexpected error message for {source}: {message}"
+        );
+    }
+}
+
+#[test]
+fn m6809_tfr_exg_enforces_same_size_register_pairs() {
+    for source in ["    TFR A,X", "    TFR D,A", "    EXG B,Y", "    EXG DP,U"] {
+        let (status, message) = assemble_line_status(m6809_cpu_id, source);
+        assert_eq!(status, LineStatus::Error, "{source}");
+        let message = message.unwrap_or_default().to_ascii_uppercase();
+        assert!(
+            message.contains("INVALID REGISTER PAIR"),
+            "unexpected error message for {source}: {message}"
+        );
+    }
+
+    for source in ["    TFR A,B", "    TFR D,X", "    EXG X,Y", "    EXG S,U"] {
+        let (status, message) = assemble_line_status(m6809_cpu_id, source);
+        assert_eq!(status, LineStatus::Ok, "{source}: {message:?}");
+    }
+}
+
+#[test]
+fn m6809_push_pull_register_list_encoding_is_order_independent() {
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHS A,B,CC"),
+        assemble_bytes(m6809_cpu_id, "    PSHS CC,B,A")
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PULS A,B,CC"),
+        assemble_bytes(m6809_cpu_id, "    PULS CC,B,A")
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHU A,B,S"),
+        assemble_bytes(m6809_cpu_id, "    PSHU S,B,A")
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PULU A,B,S"),
+        assemble_bytes(m6809_cpu_id, "    PULU S,B,A")
+    );
+}
+
+#[test]
 fn m6809_rejects_hd6309_extension_instruction() {
     let (status, message) = assemble_line_status(m6809_cpu_id, "    SEXW");
     assert_eq!(status, LineStatus::Error);
