@@ -8504,6 +8504,18 @@ fn vm_runtime_model_is_available_for_intel8080_family_cpus_for_vm_tokenization()
     assert!(z80_asm.opthread_execution_model.is_some());
 }
 
+#[test]
+fn vm_runtime_model_is_available_for_motorola6800_family_cpus() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+
+    let m6809_asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+    assert!(m6809_asm.opthread_execution_model.is_some());
+
+    let hd6309_asm = AsmLine::with_cpu(&mut symbols, hd6309_cpu_id, &registry);
+    assert!(hd6309_asm.opthread_execution_model.is_some());
+}
+
 #[cfg(feature = "vm-runtime-opcpu-artifact")]
 #[test]
 fn vm_runtime_artifact_path_is_target_relative() {
@@ -8661,6 +8673,45 @@ fn vm_rollout_criteria_mos6502_parity_and_determinism_gate() {
         "    BEQ start",
         "target:",
         "    LDA #$42",
+        "    RTS",
+    ];
+
+    let native = assemble_source_entries_with_runtime_mode(&source, false)
+        .expect("native source assembly should run");
+    let runtime_a = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source assembly should run");
+    let runtime_b = assemble_source_entries_with_runtime_mode(&source, true)
+        .expect("runtime source re-run should be deterministic");
+
+    assert_eq!(runtime_a.0, native.0, "bytes/reloc parity mismatch");
+    assert_eq!(runtime_a.1, native.1, "diagnostic parity mismatch");
+    assert_eq!(
+        runtime_b.0, runtime_a.0,
+        "runtime bytes are non-deterministic"
+    );
+    assert_eq!(
+        runtime_b.1, runtime_a.1,
+        "runtime diagnostics are non-deterministic"
+    );
+}
+
+#[test]
+fn vm_rollout_criteria_motorola6800_parity_and_determinism_gate() {
+    assert_eq!(
+        family_runtime_mode("motorola6800"),
+        FamilyRuntimeMode::Authoritative
+    );
+    assert!(package_runtime_default_enabled_for_family("motorola6800"));
+
+    let source = [
+        "    .cpu m6809",
+        "    .org $1000",
+        "start:",
+        "    LDA #$2A",
+        "    LDA ,X+",
+        "    BNE start",
+        "    LBRA done",
+        "done:",
         "    RTS",
     ];
 

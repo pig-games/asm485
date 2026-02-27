@@ -48,4 +48,4 @@ Validated with targeted and full test gates during implementation:
 ## Upgrade Notes
 
 - No breaking directive/macro syntax changes were introduced for existing families.
-- VM runtime support for Motorola 6800-family encode is tracked as a follow-up phase and remains staged (non-authoritative rollout).
+- Motorola 6800-family VM runtime encode parity is now promoted to authoritative rollout for instruction encode paths.

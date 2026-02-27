@@ -87,7 +87,7 @@ pub(crate) const FAMILY_RUNTIME_ROLLOUT: &[FamilyRuntimeRollout] = &[
     },
     FamilyRuntimeRollout {
         family_id: "motorola6800",
-        mode: FamilyRuntimeMode::StagedVerification,
+        mode: FamilyRuntimeMode::Authoritative,
         migration_checklist: "phase6-motorola6800-rollout-criteria",
     },
 ];
@@ -306,6 +306,15 @@ mod tests {
             FamilyRuntimeMode::Authoritative
         );
         assert!(package_runtime_default_enabled_for_family("intel8080"));
+    }
+
+    #[test]
+    fn rollout_policy_marks_motorola_family_as_authoritative() {
+        assert_eq!(
+            family_runtime_mode("motorola6800"),
+            FamilyRuntimeMode::Authoritative
+        );
+        assert!(package_runtime_default_enabled_for_family("motorola6800"));
     }
 
     #[test]

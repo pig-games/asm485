@@ -235,7 +235,7 @@ Exit criteria:
 - [x] Add canonical 6809 indexed parser forms for auto inc/dec spellings (implemented baseline forms: `,R+`, `,R++`, `,-R`, `,--R` for indexable base registers).
 - [x] Add 6809 indirect indexed bracketed forms (baseline complete for `[n,X]`, `[n,PC]`, `[n]`, and register-offset bracket forms) with diagnostics.
 - [x] Expand HD6309 instruction coverage beyond seed extensions (inherent extension set now includes `SEXW`, `CLRD`, `CLRW`, `CLRE`, `CLRF`).
-- [ ] Promote Motorola 6800-family VM encode/runtime parity from staged to complete (Phase 4).
+- [x] Promote Motorola 6800-family VM encode/runtime parity from staged to complete (Phase 4).
 
 ## Risks and Open Decisions
 1. Direct vs extended force syntax:
