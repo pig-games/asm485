@@ -14,10 +14,15 @@ use crate::core::registry::ModuleRegistry;
 use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
 use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::m6800::module::Motorola6800FamilyModule;
+use crate::families::m6800::{
+    FAMILY_INSTRUCTION_TABLE as M6800_FAMILY_INSTRUCTION_TABLE,
+    PREFIXED_FAMILY_INSTRUCTION_TABLE as M6800_PREFIXED_FAMILY_INSTRUCTION_TABLE,
+};
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
+use crate::hd6309::instructions::CPU_INSTRUCTION_TABLE as HD6309_INSTRUCTION_TABLE;
 use crate::hd6309::module::{HD6309CpuModule, CPU_ID as hd6309_cpu_id};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
 use crate::m45gs02::module::{M45GS02CpuModule, CPU_ID as m45gs02_cpu_id};
@@ -74,6 +79,29 @@ fn make_asm_line<'a>(symbols: &'a mut SymbolTable, registry: &'a ModuleRegistry)
 
 fn process_line(asm: &mut AsmLine<'_>, line: &str, addr: u32, pass: u8) -> LineStatus {
     asm.process(line, 1, addr, pass)
+}
+
+fn duplicate_instruction_registration_keys(
+    keys: impl IntoIterator<Item = (String, String, String)>,
+) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut duplicates = HashSet::new();
+
+    for (cpu, mnemonic, mode) in keys {
+        let key = format!(
+            "{}|{}|{}",
+            cpu,
+            mnemonic.to_ascii_uppercase(),
+            mode.to_ascii_uppercase()
+        );
+        if !seen.insert(key.clone()) {
+            duplicates.insert(key);
+        }
+    }
+
+    let mut out: Vec<String> = duplicates.into_iter().collect();
+    out.sort();
+    out
 }
 
 #[test]
@@ -6898,6 +6926,95 @@ fn m65816_effective_opcode_space_covers_all_256_opcodes() {
         missing.is_empty(),
         "missing effective 65816 opcodes: {missing:?}"
     );
+}
+
+#[test]
+fn instruction_registration_keys_are_unique_for_core_tables() {
+    let mut keys: Vec<(String, String, String)> = Vec::new();
+
+    for entry in FAMILY_INSTRUCTION_TABLE {
+        keys.push((
+            "mos6502-family".to_string(),
+            entry.mnemonic.to_string(),
+            format!("{:?}", entry.mode),
+        ));
+    }
+    for entry in M65C02_INSTRUCTION_TABLE {
+        keys.push((
+            "m65c02".to_string(),
+            entry.mnemonic.to_string(),
+            format!("{:?}", entry.mode),
+        ));
+    }
+    for entry in M65816_INSTRUCTION_TABLE {
+        keys.push((
+            "m65816".to_string(),
+            entry.mnemonic.to_string(),
+            format!("{:?}", entry.mode),
+        ));
+    }
+
+    for entry in M6800_FAMILY_INSTRUCTION_TABLE {
+        keys.push((
+            "m6800-family".to_string(),
+            entry.mnemonic.to_string(),
+            format!("{:?}", entry.mode),
+        ));
+    }
+    for entry in M6800_PREFIXED_FAMILY_INSTRUCTION_TABLE {
+        keys.push((
+            "m6800-family-prefixed".to_string(),
+            entry.mnemonic.to_string(),
+            format!("{:?}", entry.mode),
+        ));
+    }
+    for entry in HD6309_INSTRUCTION_TABLE {
+        keys.push((
+            "hd6309".to_string(),
+            entry.mnemonic.to_string(),
+            format!("{:?}", entry.mode),
+        ));
+    }
+
+    let duplicates = duplicate_instruction_registration_keys(keys);
+    assert!(
+        duplicates.is_empty(),
+        "duplicate instruction registration keys found: {duplicates:?}"
+    );
+}
+
+#[test]
+fn instruction_registration_duplicate_detector_reports_expected_conflict() {
+    let keys = vec![
+        (
+            "test-cpu".to_string(),
+            "LDA".to_string(),
+            "Immediate".to_string(),
+        ),
+        (
+            "test-cpu".to_string(),
+            "LDA".to_string(),
+            "Immediate".to_string(),
+        ),
+        (
+            "test-cpu".to_string(),
+            "LDA".to_string(),
+            "Absolute".to_string(),
+        ),
+    ];
+
+    let duplicates = duplicate_instruction_registration_keys(keys);
+    assert_eq!(duplicates, vec!["test-cpu|LDA|IMMEDIATE".to_string()]);
+}
+
+#[test]
+fn default_registry_initialization_is_deterministic() {
+    let first = default_registry();
+    let second = default_registry();
+
+    assert_eq!(first.family_ids(), second.family_ids());
+    assert_eq!(first.cpu_ids(), second.cpu_ids());
+    assert_eq!(first.cpu_name_list(), second.cpu_name_list());
 }
 
 #[test]

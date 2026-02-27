@@ -335,10 +335,10 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 5) B1: Instruction table duplication protection
 
-- [ ] Add test-time uniqueness assertion on `(cpu, mnemonic, addressing_mode)` registrations.
-- [ ] Add explicit expected conflicts test to verify duplicate detection path.
-- [ ] Add coverage for new Motorola 6800-family registrations.
-- [ ] Validate registry initialization remains deterministic.
+- [x] Add test-time uniqueness assertion on `(cpu, mnemonic, addressing_mode)` registrations.
+- [x] Add explicit expected conflicts test to verify duplicate detection path.
+- [x] Add coverage for new Motorola 6800-family registrations.
+- [x] Validate registry initialization remains deterministic.
 
 #### 6) E1: Expand 6809/HD6309 matrix
 
