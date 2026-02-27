@@ -391,10 +391,10 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 ### Verification gates for every phase
 
-- [ ] Run `cargo fmt --all`.
-- [ ] Run `cargo clippy -- -D warnings`.
-- [ ] Run `cargo audit`.
-- [ ] Run full tests: `make test` (or `cargo test` where appropriate).
+- [x] Run `cargo fmt --all`.
+- [x] Run `cargo clippy -- -D warnings`.
+- [x] Run `cargo audit`.
+- [x] Run full tests: `make test` (or `cargo test` where appropriate).
 - [ ] If behavior intentionally changed, update references and re-run tests.
 
 ### Suggested PR sequence (concrete, low-churn)
