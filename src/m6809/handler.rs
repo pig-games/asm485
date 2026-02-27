@@ -54,7 +54,10 @@ impl M6809CpuHandler {
     }
 
     fn is_immediate16_instruction(mnemonic: &str) -> bool {
-        matches!(mnemonic.to_ascii_uppercase().as_str(), "LDD")
+        matches!(
+            mnemonic.to_ascii_uppercase().as_str(),
+            "LDD" | "LDX" | "LDU"
+        )
     }
 
     fn index_register_code(name: &str) -> Option<u8> {

@@ -4275,6 +4275,14 @@ fn m6809_can_assemble_basic_instructions() {
         assemble_bytes(m6809_cpu_id, "    LDD #$1234"),
         vec![0xCC, 0x12, 0x34]
     );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDX #$4567"),
+        vec![0x8E, 0x45, 0x67]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDU #$89AB"),
+        vec![0xCE, 0x89, 0xAB]
+    );
 }
 
 #[test]
@@ -4302,6 +4310,46 @@ fn m6809_indexed_and_register_list_modes_encode() {
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    BLO $0012"),
         vec![0x25, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STA $20,X"),
+        vec![0xA7, 0x88, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STB A,X"),
+        vec![0xE7, 0x86]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JSR $20,X"),
+        vec![0xAD, 0x88, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JMP A,X"),
+        vec![0x6E, 0x86]
+    );
+}
+
+#[test]
+fn m6809_extended_and_direct_modes_encode() {
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STA $1234"),
+        vec![0xB7, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STX $20"),
+        vec![0x9F, 0x20]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    STU $1234"),
+        vec![0xFF, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JSR $1234"),
+        vec![0xBD, 0x12, 0x34]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    JMP $1234"),
+        vec![0x7E, 0x12, 0x34]
     );
 }
 

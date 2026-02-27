@@ -88,6 +88,141 @@ pub static FAMILY_INSTRUCTION_TABLE: &[FamilyInstructionEntry] = &[
         opcode: 0xEC,
     },
     FamilyInstructionEntry {
+        mnemonic: "LDX",
+        mode: AddressMode::Immediate16,
+        opcode: 0x8E,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDX",
+        mode: AddressMode::Direct,
+        opcode: 0x9E,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDX",
+        mode: AddressMode::Indexed,
+        opcode: 0xAE,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDX",
+        mode: AddressMode::Extended,
+        opcode: 0xBE,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDU",
+        mode: AddressMode::Immediate16,
+        opcode: 0xCE,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDU",
+        mode: AddressMode::Direct,
+        opcode: 0xDE,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDU",
+        mode: AddressMode::Indexed,
+        opcode: 0xEE,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "LDU",
+        mode: AddressMode::Extended,
+        opcode: 0xFE,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::Direct,
+        opcode: 0x97,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::Indexed,
+        opcode: 0xA7,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STA",
+        mode: AddressMode::Extended,
+        opcode: 0xB7,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STB",
+        mode: AddressMode::Direct,
+        opcode: 0xD7,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STB",
+        mode: AddressMode::Indexed,
+        opcode: 0xE7,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STB",
+        mode: AddressMode::Extended,
+        opcode: 0xF7,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STD",
+        mode: AddressMode::Direct,
+        opcode: 0xDD,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STD",
+        mode: AddressMode::Indexed,
+        opcode: 0xED,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STD",
+        mode: AddressMode::Extended,
+        opcode: 0xFD,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STX",
+        mode: AddressMode::Direct,
+        opcode: 0x9F,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STX",
+        mode: AddressMode::Indexed,
+        opcode: 0xAF,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STX",
+        mode: AddressMode::Extended,
+        opcode: 0xBF,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STU",
+        mode: AddressMode::Direct,
+        opcode: 0xDF,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STU",
+        mode: AddressMode::Indexed,
+        opcode: 0xEF,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "STU",
+        mode: AddressMode::Extended,
+        opcode: 0xFF,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "JMP",
+        mode: AddressMode::Indexed,
+        opcode: 0x6E,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "JMP",
+        mode: AddressMode::Extended,
+        opcode: 0x7E,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "JSR",
+        mode: AddressMode::Indexed,
+        opcode: 0xAD,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "JSR",
+        mode: AddressMode::Extended,
+        opcode: 0xBD,
+    },
+    FamilyInstructionEntry {
         mnemonic: "BRA",
         mode: AddressMode::Relative8,
         opcode: 0x20,
