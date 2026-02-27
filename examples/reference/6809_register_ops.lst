@@ -1,0 +1,29 @@
+opForge Assembler v0.9.3
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Motorola 6809 register-transfer and stack-list fixture
+----                                2  .cpu m6809
+----    EQU 1000                    3  .org $1000
+----                                4  
+----                                5  start
+1000    1F 89                       6      TFR A,B
+1002    1E 12                       7      EXG X,Y
+1004    34 F7                       8      PSHS CC,A,B,X,Y,U,PC
+1006    35 F7                       9      PULS CC,A,B,X,Y,U,PC
+1008    36 F7                      10      PSHU CC,A,B,X,Y,S,PC
+100A    37 F7                      11      PULU CC,A,B,X,Y,S,PC
+100C    39                         12      RTS
+
+Lines: 12  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+start           : 1000 (4096)
+
+Total memory is 13 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+1000    1F 89 1E 12 34 F7 35 F7 36 F7 37 F7 39
