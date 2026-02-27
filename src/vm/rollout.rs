@@ -85,6 +85,11 @@ pub(crate) const FAMILY_RUNTIME_ROLLOUT: &[FamilyRuntimeRollout] = &[
         mode: FamilyRuntimeMode::Authoritative,
         migration_checklist: "phase6-intel8080-authoritative",
     },
+    FamilyRuntimeRollout {
+        family_id: "motorola6800",
+        mode: FamilyRuntimeMode::StagedVerification,
+        migration_checklist: "phase6-motorola6800-rollout-criteria",
+    },
 ];
 
 pub(crate) fn family_runtime_rollout_policy(
@@ -136,6 +141,11 @@ pub(crate) const FAMILY_EXPR_EVAL_ROLLOUT: &[FamilyExprEvalRollout] = &[
         family_id: "intel8080",
         mode: FamilyExprEvalMode::Authoritative,
         migration_checklist: "phase7-intel8080-expr-vm-authoritative",
+    },
+    FamilyExprEvalRollout {
+        family_id: "motorola6800",
+        mode: FamilyExprEvalMode::StagedVerification,
+        migration_checklist: "phase7-motorola6800-expr-vm-staged",
     },
 ];
 
@@ -203,6 +213,11 @@ pub(crate) const FAMILY_EXPR_PARSER_ROLLOUT: &[FamilyExprParserRollout] = &[
         family_id: "intel8080",
         mode: FamilyExprParserMode::Authoritative,
         migration_checklist: "phase8-intel8080-expr-parser-vm-authoritative",
+    },
+    FamilyExprParserRollout {
+        family_id: "motorola6800",
+        mode: FamilyExprParserMode::StagedVerification,
+        migration_checklist: "phase8-motorola6800-expr-parser-vm-staged",
     },
 ];
 

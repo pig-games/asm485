@@ -1423,12 +1423,15 @@ mod tests {
     use crate::core::registry::ModuleRegistry;
     use crate::families::intel8080::module::Intel8080FamilyModule;
     use crate::families::intel8080::table::lookup_instruction as lookup_intel_instruction;
+    use crate::families::m6800::module::Motorola6800FamilyModule;
     use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+    use crate::hd6309::module::HD6309CpuModule;
     use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
     use crate::i8085::module::I8085CpuModule;
     use crate::m45gs02::module::M45GS02CpuModule;
     use crate::m65816::module::M65816CpuModule;
     use crate::m65c02::module::M65C02CpuModule;
+    use crate::m6809::module::M6809CpuModule;
     use crate::vm::intel8080_vm::{
         mode_key_for_instruction_entry, mode_key_for_z80_cb_register, mode_key_for_z80_half_index,
         mode_key_for_z80_indexed_cb, mode_key_for_z80_indexed_memory,
@@ -1446,6 +1449,7 @@ mod tests {
     fn test_registry() -> ModuleRegistry {
         let mut registry = ModuleRegistry::new();
         registry.register_family(Box::new(Intel8080FamilyModule));
+        registry.register_family(Box::new(Motorola6800FamilyModule));
         registry.register_family(Box::new(MOS6502FamilyModule));
         registry.register_cpu(Box::new(I8085CpuModule));
         registry.register_cpu(Box::new(Z80CpuModule));
@@ -1453,6 +1457,8 @@ mod tests {
         registry.register_cpu(Box::new(M65C02CpuModule));
         registry.register_cpu(Box::new(M65816CpuModule));
         registry.register_cpu(Box::new(M45GS02CpuModule));
+        registry.register_cpu(Box::new(M6809CpuModule));
+        registry.register_cpu(Box::new(HD6309CpuModule));
         registry
     }
 
@@ -1462,9 +1468,9 @@ mod tests {
         let chunks =
             build_hierarchy_chunks_from_registry(&registry).expect("builder should succeed");
 
-        assert_eq!(chunks.families.len(), 2);
-        assert_eq!(chunks.cpus.len(), 6);
-        assert_eq!(chunks.dialects.len(), 3);
+        assert_eq!(chunks.families.len(), 3);
+        assert_eq!(chunks.cpus.len(), 8);
+        assert_eq!(chunks.dialects.len(), 4);
         assert!(chunks
             .diagnostics
             .iter()

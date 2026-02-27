@@ -7,4 +7,5 @@
 //! and encoding for groups of related CPUs.
 
 pub mod intel8080;
+pub mod m6800;
 pub mod mos6502;

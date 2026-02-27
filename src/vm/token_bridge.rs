@@ -10,10 +10,13 @@ use crate::core::tokenizer::{
     register_checker_none, OperatorKind, RegisterChecker, Span, Token, TokenKind,
 };
 use crate::families::intel8080::module::Intel8080FamilyModule;
+use crate::families::m6800::module::Motorola6800FamilyModule;
 use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+use crate::hd6309::module::HD6309CpuModule;
 use crate::i8085::module::I8085CpuModule;
 use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
+use crate::m6809::module::M6809CpuModule;
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::runtime::{
     HierarchyExecutionModel, PortableLineAst, PortableToken, RuntimeBridgeDiagnostic,
@@ -703,12 +706,15 @@ fn default_runtime_model() -> Option<&'static HierarchyExecutionModel> {
 fn build_default_runtime_model() -> Option<HierarchyExecutionModel> {
     let mut registry = ModuleRegistry::new();
     registry.register_family(Box::new(Intel8080FamilyModule));
+    registry.register_family(Box::new(Motorola6800FamilyModule));
     registry.register_family(Box::new(MOS6502FamilyModule));
     registry.register_cpu(Box::new(I8085CpuModule));
     registry.register_cpu(Box::new(Z80CpuModule));
     registry.register_cpu(Box::new(M6502CpuModule));
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
+    registry.register_cpu(Box::new(M6809CpuModule));
+    registry.register_cpu(Box::new(HD6309CpuModule));
     let package_bytes = build_hierarchy_package_from_registry(&registry).ok()?;
     HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
 }

@@ -209,6 +209,16 @@ Exit criteria:
 - docs and references match shipped behavior
 - all quality gates pass
 
+### Phase 4 (Future): VM encode/runtime support for Motorola 6800 family
+- add VM operand-shape mapping for `motorola6800` family modes (`Immediate16`, indexed, register-list, branches)
+- add VM instruction selector entries for baseline `m6809` table and `hd6309` extension table
+- add runtime/native parity tests for `m6809` and `hd6309` mnemonic/mode coverage
+- keep rollout policy staged as non-authoritative until parity checklists pass
+
+Exit criteria:
+- VM/native encode parity is demonstrated for baseline 6809 and 6309 extension samples
+- tokenizer/parser/expr rollout policies for `motorola6800` are promoted only after checklist completion
+
 ## Risks and Open Decisions
 1. Direct vs extended force syntax:
    - Many 6809 assemblers use `<`/`>` forcing conventions.

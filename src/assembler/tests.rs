@@ -13,10 +13,12 @@ use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
 use crate::core::symbol_table::{SymbolTable, SymbolTableResult, SymbolVisibility};
 use crate::families::intel8080::module::Intel8080FamilyModule;
+use crate::families::m6800::module::Motorola6800FamilyModule;
 use crate::families::mos6502::module::{
     M6502CpuModule, MOS6502FamilyModule, CPU_ID as m6502_cpu_id,
 };
 use crate::families::mos6502::{AddressMode, FAMILY_INSTRUCTION_TABLE};
+use crate::hd6309::module::{HD6309CpuModule, CPU_ID as hd6309_cpu_id};
 use crate::i8085::module::{I8085CpuModule, CPU_ID as i8085_cpu_id};
 use crate::m45gs02::module::{M45GS02CpuModule, CPU_ID as m45gs02_cpu_id};
 use crate::m65816::instructions::CPU_INSTRUCTION_TABLE as M65816_INSTRUCTION_TABLE;
@@ -24,6 +26,7 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65816::module::CPU_ID as m65816_cpu_id;
 use crate::m65c02::instructions::CPU_INSTRUCTION_TABLE as M65C02_INSTRUCTION_TABLE;
 use crate::m65c02::module::{M65C02CpuModule, CPU_ID as m65c02_cpu_id};
+use crate::m6809::module::{M6809CpuModule, CPU_ID as m6809_cpu_id};
 use crate::vm::builder::build_hierarchy_chunks_from_registry;
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::hierarchy::ScopedOwner;
@@ -52,6 +55,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn default_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
     registry.register_family(Box::new(Intel8080FamilyModule));
+    registry.register_family(Box::new(Motorola6800FamilyModule));
     registry.register_family(Box::new(MOS6502FamilyModule));
     registry.register_cpu(Box::new(I8085CpuModule));
     registry.register_cpu(Box::new(Z80CpuModule));
@@ -59,6 +63,8 @@ fn default_registry() -> ModuleRegistry {
     registry.register_cpu(Box::new(M65C02CpuModule));
     registry.register_cpu(Box::new(M65816CpuModule));
     registry.register_cpu(Box::new(M45GS02CpuModule));
+    registry.register_cpu(Box::new(M6809CpuModule));
+    registry.register_cpu(Box::new(HD6309CpuModule));
     registry
 }
 
@@ -1224,6 +1230,8 @@ fn cpusupport_report_has_stable_shape() {
     assert!(text.starts_with("opforge-cpusupport-v1\n"));
     assert!(text.lines().any(|line| line.starts_with("cpu=8085;")));
     assert!(text.lines().any(|line| line.starts_with("cpu=m6502;")));
+    assert!(text.lines().any(|line| line.starts_with("cpu=m6809;")));
+    assert!(text.lines().any(|line| line.starts_with("cpu=hd6309;")));
 }
 
 #[test]
@@ -1234,6 +1242,8 @@ fn cpusupport_report_json_has_stable_shape() {
     let cpus = value["cpus"].as_array().expect("cpus array");
     assert!(cpus.iter().any(|entry| entry["cpu"] == "8085"));
     assert!(cpus.iter().any(|entry| entry["cpu"] == "m6502"));
+    assert!(cpus.iter().any(|entry| entry["cpu"] == "m6809"));
+    assert!(cpus.iter().any(|entry| entry["cpu"] == "hd6309"));
     assert!(cpus
         .iter()
         .all(|entry| entry.get("family").is_some() && entry.get("default_dialect").is_some()));
@@ -4233,6 +4243,115 @@ fn unknown_cpu_diagnostic_lists_65816_and_aliases() {
     assert!(message.contains("65816"), "unexpected message: {message}");
     assert!(message.contains("65c816"), "unexpected message: {message}");
     assert!(message.contains("w65c816"), "unexpected message: {message}");
+}
+
+#[test]
+fn cpu_6809_and_hd6309_aliases_are_accepted() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(process_line(&mut asm, ".cpu m6809", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 6809", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu mc6809", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu hd6309", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu 6309", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu m6309", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".cpu h6309", 0, 1), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, ".cpu hitachi6309", 0, 1),
+        LineStatus::Ok
+    );
+}
+
+#[test]
+fn m6809_can_assemble_basic_instructions() {
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    NOP"), vec![0x12]);
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA #$2A"),
+        vec![0x86, 0x2A]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDD #$1234"),
+        vec![0xCC, 0x12, 0x34]
+    );
+}
+
+#[test]
+fn m6809_indexed_and_register_list_modes_encode() {
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA $20,X"),
+        vec![0xA6, 0x88, 0x20]
+    );
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    LDA A,X"), vec![0xA6, 0x86]);
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHS A,B,CC"),
+        vec![0x34, 0x07]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHU A,B,S"),
+        vec![0x36, 0x46]
+    );
+}
+
+#[test]
+fn m6809_reports_register_list_validation_errors() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    PSHS $20");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("REGISTER-LIST"),
+        "unexpected error message: {message}"
+    );
+
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    PSHS S");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("INVALID REGISTER S"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn hd6309_supports_extension_instruction() {
+    assert_eq!(assemble_bytes(hd6309_cpu_id, "    SEXW"), vec![0x14]);
+}
+
+#[test]
+fn m6809_rejects_hd6309_extension_instruction() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    SEXW");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message.to_ascii_uppercase().contains("SEXW"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn unknown_cpu_diagnostic_lists_6809_and_hd6309_aliases() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, ".cpu nope6309", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+
+    let message = asm
+        .error()
+        .expect("expected unknown cpu error")
+        .message()
+        .to_string();
+    assert!(message.contains("m6809"), "unexpected message: {message}");
+    assert!(message.contains("6809"), "unexpected message: {message}");
+    assert!(message.contains("hd6309"), "unexpected message: {message}");
+    assert!(message.contains("6309"), "unexpected message: {message}");
+    assert!(message.contains("h6309"), "unexpected message: {message}");
+    assert!(
+        message.contains("hitachi6309"),
+        "unexpected message: {message}"
+    );
 }
 
 #[test]
