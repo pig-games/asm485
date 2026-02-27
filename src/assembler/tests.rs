@@ -4283,7 +4283,10 @@ fn m6809_indexed_and_register_list_modes_encode() {
         assemble_bytes(m6809_cpu_id, "    LDA $20,X"),
         vec![0xA6, 0x88, 0x20]
     );
-    assert_eq!(assemble_bytes(m6809_cpu_id, "    LDA A,X"), vec![0xA6, 0x86]);
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA A,X"),
+        vec![0xA6, 0x86]
+    );
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    PSHS A,B,CC"),
         vec![0x34, 0x07]
@@ -4291,6 +4294,14 @@ fn m6809_indexed_and_register_list_modes_encode() {
     assert_eq!(
         assemble_bytes(m6809_cpu_id, "    PSHU A,B,S"),
         vec![0x36, 0x46]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    BCC $0012"),
+        vec![0x24, 0x10]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    BLO $0012"),
+        vec![0x25, 0x10]
     );
 }
 
@@ -4311,6 +4322,87 @@ fn m6809_reports_register_list_validation_errors() {
         message.to_ascii_uppercase().contains("INVALID REGISTER S"),
         "unexpected error message: {message}"
     );
+}
+
+#[test]
+fn m6809_reports_invalid_register_pairs_for_tfr_exg() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    TFR A,X");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message
+            .to_ascii_uppercase()
+            .contains("INVALID REGISTER PAIR A,X"),
+        "unexpected error message: {message}"
+    );
+
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    TFR A,B"),
+        vec![0x1F, 0x89]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    EXG X,Y"),
+        vec![0x1E, 0x12]
+    );
+}
+
+#[test]
+fn m6809_branch_range_boundaries_are_validated() {
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    BRA $0081", 1, 0, 2), LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[0x20, 0x7F]);
+    }
+
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    BRA $0082", 1, 0, 2), LineStatus::Error);
+        let message = asm
+            .error()
+            .expect("branch out-of-range should produce an error")
+            .message()
+            .to_string();
+        assert!(
+            message.contains("Branch target out of range"),
+            "unexpected message: {message}"
+        );
+    }
+
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    LBRA $8002", 1, 0, 2), LineStatus::Ok);
+        assert_eq!(asm.bytes(), &[0x16, 0x7F, 0xFF]);
+    }
+
+    {
+        let mut symbols = SymbolTable::new();
+        let registry = default_registry();
+        let mut asm = AsmLine::with_cpu(&mut symbols, m6809_cpu_id, &registry);
+        asm.clear_conditionals();
+        asm.clear_scopes();
+        assert_eq!(asm.process("    LBRA $8003", 1, 0, 2), LineStatus::Error);
+        let message = asm
+            .error()
+            .expect("long-branch out-of-range should produce an error")
+            .message()
+            .to_string();
+        assert!(
+            message.contains("Long branch target out of range"),
+            "unexpected message: {message}"
+        );
+    }
 }
 
 #[test]

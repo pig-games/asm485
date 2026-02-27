@@ -93,6 +93,41 @@ pub static FAMILY_INSTRUCTION_TABLE: &[FamilyInstructionEntry] = &[
         opcode: 0x20,
     },
     FamilyInstructionEntry {
+        mnemonic: "BRN",
+        mode: AddressMode::Relative8,
+        opcode: 0x21,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BHI",
+        mode: AddressMode::Relative8,
+        opcode: 0x22,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BLS",
+        mode: AddressMode::Relative8,
+        opcode: 0x23,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BCC",
+        mode: AddressMode::Relative8,
+        opcode: 0x24,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BHS",
+        mode: AddressMode::Relative8,
+        opcode: 0x24,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BCS",
+        mode: AddressMode::Relative8,
+        opcode: 0x25,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BLO",
+        mode: AddressMode::Relative8,
+        opcode: 0x25,
+    },
+    FamilyInstructionEntry {
         mnemonic: "BNE",
         mode: AddressMode::Relative8,
         opcode: 0x26,
@@ -101,6 +136,46 @@ pub static FAMILY_INSTRUCTION_TABLE: &[FamilyInstructionEntry] = &[
         mnemonic: "BEQ",
         mode: AddressMode::Relative8,
         opcode: 0x27,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BVC",
+        mode: AddressMode::Relative8,
+        opcode: 0x28,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BVS",
+        mode: AddressMode::Relative8,
+        opcode: 0x29,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BPL",
+        mode: AddressMode::Relative8,
+        opcode: 0x2A,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BMI",
+        mode: AddressMode::Relative8,
+        opcode: 0x2B,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BGE",
+        mode: AddressMode::Relative8,
+        opcode: 0x2C,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BLT",
+        mode: AddressMode::Relative8,
+        opcode: 0x2D,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BGT",
+        mode: AddressMode::Relative8,
+        opcode: 0x2E,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "BLE",
+        mode: AddressMode::Relative8,
+        opcode: 0x2F,
     },
     FamilyInstructionEntry {
         mnemonic: "LBRA",

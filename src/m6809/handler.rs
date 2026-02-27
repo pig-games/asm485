@@ -28,7 +28,24 @@ impl M6809CpuHandler {
     fn is_rel8_branch(mnemonic: &str) -> bool {
         matches!(
             mnemonic.to_ascii_uppercase().as_str(),
-            "BRA" | "BNE" | "BEQ"
+            "BRA"
+                | "BRN"
+                | "BHI"
+                | "BLS"
+                | "BCC"
+                | "BHS"
+                | "BCS"
+                | "BLO"
+                | "BNE"
+                | "BEQ"
+                | "BVC"
+                | "BVS"
+                | "BPL"
+                | "BMI"
+                | "BGE"
+                | "BLT"
+                | "BGT"
+                | "BLE"
         )
     }
 

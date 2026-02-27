@@ -36,6 +36,14 @@ impl M6800FamilyHandler {
         }
     }
 
+    fn register_pair_size(code: u8) -> u8 {
+        if code < 0x8 {
+            16
+        } else {
+            8
+        }
+    }
+
     fn is_register_pair_mnemonic(mnemonic: &str) -> bool {
         matches!(mnemonic.to_ascii_uppercase().as_str(), "TFR" | "EXG")
     }
@@ -227,6 +235,17 @@ impl FamilyHandler for M6800FamilyHandler {
                         *src_span,
                     );
                 };
+                if Self::register_pair_size(src_code) != Self::register_pair_size(dst_code) {
+                    return EncodeResult::error_with_span(
+                        format!(
+                            "invalid register pair {},{} for {}",
+                            src.to_ascii_uppercase(),
+                            dst.to_ascii_uppercase(),
+                            mnemonic.to_ascii_uppercase()
+                        ),
+                        *src_span,
+                    );
+                }
                 bytes.push((src_code << 4) | dst_code);
             }
             _ => {
