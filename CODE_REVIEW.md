@@ -298,8 +298,8 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] Inventory all `unwrap()`/`expect()` in `src/assembler/`, `src/core/`, `src/families/`, `src/*cpu*/`.
 - [x] Classify each callsite: guaranteed-safe invariant vs user-input reachable.
 - [x] Replace user-input reachable panics with typed errors/diagnostics.
-- [ ] Add regression tests for each replaced panic path (expression errors, symbol resolution, operand parse failures).
-- [ ] Keep guaranteed-safe unwraps only with explicit invariant comments.
+- [x] Add regression tests for each replaced panic path (expression errors, symbol resolution, operand parse failures).
+- [x] Keep guaranteed-safe unwraps only with explicit invariant comments.
 - [x] Validate: `make test` + targeted tests for each modified subsystem.
 
 **Definition of done:** No user-controlled path can crash process; failures produce diagnostics with source context.

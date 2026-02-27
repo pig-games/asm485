@@ -173,6 +173,27 @@ fn assemble_line_status(
     (status, message)
 }
 
+#[test]
+fn regression_expression_error_is_diagnostic_not_panic() {
+    let (status, message) = assemble_line_status(i8085_cpu_id, "MVI A, (1 +");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.is_some());
+}
+
+#[test]
+fn regression_symbol_resolution_error_is_diagnostic_not_panic() {
+    let (status, message) = assemble_line_status(i8085_cpu_id, "MVI A, MISSING_SYMBOL");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.is_some());
+}
+
+#[test]
+fn regression_operand_parse_error_is_diagnostic_not_panic() {
+    let (status, message) = assemble_line_status(i8085_cpu_id, "MVI A, #1");
+    assert_eq!(status, LineStatus::Error);
+    assert!(message.is_some());
+}
+
 fn assemble_line_with_runtime_mode(
     cpu: crate::core::cpu::CpuType,
     line: &str,

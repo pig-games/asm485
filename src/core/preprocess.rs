@@ -214,6 +214,16 @@ impl<'a> MacroExpander<'a> {
     }
 
     fn expand_line(&self, line: &str, depth: usize) -> Result<Vec<String>, PreprocessError> {
+        let mut macro_stack = Vec::new();
+        self.expand_line_internal(line, depth, &mut macro_stack)
+    }
+
+    fn expand_line_internal(
+        &self,
+        line: &str,
+        depth: usize,
+        macro_stack: &mut Vec<String>,
+    ) -> Result<Vec<String>, PreprocessError> {
         if depth > self.max_depth {
             return Err(PreprocessError::new(format!(
                 "Preprocessor macro expansion exceeded maximum depth ({})",
@@ -227,7 +237,7 @@ impl<'a> MacroExpander<'a> {
         if parts.len() > 1 {
             let mut out = Vec::new();
             for part in parts {
-                let rec = self.expand_line(&part, depth + 1)?;
+                let rec = self.expand_line_internal(&part, depth + 1, macro_stack)?;
                 out.extend(rec);
             }
             if !comment.is_empty() && !out.is_empty() {
@@ -256,11 +266,23 @@ impl<'a> MacroExpander<'a> {
                 let tok = &expanded[i..j];
                 if let Some(m) = self.macros.get(&to_upper(tok)) {
                     if m.is_function {
+                        let macro_name = to_upper(tok);
                         let mut k = j;
                         while k < bytes.len() && (bytes[k] as char).is_ascii_whitespace() {
                             k += 1;
                         }
                         if k < bytes.len() && bytes[k] == b'(' {
+                            if let Some(start_idx) =
+                                macro_stack.iter().position(|name| *name == macro_name)
+                            {
+                                let mut chain = macro_stack[start_idx..].to_vec();
+                                chain.push(macro_name.clone());
+                                return Err(PreprocessError::new(format!(
+                                    "Preprocessor macro expansion cycle detected: {}",
+                                    chain.join(" -> ")
+                                )));
+                            }
+
                             let mut paren = 0usize;
                             let mut args_str = String::new();
                             let mut p = k;
@@ -356,12 +378,24 @@ impl<'a> MacroExpander<'a> {
                             }
 
                             let body = self.expand_function(m, &args);
+                            macro_stack.push(macro_name);
                             let parts = split_unquoted_backslash(&body);
                             let mut expanded_parts = Vec::new();
                             for part in parts {
-                                let rec = self.expand_line(&part, depth + 1)?;
+                                let rec = match self.expand_line_internal(
+                                    &part,
+                                    depth + 1,
+                                    macro_stack,
+                                ) {
+                                    Ok(rec) => rec,
+                                    Err(err) => {
+                                        macro_stack.pop();
+                                        return Err(err);
+                                    }
+                                };
                                 expanded_parts.extend(rec);
                             }
+                            macro_stack.pop();
                             if !expanded_parts.is_empty() {
                                 if let Some(last) = out_lines.last_mut() {
                                     last.push_str(&expanded_parts[0]);
@@ -998,7 +1032,7 @@ mod tests {
         );
         let expander = MacroExpander::new(&macros, 1);
         let err = expander.expand_line("F(1)", 0).unwrap_err();
-        assert!(err.message().contains("maximum depth"));
+        assert!(err.message().contains("cycle detected"));
     }
 
     #[test]
@@ -1008,6 +1042,32 @@ mod tests {
         pp.define("X", "X\\X");
         let err = pp.process_file(path.to_str().unwrap()).unwrap_err();
         assert!(err.message().contains("maximum depth"));
+    }
+
+    #[test]
+    fn mutually_recursive_function_macros_report_cycle() {
+        let mut macros = HashMap::new();
+        macros.insert(
+            "A".to_string(),
+            MacroDef {
+                is_function: true,
+                params: vec!["X".to_string()],
+                body: "B(X)".to_string(),
+            },
+        );
+        macros.insert(
+            "B".to_string(),
+            MacroDef {
+                is_function: true,
+                params: vec!["Y".to_string()],
+                body: "A(Y)".to_string(),
+            },
+        );
+
+        let expander = MacroExpander::new(&macros, 8);
+        let err = expander.expand_line("A(1)", 0).unwrap_err();
+        assert!(err.message().contains("cycle detected"));
+        assert!(err.message().contains("A -> B -> A"));
     }
 
     #[test]
@@ -1132,5 +1192,34 @@ mod tests {
         assert!(err
             .message()
             .contains("INCLUDE nesting exceeded maximum depth"));
+    }
+
+    #[test]
+    fn include_depth_limit_allows_boundary_nesting() {
+        let project = temp_dir();
+        let a = project.join("a.asm");
+        let b = project.join("b.asm");
+
+        fs::write(&a, ".include \"b.asm\"\n").unwrap();
+        fs::write(&b, ".byte 1\n").unwrap();
+
+        let mut pp = Preprocessor::with_max_depth(2);
+        assert!(pp.process_file(a.to_str().unwrap()).is_ok());
+        assert!(pp.lines().iter().any(|line| line.contains(".byte 1")));
+    }
+
+    #[test]
+    fn mixed_include_and_macro_recursion_respects_max_depth() {
+        let project = temp_dir();
+        let a = project.join("a.asm");
+        let b = project.join("b.asm");
+
+        fs::write(&a, ".include \"b.asm\"\n").unwrap();
+        fs::write(&b, "X\n").unwrap();
+
+        let mut pp = Preprocessor::with_max_depth(2);
+        pp.define("X", "X\\X");
+        let err = pp.process_file(a.to_str().unwrap()).unwrap_err();
+        assert!(err.message().contains("maximum depth"));
     }
 }
