@@ -10,7 +10,7 @@ pub mod operand;
 mod table;
 
 pub use handler::M6800FamilyHandler;
-pub use operand::{AddressMode, FamilyOperand, Operand};
+pub use operand::{AddressMode, FamilyOperand, IndexedAutoMode, Operand};
 pub use table::{has_mnemonic, lookup_instruction, FAMILY_INSTRUCTION_TABLE};
 
 pub fn is_register(name: &str) -> bool {

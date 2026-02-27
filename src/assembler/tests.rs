@@ -4344,6 +4344,22 @@ fn m6809_indexed_and_register_list_modes_encode() {
         vec![0xA6, 0x9C, 0x04]
     );
     assert_eq!(assemble_bytes(m6809_cpu_id, "    LDA ,X"), vec![0xA6, 0x00]);
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,X+"),
+        vec![0xA6, 0x80]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,X++"),
+        vec![0xA6, 0x81]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,-X"),
+        vec![0xA6, 0x82]
+    );
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    LDA ,--S"),
+        vec![0xA6, 0xE3]
+    );
 }
 
 #[test]
@@ -4385,6 +4401,29 @@ fn m6809_reports_register_list_validation_errors() {
     let message = message.unwrap_or_default();
     assert!(
         message.to_ascii_uppercase().contains("INVALID REGISTER S"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn m6809_reports_indexed_auto_inc_dec_validation_errors() {
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    LDA 1,X+");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message
+            .to_ascii_uppercase()
+            .contains("AUTO INC/DEC FORM DOES NOT ALLOW DISPLACEMENT"),
+        "unexpected error message: {message}"
+    );
+
+    let (status, message) = assemble_line_status(m6809_cpu_id, "    LDA ,PC+");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.unwrap_or_default();
+    assert!(
+        message
+            .to_ascii_uppercase()
+            .contains("REQUIRES X/Y/U/S BASE REGISTER"),
         "unexpected error message: {message}"
     );
 }

@@ -1,6 +1,6 @@
 use crate::core::expr_vm::{PortableExprProgram, PortableExprRef};
 use crate::core::parser::{Expr, ParseError};
-use crate::core::tokenizer::{Span, Token, TokenKind};
+use crate::core::tokenizer::{OperatorKind, Span, Token, TokenKind};
 
 use super::{
     runtime_bridge_error_to_parse_error, VmExprParseContext,
@@ -138,6 +138,10 @@ pub(super) fn parse_operand_expr_range(
     }
     let boundary_token = tokens.get(end);
     let expr_end_span = boundary_token.map(|token| token.span).unwrap_or(end_span);
+    if let Some(expr) = parse_indexed_register_postfix_operand(&tokens[start..end]) {
+        operands.push(expr);
+        return Ok(());
+    }
     match parse_expr_with_vm_contract_and_boundary(
         expr_parse_ctx,
         &tokens[start..end],
@@ -149,6 +153,38 @@ pub(super) fn parse_operand_expr_range(
         Err(err) => operands.push(Expr::Error(err.message, err.span)),
     }
     Ok(())
+}
+
+fn parse_indexed_register_postfix_operand(tokens: &[Token]) -> Option<Expr> {
+    if tokens.len() < 2 || tokens.len() > 3 {
+        return None;
+    }
+    let (name, start_span) = match &tokens[0].kind {
+        TokenKind::Register(name) | TokenKind::Identifier(name) => (name.clone(), tokens[0].span),
+        _ => return None,
+    };
+    let plus1 = matches!(tokens[1].kind, TokenKind::Operator(OperatorKind::Plus));
+    if !plus1 {
+        return None;
+    }
+    let suffix = if tokens.len() == 3 {
+        if matches!(tokens[2].kind, TokenKind::Operator(OperatorKind::Plus)) {
+            "++"
+        } else {
+            return None;
+        }
+    } else {
+        "+"
+    };
+    let end_span = tokens[tokens.len() - 1].span;
+    Some(Expr::Register(
+        format!("{name}{suffix}"),
+        Span {
+            line: start_span.line,
+            col_start: start_span.col_start,
+            col_end: end_span.col_end,
+        },
+    ))
 }
 
 pub(super) fn update_group_depths_for_token(

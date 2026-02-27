@@ -4,6 +4,10 @@
 
 start:
     LDA ,X
+    LDA ,X+
+    LDA ,X++
+    LDA ,-X
+    LDA ,--S
     LDA $20,X
     LDA A,Y
     LDA [$20,X]

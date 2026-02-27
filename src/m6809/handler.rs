@@ -5,7 +5,7 @@
 
 use crate::core::assembler::expression::expr_span;
 use crate::core::family::{AssemblerContext, CpuHandler, EncodeResult};
-use crate::families::m6800::{FamilyOperand, M6800FamilyHandler, Operand};
+use crate::families::m6800::{FamilyOperand, IndexedAutoMode, M6800FamilyHandler, Operand};
 
 #[derive(Debug)]
 pub struct M6809CpuHandler {
@@ -79,6 +79,22 @@ impl M6809CpuHandler {
             _ => return None,
         };
         Some(mode | (base_code << 5))
+    }
+
+    fn indexed_auto_postbyte(base: &str, mode: &IndexedAutoMode) -> Result<u8, String> {
+        let Some(base_code) = Self::index_register_code(base) else {
+            return Err(format!(
+                "indexed auto inc/dec requires X/Y/U/S base register (found {})",
+                base.to_ascii_uppercase()
+            ));
+        };
+        let low = match mode {
+            IndexedAutoMode::PostInc1 => 0x80,
+            IndexedAutoMode::PostInc2 => 0x81,
+            IndexedAutoMode::PreDec1 => 0x82,
+            IndexedAutoMode::PreDec2 => 0x83,
+        };
+        Ok((base_code << 5) | low)
     }
 
     fn indexed_register_postbyte_indirect(offset_register: &str, base: &str) -> Option<u8> {
@@ -225,6 +241,14 @@ impl CpuHandler for M6809CpuHandler {
                     result.push(Operand::Indexed {
                         postbyte,
                         extra,
+                        span: *span,
+                    });
+                }
+                FamilyOperand::IndexedAuto { base, mode, span } => {
+                    let postbyte = Self::indexed_auto_postbyte(base, mode)?;
+                    result.push(Operand::Indexed {
+                        postbyte,
+                        extra: Vec::new(),
                         span: *span,
                     });
                 }

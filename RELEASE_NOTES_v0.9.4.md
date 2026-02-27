@@ -12,7 +12,7 @@ starting with Motorola 6809 and Hitachi HD6309 CPU targets.
 - Baseline 6809 encode coverage includes:
   - inherent forms (`NOP`, `RTS`, `ABX`)
   - immediate/direct/extended loads (`LDA`, `LDB`, `LDD`)
-  - indexed baseline forms (`n,R`, `A/B/D,R` for index registers)
+  - indexed baseline forms (`n,R`, `A/B/D,R`, and auto inc/dec `,R+`, `,R++`, `,-R`, `,--R`)
   - short and long branch core forms (`BRA`/conditionals and `LBRA`/`LBSR`)
   - register-pair and register-list ops (`TFR`, `EXG`, `PSHS`, `PULS`, `PSHU`, `PULU`)
 - HD6309 extension coverage added (accepted only under `.cpu hd6309`):

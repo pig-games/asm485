@@ -22,9 +22,22 @@ pub enum AddressMode {
 }
 
 #[derive(Clone, Debug)]
+pub enum IndexedAutoMode {
+    PostInc1,
+    PostInc2,
+    PreDec1,
+    PreDec2,
+}
+
+#[derive(Clone, Debug)]
 pub enum FamilyOperand {
     Register(String, Span),
     RegisterList(Vec<(String, Span)>, Span),
+    IndexedAuto {
+        base: String,
+        mode: IndexedAutoMode,
+        span: Span,
+    },
     Indexed {
         offset: Expr,
         base: String,
@@ -54,6 +67,7 @@ impl FamilyOperand {
         match self {
             Self::Register(_, span) => *span,
             Self::RegisterList(_, span)
+            | Self::IndexedAuto { span, .. }
             | Self::Indexed { span, .. }
             | Self::IndexedIndirect { span, .. }
             | Self::IndexedRegisterOffset { span, .. } => *span,

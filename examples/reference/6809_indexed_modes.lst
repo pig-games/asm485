@@ -7,33 +7,38 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                4  
 ----                                5  start
 1000    A6 00                       6      LDA ,X
-1002    A6 88 20                    7      LDA $20,X
-1005    A6 A6                       8      LDA A,Y
-1007    A6 98 20                    9      LDA [$20,X]
-100A    A6 96                      10      LDA [A,X]
-100C    A6 9F 12 34                11      LDA [$1234]
-1010    A6 9C 04                   12      LDA [4,PC]
-----                               13      LDB -1,S
-   13 |     LDB -1,S
+1002    A6 80                       7      LDA ,X+
+1004    A6 81                       8      LDA ,X++
+1006    A6 82                       9      LDA ,-X
+1008    A6 E3                      10      LDA ,--S
+100A    A6 88 20                   11      LDA $20,X
+100D    A6 A6                      12      LDA A,Y
+100F    A6 98 20                   13      LDA [$20,X]
+1012    A6 96                      14      LDA [A,X]
+1014    A6 9F 12 34                15      LDA [$1234]
+1018    A6 9C 04                   16      LDA [4,PC]
+----                               17      LDB -1,S
+   17 |     LDB -1,S
             ^
 ERROR: indexed displacement 4294967295 out of range
-1013    E7 86                      14      STB A,X
-1015    EC C8 10                   15      LDD 16,U
-1018    AD 88 20                   16      JSR $20,X
-101B    A6 8C 04                   17      LDA 4,PC
-101E    39                         18      RTS
+101B    E7 86                      18      STB A,X
+101D    EC C8 10                   19      LDD 16,U
+1020    AD 88 20                   20      JSR $20,X
+1023    A6 8C 04                   21      LDA 4,PC
+1026    39                         22      RTS
 
-Lines: 18  Errors: 1  Warnings: 0
+Lines: 22  Errors: 1  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 1000 (4096)
 
-Total memory is 31 bytes
+Total memory is 39 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-1000    A6 00 A6 88 20 A6 A6 A6 98 20 A6 96 A6 9F 12 34
-1010    A6 9C 04 E7 86 EC C8 10 AD 88 20 A6 8C 04 39
+1000    A6 00 A6 80 A6 81 A6 82 A6 E3 A6 88 20 A6 A6 A6
+1010    98 20 A6 96 A6 9F 12 34 A6 9C 04 E7 86 EC C8 10
+1020    AD 88 20 A6 8C 04 39

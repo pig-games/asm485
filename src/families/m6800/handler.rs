@@ -4,12 +4,13 @@
 //! Motorola 6800 family handler implementation.
 
 use crate::core::assembler::expression::expr_span;
+use crate::core::expr::parse_number;
 use crate::core::family::{AssemblerContext, EncodeResult, FamilyHandler, FamilyParseError};
-use crate::core::parser::Expr;
+use crate::core::parser::{Expr, UnaryOp};
 use crate::core::tokenizer::Span;
 
 use super::is_register;
-use super::operand::{AddressMode, FamilyOperand, Operand};
+use super::operand::{AddressMode, FamilyOperand, IndexedAutoMode, Operand};
 use super::table::{has_mnemonic, lookup_instruction};
 
 #[derive(Debug, Default)]
@@ -84,6 +85,56 @@ impl M6800FamilyHandler {
                 Some((name.to_ascii_uppercase(), *span))
             }
             _ => None,
+        }
+    }
+
+    fn parse_index_base_with_suffix(name: &str) -> Option<(String, Option<IndexedAutoMode>)> {
+        let upper = name.to_ascii_uppercase();
+        if let Some(base) = upper.strip_suffix("++") {
+            return Some((base.to_string(), Some(IndexedAutoMode::PostInc2)));
+        }
+        if let Some(base) = upper.strip_suffix('+') {
+            return Some((base.to_string(), Some(IndexedAutoMode::PostInc1)));
+        }
+        Some((upper, None))
+    }
+
+    fn parse_index_base_expr(expr: &Expr) -> Option<(String, Option<IndexedAutoMode>)> {
+        match expr {
+            Expr::Register(name, _) | Expr::Identifier(name, _) => {
+                Self::parse_index_base_with_suffix(name)
+            }
+            Expr::Unary {
+                op: UnaryOp::Minus,
+                expr: inner,
+                ..
+            } => {
+                if let Expr::Unary {
+                    op: UnaryOp::Minus,
+                    expr: double_inner,
+                    ..
+                } = &**inner
+                {
+                    let (base, mode) = Self::parse_index_base_expr(double_inner)?;
+                    if mode.is_some() {
+                        return None;
+                    }
+                    return Some((base, Some(IndexedAutoMode::PreDec2)));
+                }
+                let (base, mode) = Self::parse_index_base_expr(inner)?;
+                if mode.is_some() {
+                    return None;
+                }
+                Some((base, Some(IndexedAutoMode::PreDec1)))
+            }
+            _ => None,
+        }
+    }
+
+    fn is_zero_expr(expr: &Expr) -> bool {
+        match expr {
+            Expr::Number(text, _) => parse_number(text) == Some(0),
+            _ => false,
         }
     }
 
@@ -194,9 +245,18 @@ impl FamilyHandler for M6800FamilyHandler {
         }
 
         if exprs.len() == 2 {
-            if let Some((base, _)) = Self::parse_register_expr(&exprs[1]) {
+            if let Some((base, auto_mode)) = Self::parse_index_base_expr(&exprs[1]) {
                 if Self::is_index_base_register(&base) {
                     let span = Self::span_for_exprs(exprs);
+                    if let Some(mode) = auto_mode {
+                        if !Self::is_zero_expr(&exprs[0]) {
+                            return Err(FamilyParseError::new(
+                                "indexed auto inc/dec form does not allow displacement",
+                                expr_span(&exprs[0]),
+                            ));
+                        }
+                        return Ok(vec![FamilyOperand::IndexedAuto { base, mode, span }]);
+                    }
                     if let Some((register_offset, _)) = Self::parse_register_expr(&exprs[0]) {
                         if matches!(register_offset.as_str(), "A" | "B" | "D") {
                             return Ok(vec![FamilyOperand::IndexedRegisterOffset {
