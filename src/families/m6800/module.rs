@@ -9,10 +9,10 @@ use crate::core::cpu::{CpuFamily, CpuType};
 use crate::core::family::{AssemblerContext, EncodeResult, FamilyHandler, FamilyParseError};
 use crate::core::parser::Expr;
 use crate::core::registry::{
-    DialectModule, FamilyHandlerDyn, FamilyModule, FamilyOperandSet, OperandSet,
+    DialectModule, FamilyHandlerDyn, FamilyModule, FamilyOperandSet, OperandSet, VmEncodeCandidate,
 };
 
-use super::{FamilyOperand, M6800FamilyHandler, Operand};
+use super::{AddressMode, FamilyOperand, M6800FamilyHandler, Operand};
 
 pub const DIALECT_MOTOROLA680X: &str = "motorola680x";
 pub const FAMILY_ID: CpuFamily = CpuFamily::new("motorola6800");
@@ -90,6 +90,108 @@ impl OperandSet for M6800Operands {
 
     fn clone_box(&self) -> Box<dyn OperandSet> {
         Box::new(self.clone())
+    }
+
+    fn vm_encode_candidates(&self) -> Vec<VmEncodeCandidate> {
+        vm_encode_candidates_for_operands(&self.0)
+    }
+}
+
+fn register_code(name: &str) -> Option<u8> {
+    match name.to_ascii_uppercase().as_str() {
+        "D" => Some(0x0),
+        "X" => Some(0x1),
+        "Y" => Some(0x2),
+        "U" => Some(0x3),
+        "S" => Some(0x4),
+        "PC" => Some(0x5),
+        "A" => Some(0x8),
+        "B" => Some(0x9),
+        "CC" => Some(0xA),
+        "DP" => Some(0xB),
+        _ => None,
+    }
+}
+
+fn register_pair_size(code: u8) -> u8 {
+    if code < 0x8 {
+        16
+    } else {
+        8
+    }
+}
+
+fn mode_key(mode: AddressMode) -> String {
+    format!("{mode:?}").to_ascii_lowercase()
+}
+
+pub(crate) fn vm_encode_candidates_for_operands(operands: &[Operand]) -> Vec<VmEncodeCandidate> {
+    let Some(candidate) = vm_encode_candidate_for_operands(operands) else {
+        return Vec::new();
+    };
+    vec![candidate]
+}
+
+fn vm_encode_candidate_for_operands(operands: &[Operand]) -> Option<VmEncodeCandidate> {
+    match operands {
+        [] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::Inherent),
+            operand_bytes: Vec::new(),
+        }),
+        [Operand::Immediate8(value, _)] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::Immediate8),
+            operand_bytes: vec![vec![*value]],
+        }),
+        [Operand::Immediate16(value, _)] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::Immediate16),
+            operand_bytes: vec![vec![(*value >> 8) as u8, *value as u8]],
+        }),
+        [Operand::Direct(value, _)] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::Direct),
+            operand_bytes: vec![vec![*value]],
+        }),
+        [Operand::Extended(value, _)] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::Extended),
+            operand_bytes: vec![vec![(*value >> 8) as u8, *value as u8]],
+        }),
+        [Operand::Indexed {
+            postbyte, extra, ..
+        }] => {
+            let mut encoded = Vec::with_capacity(1 + extra.len());
+            encoded.push(*postbyte);
+            encoded.extend(extra.iter().copied());
+            Some(VmEncodeCandidate {
+                mode_key: mode_key(AddressMode::Indexed),
+                operand_bytes: vec![encoded],
+            })
+        }
+        [Operand::Relative8(offset, _)] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::Relative8),
+            operand_bytes: vec![vec![*offset as u8]],
+        }),
+        [Operand::Relative16(offset, _)] => {
+            let raw = *offset as u16;
+            Some(VmEncodeCandidate {
+                mode_key: mode_key(AddressMode::Relative16),
+                operand_bytes: vec![vec![(raw >> 8) as u8, raw as u8]],
+            })
+        }
+        [Operand::RegisterList(mask, _)] => Some(VmEncodeCandidate {
+            mode_key: mode_key(AddressMode::RegisterList),
+            operand_bytes: vec![vec![*mask]],
+        }),
+        [Operand::Register(src, _), Operand::Register(dst, _)] => {
+            let src_code = register_code(src)?;
+            let dst_code = register_code(dst)?;
+            if register_pair_size(src_code) != register_pair_size(dst_code) {
+                return None;
+            }
+            Some(VmEncodeCandidate {
+                mode_key: mode_key(AddressMode::RegisterPair),
+                operand_bytes: vec![vec![(src_code << 4) | dst_code]],
+            })
+        }
+        _ => None,
     }
 }
 

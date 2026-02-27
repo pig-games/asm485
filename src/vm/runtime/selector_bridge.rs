@@ -7,9 +7,13 @@ use crate::families::intel8080::table::{
     lookup_instruction, ArgType as IntelArgType, InstructionEntry as IntelInstructionEntry,
 };
 use crate::families::intel8080::{Intel8080FamilyHandler, Operand as IntelOperand};
+use crate::families::m6800::module::vm_encode_candidates_for_operands as vm_candidates_m6800;
+use crate::families::m6800::M6800FamilyHandler;
 use crate::families::mos6502::{FamilyOperand, MOS6502FamilyHandler, OperandForce};
+use crate::hd6309::HD6309CpuHandler;
 use crate::i8085::extensions::lookup_extension as lookup_i8085_extension;
 use crate::i8085::handler::I8085CpuHandler;
+use crate::m6809::M6809CpuHandler;
 use crate::z80::extensions::lookup_extension as lookup_z80_extension;
 use crate::z80::handler::Z80CpuHandler;
 
@@ -845,6 +849,54 @@ pub(super) fn selector_input_from_family_operands(
 }
 
 impl HierarchyExecutionModel {
+    pub(super) fn select_candidates_from_exprs_m6800(
+        &self,
+        resolved: &ResolvedHierarchy,
+        mnemonic: &str,
+        operands: &[Expr],
+        ctx: &dyn AssemblerContext,
+    ) -> Result<Option<Vec<VmEncodeCandidate>>, RuntimeBridgeError> {
+        let family = M6800FamilyHandler::new();
+        let parsed = match family.parse_operands(mnemonic, operands) {
+            Ok(parsed) => parsed,
+            Err(_) => return Ok(None),
+        };
+
+        let resolved_operands = if resolved.cpu_id.eq_ignore_ascii_case("hd6309") {
+            HD6309CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
+        } else {
+            M6809CpuHandler::new().resolve_operands(mnemonic, &parsed, ctx)
+        }
+        .map_err(RuntimeBridgeError::Resolve)?;
+
+        let cpu_result = if resolved.cpu_id.eq_ignore_ascii_case("hd6309") {
+            HD6309CpuHandler::new().encode_instruction(mnemonic, &resolved_operands, ctx)
+        } else {
+            M6809CpuHandler::new().encode_instruction(mnemonic, &resolved_operands, ctx)
+        };
+        let _native_bytes = match cpu_result {
+            crate::core::family::EncodeResult::Ok(bytes) => bytes,
+            crate::core::family::EncodeResult::Error(message, _) => {
+                return Err(RuntimeBridgeError::Resolve(message))
+            }
+            crate::core::family::EncodeResult::NotFound => {
+                match family.encode_instruction(mnemonic, &resolved_operands, ctx) {
+                    crate::core::family::EncodeResult::Ok(bytes) => bytes,
+                    crate::core::family::EncodeResult::Error(message, _) => {
+                        return Err(RuntimeBridgeError::Resolve(message))
+                    }
+                    crate::core::family::EncodeResult::NotFound => return Ok(None),
+                }
+            }
+        };
+
+        let candidates = vm_candidates_m6800(resolved_operands.as_slice());
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(candidates))
+    }
+
     pub(super) fn select_candidates_from_exprs_mos6502(
         &self,
         resolved: &ResolvedHierarchy,

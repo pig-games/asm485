@@ -870,6 +870,13 @@ impl HierarchyExecutionModel {
             true,
             true,
         );
+        register_fn_resolver(
+            &mut expr_resolvers,
+            "motorola6800",
+            HierarchyExecutionModel::select_candidates_from_exprs_m6800,
+            true,
+            false,
+        );
         let mut diag_templates = HashMap::new();
         for entry in diagnostics {
             diag_templates.insert(

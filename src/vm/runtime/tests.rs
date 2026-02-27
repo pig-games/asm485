@@ -2962,7 +2962,47 @@ fn execution_model_defer_native_diagnostics_uses_resolver_capability() {
 
     assert!(model.defer_native_diagnostics_on_expr_none("intel8080"));
     assert!(!model.defer_native_diagnostics_on_expr_none("mos6502"));
+    assert!(!model.defer_native_diagnostics_on_expr_none("motorola6800"));
     assert!(!model.defer_native_diagnostics_on_expr_none("unknown"));
+}
+
+#[test]
+fn execution_model_m6800_expr_resolver_is_strict() {
+    let registry = parity_registry();
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    assert!(model.supports_expr_resolution_for_family("motorola6800"));
+    assert!(model.expr_resolution_is_strict_for_family("motorola6800"));
+}
+
+#[test]
+fn execution_model_m6800_expr_encode_supports_m6809_and_hd6309_paths() {
+    let registry = parity_registry();
+    let model = HierarchyExecutionModel::from_registry(&registry).expect("execution model build");
+    let span = Span::default();
+    let ctx = TestAssemblerContext::new();
+
+    let m6809_immediate = [Expr::Immediate(
+        Box::new(Expr::Number("66".to_string(), span)),
+        span,
+    )];
+    let m6809_indexed = [
+        Expr::Number("0".to_string(), span),
+        Expr::Identifier("X".to_string(), span),
+    ];
+
+    let lda_imm = model
+        .encode_instruction_from_exprs("m6809", None, "LDA", &m6809_immediate, &ctx)
+        .expect("m6809 immediate should resolve");
+    let lda_indexed = model
+        .encode_instruction_from_exprs("m6809", None, "LDA", &m6809_indexed, &ctx)
+        .expect("m6809 indexed should resolve");
+    let sexw = model
+        .encode_instruction_from_exprs("hd6309", None, "SEXW", &[], &ctx)
+        .expect("hd6309 extension should resolve");
+
+    assert_eq!(lda_imm, Some(vec![0x86, 0x42]));
+    assert_eq!(lda_indexed, Some(vec![0xA6, 0x00]));
+    assert_eq!(sexw, Some(vec![0x14]));
 }
 
 #[test]
