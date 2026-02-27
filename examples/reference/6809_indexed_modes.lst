@@ -8,24 +8,31 @@ ADDR    BYTES                    LINE  SOURCE
 ----                                5  start
 1000    A6 88 20                    6      LDA $20,X
 1003    A6 A6                       7      LDA A,Y
-----                                8      LDB -1,S
-    8 |     LDB -1,S
+1005    A6 98 20                    8      LDA [$20,X]
+1008    A6 96                       9      LDA [A,X]
+100A    A6 9F 12 34                10      LDA [$1234]
+100E    A6 9C 04                   11      LDA [4,PC]
+----                               12      LDB -1,S
+   12 |     LDB -1,S
             ^
 ERROR: indexed displacement 4294967295 out of range
-1005    EC C8 10                    9      LDD 16,U
-1008    A6 8C 04                   10      LDA 4,PC
-100B    39                         11      RTS
+1011    E7 86                      13      STB A,X
+1013    EC C8 10                   14      LDD 16,U
+1016    AD 88 20                   15      JSR $20,X
+1019    A6 8C 04                   16      LDA 4,PC
+101C    39                         17      RTS
 
-Lines: 11  Errors: 1  Warnings: 0
+Lines: 17  Errors: 1  Warnings: 0
 
 SYMBOL TABLE
 
 start           : 1000 (4096)
 
-Total memory is 12 bytes
+Total memory is 29 bytes
 
 GENERATED OUTPUT
 
 ADDR    BYTES
 ------  -----------------------
-1000    A6 88 20 A6 A6 EC C8 10 A6 8C 04 39
+1000    A6 88 20 A6 A6 A6 98 20 A6 96 A6 9F 12 34 A6 9C
+1010    04 E7 86 EC C8 10 AD 88 20 A6 8C 04 39
