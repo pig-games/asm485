@@ -371,9 +371,9 @@ Use this as the implementation plan of record. Complete items in order; do not s
 
 #### 9) B5: Reduce formatter brittleness
 
-- [ ] Add idempotence tests (`format(format(x)) == format(x)`).
-- [ ] Add semantic-preservation tests for formatting-only changes.
-- [ ] Keep snapshot tests, but reduce fixture churn by focusing snapshots on representative cases.
+- [x] Add idempotence tests (`format(format(x)) == format(x)`).
+- [x] Add semantic-preservation tests for formatting-only changes.
+- [x] Keep snapshot tests, but reduce fixture churn by focusing snapshots on representative cases.
 
 #### 10) A4/F2: VM feature-gate containment
 
