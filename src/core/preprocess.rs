@@ -792,10 +792,16 @@ impl Preprocessor {
         base_dir: &str,
         include: &str,
     ) -> (Option<PathBuf>, Vec<PathBuf>) {
+        let mut allowed_roots = Vec::new();
+        allowed_roots.push(PathBuf::from(base_dir));
+        for root in &self.include_roots {
+            allowed_roots.push(root.clone());
+        }
+
         let include_path = Path::new(include);
         if include_path.is_absolute() {
             let absolute = include_path.to_path_buf();
-            let found = if absolute.is_file() {
+            let found = if absolute.is_file() && self.include_within_allowed_roots(&absolute, &allowed_roots) {
                 Some(absolute.clone())
             } else {
                 None
@@ -811,9 +817,24 @@ impl Preprocessor {
 
         let found = candidates
             .iter()
-            .find(|candidate| candidate.is_file())
+            .find(|candidate| {
+                candidate.is_file() && self.include_within_allowed_roots(candidate, &allowed_roots)
+            })
             .cloned();
         (found, candidates)
+    }
+
+    fn include_within_allowed_roots(&self, candidate: &Path, allowed_roots: &[PathBuf]) -> bool {
+        let candidate = match candidate.canonicalize() {
+            Ok(path) => path,
+            Err(_) => return false,
+        };
+
+        allowed_roots.iter().any(|root| {
+            root.canonicalize()
+                .map(|root| candidate.starts_with(&root))
+                .unwrap_or(false)
+        })
     }
 
     fn is_active(&self) -> bool {
@@ -1206,6 +1227,39 @@ mod tests {
         let mut pp = Preprocessor::with_max_depth(2);
         assert!(pp.process_file(a.to_str().unwrap()).is_ok());
         assert!(pp.lines().iter().any(|line| line.contains(".byte 1")));
+    }
+
+    #[test]
+    fn include_rejects_traversal_outside_base_dir_without_include_root() {
+        let project = temp_dir();
+        let src = project.join("src");
+        fs::create_dir_all(&src).unwrap();
+        let secret = project.join("secret.inc");
+        let main = src.join("main.asm");
+
+        fs::write(&secret, "VALUE .const 7\n").unwrap();
+        fs::write(&main, ".include \"../secret.inc\"\n.byte VALUE\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        let err = pp.process_file(main.to_str().unwrap()).unwrap_err();
+        assert!(err.message().contains("INCLUDE file not found"));
+    }
+
+    #[test]
+    fn include_allows_parent_relative_path_when_explicit_include_root_matches() {
+        let project = temp_dir();
+        let src = project.join("src");
+        fs::create_dir_all(&src).unwrap();
+        let secret = project.join("secret.inc");
+        let main = src.join("main.asm");
+
+        fs::write(&secret, "VALUE .const 7\n").unwrap();
+        fs::write(&main, ".include \"../secret.inc\"\n.byte VALUE\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        pp.add_include_root(project);
+        pp.process_file(main.to_str().unwrap()).unwrap();
+        assert!(pp.lines().iter().any(|line| line.contains("VALUE .const 7")));
     }
 
     #[test]

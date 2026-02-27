@@ -603,6 +603,13 @@ pub fn resolve_output_path(base: &str, name: Option<String>, extension: &str) ->
     if path.extension().is_none() {
         path = PathBuf::from(format!("{name}.{extension}"));
     }
+    if path.is_relative() {
+        if let Some(parent) = Path::new(base).parent() {
+            if !parent.as_os_str().is_empty() {
+                path = parent.join(path);
+            }
+        }
+    }
     Some(path.to_string_lossy().to_string())
 }
 
@@ -1995,6 +2002,14 @@ mod tests {
         assert_eq!(
             resolve_output_path("prog", Some("out".to_string()), "hex"),
             Some("out.hex".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_output_path_relative_name_is_anchored_to_input_directory() {
+        assert_eq!(
+            resolve_output_path("src/main", Some("out".to_string()), "hex"),
+            Some("src/out.hex".to_string())
         );
     }
 

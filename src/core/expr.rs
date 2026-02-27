@@ -10,6 +10,8 @@
 use crate::core::parser::{BinaryOp, Expr, UnaryOp};
 use crate::core::tokenizer::Span;
 
+const MAX_EXPR_EVAL_DEPTH: usize = 256;
+
 /// Error returned from expression evaluation.
 #[derive(Debug, Clone)]
 pub struct EvalError {
@@ -55,6 +57,14 @@ pub trait EvalContext {
 
 /// Evaluate an expression to a numeric value.
 pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
+    eval_expr_with_depth(expr, ctx, 0)
+}
+
+fn eval_expr_with_depth(expr: &Expr, ctx: &dyn EvalContext, depth: usize) -> Result<i64, EvalError> {
+    if depth > MAX_EXPR_EVAL_DEPTH {
+        return Err(EvalError::new("Expression evaluation exceeded maximum depth"));
+    }
+
     match expr {
         Expr::Number(text, span) => parse_number(text)
             .ok_or_else(|| EvalError::with_span(format!("Invalid number: {}", text), *span)),
@@ -101,7 +111,7 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
         }
 
         Expr::Unary { op, expr, span } => {
-            let val = eval_expr(expr, ctx)?;
+            let val = eval_expr_with_depth(expr, ctx, depth + 1)?;
             apply_unary(*op, val, *span)
         }
 
@@ -111,8 +121,8 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
             right,
             span,
         } => {
-            let l = eval_expr(left, ctx)?;
-            let r = eval_expr(right, ctx)?;
+            let l = eval_expr_with_depth(left, ctx, depth + 1)?;
+            let r = eval_expr_with_depth(right, ctx, depth + 1)?;
             apply_binary(*op, l, r, *span)
         }
 
@@ -122,11 +132,11 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
             else_expr,
             ..
         } => {
-            let cond_val = eval_expr(cond, ctx)?;
+            let cond_val = eval_expr_with_depth(cond, ctx, depth + 1)?;
             if cond_val != 0 {
-                eval_expr(then_expr, ctx)
+                eval_expr_with_depth(then_expr, ctx, depth + 1)
             } else {
-                eval_expr(else_expr, ctx)
+                eval_expr_with_depth(else_expr, ctx, depth + 1)
             }
         }
 
@@ -137,8 +147,8 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
             *span,
         )),
 
-        Expr::Indirect(inner, _) => eval_expr(inner, ctx),
-        Expr::IndirectLong(inner, _) => eval_expr(inner, ctx),
+        Expr::Indirect(inner, _) => eval_expr_with_depth(inner, ctx, depth + 1),
+        Expr::IndirectLong(inner, _) => eval_expr_with_depth(inner, ctx, depth + 1),
 
         Expr::Tuple(_, span) => Err(EvalError::with_span(
             "Tuple cannot be evaluated as expression",
@@ -598,5 +608,22 @@ mod tests {
         let ctx = SimpleEvalContext::new(|_| None);
         let err = eval_expr(&expr, &ctx).unwrap_err();
         assert!(err.message.contains("Multi-character string"));
+    }
+
+    #[test]
+    fn eval_expr_rejects_excessive_recursion_depth() {
+        let span = Span::default();
+        let mut expr = Expr::Number("1".to_string(), span);
+        for _ in 0..(MAX_EXPR_EVAL_DEPTH + 2) {
+            expr = Expr::Unary {
+                op: UnaryOp::Plus,
+                expr: Box::new(expr),
+                span,
+            };
+        }
+
+        let ctx = SimpleEvalContext::new(|_| None);
+        let err = eval_expr(&expr, &ctx).unwrap_err();
+        assert!(err.message.contains("maximum depth"));
     }
 }
