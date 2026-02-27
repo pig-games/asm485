@@ -74,6 +74,12 @@ low or high byte of a value:
 >($1234+1)
 ```
 
+Safety rules:
+- Division/modulo by zero reports a diagnostic error.
+- Shift counts are bounded during evaluation.
+- String literals in expression context are limited to 1-byte and 2-byte forms.
+- Expression evaluation enforces a maximum recursion depth.
+
 ### 3.6 Expression operators
 
 Operator set (highest level summary):
@@ -108,6 +114,8 @@ tuples, code blocks, and type values.
 
 Notes:
 - `.include` is literal text inclusion only; it does not participate in module loading.
+- Include resolution is constrained to the including-file directory and explicit `-I/--include-path` roots.
+- Absolute include paths and parent-relative traversals are accepted only when they resolve inside those allowed roots.
 
 ### 4.2 Controlling the program counter
 
@@ -762,6 +770,7 @@ Notes:
 - With multiple inputs, at least one output type (`-l`, `-x`, `-b`) must be selected.
 - If no outputs are specified for a single input, opForge defaults to list+hex
   when `.meta.output.name` (or `-o`) is available; otherwise output selection is required.
+- Relative output filenames are anchored to the input file's directory.
 - Formatter mode (`--fmt`, `--fmt-check`, `--fmt-write`, `--fmt-stdout`) requires at least one input and cannot be combined with assembler output flags or fixit options.
 - `--fmt-stdout` requires exactly one input.
 - `-b` without a range emits a binary that spans the emitted output.

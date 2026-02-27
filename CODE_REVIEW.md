@@ -387,7 +387,7 @@ Use this as the implementation plan of record. Complete items in order; do not s
 - [x] B3: Profile and reduce unnecessary clone/allocation hot spots.
 - [x] E4/E5: Remove or relocate `scratch/` and `multi_error_probe_error.lst` artifacts.
 - [x] G1/G2/G3: Tighten include/output path handling and expression safety checks.
-- [ ] E3: Run doc-sync workflow to keep manual/specs aligned with implemented behavior.
+- [x] E3: Run doc-sync workflow to keep manual/specs aligned with implemented behavior.
 
 ### Verification gates for every phase
 
