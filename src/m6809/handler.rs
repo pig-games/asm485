@@ -46,6 +46,7 @@ impl M6809CpuHandler {
                 | "BLT"
                 | "BGT"
                 | "BLE"
+                | "BSR"
         )
     }
 
@@ -194,6 +195,7 @@ impl M6809CpuHandler {
             "DP" => Some(0x08),
             "X" => Some(0x10),
             "Y" => Some(0x20),
+            "D" => Some(0x06),
             "PC" => Some(0x80),
             "U" if matches!(upper_mnemonic.as_str(), "PSHS" | "PULS") => Some(0x40),
             "S" if matches!(upper_mnemonic.as_str(), "PSHU" | "PULU") => Some(0x40),

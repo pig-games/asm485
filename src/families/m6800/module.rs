@@ -110,19 +110,22 @@ fn register_code(name: &str) -> Option<u8> {
         "U" => Some(0x3),
         "S" => Some(0x4),
         "PC" => Some(0x5),
+        // HD6309 extended registers
+        "E" | "W" => Some(0x6),
+        "F" | "V" => Some(0x7),
         "A" => Some(0x8),
         "B" => Some(0x9),
         "CC" => Some(0xA),
-        "DP" => Some(0xB),
+        "DP" | "MD" => Some(0xB),
         _ => None,
     }
 }
 
-fn register_pair_size(code: u8) -> u8 {
-    if code < 0x8 {
-        16
-    } else {
-        8
+fn register_pair_size_by_name(name: &str) -> u8 {
+    match name.to_ascii_uppercase().as_str() {
+        "D" | "X" | "Y" | "U" | "S" | "PC" | "W" | "V" => 16,
+        "A" | "B" | "CC" | "DP" | "E" | "F" | "MD" => 8,
+        _ => 0,
     }
 }
 
@@ -188,7 +191,7 @@ fn vm_encode_candidate_for_operands(operands: &[Operand]) -> Option<VmEncodeCand
         [Operand::Register(src, _), Operand::Register(dst, _)] => {
             let src_code = register_code(src)?;
             let dst_code = register_code(dst)?;
-            if register_pair_size(src_code) != register_pair_size(dst_code) {
+            if register_pair_size_by_name(src) != register_pair_size_by_name(dst) {
                 return None;
             }
             Some(VmEncodeCandidate {

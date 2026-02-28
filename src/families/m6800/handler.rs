@@ -29,19 +29,37 @@ impl M6800FamilyHandler {
             "U" => Some(0x3),
             "S" => Some(0x4),
             "PC" => Some(0x5),
+            // HD6309 16-bit register codes (safe to include at family level;
+            // the assembler will only encounter these when source explicitly
+            // uses HD6309 register names, which are gated by CPU context).
+            "W" => Some(0x6),
+            "V" => Some(0x7),
             "A" => Some(0x8),
             "B" => Some(0x9),
             "CC" => Some(0xA),
             "DP" => Some(0xB),
+            // HD6309 8-bit register codes
+            "E" => Some(0x6),
+            "F" => Some(0x7),
+            // Note: E/F share numeric code with W/V but are 8-bit (code < 0x8
+            // check in register_pair_size discriminates).  For TFR/EXG the
+            // family-level pair-size guard (below) blocks mismatched widths.
+            // Because E and W share code 0x6, and F and V share code 0x7,
+            // size discrimination must use the register *name* rather than
+            // the code.  This is handled by register_pair_size_by_name.
+            "MD" => Some(0xB),
             _ => None,
         }
     }
 
-    fn register_pair_size(code: u8) -> u8 {
-        if code < 0x8 {
-            16
-        } else {
-            8
+    /// Returns the bit-width of a register identified by name.
+    /// This replaces the code-only approach so that HD6309 registers
+    /// sharing the same code but different widths (E/W, F/V) are
+    /// correctly discriminated.
+    fn register_pair_size_by_name(name: &str) -> u8 {
+        match name.to_ascii_uppercase().as_str() {
+            "D" | "X" | "Y" | "U" | "S" | "PC" | "W" | "V" => 16,
+            _ => 8,
         }
     }
 
@@ -339,7 +357,7 @@ impl FamilyHandler for M6800FamilyHandler {
                 bytes.push((raw >> 8) as u8);
                 bytes.push(raw as u8);
             }
-            [Operand::Register(src, src_span), Operand::Register(dst, _)] => {
+            [Operand::Register(src, src_span), Operand::Register(dst, dst_span)] => {
                 let Some(src_code) = Self::register_code(src) else {
                     return EncodeResult::error_with_span(
                         format!("invalid register {}", src.to_ascii_uppercase()),
@@ -349,10 +367,10 @@ impl FamilyHandler for M6800FamilyHandler {
                 let Some(dst_code) = Self::register_code(dst) else {
                     return EncodeResult::error_with_span(
                         format!("invalid register {}", dst.to_ascii_uppercase()),
-                        *src_span,
+                        *dst_span,
                     );
                 };
-                if Self::register_pair_size(src_code) != Self::register_pair_size(dst_code) {
+                if Self::register_pair_size_by_name(src) != Self::register_pair_size_by_name(dst) {
                     return EncodeResult::error_with_span(
                         format!(
                             "invalid register pair {},{} for {}",

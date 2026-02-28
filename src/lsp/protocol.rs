@@ -94,7 +94,9 @@ fn read_lsp_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
     }
 
     let Some(length) = content_length else {
-        return Ok(None);
+        // Missing Content-Length header — skip this message and try reading the
+        // next one rather than treating it as EOF.
+        return read_lsp_message(reader);
     };
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body)?;

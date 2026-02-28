@@ -261,7 +261,7 @@ fn format_addr(addr: u32) -> String {
     }
 }
 
-fn section_kind_name(kind: SectionKind) -> &'static str {
+pub(crate) fn section_kind_name(kind: SectionKind) -> &'static str {
     match kind {
         SectionKind::Code => "code",
         SectionKind::Data => "data",

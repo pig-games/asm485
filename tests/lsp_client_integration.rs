@@ -3,7 +3,7 @@ mod common;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -39,12 +39,7 @@ fn write_executable_script(path: &PathBuf, script: &str) {
     }
 }
 
-fn init_with_validator(
-    client: &mut LspTestClient,
-    script: &PathBuf,
-    debounce_ms: u64,
-    on_save: bool,
-) {
+fn init_with_validator(client: &mut LspTestClient, script: &Path, debounce_ms: u64, on_save: bool) {
     let _ = client.initialize(json!({
         "opforgeLsp": {
             "opforgePath": script.to_string_lossy().to_string(),

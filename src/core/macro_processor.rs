@@ -342,7 +342,10 @@ impl MacroProcessor {
     fn expand_lines(&mut self, lines: &[String], depth: usize) -> Result<Vec<String>, MacroError> {
         if depth > self.max_depth {
             return Err(MacroError::new(
-                "Expansion exceeded maximum depth (macro or statement)",
+                format!(
+                    "Expansion exceeded maximum depth ({}) (macro or statement)",
+                    self.max_depth
+                ),
                 None,
                 None,
             ));

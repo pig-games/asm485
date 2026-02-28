@@ -15,9 +15,9 @@ use crate::core::assembler::error::{AsmError, AsmErrorKind, AsmRunError};
 use crate::core::symbol_table::{SymbolTable, SymbolVisibility};
 
 use super::{
-    cli, format_addr, ExportSectionsDirective, ExportSectionsInclude, LinkerOutputDirective,
-    LinkerOutputFormat, MapFileDirective, MapSymbolsMode, OutputFormat, RegionState, SectionKind,
-    SectionState,
+    cli, format_addr, section_kind_name, ExportSectionsDirective, ExportSectionsInclude,
+    LinkerOutputDirective, LinkerOutputFormat, MapFileDirective, MapSymbolsMode, OutputFormat,
+    RegionState, SectionState,
 };
 
 #[derive(Debug, Clone)]
@@ -495,14 +495,6 @@ pub(super) fn emit_export_sections(
         }
     }
     Ok(())
-}
-
-fn section_kind_name(kind: SectionKind) -> &'static str {
-    match kind {
-        SectionKind::Code => "code",
-        SectionKind::Data => "data",
-        SectionKind::Bss => "bss",
-    }
 }
 
 pub(super) fn build_mapfile_text(

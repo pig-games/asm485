@@ -1,4 +1,4 @@
-opForge Assembler v0.9.3
+opForge Assembler v0.9.4
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; 65C02 Additional Addressing Modes Test

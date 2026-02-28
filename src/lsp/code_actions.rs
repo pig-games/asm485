@@ -107,12 +107,9 @@ mod tests {
         });
         let actions = quick_fix_actions(&params);
         assert_eq!(actions.len(), 1);
-        assert_eq!(
-            actions[0]
-                .get("isPreferred")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            true
-        );
+        assert!(actions[0]
+            .get("isPreferred")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
     }
 }

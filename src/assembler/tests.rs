@@ -4866,6 +4866,82 @@ fn m6809_rejects_hd6309_extension_instruction() {
 }
 
 #[test]
+fn m6809_bsr_encodes_relative_branch() {
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    BSR $0012"),
+        vec![0x8D, 0x10]
+    );
+}
+
+#[test]
+fn m6809_pshs_d_register_encodes_correctly() {
+    // PSHS D should set both A (bit 1) and B (bit 2) bits → 0x06
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    PSHS D"), vec![0x34, 0x06]);
+    // Also test D mixed with other registers
+    assert_eq!(
+        assemble_bytes(m6809_cpu_id, "    PSHS D,X"),
+        vec![0x34, 0x16]
+    );
+    assert_eq!(assemble_bytes(m6809_cpu_id, "    PULS D"), vec![0x35, 0x06]);
+}
+
+#[test]
+fn hd6309_tfr_exg_extended_registers_encode_correctly() {
+    // HD6309 extended 8-bit registers: E (0x6), F (0x7)
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    TFR A,E"),
+        vec![0x1F, 0x86]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    TFR E,F"),
+        vec![0x1F, 0x67]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    EXG A,F"),
+        vec![0x1E, 0x87]
+    );
+
+    // HD6309 extended 16-bit registers: W (0x6), V (0x7)
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    TFR D,W"),
+        vec![0x1F, 0x06]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    TFR W,V"),
+        vec![0x1F, 0x67]
+    );
+    assert_eq!(
+        assemble_bytes(hd6309_cpu_id, "    EXG X,W"),
+        vec![0x1E, 0x16]
+    );
+
+    // Mixed size should be rejected even for HD6309 registers
+    let (status, message) = assemble_line_status(hd6309_cpu_id, "    TFR E,W");
+    assert_eq!(
+        status,
+        LineStatus::Error,
+        "TFR E,W should fail (8/16 mismatch)"
+    );
+    let message = message.unwrap_or_default().to_ascii_uppercase();
+    assert!(
+        message.contains("INVALID REGISTER PAIR"),
+        "unexpected error message for TFR E,W: {message}"
+    );
+
+    let (status, message) = assemble_line_status(hd6309_cpu_id, "    EXG V,A");
+    assert_eq!(
+        status,
+        LineStatus::Error,
+        "EXG V,A should fail (16/8 mismatch)"
+    );
+    let message = message.unwrap_or_default().to_ascii_uppercase();
+    assert!(
+        message.contains("INVALID REGISTER PAIR"),
+        "unexpected error message for EXG V,A: {message}"
+    );
+}
+
+#[test]
 fn unknown_cpu_diagnostic_lists_6809_and_hd6309_aliases() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();

@@ -1,4 +1,4 @@
-opForge Assembler v0.9.3
+opForge Assembler v0.9.4
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  .module example.section.lib

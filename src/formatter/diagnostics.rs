@@ -15,7 +15,7 @@ pub fn collect_fallback_diagnostics(parsed: &SurfaceParsedDocument) -> Vec<Forma
         if line.is_fallback() {
             diagnostics.push(FormatterDiagnostic {
                 line_number: idx + 1,
-                message: "Formatter fallback preserved original line due parse ambiguity"
+                message: "Formatter fallback preserved original line due to parse ambiguity"
                     .to_string(),
             });
         }

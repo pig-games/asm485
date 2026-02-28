@@ -4,7 +4,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -55,6 +57,7 @@ pub struct LspSession {
     next_validation_generation: u64,
     published_diagnostics: HashMap<String, Vec<ValidationDiagnostic>>,
     published_uris_by_root: HashMap<String, HashSet<String>>,
+    active_validations: Arc<AtomicUsize>,
     shutdown_requested: bool,
 }
 
@@ -82,6 +85,7 @@ impl LspSession {
             next_validation_generation: 1,
             published_diagnostics: HashMap::new(),
             published_uris_by_root: HashMap::new(),
+            active_validations: Arc::new(AtomicUsize::new(0)),
             shutdown_requested: false,
         }
     }
@@ -209,7 +213,7 @@ impl LspSession {
         state.refresh_derived_state(&self.registry);
         self.documents.insert(uri.to_string(), state);
         self.rebuild_workspace_index();
-        self.maybe_validate_and_publish(uri, false)
+        self.maybe_validate_and_publish(uri, true)
     }
 
     fn handle_did_change(&mut self, params: &Value) -> Vec<OutboundMessage> {
@@ -857,20 +861,31 @@ impl LspSession {
                     return self.drain_validation_results();
                 }
             }
-            self.last_validation_at.insert(uri.to_string(), now);
         }
         if force && !self.config.validation.on_save {
             return self.drain_validation_results();
         }
+        // Record the timestamp so subsequent non-forced events are debounced.
+        self.last_validation_at
+            .insert(uri.to_string(), Instant::now());
         self.schedule_validation(uri);
         self.drain_validation_results()
     }
 
     fn schedule_validation(&mut self, uri: &str) {
+        /// Maximum number of concurrent validation threads.
+        const MAX_CONCURRENT_VALIDATIONS: usize = 2;
+
         let Some(doc) = self.documents.get(uri).cloned() else {
             return;
         };
         if doc.path.is_none() {
+            return;
+        }
+        // Skip spawning if we already have the maximum number of active
+        // validation threads running.  The next change/save event will
+        // re-schedule.
+        if self.active_validations.load(Ordering::Relaxed) >= MAX_CONCURRENT_VALIDATIONS {
             return;
         }
         let generation = self.issue_validation_generation(uri);
@@ -878,12 +893,14 @@ impl LspSession {
         let documents = self.documents.clone();
         let tx = self.validation_tx.clone();
         let root_uri = uri.to_string();
+        let counter = Arc::clone(&self.active_validations);
+        counter.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
-            if let Some(task_result) =
-                run_validation_task(config, doc, documents, generation, root_uri)
-            {
+            let result = run_validation_task(config, doc, documents, generation, root_uri);
+            if let Some(task_result) = result {
                 let _ = tx.send(task_result);
             }
+            counter.fetch_sub(1, Ordering::Relaxed);
         });
     }
 
@@ -1113,6 +1130,16 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Option<()> {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         if src_path.is_dir() {
+            // Skip directories that are unlikely to contain assembly sources
+            // and may be very large.
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if matches!(
+                name_str.as_ref(),
+                ".git" | "target" | "build" | "node_modules" | ".hg" | ".svn"
+            ) {
+                continue;
+            }
             copy_dir_recursive(&src_path, &dst_path)?;
         } else if src_path.is_file() {
             fs::copy(&src_path, &dst_path).ok()?;
@@ -1158,7 +1185,7 @@ pub fn path_to_file_uri(path: &Path) -> String {
 
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
-    let mut out = String::new();
+    let mut decoded_bytes = Vec::with_capacity(bytes.len());
     let mut i = 0usize;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
@@ -1167,16 +1194,16 @@ fn percent_decode(input: &str) -> String {
             if hi.is_ascii_hexdigit() && lo.is_ascii_hexdigit() {
                 let hex = format!("{hi}{lo}");
                 if let Ok(value) = u8::from_str_radix(&hex, 16) {
-                    out.push(value as char);
+                    decoded_bytes.push(value);
                     i += 3;
                     continue;
                 }
             }
         }
-        out.push(bytes[i] as char);
+        decoded_bytes.push(bytes[i]);
         i += 1;
     }
-    out
+    String::from_utf8(decoded_bytes).unwrap_or_else(|_| input.to_string())
 }
 
 fn percent_encode(input: &str) -> String {

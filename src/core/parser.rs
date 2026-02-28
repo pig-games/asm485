@@ -211,11 +211,17 @@ pub enum BinaryOp {
     LogicXor,
 }
 
+/// Maximum nesting depth for recursive expression parsing (unary chains,
+/// parenthesised sub-expressions). Prevents stack overflow on malicious or
+/// pathological input.
+const MAX_PARSE_DEPTH: usize = 256;
+
 pub struct Parser {
     tokens: Vec<Token>,
     index: usize,
     end_span: Span,
     end_token_text: Option<String>,
+    parse_depth: usize,
 }
 
 impl Parser {
@@ -229,6 +235,7 @@ impl Parser {
             index: 0,
             end_span,
             end_token_text,
+            parse_depth: 0,
         }
     }
     pub fn from_line(line: &str, line_num: u32) -> Result<Self, ParseError> {
@@ -1447,9 +1454,21 @@ impl Parser {
             Some(OperatorKind::LogicNot) => Some(UnaryOp::LogicNot),
             _ => None,
         } {
+            self.parse_depth += 1;
+            if self.parse_depth > MAX_PARSE_DEPTH {
+                let span = self.current_span();
+                return Err(ParseError {
+                    message: format!(
+                        "Expression nesting exceeds maximum depth ({})",
+                        MAX_PARSE_DEPTH
+                    ),
+                    span,
+                });
+            }
             self.index += 1;
             let span = self.prev_span();
             let expr = self.parse_unary()?;
+            self.parse_depth -= 1;
             return Ok(Expr::Unary {
                 op,
                 expr: Box::new(expr),

@@ -67,7 +67,7 @@ pub fn plan_document(
 
         let parsed_line = parsed.lines.get(idx);
         let (output, preserved_original) = if let Some(parsed_line) = parsed_line {
-            if parsed_line.is_fallback() || parsed_line.kind == SurfaceLineKind::Unparsed {
+            if parsed_line.is_fallback() {
                 (vec![line.clone()], true)
             } else {
                 (normalize_line(line, parsed_line, config), false)

@@ -234,6 +234,21 @@ pub static FAMILY_INSTRUCTION_TABLE: &[FamilyInstructionEntry] = &[
         opcode: 0xBD,
     },
     FamilyInstructionEntry {
+        mnemonic: "BSR",
+        mode: AddressMode::Relative8,
+        opcode: 0x8D,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "JMP",
+        mode: AddressMode::Direct,
+        opcode: 0x0E,
+    },
+    FamilyInstructionEntry {
+        mnemonic: "JSR",
+        mode: AddressMode::Direct,
+        opcode: 0x9D,
+    },
+    FamilyInstructionEntry {
         mnemonic: "BRA",
         mode: AddressMode::Relative8,
         opcode: 0x20,

@@ -1,4 +1,4 @@
-opForge Assembler v0.9.3
+opForge Assembler v0.9.4
 ADDR    BYTES                    LINE  SOURCE
 ------  -----------------------  ----  ------
 ----                                1  ; 45GS02 immediate opcode overrides for AND/EOR/ADC/LDA/BIT/CMP
