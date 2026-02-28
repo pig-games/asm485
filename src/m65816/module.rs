@@ -20,6 +20,9 @@ pub struct M65816CpuModule;
 pub const CPU_ID: CpuType = CpuType::new("65816");
 const CPU_ALIASES: &[&str] = &["65c816", "w65c816"];
 const MAX_PROGRAM_ADDRESS: u32 = 0x00FF_FFFF;
+const RUNTIME_DIRECTIVE_IDS: &[&str] = &[
+    "assume", "al", "as", "xl", "xs", "databank", "dbank", "dpage",
+];
 
 fn cpu_form_mnemonics() -> Vec<String> {
     let mut mnemonics: Vec<String> = super::instructions::CPU_INSTRUCTION_TABLE
@@ -64,6 +67,10 @@ impl CpuModule for M65816CpuModule {
 
     fn form_mnemonics(&self) -> Vec<String> {
         cpu_form_mnemonics()
+    }
+
+    fn runtime_directive_ids(&self) -> &'static [&'static str] {
+        RUNTIME_DIRECTIVE_IDS
     }
 
     fn handler(&self) -> Box<dyn CpuHandlerDyn> {

@@ -184,6 +184,59 @@ pub(crate) fn tokenize_line_with_default_model(
     Ok(tokens)
 }
 
+/// Editor-facing compatibility API for accessing the default runtime model.
+pub fn editor_default_runtime_model() -> Option<&'static HierarchyExecutionModel> {
+    default_runtime_model()
+}
+
+/// Editor-facing compatibility API for parsing a line with the default model.
+pub fn editor_parse_line(line: &str, line_num: u32) -> Result<LineAst, ParseError> {
+    parse_line_with_default_model(line, line_num)
+}
+
+/// Editor-facing compatibility API for parsing with an explicit runtime model.
+pub fn editor_parse_line_with_model(
+    model: &HierarchyExecutionModel,
+    cpu_id: &str,
+    dialect_override: Option<&str>,
+    line: &str,
+    line_num: u32,
+    register_checker: &RegisterChecker,
+) -> Result<(LineAst, Span, Option<String>), ParseError> {
+    parse_line_with_model(
+        model,
+        cpu_id,
+        dialect_override,
+        line,
+        line_num,
+        register_checker,
+    )
+}
+
+/// Editor-facing compatibility API for tokenizing with the default model.
+pub fn editor_tokenize_line(line: &str, line_num: u32) -> Result<Vec<Token>, ParseError> {
+    tokenize_line_with_default_model(line, line_num)
+}
+
+/// Editor-facing compatibility API for tokenizing with an explicit runtime model.
+pub fn editor_tokenize_line_with_model(
+    model: &HierarchyExecutionModel,
+    cpu_id: &str,
+    dialect_override: Option<&str>,
+    line: &str,
+    line_num: u32,
+    register_checker: &RegisterChecker,
+) -> Result<(Vec<Token>, Span, Option<String>), ParseError> {
+    tokenize_parser_tokens_with_model(
+        model,
+        cpu_id,
+        dialect_override,
+        line,
+        line_num,
+        register_checker,
+    )
+}
+
 fn parse_error_at_end(line: &str, line_num: u32, message: impl Into<String>) -> ParseError {
     let end_span = parse_span_at_end(line, line_num);
     ParseError {

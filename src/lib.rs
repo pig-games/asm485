@@ -19,10 +19,12 @@ pub mod families;
 pub mod formatter;
 pub mod hd6309;
 pub mod i8085;
+pub mod lsp;
 pub mod m45gs02;
 pub mod m65816;
 pub mod m65c02;
 pub mod m6809;
+pub mod registry_defaults;
 pub mod vm;
 pub mod z80;
 
@@ -35,3 +37,4 @@ pub use core::report;
 pub use core::symbol_table;
 pub use core::text_utils;
 pub use core::tokenizer;
+pub use registry_defaults::build_default_registry;
