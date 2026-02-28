@@ -801,7 +801,9 @@ impl Preprocessor {
         let include_path = Path::new(include);
         if include_path.is_absolute() {
             let absolute = include_path.to_path_buf();
-            let found = if absolute.is_file() && self.include_within_allowed_roots(&absolute, &allowed_roots) {
+            let found = if absolute.is_file()
+                && self.include_within_allowed_roots(&absolute, &allowed_roots)
+            {
                 Some(absolute.clone())
             } else {
                 None
@@ -1259,7 +1261,10 @@ mod tests {
         let mut pp = Preprocessor::new();
         pp.add_include_root(project);
         pp.process_file(main.to_str().unwrap()).unwrap();
-        assert!(pp.lines().iter().any(|line| line.contains("VALUE .const 7")));
+        assert!(pp
+            .lines()
+            .iter()
+            .any(|line| line.contains("VALUE .const 7")));
     }
 
     #[test]

@@ -179,6 +179,16 @@ impl MacroProcessor {
         }
     }
 
+    /// Set the maximum expansion depth for macro/segment/statement recursion.
+    ///
+    /// This should be wired to the `--pp-macro-depth` CLI option so that
+    /// the assembler-level macro expander respects the same depth limit as
+    /// the preprocessor.
+    pub fn with_max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
+        self
+    }
+
     /// Inject selected exports by name (for selective `.use` imports).
     pub fn inject_from(&mut self, exports: &MacroExports, names: &[String]) {
         for name in names {

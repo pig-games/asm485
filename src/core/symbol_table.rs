@@ -128,6 +128,7 @@ impl SymbolTable {
         if self.module_info_mut(module).is_none() {
             let _ = self.register_module(module);
         }
+        // SAFETY: register_module above guarantees the module exists.
         let info = self.module_info_mut(module).expect("module info");
 
         if let Some(alias) = &import.alias {

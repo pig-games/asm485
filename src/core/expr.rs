@@ -60,9 +60,15 @@ pub fn eval_expr(expr: &Expr, ctx: &dyn EvalContext) -> Result<i64, EvalError> {
     eval_expr_with_depth(expr, ctx, 0)
 }
 
-fn eval_expr_with_depth(expr: &Expr, ctx: &dyn EvalContext, depth: usize) -> Result<i64, EvalError> {
+fn eval_expr_with_depth(
+    expr: &Expr,
+    ctx: &dyn EvalContext,
+    depth: usize,
+) -> Result<i64, EvalError> {
     if depth > MAX_EXPR_EVAL_DEPTH {
-        return Err(EvalError::new("Expression evaluation exceeded maximum depth"));
+        return Err(EvalError::new(
+            "Expression evaluation exceeded maximum depth",
+        ));
     }
 
     match expr {

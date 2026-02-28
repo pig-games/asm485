@@ -741,7 +741,7 @@ pub(crate) fn load_module_graph(
         let canonical = canonical_module_id(module_id);
         let use_directives = collect_use_directives_with_items(module_lines);
 
-        let mut mp = MacroProcessor::new();
+        let mut mp = MacroProcessor::new().with_max_depth(pp_macro_depth);
         for import in &use_directives {
             let dep_canonical = canonical_module_id(&import.module_id);
             if let Some(dep_exports) = module_exports.get(&dep_canonical) {
@@ -765,7 +765,7 @@ pub(crate) fn load_module_graph(
 
     // Phase 2: expand root with only its explicitly imported macros.
     let root_uses = collect_use_directives_with_items(&root_lines);
-    let mut mp = MacroProcessor::new();
+    let mut mp = MacroProcessor::new().with_max_depth(pp_macro_depth);
     for import in &root_uses {
         let dep_canonical = canonical_module_id(&import.module_id);
         if let Some(dep_exports) = module_exports.get(&dep_canonical) {

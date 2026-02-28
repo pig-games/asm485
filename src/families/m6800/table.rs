@@ -5,6 +5,11 @@
 
 use super::AddressMode;
 
+/// Page-2 prefix byte (0x10) for M6809/HD6309 extended instructions.
+pub const PAGE2_PREFIX: u8 = 0x10;
+/// Page-3 prefix byte (0x11) for M6809/HD6309 extended instructions.
+pub const PAGE3_PREFIX: u8 = 0x11;
+
 pub struct FamilyInstructionEntry {
     pub mnemonic: &'static str,
     pub mode: AddressMode,
@@ -364,37 +369,37 @@ pub static PREFIXED_FAMILY_INSTRUCTION_TABLE: &[PrefixedFamilyInstructionEntry] 
     PrefixedFamilyInstructionEntry {
         mnemonic: "LDY",
         mode: AddressMode::Immediate16,
-        opcode_bytes: &[0x10, 0x8E],
+        opcode_bytes: &[PAGE2_PREFIX, 0x8E],
     },
     PrefixedFamilyInstructionEntry {
         mnemonic: "LDY",
         mode: AddressMode::Direct,
-        opcode_bytes: &[0x10, 0x9E],
+        opcode_bytes: &[PAGE2_PREFIX, 0x9E],
     },
     PrefixedFamilyInstructionEntry {
         mnemonic: "LDY",
         mode: AddressMode::Indexed,
-        opcode_bytes: &[0x10, 0xAE],
+        opcode_bytes: &[PAGE2_PREFIX, 0xAE],
     },
     PrefixedFamilyInstructionEntry {
         mnemonic: "LDY",
         mode: AddressMode::Extended,
-        opcode_bytes: &[0x10, 0xBE],
+        opcode_bytes: &[PAGE2_PREFIX, 0xBE],
     },
     PrefixedFamilyInstructionEntry {
         mnemonic: "STY",
         mode: AddressMode::Direct,
-        opcode_bytes: &[0x10, 0x9F],
+        opcode_bytes: &[PAGE2_PREFIX, 0x9F],
     },
     PrefixedFamilyInstructionEntry {
         mnemonic: "STY",
         mode: AddressMode::Indexed,
-        opcode_bytes: &[0x10, 0xAF],
+        opcode_bytes: &[PAGE2_PREFIX, 0xAF],
     },
     PrefixedFamilyInstructionEntry {
         mnemonic: "STY",
         mode: AddressMode::Extended,
-        opcode_bytes: &[0x10, 0xBF],
+        opcode_bytes: &[PAGE2_PREFIX, 0xBF],
     },
 ];
 

@@ -3,7 +3,7 @@
 
 //! HD6309 CPU extension instruction table.
 
-use crate::families::m6800::AddressMode;
+use crate::families::m6800::{AddressMode, PAGE2_PREFIX, PAGE3_PREFIX};
 
 pub struct CpuInstructionEntry {
     pub mnemonic: &'static str,
@@ -20,22 +20,22 @@ pub static CPU_INSTRUCTION_TABLE: &[CpuInstructionEntry] = &[
     CpuInstructionEntry {
         mnemonic: "CLRD",
         mode: AddressMode::Inherent,
-        opcode_bytes: &[0x10, 0x4F],
+        opcode_bytes: &[PAGE2_PREFIX, 0x4F],
     },
     CpuInstructionEntry {
         mnemonic: "CLRW",
         mode: AddressMode::Inherent,
-        opcode_bytes: &[0x10, 0x5F],
+        opcode_bytes: &[PAGE2_PREFIX, 0x5F],
     },
     CpuInstructionEntry {
         mnemonic: "CLRE",
         mode: AddressMode::Inherent,
-        opcode_bytes: &[0x11, 0x4F],
+        opcode_bytes: &[PAGE3_PREFIX, 0x4F],
     },
     CpuInstructionEntry {
         mnemonic: "CLRF",
         mode: AddressMode::Inherent,
-        opcode_bytes: &[0x11, 0x5F],
+        opcode_bytes: &[PAGE3_PREFIX, 0x5F],
     },
 ];
 
