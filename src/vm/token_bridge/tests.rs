@@ -61,6 +61,21 @@ fn normalize_expr_diag(result: Result<LineAst, ParseError>) -> NormalizedExprDia
     }
 }
 
+fn build_default_registry_for_tests() -> ModuleRegistry {
+    let mut registry = ModuleRegistry::new();
+    registry.register_family(Box::new(Intel8080FamilyModule));
+    registry.register_family(Box::new(Motorola6800FamilyModule));
+    registry.register_family(Box::new(MOS6502FamilyModule));
+    registry.register_cpu(Box::new(I8085CpuModule));
+    registry.register_cpu(Box::new(Z80CpuModule));
+    registry.register_cpu(Box::new(M6502CpuModule));
+    registry.register_cpu(Box::new(M65C02CpuModule));
+    registry.register_cpu(Box::new(M65816CpuModule));
+    registry.register_cpu(Box::new(M6809CpuModule));
+    registry.register_cpu(Box::new(HD6309CpuModule));
+    registry
+}
+
 #[test]
 fn default_model_resolves_bridge_cpu_to_mos6502_family() {
     let model = default_runtime_model().expect("default runtime model should be available");
@@ -1098,14 +1113,7 @@ fn parse_line_with_model_preserves_expression_diagnostic_shape_and_span_parity()
 
 #[test]
 fn parse_line_with_model_requires_expression_contract_compatibility() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.parser_contracts {
@@ -1137,14 +1145,7 @@ fn parse_line_with_model_requires_expression_contract_compatibility() {
 
 #[test]
 fn parse_line_with_model_requires_parser_ast_schema_compatibility() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.parser_contracts {
@@ -1176,14 +1177,7 @@ fn parse_line_with_model_requires_parser_ast_schema_compatibility() {
 
 #[test]
 fn parse_line_with_model_enforces_parser_vm_program_byte_budget() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for program in &mut chunks.parser_vm_programs {
@@ -1215,14 +1209,7 @@ fn parse_line_with_model_enforces_parser_vm_program_byte_budget() {
 
 #[test]
 fn parse_line_with_model_parser_vm_budget_error_is_deterministic() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for program in &mut chunks.parser_vm_programs {
@@ -1262,14 +1249,7 @@ fn parse_line_with_model_parser_vm_budget_error_is_deterministic() {
 
 #[test]
 fn parse_expr_with_vm_contract_rejects_slice_above_parser_token_budget() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut model = HierarchyExecutionModel::from_chunks(
         crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
             .expect("hierarchy chunks build"),
@@ -1310,14 +1290,7 @@ fn parse_expr_with_vm_contract_rejects_slice_above_parser_token_budget() {
 
 #[test]
 fn parse_expr_program_ref_with_vm_contract_enforces_vm_contract_for_intel_family() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.expr_parser_contracts {
@@ -1365,14 +1338,7 @@ fn parse_expr_program_ref_with_vm_contract_enforces_vm_contract_for_intel_family
 
 #[test]
 fn parse_expr_program_ref_with_vm_contract_uses_vm_path_for_enabled_family() {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
+    let registry = build_default_registry_for_tests();
     let mut chunks = crate::vm::builder::build_hierarchy_chunks_from_registry(&registry)
         .expect("hierarchy chunks build");
     for contract in &mut chunks.expr_parser_contracts {

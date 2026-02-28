@@ -1,0 +1,105 @@
+{
+  "name": "opforge-lsp-client",
+  "displayName": "opforge-lsp-client",
+  "description": "Reference VS Code client for opforge-lsp",
+  "version": "0.1.0",
+  "publisher": "pig-games",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:opforge"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "opforge",
+        "aliases": [
+          "opForge",
+          "opforge"
+        ],
+        "extensions": [
+          ".asm",
+          ".inc"
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "opforgeLsp",
+      "properties": {
+        "opforgeLsp.roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Root source files or directories to index and validate."
+        },
+        "opforgeLsp.includePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional include search paths."
+        },
+        "opforgeLsp.modulePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional module search paths."
+        },
+        "opforgeLsp.defines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Defines passed to opForge validation."
+        },
+        "opforgeLsp.defaultCpu": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Default CPU used when no .cpu directive is active."
+        },
+        "opforgeLsp.opforgePath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional explicit path to the opforge CLI executable."
+        },
+        "opforgeLsp.validation.debounceMs": {
+          "type": "number",
+          "default": 500,
+          "description": "Debounce delay in milliseconds for on-change validation."
+        },
+        "opforgeLsp.validation.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run full validation whenever a file is saved."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.92.0",
+    "typescript": "^5.6.0",
+    "vscode-languageclient": "^9.0.1"
+  }
+}

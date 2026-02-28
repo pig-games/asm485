@@ -6,6 +6,10 @@ license = "GPL-3.0-or-later"
 authors = ["Erik van der Tier"]
 repository = "https://github.com/pig-games/opForge"
 
+[[bin]]
+name = "opforge-lsp"
+path = "src/bin/opforge_lsp.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"

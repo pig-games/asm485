@@ -199,6 +199,9 @@ pub trait CpuModule: Send + Sync {
     fn form_mnemonics(&self) -> Vec<String> {
         Vec::new()
     }
+    fn runtime_directive_ids(&self) -> &'static [&'static str] {
+        &[]
+    }
     fn handler(&self) -> Box<dyn CpuHandlerDyn>;
     fn validator(&self) -> Option<Box<dyn CpuValidator>> {
         None
@@ -406,6 +409,20 @@ impl ModuleRegistry {
             return Vec::new();
         };
         let mut ids = module.form_mnemonics();
+        ids.sort_by_key(|id| id.to_ascii_lowercase());
+        ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        ids
+    }
+
+    pub fn cpu_runtime_directive_ids(&self, cpu: CpuType) -> Vec<String> {
+        let Some(module) = self.cpus.get(&cpu) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = module
+            .runtime_directive_ids()
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect();
         ids.sort_by_key(|id| id.to_ascii_lowercase());
         ids.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
         ids
@@ -708,6 +725,9 @@ mod tests {
         fn form_mnemonics(&self) -> Vec<String> {
             vec!["rim".to_string(), "RIM".to_string(), "sim".to_string()]
         }
+        fn runtime_directive_ids(&self) -> &'static [&'static str] {
+            &["assume", "ASSUME", "xl"]
+        }
         fn handler(&self) -> Box<dyn CpuHandlerDyn> {
             Box::new(StubCpuHandler)
         }
@@ -856,6 +876,10 @@ mod tests {
             vec!["rim".to_string(), "sim".to_string()]
         );
         assert_eq!(
+            reg.cpu_runtime_directive_ids(TEST_CPU),
+            vec!["assume".to_string(), "xl".to_string()]
+        );
+        assert_eq!(
             reg.dialect_form_mnemonics(TEST_FAMILY, "TEST_DIALECT"),
             vec!["alt".to_string()]
         );
@@ -872,6 +896,7 @@ mod tests {
         assert!(reg.cpu_register_ids(OTHER_CPU).is_empty());
         assert!(reg.family_form_mnemonics(CpuFamily::new("none")).is_empty());
         assert!(reg.cpu_form_mnemonics(OTHER_CPU).is_empty());
+        assert!(reg.cpu_runtime_directive_ids(OTHER_CPU).is_empty());
         assert!(reg
             .dialect_form_mnemonics(CpuFamily::new("none"), "none")
             .is_empty());
