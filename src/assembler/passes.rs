@@ -151,21 +151,31 @@ fn run_one(
 
     let mut assembler = Assembler::new();
     if let Some(cpu_name) = config.cpu_override.as_deref() {
+        #[cfg(feature = "vm-runtime-only")]
         let resolved = assembler
             .registry
             .resolve_cpu_name(cpu_name)
-            .ok_or_else(|| {
-                let known = assembler.registry.cpu_name_list().join(", ");
-                AsmRunError::new(
-                    AsmError::new(
-                        AsmErrorKind::Cli,
-                        &format!("Unknown CPU: {cpu_name}. Known CPUs: {known}"),
-                        None,
-                    ),
-                    Vec::new(),
-                    expanded_lines.clone(),
-                )
-            })?;
+            .unwrap_or_else(|| {
+                let owned = cpu_name.to_string();
+                let leaked: &'static str = Box::leak(owned.into_boxed_str());
+                CpuType::new(leaked)
+            });
+
+        #[cfg(not(feature = "vm-runtime-only"))]
+        let resolved = if let Some(cpu) = assembler.registry.resolve_cpu_name(cpu_name) {
+            cpu
+        } else {
+            let known = assembler.registry.cpu_name_list().join(", ");
+            return Err(AsmRunError::new(
+                AsmError::new(
+                    AsmErrorKind::Cli,
+                    &format!("Unknown CPU: {cpu_name}. Known CPUs: {known}"),
+                    None,
+                ),
+                Vec::new(),
+                expanded_lines.clone(),
+            ));
+        };
         assembler.cpu = resolved;
     }
     assembler.root_metadata.root_module_id = Some(root_module_id);

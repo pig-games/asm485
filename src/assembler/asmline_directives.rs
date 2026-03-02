@@ -43,6 +43,7 @@ impl<'a> AsmLine<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
 
     fn build_registry() -> ModuleRegistry {
         let mut registry = ModuleRegistry::new();

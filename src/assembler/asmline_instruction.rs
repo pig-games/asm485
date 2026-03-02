@@ -17,7 +17,13 @@ impl<'a> AsmLine<'a> {
         let pipeline = match Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
             Ok(pipeline) => pipeline,
             Err(message) => {
-                return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &message, None)
+                #[cfg(feature = "vm-runtime-only")]
+                {
+                    if let Some(status) = self.try_encode_instruction_vm_only(mnemonic, operands) {
+                        return status;
+                    }
+                }
+                return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &message, None);
             }
         };
 
@@ -221,6 +227,60 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    #[cfg(feature = "vm-runtime-only")]
+    fn try_encode_instruction_vm_only(
+        &mut self,
+        mnemonic: &str,
+        operands: &[Expr],
+    ) -> Option<LineStatus> {
+        let model = self.opthread_execution_model.as_ref()?;
+        match model.encode_instruction_from_exprs(self.cpu.as_str(), None, mnemonic, operands, self)
+        {
+            Ok(Some(bytes)) => {
+                if bytes.is_empty() {
+                    return Some(self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &format!(
+                            "VM runtime emitted no bytes for {}",
+                            mnemonic.to_ascii_uppercase()
+                        ),
+                        None,
+                    ));
+                }
+                if let Err(err) =
+                    self.validate_instruction_emit_span(mnemonic, operands, bytes.len())
+                {
+                    return Some(self.failure_at_span(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        err.error.message(),
+                        None,
+                        err.span,
+                    ));
+                }
+                self.bytes.extend_from_slice(&bytes);
+                Some(LineStatus::Ok)
+            }
+            Ok(None) => Some(self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                &format!(
+                    "instruction not found for CPU '{}' in VM runtime: {}",
+                    self.cpu.as_str(),
+                    mnemonic
+                ),
+                None,
+            )),
+            Err(err) => Some(self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Instruction,
+                &err.to_string(),
+                None,
+            )),
+        }
+    }
+
     fn try_encode_instruction_via_runtime_expr(
         &mut self,
         pipeline: &ResolvedPipeline<'_>,
@@ -230,7 +290,8 @@ impl<'a> AsmLine<'a> {
         mapped_mnemonic: &str,
         mapped_operands: &dyn FamilyOperandSet,
     ) -> Option<LineStatus> {
-        let vm_instruction_runtime_supported_for_cpu = self.cpu != crate::m45gs02::module::CPU_ID;
+        let vm_instruction_runtime_supported_for_cpu =
+            !self.cpu.as_str().eq_ignore_ascii_case("45gs02");
         let family_runtime_authoritative =
             crate::vm::rollout::package_runtime_default_enabled_for_family(
                 pipeline.family_id.as_str(),

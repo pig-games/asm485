@@ -240,26 +240,44 @@ impl<'a> AsmLine<'a> {
                 return self.failure(LineStatus::Error, AsmErrorKind::Directive, &message, None);
             }
         };
-        match self.registry.resolve_cpu_name(&cpu_name) {
-            Some(cpu) => {
-                self.cpu = cpu;
-                self.reset_cpu_runtime_profile();
-                self.register_checker = Self::build_register_checker(self.registry, self.cpu);
-                LineStatus::Ok
-            }
-            None => {
-                let known = self.registry.cpu_name_list();
-                let message = if known.is_empty() {
-                    "Unknown CPU type.".to_string()
-                } else {
-                    format!("Unknown CPU type. Use: {}", known.join(", "))
-                };
-                self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Directive,
-                    &message,
-                    Some(&cpu_name),
-                )
+        #[cfg(feature = "vm-runtime-only")]
+        {
+            let cpu = self
+                .registry
+                .resolve_cpu_name(&cpu_name)
+                .unwrap_or_else(|| {
+                    let leaked: &'static str = Box::leak(cpu_name.clone().into_boxed_str());
+                    CpuType::new(leaked)
+                });
+            self.cpu = cpu;
+            self.reset_cpu_runtime_profile();
+            self.register_checker = Self::build_register_checker(self.registry, self.cpu);
+            return LineStatus::Ok;
+        }
+
+        #[cfg(not(feature = "vm-runtime-only"))]
+        {
+            match self.registry.resolve_cpu_name(&cpu_name) {
+                Some(cpu) => {
+                    self.cpu = cpu;
+                    self.reset_cpu_runtime_profile();
+                    self.register_checker = Self::build_register_checker(self.registry, self.cpu);
+                    LineStatus::Ok
+                }
+                None => {
+                    let known = self.registry.cpu_name_list();
+                    let message = if known.is_empty() {
+                        "Unknown CPU type.".to_string()
+                    } else {
+                        format!("Unknown CPU type. Use: {}", known.join(", "))
+                    };
+                    self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        &message,
+                        Some(&cpu_name),
+                    )
+                }
             }
         }
     }

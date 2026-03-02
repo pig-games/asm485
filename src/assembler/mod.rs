@@ -72,25 +72,15 @@ use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChe
 use std::cell::Cell;
 use std::sync::Arc;
 
-use crate::families::intel8080::module::Intel8080FamilyModule;
 use crate::families::intel8080::module::Intel8080FamilyOperands;
 use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
 use crate::families::intel8080::{
     dialect::{canonical_suggestion_for_zilog_mnemonic, map_zilog_to_canonical},
     module::FAMILY_ID as INTEL8080_FAMILY_ID,
 };
-use crate::families::m6800::module::Motorola6800FamilyModule;
-use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
-use crate::hd6309::module::HD6309CpuModule;
-use crate::i8085::module::I8085CpuModule;
-use crate::m45gs02::module::M45GS02CpuModule;
-use crate::m65816::module::M65816CpuModule;
-use crate::m65c02::module::M65C02CpuModule;
-use crate::m6809::module::M6809CpuModule;
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::runtime::HierarchyExecutionModel;
 use crate::vm::token_bridge::parse_line_with_model;
-use crate::z80::module::Z80CpuModule;
 
 use cli::{
     input_base_from_path, resolve_bin_path, resolve_output_path, validate_cli, BinOutputSpec,
@@ -121,7 +111,7 @@ pub(crate) fn set_host_expr_eval_failpoint_for_tests(enabled: bool) {
 }
 
 fn default_cpu() -> CpuType {
-    crate::i8085::module::CPU_ID
+    CpuType::new("8085")
 }
 
 pub fn capabilities_report() -> String {
@@ -595,9 +585,7 @@ impl<'a> AsmLine<'a> {
         registry: &ModuleRegistry,
         cpu: CpuType,
     ) -> Option<HierarchyExecutionModel> {
-        if registry.resolve_pipeline(cpu, None).is_err() {
-            return None;
-        }
+        let has_host_pipeline = registry.resolve_pipeline(cpu, None).is_ok();
 
         #[cfg(feature = "vm-runtime-opcpu-artifact")]
         {
@@ -605,16 +593,22 @@ impl<'a> AsmLine<'a> {
                 if let Some(model) = Self::load_opthread_execution_model_from_artifact(&path) {
                     return Some(model);
                 }
-                if let Ok(package_bytes) = build_hierarchy_package_from_registry(registry) {
-                    if let Ok(model) =
-                        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
-                    {
-                        Self::persist_opthread_package_artifact(path.as_path(), &package_bytes);
-                        return Some(model);
+                if has_host_pipeline {
+                    if let Ok(package_bytes) = build_hierarchy_package_from_registry(registry) {
+                        if let Ok(model) =
+                            HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                        {
+                            Self::persist_opthread_package_artifact(path.as_path(), &package_bytes);
+                            return Some(model);
+                        }
                     }
                 }
                 return None;
             }
+        }
+
+        if !has_host_pipeline {
+            return None;
         }
 
         let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;

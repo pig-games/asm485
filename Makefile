@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Erik van der Tier
 
-.PHONY: build release clean fmt clippy audit reference reference-test test test-core test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-core ci-vm-mos6502 ci-vm-intel8080 build-vm-package manual-pdf
+.PHONY: build release clean fmt clippy audit reference reference-test test test-core test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity ci-core ci-vm-mos6502 ci-vm-intel8080 build-vm-package build-vm-runtime-artifact vm-only-build vm-only-release manual-pdf
 
 MANUAL_MD := documentation/opForge-reference-manual.md
 MANUAL_PDF := documentation/opForge-reference-manual.pdf
+VM_RUNTIME_ARTIFACT := target/vm/opforge-vm-runtime.opcpu
 
 build:
 	cargo clippy -- -D warnings
@@ -68,6 +69,15 @@ ci-vm-intel8080:
 
 build-vm-package:
 	cargo run --bin build_vm_package -- target/vm/hierarchy.opcpu
+
+build-vm-runtime-artifact:
+	cargo run --bin build_vm_package -- $(VM_RUNTIME_ARTIFACT)
+
+vm-only-build: build-vm-runtime-artifact
+	cargo build --features vm-runtime-only,vm-runtime-opcpu-artifact
+
+vm-only-release: build-vm-runtime-artifact
+	cargo build --release --features vm-runtime-only,vm-runtime-opcpu-artifact
 
 reference-test:
 	cargo test examples_match_reference_outputs

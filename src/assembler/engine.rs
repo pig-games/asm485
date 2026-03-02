@@ -17,18 +17,7 @@ pub(crate) struct Assembler {
 
 impl Assembler {
     pub(crate) fn new() -> Self {
-        let mut registry = ModuleRegistry::new();
-        registry.register_family(Box::new(Intel8080FamilyModule));
-        registry.register_family(Box::new(Motorola6800FamilyModule));
-        registry.register_family(Box::new(MOS6502FamilyModule));
-        registry.register_cpu(Box::new(I8085CpuModule));
-        registry.register_cpu(Box::new(Z80CpuModule));
-        registry.register_cpu(Box::new(M6502CpuModule));
-        registry.register_cpu(Box::new(M65C02CpuModule));
-        registry.register_cpu(Box::new(M65816CpuModule));
-        registry.register_cpu(Box::new(M45GS02CpuModule));
-        registry.register_cpu(Box::new(M6809CpuModule));
-        registry.register_cpu(Box::new(HD6309CpuModule));
+        let registry = crate::build_default_registry();
 
         Self {
             symbols: SymbolTable::new(),
