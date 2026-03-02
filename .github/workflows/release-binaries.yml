@@ -1,0 +1,65 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build & upload (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_id: linux
+            ext: ""
+          - os: macos-latest
+            artifact_id: macos
+            ext: ""
+          - os: windows-latest
+            artifact_id: windows-msvc
+            ext: .exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build binaries
+        run: cargo build --release --locked --bins
+
+      - name: Package release artifacts
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name || github.ref_name }}
+          ARTIFACT_ID: ${{ matrix.artifact_id }}
+          BIN_EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          PKG_DIR="opforge-${TAG_NAME}-${ARTIFACT_ID}"
+          mkdir -p "dist/${PKG_DIR}"
+
+          cp "target/release/opforge${BIN_EXT}" "dist/${PKG_DIR}/opforge${BIN_EXT}"
+          cp "target/release/opforge-lsp${BIN_EXT}" "dist/${PKG_DIR}/opforge-lsp${BIN_EXT}"
+          cp README.md "dist/${PKG_DIR}/"
+          cp LICENSE "dist/${PKG_DIR}/"
+
+          tar -C dist -czf "dist/${PKG_DIR}.tar.gz" "${PKG_DIR}"
+
+      - name: Upload assets to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
