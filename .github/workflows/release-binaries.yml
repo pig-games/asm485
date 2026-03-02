@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing release tag to upload assets to (e.g. v0.9.4)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -42,7 +47,7 @@ jobs:
       - name: Package release artifacts
         shell: bash
         env:
-          TAG_NAME: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG_NAME: ${{ github.event.release.tag_name || github.event.inputs.tag_name || github.ref_name }}
           ARTIFACT_ID: ${{ matrix.artifact_id }}
           BIN_EXT: ${{ matrix.ext }}
         run: |
@@ -58,8 +63,23 @@ jobs:
 
           tar -C dist -czf "dist/${PKG_DIR}.tar.gz" "${PKG_DIR}"
 
+      - name: Generate checksums
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ matrix.artifact_id }}
+        run: |
+          set -euo pipefail
+          CHECKSUM_FILE="dist/SHA256SUMS-${ARTIFACT_ID}.txt"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum dist/*.tar.gz > "${CHECKSUM_FILE}"
+          else
+            shasum -a 256 dist/*.tar.gz > "${CHECKSUM_FILE}"
+          fi
+
       - name: Upload assets to release
-        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz
+          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag_name || github.ref_name }}
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-*.txt
