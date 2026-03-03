@@ -18,7 +18,9 @@
 //! - [`macro_processor`] - Assembler macro expansion
 //! - [`assembler`] - Core assembler components (conditionals, scopes, expressions)
 //! - [`text_encoding`] - Text encoding tables for directive string emission
+//! - [`asm_value`] - Assembly-time scalar/range/list/struct value model
 
+pub mod asm_value;
 pub mod assembler;
 pub mod cpu;
 pub mod expr;
@@ -40,6 +42,7 @@ pub mod text_utils;
 pub mod tokenizer;
 
 // Re-exports for convenience
+pub use asm_value::{AsmValue, AsmValueError, AsmValueIter, StructDef, StructField};
 pub use cpu::{CpuType, EncodeError, OperandParseError};
 pub use expr::{
     eval_expr, parse_number, EvalContext, EvalError, SimpleEvalContext, SymbolTableContext,
