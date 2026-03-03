@@ -37,6 +37,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use clap::Parser;
 use serde_json::json;
@@ -116,6 +117,24 @@ pub(crate) fn set_host_expr_eval_failpoint_for_tests(enabled: bool) {
 
 fn default_cpu() -> CpuType {
     CpuType::new("8085")
+}
+
+fn opcpu_package_override() -> &'static Mutex<Option<PathBuf>> {
+    static OVERRIDE: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+    OVERRIDE.get_or_init(|| Mutex::new(None))
+}
+
+pub fn set_opcpu_package_override(path: Option<PathBuf>) {
+    if let Ok(mut override_path) = opcpu_package_override().lock() {
+        *override_path = path;
+    }
+}
+
+fn configured_opcpu_package_override() -> Option<PathBuf> {
+    opcpu_package_override()
+        .lock()
+        .ok()
+        .and_then(|value| value.clone())
 }
 
 pub fn capabilities_report() -> String {
@@ -593,12 +612,20 @@ impl<'a> AsmLine<'a> {
         #[cfg(not(feature = "vm-runtime-only"))]
         let has_host_pipeline = registry.resolve_pipeline(cpu, None).is_ok();
 
+        if let Some(path) = configured_opcpu_package_override() {
+            if let Some(model) = Self::load_opthread_execution_model_from_path(path.as_path()) {
+                return Some(model);
+            }
+            return None;
+        }
+
         #[cfg(feature = "vm-runtime-opcpu-artifact")]
         {
             if let Some(path) = Self::opthread_package_artifact_path() {
-                if let Some(model) = Self::load_opthread_execution_model_from_artifact(&path) {
+                if let Some(model) = Self::load_opthread_execution_model_from_path(path.as_path()) {
                     return Some(model);
                 }
+                #[cfg(not(feature = "vm-runtime-opcpu-unbundled"))]
                 #[cfg(not(feature = "vm-runtime-only"))]
                 if has_host_pipeline {
                     if let Ok(package_bytes) = build_hierarchy_package_from_registry(registry) {
@@ -614,20 +641,35 @@ impl<'a> AsmLine<'a> {
             }
         }
 
-        #[cfg(feature = "vm-runtime-only")]
+        #[cfg(not(feature = "vm-runtime-opcpu-unbundled"))]
+        {
+            #[cfg(not(feature = "vm-runtime-only"))]
+            {
+                if !has_host_pipeline {
+                    return None;
+                }
+
+                let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
+                return HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok();
+            }
+
+            #[cfg(feature = "vm-runtime-only")]
+            {
+                let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
+                return HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok();
+            }
+        }
+
+        #[cfg(all(feature = "vm-runtime-opcpu-unbundled", feature = "vm-runtime-only"))]
         {
             let _ = (registry, cpu);
             None
         }
 
-        #[cfg(not(feature = "vm-runtime-only"))]
+        #[cfg(all(feature = "vm-runtime-opcpu-unbundled", not(feature = "vm-runtime-only")))]
         {
-            if !has_host_pipeline {
-                return None;
-            }
-
-            let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
-            HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
+            let _ = (registry, cpu);
+            None
         }
     }
 
@@ -643,8 +685,7 @@ impl<'a> AsmLine<'a> {
             .map(|base_dir| Self::opthread_package_artifact_path_for_dir(base_dir.as_path()))
     }
 
-    #[cfg(feature = "vm-runtime-opcpu-artifact")]
-    fn load_opthread_execution_model_from_artifact(path: &Path) -> Option<HierarchyExecutionModel> {
+    fn load_opthread_execution_model_from_path(path: &Path) -> Option<HierarchyExecutionModel> {
         let bytes = fs::read(path).ok()?;
         HierarchyExecutionModel::from_package_bytes(bytes.as_slice()).ok()
     }

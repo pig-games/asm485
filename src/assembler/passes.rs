@@ -13,6 +13,7 @@ pub(super) fn run() -> Result<Vec<AsmRunReport>, AsmRunError> {
 
 pub(super) fn run_with_cli(cli: &Cli) -> Result<Vec<AsmRunReport>, AsmRunError> {
     let config = validate_cli(cli)?;
+    super::set_opcpu_package_override(config.opcpu_package.clone());
 
     let mut reports = Vec::new();
     for asm_path in &config.input_paths {

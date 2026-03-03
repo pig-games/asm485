@@ -22,6 +22,9 @@ default = []
 # Build mode that avoids host-side family/CPU handler registration and
 # relies on VM runtime encoding paths.
 vm-runtime-only = []
+# Exclude bundled runtime package fallback; runtime package must come from
+# explicit CLI path or on-disk artifact lookup.
+vm-runtime-opcpu-unbundled = []
 # Enables loading/writing VM runtime package bytes as an on-disk artifact
 # (`target/vm/opforge-vm-runtime.opcpu`) with registry-build fallback.
 vm-runtime-opcpu-artifact = []

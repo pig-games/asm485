@@ -215,6 +215,12 @@ pub struct Cli {
     )]
     pub cpu: Option<String>,
     #[arg(
+        long = "opcpu-package",
+        value_name = "FILE",
+        long_help = "Load VM runtime package (.opcpu) from FILE and prefer it over bundled/artifact package sources."
+    )]
+    pub opcpu_package: Option<PathBuf>,
+    #[arg(
         short = 'l',
         long = "list",
         value_name = "FILE",
@@ -926,6 +932,7 @@ pub fn validate_cli(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 
 fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
     let env_cpu = parse_env_string("OPFORGE_CPU")?;
+    let env_opcpu_package = parse_env_path("OPFORGE_OPCPU_PACKAGE")?;
     let env_include_paths = parse_env_path_list("OPFORGE_INCLUDE_PATHS")?;
     let env_module_paths = parse_env_path_list("OPFORGE_MODULE_PATHS")?;
     let env_input_asm_exts = parse_env_csv_list("OPFORGE_INPUT_ASM_EXTS")?;
@@ -970,6 +977,34 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
     effective_defines.extend(cli.defines.clone());
 
     let effective_cpu = cli.cpu.clone().or(env_cpu);
+    let effective_opcpu_package = if cli.opcpu_package.is_some() {
+        cli.opcpu_package.clone()
+    } else {
+        env_opcpu_package
+    };
+
+    if let Some(path) = &effective_opcpu_package {
+        if !path.is_file() {
+            return Err(cli_error(format!(
+                "--opcpu-package path does not exist or is not a file: {}",
+                path.display()
+            )));
+        }
+    }
+
+    #[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled"))]
+    {
+        #[cfg(feature = "vm-runtime-opcpu-artifact")]
+        let has_default_artifact = Path::new("target/vm/opforge-vm-runtime.opcpu").is_file();
+        #[cfg(not(feature = "vm-runtime-opcpu-artifact"))]
+        let has_default_artifact = false;
+
+        if effective_opcpu_package.is_none() && !has_default_artifact {
+            return Err(cli_error(
+                "vm-runtime-only unbundled build requires --opcpu-package FILE or default artifact target/vm/opforge-vm-runtime.opcpu",
+            ));
+        }
+    }
 
     let effective_quiet = if cli.quiet {
         true
@@ -1194,6 +1229,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             input_paths,
             input_extensions,
             cpu_override: effective_cpu,
+            opcpu_package: effective_opcpu_package,
             defines: effective_defines,
             go_addr: None,
             bin_specs: Vec::new(),
@@ -1429,6 +1465,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
         input_paths,
         input_extensions,
         cpu_override: effective_cpu,
+        opcpu_package: effective_opcpu_package,
         go_addr,
         bin_specs,
         fill_byte,
@@ -1483,6 +1520,7 @@ pub struct CliConfig {
     pub input_paths: Vec<PathBuf>,
     pub input_extensions: InputExtensionPolicy,
     pub cpu_override: Option<String>,
+    pub opcpu_package: Option<PathBuf>,
     pub defines: Vec<String>,
     pub go_addr: Option<String>,
     pub bin_specs: Vec<BinOutputSpec>,

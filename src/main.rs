@@ -533,6 +533,16 @@ fn run_formatter_mode(cli_config: &CliConfig) -> Result<i32, String> {
 
 fn main() {
     let cli = Cli::parse();
+    if let Some(path) = &cli.opcpu_package {
+        if !path.is_file() {
+            eprintln!(
+                "--opcpu-package path does not exist or is not a file: {}",
+                path.display()
+            );
+            std::process::exit(1);
+        }
+    }
+    opforge::assembler::set_opcpu_package_override(cli.opcpu_package.clone());
     if cli.print_cpusupport {
         if cli.format == OutputFormat::Json {
             println!("{}", opforge::assembler::cpusupport_report_json());
