@@ -55,6 +55,22 @@ pub(crate) fn is_endfor_directive_name(name: &str) -> bool {
     name.eq_ignore_ascii_case(".endfor")
 }
 
+pub(crate) fn is_while_directive_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(".while")
+}
+
+pub(crate) fn is_while_like_directive_name(name: &str) -> bool {
+    is_while_directive_name(name) || is_scoped_while_directive_name(name)
+}
+
+pub(crate) fn is_scoped_while_directive_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(".bwhile")
+}
+
+pub(crate) fn is_endwhile_directive_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(".endwhile")
+}
+
 pub(crate) fn find_matching_endfor(
     lines: &[String],
     asm_line: &AsmLine<'_>,
@@ -80,6 +96,40 @@ pub(crate) fn find_matching_endfor(
             continue;
         }
         if is_endfor_directive_name(&mnemonic) {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(idx);
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn find_matching_endwhile(
+    lines: &[String],
+    asm_line: &AsmLine<'_>,
+    start_idx: usize,
+    end_idx_exclusive: usize,
+) -> Option<usize> {
+    let mut depth = 1usize;
+    for (idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(end_idx_exclusive)
+        .skip(start_idx)
+    {
+        let line_num = (idx as u32).saturating_add(1);
+        let Ok(ast) = parse_line_ast_for_repetition(asm_line, line, line_num) else {
+            continue;
+        };
+        let Some((_, mnemonic, _)) = statement_parts(&ast) else {
+            continue;
+        };
+        if is_while_like_directive_name(&mnemonic) {
+            depth = depth.saturating_add(1);
+            continue;
+        }
+        if is_endwhile_directive_name(&mnemonic) {
             depth = depth.saturating_sub(1);
             if depth == 0 {
                 return Some(idx);
@@ -191,6 +241,26 @@ pub(crate) fn evaluate_for_plan(
     }
 
     Ok(ForPlan { var_name, values })
+}
+
+pub(crate) fn evaluate_while_condition(
+    asm_line: &AsmLine<'_>,
+    operands: &[Expr],
+) -> Result<bool, AstEvalError> {
+    let [condition] = operands else {
+        let span = operands.first().map(expr_span).unwrap_or_default();
+        return Err(AstEvalError {
+            error: AsmError::new(
+                AsmErrorKind::Directive,
+                "Expected '.while <condition>'",
+                None,
+            ),
+            span,
+        });
+    };
+
+    let condition = asm_line.eval_expr_ast(condition)?;
+    Ok(condition != 0)
 }
 
 pub(crate) fn line_label(ast: &LineAst) -> Option<Label> {

@@ -158,6 +158,8 @@ If a range is omitted, the binary spans the emitted output.
 With multiple -b ranges and no filenames, outputs are named <base>-ssss.bin.
 With multiple inputs, -o must be a directory and explicit output filenames are not allowed.";
 
+const DEFAULT_MAX_LOOP_ITERATIONS: u32 = 65_536;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "opForge",
@@ -470,6 +472,13 @@ pub struct Cli {
         long_help = "Maximum preprocessor macro expansion depth. Defaults to 64."
     )]
     pub pp_macro_depth: usize,
+    #[arg(
+        long = "max-loop-iterations",
+        value_name = "N",
+        default_value_t = DEFAULT_MAX_LOOP_ITERATIONS,
+        long_help = "Maximum compile-time loop iterations for .for/.while variants. Defaults to 65536."
+    )]
+    pub max_loop_iterations: u32,
     #[arg(
         long = "input-asm-ext",
         value_name = "EXT",
@@ -995,6 +1004,20 @@ fn parse_env_usize(var_name: &str) -> Result<Option<usize>, AsmRunError> {
         .map_err(|_| cli_error(format!("Invalid integer value for {var_name}: {value}")))
 }
 
+fn parse_env_u32(var_name: &str) -> Result<Option<u32>, AsmRunError> {
+    let Some(raw) = env::var_os(var_name) else {
+        return Ok(None);
+    };
+    let value = raw.to_string_lossy().trim().to_string();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<u32>()
+        .map(Some)
+        .map_err(|_| cli_error(format!("Invalid integer value for {var_name}: {value}")))
+}
+
 fn parse_env_string(var_name: &str) -> Result<Option<String>, AsmRunError> {
     let Some(raw) = env::var_os(var_name) else {
         return Ok(None);
@@ -1051,6 +1074,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
 
     let env_fill_byte = parse_env_string("OPFORGE_FILL_BYTE")?;
     let env_pp_macro_depth = parse_env_usize("OPFORGE_PP_MACRO_DEPTH")?;
+    let env_max_loop_iterations = parse_env_u32("OPFORGE_MAX_LOOP_ITERATIONS")?;
 
     let mut effective_asm_exts = env_input_asm_exts;
     effective_asm_exts.extend(cli.input_asm_exts.clone());
@@ -1239,6 +1263,11 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
     } else {
         env_pp_macro_depth.unwrap_or(cli.pp_macro_depth)
     };
+    let effective_max_loop_iterations = if cli.max_loop_iterations != DEFAULT_MAX_LOOP_ITERATIONS {
+        cli.max_loop_iterations
+    } else {
+        env_max_loop_iterations.unwrap_or(cli.max_loop_iterations)
+    };
 
     let input_extensions = InputExtensionPolicy {
         asm_exts: normalize_extension_list(&effective_asm_exts, &["asm"], "--input-asm-ext")?,
@@ -1356,6 +1385,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             label_output_format: LabelOutputFormat::Default,
             dependency_output: None,
             pp_macro_depth: effective_pp_macro_depth,
+            max_loop_iterations: effective_max_loop_iterations,
             default_outputs: false,
             formatter: formatter_mode.map(|mode| FormatterOptions {
                 mode,
@@ -1523,6 +1553,17 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             Vec::new(),
         ));
     }
+    if effective_max_loop_iterations == 0 {
+        return Err(AsmRunError::new(
+            AsmError::new(
+                AsmErrorKind::Cli,
+                "--max-loop-iterations must be at least 1",
+                None,
+            ),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
 
     if matches!(effective_tab_size, Some(0)) {
         return Err(AsmRunError::new(
@@ -1598,6 +1639,7 @@ fn validate_cli_inner(cli: &Cli) -> Result<CliConfig, AsmRunError> {
             }
         }),
         pp_macro_depth: effective_pp_macro_depth,
+        max_loop_iterations: effective_max_loop_iterations,
         default_outputs,
         formatter: None,
     })
@@ -1634,6 +1676,7 @@ pub struct CliConfig {
     pub label_output_format: LabelOutputFormat,
     pub dependency_output: Option<DependencyOutputPolicy>,
     pub pp_macro_depth: usize,
+    pub max_loop_iterations: u32,
     pub default_outputs: bool,
     pub formatter: Option<FormatterOptions>,
 }
@@ -1836,6 +1879,7 @@ mod tests {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
         assert_eq!(cli.format, OutputFormat::Text);
         assert_eq!(cli.pp_macro_depth, 64);
+        assert_eq!(cli.max_loop_iterations, DEFAULT_MAX_LOOP_ITERATIONS);
         assert!(cli.positional_inputs.is_empty());
     }
 
@@ -1939,6 +1983,20 @@ mod tests {
     }
 
     #[test]
+    fn validate_cli_rejects_zero_max_loop_iterations() {
+        let cli = Cli::parse_from([
+            "opForge",
+            "-i",
+            "prog.asm",
+            "-l",
+            "--max-loop-iterations",
+            "0",
+        ]);
+        let err = validate_cli(&cli).unwrap_err();
+        assert_eq!(err.to_string(), "--max-loop-iterations must be at least 1");
+    }
+
+    #[test]
     fn validate_cli_rejects_zero_tab_size() {
         let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l", "--tab-size", "0"]);
         let err = validate_cli(&cli).unwrap_err();
@@ -1955,6 +2013,7 @@ mod tests {
                 ("OPFORGE_DEFINES", Some("BUILD=1,MODE=test")),
                 ("OPFORGE_TAB_SIZE", Some("8")),
                 ("OPFORGE_COND_DEBUG", Some("true")),
+                ("OPFORGE_MAX_LOOP_ITERATIONS", Some("123")),
             ],
             || {
                 let cli = Cli::parse_from(["opForge", "-i", "prog.asm", "-l"]);
@@ -1971,6 +2030,7 @@ mod tests {
                 );
                 assert_eq!(config.tab_size, Some(8));
                 assert!(config.debug_conditionals);
+                assert_eq!(config.max_loop_iterations, 123);
             },
         );
     }
@@ -1982,6 +2042,7 @@ mod tests {
                 ("OPFORGE_CPU", Some("m65816")),
                 ("OPFORGE_QUIET", Some("true")),
                 ("OPFORGE_TAB_SIZE", Some("8")),
+                ("OPFORGE_MAX_LOOP_ITERATIONS", Some("123")),
             ],
             || {
                 let cli = Cli::parse_from([
@@ -1993,10 +2054,13 @@ mod tests {
                     "m6502",
                     "--tab-size",
                     "4",
+                    "--max-loop-iterations",
+                    "42",
                 ]);
                 let config = validate_cli(&cli).expect("validate cli");
                 assert_eq!(config.cpu_override.as_deref(), Some("m6502"));
                 assert_eq!(config.tab_size, Some(4));
+                assert_eq!(config.max_loop_iterations, 42);
                 assert!(config.quiet);
             },
         );

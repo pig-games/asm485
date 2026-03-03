@@ -5,6 +5,12 @@ use super::*;
 use crate::core::assembler::scope::ScopeKind;
 use crate::core::AsmValue;
 
+#[derive(Clone, Copy)]
+enum UnscopedRepeatKind {
+    For,
+    While,
+}
+
 pub(crate) struct Assembler {
     pub(crate) symbols: SymbolTable,
     pub(crate) image: ImageStore,
@@ -16,6 +22,7 @@ pub(crate) struct Assembler {
     pub(crate) root_metadata: RootMetadata,
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
     pub(crate) loop_iteration_trace_pass1: Vec<(u32, u32)>,
+    pub(crate) max_loop_iterations: u32,
 }
 
 impl Assembler {
@@ -33,6 +40,7 @@ impl Assembler {
             root_metadata: RootMetadata::default(),
             module_macro_names: HashMap::new(),
             loop_iteration_trace_pass1: Vec::new(),
+            max_loop_iterations: super::repetition::DEFAULT_MAX_LOOP_ITERATIONS,
         }
     }
 
@@ -91,7 +99,8 @@ impl Assembler {
                 &mut counts,
                 diagnostics,
                 &mut self.loop_iteration_trace_pass1,
-                false,
+                None,
+                self.max_loop_iterations,
             );
 
             if !asm_line.cond_is_empty() {
@@ -311,7 +320,8 @@ impl Assembler {
             image,
             &pass1_loop_trace,
             &mut pass2_loop_trace_cursor,
-            false,
+            None,
+            self.max_loop_iterations,
         )?;
 
         if !asm_line.cond_is_empty() {
@@ -447,7 +457,8 @@ impl Assembler {
         counts: &mut PassCounts,
         diagnostics: &mut Vec<Diagnostic>,
         pass1_loop_trace: &mut Vec<(u32, u32)>,
-        in_unscoped_for: bool,
+        unscoped_repeat_kind: Option<UnscopedRepeatKind>,
+        max_loop_iterations: u32,
     ) {
         let mut idx = start_idx;
         while idx < end_idx_exclusive {
@@ -459,12 +470,18 @@ impl Assembler {
             let parsed_ast =
                 super::repetition::parse_line_ast_for_repetition(asm_line, src, line_num).ok();
             if let Some(ast) = parsed_ast {
-                if in_unscoped_for {
+                if let Some(repeat_kind) = unscoped_repeat_kind {
                     if let Some(label) = super::repetition::line_label(&ast) {
-                        let message = format!(
-                            "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
-                            label.name
-                        );
+                        let message = match repeat_kind {
+                            UnscopedRepeatKind::For => format!(
+                                "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
+                                label.name
+                            ),
+                            UnscopedRepeatKind::While => format!(
+                                "label '{}' not allowed inside .while (use .bwhile for scoped repetition)",
+                                label.name
+                            ),
+                        };
                         diagnostics.push(
                             Diagnostic::new(
                                 line_num,
@@ -481,12 +498,16 @@ impl Assembler {
 
                 if let Some((label, mnemonic, operands)) = super::repetition::statement_parts(&ast)
                 {
-                    if super::repetition::is_endfor_directive_name(&mnemonic) {
+                    if super::repetition::is_endfor_directive_name(&mnemonic)
+                        || super::repetition::is_endwhile_directive_name(&mnemonic)
+                    {
                         let (message, column) = if let Some(label) = label {
                             (
                                 "label not allowed on .endfor / .endwhile".to_string(),
                                 Some(label.span.col_start),
                             )
+                        } else if super::repetition::is_endwhile_directive_name(&mnemonic) {
+                            (".endwhile without matching .while".to_string(), None)
                         } else {
                             (".endfor without matching .for".to_string(), None)
                         };
@@ -526,7 +547,7 @@ impl Assembler {
                         let plan = match super::repetition::evaluate_for_plan(
                             asm_line,
                             &operands,
-                            super::repetition::DEFAULT_MAX_LOOP_ITERATIONS,
+                            max_loop_iterations,
                         ) {
                             Ok(plan) => plan,
                             Err(err) => {
@@ -569,7 +590,12 @@ impl Assembler {
                                 counts,
                                 diagnostics,
                                 pass1_loop_trace,
-                                !scoped_repeat,
+                                if scoped_repeat {
+                                    None
+                                } else {
+                                    Some(UnscopedRepeatKind::For)
+                                },
+                                max_loop_iterations,
                             );
                             if plan.var_name.is_some() {
                                 asm_line.pop_loop_var();
@@ -583,6 +609,121 @@ impl Assembler {
                             }
                         }
 
+                        if scoped_repeat {
+                            if let Some(loop_label) = label.as_ref() {
+                                let full_name = asm_line.scoped_define_name(&loop_label.name);
+                                asm_line
+                                    .set_value_symbol(&full_name, AsmValue::List(iteration_bases));
+                            }
+                        }
+
+                        idx = end_idx.saturating_add(1);
+                        continue;
+                    }
+
+                    if super::repetition::is_while_like_directive_name(&mnemonic) {
+                        let scoped_repeat =
+                            super::repetition::is_scoped_while_directive_name(&mnemonic);
+                        let Some(end_idx) = super::repetition::find_matching_endwhile(
+                            lines,
+                            asm_line,
+                            idx.saturating_add(1),
+                            end_idx_exclusive,
+                        ) else {
+                            let message =
+                                format!("unterminated {mnemonic} (opened at line {line_num})");
+                            diagnostics.push(Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            ));
+                            counts.errors += 1;
+                            return;
+                        };
+
+                        let mut while_error: Option<AstEvalError> = None;
+                        let mut pass1_count = 0u32;
+                        let mut iteration_bases = Vec::new();
+
+                        loop {
+                            let should_continue = match super::repetition::evaluate_while_condition(
+                                asm_line, &operands,
+                            ) {
+                                Ok(value) => value,
+                                Err(err) => {
+                                    while_error = Some(err);
+                                    break;
+                                }
+                            };
+                            if !should_continue {
+                                break;
+                            }
+
+                            let next_count = pass1_count.saturating_add(1);
+                            if next_count > max_loop_iterations {
+                                while_error = Some(AstEvalError {
+                                    error: AsmError::new(
+                                        AsmErrorKind::Directive,
+                                        &format!(
+                                            "loop exceeded maximum iteration limit ({max_loop_iterations})"
+                                        ),
+                                        None,
+                                    ),
+                                    span: operands.first().map(expr_span).unwrap_or_default(),
+                                });
+                                break;
+                            }
+                            pass1_count = next_count;
+
+                            if scoped_repeat {
+                                asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .push_anonymous_with_kind(ScopeKind::Repeat);
+                                asm_line.push_visibility();
+                            }
+                            if scoped_repeat && label.is_some() {
+                                let base_addr = asm_line.current_addr(*addr).unwrap_or(*addr);
+                                iteration_bases.push(i64::from(base_addr));
+                            }
+
+                            Self::execute_pass1_lines(
+                                lines,
+                                idx.saturating_add(1),
+                                end_idx,
+                                asm_line,
+                                addr,
+                                counts,
+                                diagnostics,
+                                pass1_loop_trace,
+                                if scoped_repeat {
+                                    None
+                                } else {
+                                    Some(UnscopedRepeatKind::While)
+                                },
+                                max_loop_iterations,
+                            );
+
+                            if scoped_repeat {
+                                let _ = asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .pop_expected(ScopeKind::Repeat);
+                                let _ = asm_line.pop_visibility();
+                            }
+                        }
+
+                        if let Some(err) = while_error {
+                            diagnostics.push(
+                                Diagnostic::new(line_num, Severity::Error, err.error)
+                                    .with_column(Some(err.span.col_start)),
+                            );
+                            counts.errors += 1;
+                            idx = end_idx.saturating_add(1);
+                            continue;
+                        }
+
+                        pass1_loop_trace.push((line_num, pass1_count));
                         if scoped_repeat {
                             if let Some(loop_label) = label.as_ref() {
                                 let full_name = asm_line.scoped_define_name(&loop_label.name);
@@ -655,7 +796,8 @@ impl Assembler {
         image: &mut ImageStore,
         pass1_loop_trace: &[(u32, u32)],
         pass2_loop_trace_cursor: &mut usize,
-        in_unscoped_for: bool,
+        unscoped_repeat_kind: Option<UnscopedRepeatKind>,
+        max_loop_iterations: u32,
     ) -> std::io::Result<()> {
         let mut idx = start_idx;
         while idx < end_idx_exclusive {
@@ -667,12 +809,18 @@ impl Assembler {
             let parsed_ast =
                 super::repetition::parse_line_ast_for_repetition(asm_line, src, line_num).ok();
             if let Some(ast) = parsed_ast {
-                if in_unscoped_for {
+                if let Some(repeat_kind) = unscoped_repeat_kind {
                     if let Some(label) = super::repetition::line_label(&ast) {
-                        let message = format!(
-                            "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
-                            label.name
-                        );
+                        let message = match repeat_kind {
+                            UnscopedRepeatKind::For => format!(
+                                "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
+                                label.name
+                            ),
+                            UnscopedRepeatKind::While => format!(
+                                "label '{}' not allowed inside .while (use .bwhile for scoped repetition)",
+                                label.name
+                            ),
+                        };
                         let diagnostic = Diagnostic::new(
                             line_num,
                             Severity::Error,
@@ -689,12 +837,16 @@ impl Assembler {
 
                 if let Some((label, mnemonic, operands)) = super::repetition::statement_parts(&ast)
                 {
-                    if super::repetition::is_endfor_directive_name(&mnemonic) {
+                    if super::repetition::is_endfor_directive_name(&mnemonic)
+                        || super::repetition::is_endwhile_directive_name(&mnemonic)
+                    {
                         let (message, column) = if let Some(label) = label {
                             (
                                 "label not allowed on .endfor / .endwhile".to_string(),
                                 Some(label.span.col_start),
                             )
+                        } else if super::repetition::is_endwhile_directive_name(&mnemonic) {
+                            (".endwhile without matching .while".to_string(), None)
                         } else {
                             (".endfor without matching .for".to_string(), None)
                         };
@@ -736,7 +888,7 @@ impl Assembler {
                         let plan = match super::repetition::evaluate_for_plan(
                             asm_line,
                             &operands,
-                            super::repetition::DEFAULT_MAX_LOOP_ITERATIONS,
+                            max_loop_iterations,
                         ) {
                             Ok(plan) => plan,
                             Err(err) => {
@@ -799,7 +951,12 @@ impl Assembler {
                                 image,
                                 pass1_loop_trace,
                                 pass2_loop_trace_cursor,
-                                !scoped_repeat,
+                                if scoped_repeat {
+                                    None
+                                } else {
+                                    Some(UnscopedRepeatKind::For)
+                                },
+                                max_loop_iterations,
                             );
                             if plan.var_name.is_some() {
                                 asm_line.pop_loop_var();
@@ -812,6 +969,144 @@ impl Assembler {
                                 let _ = asm_line.pop_visibility();
                             }
                             recur_result?;
+                        }
+
+                        if scoped_repeat {
+                            if let Some(loop_label) = label.as_ref() {
+                                let full_name = asm_line.scoped_define_name(&loop_label.name);
+                                asm_line
+                                    .set_value_symbol(&full_name, AsmValue::List(iteration_bases));
+                            }
+                        }
+
+                        idx = end_idx.saturating_add(1);
+                        continue;
+                    }
+
+                    if super::repetition::is_while_like_directive_name(&mnemonic) {
+                        let scoped_repeat =
+                            super::repetition::is_scoped_while_directive_name(&mnemonic);
+                        let Some(end_idx) = super::repetition::find_matching_endwhile(
+                            lines,
+                            asm_line,
+                            idx.saturating_add(1),
+                            end_idx_exclusive,
+                        ) else {
+                            let message =
+                                format!("unterminated {mnemonic} (opened at line {line_num})");
+                            let diagnostic = Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            );
+                            diagnostics.push(diagnostic.clone());
+                            listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                            counts.errors += 1;
+                            return Ok(());
+                        };
+
+                        let mut while_error: Option<AstEvalError> = None;
+                        let mut pass2_count = 0u32;
+                        let mut iteration_bases = Vec::new();
+
+                        loop {
+                            let should_continue = match super::repetition::evaluate_while_condition(
+                                asm_line, &operands,
+                            ) {
+                                Ok(value) => value,
+                                Err(err) => {
+                                    while_error = Some(err);
+                                    break;
+                                }
+                            };
+                            if !should_continue {
+                                break;
+                            }
+
+                            let next_count = pass2_count.saturating_add(1);
+                            if next_count > max_loop_iterations {
+                                while_error = Some(AstEvalError {
+                                    error: AsmError::new(
+                                        AsmErrorKind::Directive,
+                                        &format!(
+                                            "loop exceeded maximum iteration limit ({max_loop_iterations})"
+                                        ),
+                                        None,
+                                    ),
+                                    span: operands.first().map(expr_span).unwrap_or_default(),
+                                });
+                                break;
+                            }
+                            pass2_count = next_count;
+
+                            if scoped_repeat {
+                                asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .push_anonymous_with_kind(ScopeKind::Repeat);
+                                asm_line.push_visibility();
+                            }
+                            if scoped_repeat && label.is_some() {
+                                let base_addr = asm_line.current_addr(*addr).unwrap_or(*addr);
+                                iteration_bases.push(i64::from(base_addr));
+                            }
+
+                            let recur_result = Self::execute_pass2_lines(
+                                lines,
+                                idx.saturating_add(1),
+                                end_idx,
+                                asm_line,
+                                addr,
+                                counts,
+                                diagnostics,
+                                listing,
+                                image,
+                                pass1_loop_trace,
+                                pass2_loop_trace_cursor,
+                                if scoped_repeat {
+                                    None
+                                } else {
+                                    Some(UnscopedRepeatKind::While)
+                                },
+                                max_loop_iterations,
+                            );
+                            if scoped_repeat {
+                                let _ = asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .pop_expected(ScopeKind::Repeat);
+                                let _ = asm_line.pop_visibility();
+                            }
+                            recur_result?;
+                        }
+
+                        if let Some(err) = while_error {
+                            let diagnostic = Diagnostic::new(line_num, Severity::Error, err.error)
+                                .with_column(Some(err.span.col_start));
+                            diagnostics.push(diagnostic.clone());
+                            listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                            counts.errors += 1;
+                            idx = end_idx.saturating_add(1);
+                            continue;
+                        }
+
+                        let (pass1_line, pass1_count) = pass1_loop_trace
+                            .get(*pass2_loop_trace_cursor)
+                            .copied()
+                            .unwrap_or((line_num, 0));
+                        *pass2_loop_trace_cursor = pass2_loop_trace_cursor.saturating_add(1);
+                        if pass1_line != line_num || pass1_count != pass2_count {
+                            let message = format!(
+                                "loop iteration count changed between passes (pass1: {pass1_count}, pass2: {pass2_count})"
+                            );
+                            let diagnostic = Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            );
+                            diagnostics.push(diagnostic.clone());
+                            listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                            counts.errors += 1;
                         }
 
                         if scoped_repeat {

@@ -164,6 +164,7 @@ fn run_one(
     }
 
     let mut assembler = Assembler::new();
+    assembler.max_loop_iterations = config.max_loop_iterations;
     if let Some(cpu_name) = config.cpu_override.as_deref() {
         let resolved = if let Some(cpu) = assembler.registry.resolve_cpu_name(cpu_name) {
             cpu

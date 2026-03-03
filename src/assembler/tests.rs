@@ -730,6 +730,148 @@ fn for_loop_reports_pass_stability_mismatch() {
     );
 }
 
+#[test]
+fn while_loop_emits_expected_bytes() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[".org 0", ".while $ < 3", ".byte 1", ".endwhile"],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 1), (2, 1), (3, 1)]);
+}
+
+#[test]
+fn while_loop_rejects_labels_inside_body() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        "i .var 0".to_string(),
+        ".while i < 2".to_string(),
+        "item .byte 1".to_string(),
+        "i .set i + 1".to_string(),
+        ".endwhile".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors >= 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("label 'item' not allowed inside .while")),
+        "expected loop-label diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bwhile_allows_labels_inside_body() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[".org 0", ".bwhile $ < 2", "item .byte 1", ".endwhile"],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 1), (2, 1)]);
+}
+
+#[test]
+fn endwhile_without_while_reports_error() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![".endwhile".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains(".endwhile without matching .while")),
+        "expected unmatched .endwhile diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn while_loop_reports_pass_stability_mismatch() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".org 0".to_string(),
+        ".while $ < limit".to_string(),
+        ".byte 1".to_string(),
+        ".endwhile".to_string(),
+        "target = 2".to_string(),
+        "limit = target".to_string(),
+    ];
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 0);
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .expect("pass2 should execute");
+    assert!(pass2.errors > 0, "pass2 should report loop instability");
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("loop iteration count changed between passes")),
+        "expected loop stability diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn while_loop_respects_max_iteration_limit() {
+    let mut assembler = Assembler::new();
+    assembler.max_loop_iterations = 3;
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".while 1".to_string(),
+        ".byte 1".to_string(),
+        ".endwhile".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("loop exceeded maximum iteration limit (3)")),
+        "expected max-loop diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()
