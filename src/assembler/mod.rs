@@ -94,7 +94,7 @@ use cli::{
 
 // Re-export public types
 pub use crate::core::assembler::error::{AsmRunError as RunError, AsmRunReport as RunReport};
-pub use cli::VERSION;
+pub use cli::{BUILD_PROFILE_SUMMARY, VERSION};
 
 const DEFAULT_MODULE_EXTENSIONS: &[&str] = &["asm", "inc"];
 const OPFORGE_VM_EXPR_EVAL_OPT_IN_FAMILIES_ENV: &str = "OPFORGE_VM_EXPR_EVAL_OPT_IN_FAMILIES";
@@ -143,6 +143,7 @@ pub fn capabilities_report() -> String {
     let mut lines = vec![
         "opforge-capabilities-v1".to_string(),
         format!("version={VERSION}"),
+        format!("build_profile={BUILD_PROFILE_SUMMARY}"),
         "feature=include-path".to_string(),
         "feature=module-path".to_string(),
         "feature=input-extension-policy".to_string(),
@@ -239,6 +240,7 @@ pub fn capabilities_report_json() -> String {
     json!({
         "schema": "opforge-capabilities-v1",
         "version": VERSION,
+        "build_profile": BUILD_PROFILE_SUMMARY,
         "features": features,
         "families": families,
         "cpusupport": cpusupport_report_json_value(),

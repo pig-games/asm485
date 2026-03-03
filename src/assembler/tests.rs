@@ -7,7 +7,7 @@ use super::{
     MapFileDirective, MapSymbolsMode, RegionState, RootMetadata, SectionState, Severity,
 };
 use crate::assembler::cli::Cli;
-use crate::assembler::VERSION;
+use crate::assembler::{BUILD_PROFILE_SUMMARY, VERSION};
 use crate::core::assembler::error::{AsmError, Diagnostic};
 use crate::core::macro_processor::MacroProcessor;
 use crate::core::registry::ModuleRegistry;
@@ -1306,6 +1306,7 @@ fn run_with_cli_tab_size_expands_listing_tabs() {
 fn capabilities_report_has_stable_header_and_features() {
     let text = capabilities_report();
     assert!(text.starts_with("opforge-capabilities-v1\n"));
+    assert!(text.contains("build_profile="));
     assert!(text.contains("feature=include-path"));
     assert!(text.contains("feature=dependency-output"));
     assert!(text.contains("opforge-cpusupport-v1"));
@@ -1342,6 +1343,7 @@ fn capabilities_report_json_has_stable_shape() {
     let value: serde_json::Value = serde_json::from_str(&text).expect("valid capabilities json");
     assert_eq!(value["schema"], "opforge-capabilities-v1");
     assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(value["build_profile"], BUILD_PROFILE_SUMMARY);
     assert!(value["features"]
         .as_array()
         .expect("features array")
@@ -2126,6 +2128,16 @@ fn diff_text(expected: &str, actual: &str, max_lines: usize) -> String {
     out
 }
 
+fn normalize_listing_for_reference_compare(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !(trimmed.starts_with("Build profile:") || trimmed.contains("| vm-only |") || trimmed.contains("| full-runtime |"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn expected_example_error(base: &str) -> Option<&'static str> {
     match base {
         "errors" => Some("Assembly failed: ope005: invalid number: 5X5"),
@@ -2305,8 +2317,8 @@ fn examples_match_reference_outputs() {
         let ref_lst = fs::read(&ref_lst_path).unwrap_or_else(|err| {
             panic!("Missing reference list {}: {err}", ref_lst_path.display())
         });
-        let out_lst_text = String::from_utf8_lossy(&out_lst);
-        let ref_lst_text = String::from_utf8_lossy(&ref_lst);
+        let out_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&out_lst));
+        let ref_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&ref_lst));
         if out_lst_text != ref_lst_text {
             let diff = diff_text(&ref_lst_text, &out_lst_text, 20);
             panic!("List mismatch for {base}\n{diff}");
@@ -2383,13 +2395,26 @@ fn project_root_example_matches_reference_outputs() {
         let ref_lst = fs::read(&ref_lst_path).unwrap_or_else(|err| {
             panic!("Missing reference list {}: {err}", ref_lst_path.display())
         });
-        let out_lst_text = String::from_utf8_lossy(&out_lst);
-        let ref_lst_text = String::from_utf8_lossy(&ref_lst);
+        let out_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&out_lst));
+        let ref_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&ref_lst));
         if out_lst_text != ref_lst_text {
             let diff = diff_text(&ref_lst_text, &out_lst_text, 20);
             panic!("List mismatch for {base}\n{diff}");
         }
     }
+}
+
+#[test]
+fn normalize_listing_for_reference_compare_ignores_build_profile_lines() {
+    let expected = "opForge Assembler v0.9.4 | full-runtime | bundled\nADDR    BYTES                    LINE  SOURCE\n------  -----------------------  ----  ------\n";
+    let actual = format!(
+        "opForge Assembler v{VERSION} | {BUILD_PROFILE_SUMMARY}\nADDR    BYTES                    LINE  SOURCE\n------  -----------------------  ----  ------\n"
+    );
+
+    assert_eq!(
+        normalize_listing_for_reference_compare(expected),
+        normalize_listing_for_reference_compare(&actual)
+    );
 }
 
 #[test]

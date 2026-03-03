@@ -279,7 +279,7 @@ fn run_one(
         config.debug_conditionals,
         config.tab_size,
     );
-    let header_title = format!("opForge Assembler v{VERSION}");
+    let header_title = format!("opForge Assembler v{VERSION} | {BUILD_PROFILE_SUMMARY}");
     if let Err(err) = listing.header(&header_title) {
         return Err(AsmRunError::new(
             AsmError::new(AsmErrorKind::Io, &err.to_string(), None),
