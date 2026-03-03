@@ -306,6 +306,9 @@ pub(crate) fn expand_source_file_with_dependencies(
     pp_macro_depth: usize,
 ) -> Result<(Vec<String>, Vec<PathBuf>), AsmRunError> {
     let mut pp = Preprocessor::with_max_depth(pp_macro_depth);
+    if let Some(parent) = path.parent() {
+        pp.add_include_root(parent.to_path_buf());
+    }
     for root in include_roots {
         pp.add_include_root(root.clone());
     }
@@ -831,8 +834,21 @@ pub(crate) fn load_module_graph(
 
 #[cfg(test)]
 mod tests {
-    use super::module_search_root;
+    use super::{expand_source_file_with_dependencies, module_search_root};
+    use std::fs;
     use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir() -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("opforge-bootstrap-test-{nanos}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
 
     #[test]
     fn module_search_root_uses_current_dir_for_bare_filename() {
@@ -848,5 +864,25 @@ mod tests {
             module_search_root(Path::new("examples/main.asm")),
             PathBuf::from("examples")
         );
+    }
+
+    #[test]
+    fn expand_source_allows_parent_relative_include_within_root_tree() {
+        let project = temp_dir();
+        let src = project.join("src");
+        let modules = src.join("modules");
+        fs::create_dir_all(&modules).unwrap();
+        let root = src.join("main.asm");
+        let module = modules.join("mforth.base.asm");
+        let shared = src.join("mforth.shared.inc");
+
+        fs::write(&shared, "VALUE .const 7\n").unwrap();
+        fs::write(&module, ".include \"../mforth.shared.inc\"\n.byte VALUE\n").unwrap();
+        fs::write(&root, ".include \"modules/mforth.base.asm\"\n").unwrap();
+
+        let (lines, deps) = expand_source_file_with_dependencies(&root, &[], &[], 64).unwrap();
+
+        assert!(lines.iter().any(|line| line.contains("VALUE .const 7")));
+        assert!(deps.iter().any(|p| p.ends_with("mforth.shared.inc")));
     }
 }

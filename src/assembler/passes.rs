@@ -79,17 +79,18 @@ fn resolve_formatter_module_paths(
 ) -> Result<Vec<PathBuf>, AsmRunError> {
     let (asm_name, _) = input_base_from_path(input_path, &config.input_extensions)?;
     let root_path = PathBuf::from(asm_name);
+    let effective_include_paths = effective_include_paths_for_root(&root_path, &config.include_paths);
     let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
         &root_path,
         &config.defines,
-        &config.include_paths,
+        &effective_include_paths,
         config.pp_macro_depth,
     )?;
     let graph = load_module_graph(
         &root_path,
         root_lines,
         &config.defines,
-        &config.include_paths,
+        &effective_include_paths,
         &config.module_paths,
         config.pp_macro_depth,
     )?;
@@ -121,6 +122,15 @@ fn is_formatter_source_path(path: &Path, ext_policy: &cli::InputExtensionPolicy)
         .any(|allowed| allowed.eq_ignore_ascii_case(ext))
 }
 
+fn effective_include_paths_for_root(root_path: &Path, include_paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut effective = Vec::new();
+    if let Some(parent) = root_path.parent() {
+        effective.push(parent.to_path_buf());
+    }
+    effective.extend_from_slice(include_paths);
+    effective
+}
+
 fn run_one(
     cli: &Cli,
     asm_name: &str,
@@ -128,10 +138,11 @@ fn run_one(
     config: &cli::CliConfig,
 ) -> Result<AsmRunReport, AsmRunError> {
     let root_path = Path::new(asm_name);
+    let effective_include_paths = effective_include_paths_for_root(root_path, &config.include_paths);
     let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
         root_path,
         &config.defines,
-        &config.include_paths,
+        &effective_include_paths,
         config.pp_macro_depth,
     )?;
     let root_module_id = root_module_id_from_lines(root_path, &root_lines)?;
@@ -139,7 +150,7 @@ fn run_one(
         root_path,
         root_lines,
         &config.defines,
-        &config.include_paths,
+        &effective_include_paths,
         &config.module_paths,
         config.pp_macro_depth,
     )?;

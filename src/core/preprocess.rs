@@ -1268,6 +1268,27 @@ mod tests {
     }
 
     #[test]
+    fn include_allows_parent_relative_path_within_project_tree() {
+        let project = temp_dir();
+        let src = project.join("src");
+        let modules = src.join("modules");
+        fs::create_dir_all(&modules).unwrap();
+        let shared = src.join("mforth.shared.inc");
+        let main = modules.join("mforth.base.asm");
+
+        fs::write(&shared, "VALUE .const 7\n").unwrap();
+        fs::write(&main, ".include \"../mforth.shared.inc\"\n.byte VALUE\n").unwrap();
+
+        let mut pp = Preprocessor::new();
+        pp.add_include_root(src.clone());
+        pp.process_file(main.to_str().unwrap()).unwrap();
+        assert!(pp
+            .lines()
+            .iter()
+            .any(|line| line.contains("VALUE .const 7")));
+    }
+
+    #[test]
     fn mixed_include_and_macro_recursion_respects_max_depth() {
         let project = temp_dir();
         let a = project.join("a.asm");
