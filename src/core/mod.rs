@@ -19,6 +19,7 @@
 //! - [`assembler`] - Core assembler components (conditionals, scopes, expressions)
 //! - [`text_encoding`] - Text encoding tables for directive string emission
 //! - [`asm_value`] - Assembly-time scalar/range/list/struct value model
+//! - [`struct_table`] - Struct definition storage
 
 pub mod asm_value;
 pub mod assembler;
@@ -35,6 +36,7 @@ pub mod preprocess;
 pub mod registry;
 pub mod report;
 pub mod source_map;
+pub mod struct_table;
 pub mod symbol_stability;
 pub mod symbol_table;
 pub mod text_encoding;
@@ -56,6 +58,7 @@ pub use expr_vm::{
 pub use family::{AssemblerContext, CpuHandler, EncodeResult, FamilyHandler, FamilyParseError};
 pub use operand::Operand;
 pub use parser::ParseError;
+pub use struct_table::{StructTable, StructTableError};
 pub use symbol_table::SymbolTable;
 pub use text_encoding::{TextEncodingError, TextEncodingRegistry};
 pub use tokenizer::{RegisterChecker, Span, Token, TokenKind, TokenizeError, Tokenizer};

@@ -66,6 +66,7 @@ use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{FamilyOperandSet, OperandSet, ResolvedPipeline};
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::source_map::SourceMap;
+use crate::core::struct_table::StructTable;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
@@ -428,6 +429,7 @@ struct AsmLine<'a> {
     symbol_scope: AsmSymbolScopeState,
     output_state: AsmOutputState,
     layout: AsmLayoutState,
+    _struct_table: StructTable,
     diagnostics: AsmDiagnosticsState,
     current_line_num: u32,
     current_source_line: Option<String>,
@@ -476,6 +478,7 @@ impl<'a> AsmLine<'a> {
             symbol_scope: AsmSymbolScopeState::new(),
             output_state: AsmOutputState::new(root_metadata),
             layout: AsmLayoutState::new(),
+            _struct_table: StructTable::new(),
             diagnostics: AsmDiagnosticsState::new(),
             current_line_num: 1,
             current_source_line: None,
