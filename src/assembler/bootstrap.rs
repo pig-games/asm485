@@ -365,7 +365,12 @@ fn expand_with_processor(
 }
 
 fn parse_line_ast(line: &str, line_num: u32) -> Option<LineAst> {
-    crate::vm::token_bridge::parse_line_with_default_model(line, line_num).ok()
+    crate::vm::token_bridge::parse_line_with_default_model(line, line_num)
+        .or_else(|_| {
+            crate::core::parser::Parser::from_line(line, line_num)
+                .and_then(|mut parser| parser.parse_line())
+        })
+        .ok()
 }
 
 pub(crate) fn expr_to_ident(expr: &Expr) -> Option<String> {
@@ -834,7 +839,10 @@ pub(crate) fn load_module_graph(
 
 #[cfg(test)]
 mod tests {
-    use super::{expand_source_file_with_dependencies, module_search_root};
+    use super::{
+        collect_use_directives, expand_source_file_with_dependencies, module_search_root,
+        scan_module_ids,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -884,5 +892,27 @@ mod tests {
 
         assert!(lines.iter().any(|line| line.contains("VALUE .const 7")));
         assert!(deps.iter().any(|p| p.ends_with("mforth.shared.inc")));
+    }
+
+    #[test]
+    fn scan_module_ids_detects_declared_modules() {
+        let lines = vec![
+            ".module mforth.base".to_string(),
+            "    ; body".to_string(),
+            ".endmodule".to_string(),
+        ];
+        assert_eq!(scan_module_ids(&lines), vec!["mforth.base".to_string()]);
+    }
+
+    #[test]
+    fn collect_use_directives_detects_dependencies() {
+        let lines = vec![
+            ".use mforth.base".to_string(),
+            ".use mforth.kernel (*)".to_string(),
+        ];
+        assert_eq!(
+            collect_use_directives(&lines),
+            vec!["mforth.base".to_string(), "mforth.kernel".to_string()]
+        );
     }
 }
