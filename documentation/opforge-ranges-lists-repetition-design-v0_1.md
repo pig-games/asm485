@@ -87,6 +87,8 @@ pub struct StructInstance {
 
 Every existing code path that produces/consumes a plain integer continues to operate on `AsmValue::Scalar`. Range, list, struct type, and struct instance are explicit variants that appear only where explicitly constructed.
 
+All symbol kinds share one scoped symbol namespace. A name can refer to exactly one symbol in a scope, and the symbol's type is carried by its `AsmValue` variant (`Scalar`, `List`, `Range`, `Struct`, `StructInstance`; future `Union` follows the same rule).
+
 ### 2.3 Type Relationships
 
 The five value types compose naturally:
@@ -502,8 +504,8 @@ Typed struct literals create field-value instances of a previously defined struc
 player0 .const SpriteData { x: 24, y: 50, color: 1, flags: $00 }
 player1 .var   SpriteData { x: 40, y: 50, color: 2, flags: $00 }
 
-        .byte (player0).x
-        .byte (player1).color
+        .byte player0.x
+        .byte player1.color
 ```
 
 Syntax:
@@ -522,7 +524,7 @@ Rules:
 - Struct instances are assignable using `.const`, `.var`, `.set`, `=`, and `:=`.
 - Member access is type-sensitive:
   - `SpriteData.color` resolves to field offset.
-  - `(player0).color` resolves to the instance field value.
+  - `player0.color` resolves to the instance field value.
 - Scalar compound assignment operators (`+=`, `-=`, etc.) reject struct-instance symbols.
 
 Additional examples:
@@ -532,7 +534,7 @@ Additional examples:
 p := SpriteData { x: 8, y: 16, color: 3, flags: $80 }
 p .set SpriteData { x: 9, y: 16, color: 3, flags: $80 }
 
-        .byte (p).x            ; 9
+        .byte p.x              ; 9
         .byte SpriteData.x     ; 0 (offset)
 ```
 
@@ -569,7 +571,12 @@ Expr::StructLiteral {
 }
 ```
 
-The `.` member operator already exists conceptually in the scope system (for namespace-qualified identifiers). The `Member` expression reuses this syntax but resolves through the struct field table rather than the scope stack when the base is a struct type or a struct-typed list index.
+The `.` member operator already exists conceptually in the scope system (for namespace-qualified identifiers). Resolution is:
+
+1. Resolve the exact dotted symbol name (qualified scope/module/import symbol).
+2. If no exact symbol exists, resolve as typed member access by splitting at `.` from right to left and finding the longest base symbol that has a struct type/instance.
+
+This keeps dotted symbols and struct member access in one unified namespace and scope model.
 
 ### 8.7 Implementation
 
@@ -934,10 +941,10 @@ flags       .byte ?
 player0 .const SpriteData { x: 24, y: 50, color: 1, flags: $00 }
 player1 .var   SpriteData { x: 40, y: 50, color: 2, flags: $00 }
 
-        lda #(player0).x     ; 24 (instance value)
-        lda #(player1).color ; 2  (instance value)
+        lda #player0.x       ; 24 (instance value)
+        lda #player1.color   ; 2  (instance value)
         player1 .set SpriteData { x: 41, y: 50, color: 3, flags: $00 }
-        lda #(player1).x     ; 41 after reassignment
+        lda #player1.x       ; 41 after reassignment
         lda sprites[3].x     ; address + struct offset (existing behavior)
 ```
 

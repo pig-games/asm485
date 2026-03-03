@@ -398,6 +398,118 @@ impl<'a> AsmLine<'a> {
         })
     }
 
+    fn resolve_member_base_value(
+        &self,
+        name: &str,
+        span: Span,
+    ) -> Result<Option<AsmValue>, AstEvalError> {
+        if let Some(full_name) = self.resolve_scoped_value_name(name) {
+            if let Some(value) = self.lookup_value_symbol(&full_name) {
+                return Ok(Some(value.clone()));
+            }
+        }
+
+        let scoped_name = match self.resolve_scoped_name(name) {
+            Ok(Some(full)) => full,
+            Ok(None) => return Ok(None),
+            Err(err) => return Err(AstEvalError { error: err, span }),
+        };
+        if let Some(def) = self.struct_table.get(&scoped_name) {
+            return Ok(Some(AsmValue::Struct(def.clone())));
+        }
+        if let Some(AsmValue::Struct(def)) = self.lookup_value_symbol(&scoped_name) {
+            return Ok(Some(AsmValue::Struct(def.clone())));
+        }
+        Ok(None)
+    }
+
+    fn eval_dotted_identifier_scalar(
+        &self,
+        name: &str,
+        span: Span,
+    ) -> Option<Result<u32, AstEvalError>> {
+        let parts: Vec<&str> = name.split('.').collect();
+        if parts.len() < 2 || parts.iter().any(|segment| segment.is_empty()) {
+            return None;
+        }
+
+        for split_index in (1..parts.len()).rev() {
+            let base = parts[..split_index].join(".");
+            let fields = &parts[split_index..];
+            let base_value = match self.resolve_member_base_value(&base, span) {
+                Ok(Some(value)) => value,
+                Ok(None) => continue,
+                Err(err) => return Some(Err(err)),
+            };
+
+            let mut current = base_value;
+            for field in fields {
+                current = match current {
+                    AsmValue::Struct(def) => {
+                        if let Some(offset) = def
+                            .fields
+                            .iter()
+                            .find(|candidate| candidate.name.eq_ignore_ascii_case(field))
+                            .map(|candidate| candidate.offset)
+                        {
+                            AsmValue::Scalar(i64::from(offset))
+                        } else {
+                            return Some(Err(AstEvalError {
+                                error: AsmError::new(
+                                    AsmErrorKind::Expression,
+                                    &format!("struct '{}' has no field '{}'", def.name, field),
+                                    None,
+                                ),
+                                span,
+                            }));
+                        }
+                    }
+                    AsmValue::StructInstance(instance) => {
+                        if let Some(value) = instance.fields.get(&field.to_ascii_uppercase()) {
+                            AsmValue::Scalar(*value)
+                        } else {
+                            return Some(Err(AstEvalError {
+                                error: AsmError::new(
+                                    AsmErrorKind::Expression,
+                                    &format!(
+                                        "struct '{}' has no field '{}'",
+                                        instance.type_name, field
+                                    ),
+                                    None,
+                                ),
+                                span,
+                            }));
+                        }
+                    }
+                    _ => {
+                        return Some(Err(AstEvalError {
+                            error: AsmError::new(
+                                AsmErrorKind::Expression,
+                                "Member expression requires struct base value",
+                                None,
+                            ),
+                            span,
+                        }))
+                    }
+                };
+            }
+
+            return match current {
+                AsmValue::Scalar(value) => Some(Ok(value as u32)),
+                _ => Some(Err(AstEvalError {
+                    error: AsmError::new(
+                        AsmErrorKind::Expression,
+                        "Member expression requires struct base value",
+                        None,
+                    ),
+                    span,
+                })),
+            };
+        }
+
+        None
+    }
+
     pub(super) fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
         #[cfg(test)]
         if HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.get()) {
@@ -451,6 +563,9 @@ impl<'a> AsmLine<'a> {
                         Ok(entry.val)
                     }
                     None => {
+                        if let Some(result) = self.eval_dotted_identifier_scalar(name, *span) {
+                            return result;
+                        }
                         if self.pass > 1 {
                             Err(AstEvalError {
                                 error: AsmError::new(

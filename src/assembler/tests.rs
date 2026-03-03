@@ -263,7 +263,7 @@ fn var_symbol_can_store_struct_type_for_member_access() {
         "y .byte ?",
         ".endstruct",
         "pt .var Point",
-        ".byte (pt).x, (pt).y",
+        ".byte pt.x, pt.y",
     ]);
     let entries = assembler.image().entries().expect("image entries");
     assert_eq!(entries, vec![(0, 0), (1, 1)]);
@@ -278,9 +278,9 @@ fn struct_literal_instances_support_const_var_set_and_member_access() {
         ".endstruct",
         "p0 .const Point { x: 24, y: 50 }",
         "p1 .var Point { x: 40, y: 60 }",
-        ".byte (p0).x, (p1).y",
+        ".byte p0.x, p1.y",
         "p1 .set Point { x: 41, y: 61 }",
-        ".byte (p1).x, (p1).y",
+        ".byte p1.x, p1.y",
     ]);
     let entries = assembler.image().entries().expect("image entries");
     assert_eq!(entries, vec![(0, 24), (1, 60), (2, 41), (3, 61)]);
@@ -294,10 +294,25 @@ fn assignment_syntax_var_can_store_struct_literal_instance() {
         "y .byte ?",
         ".endstruct",
         "p := Point { x: 1, y: 2 }",
-        ".byte (p).x, (p).y",
+        ".byte p.x, p.y",
     ]);
     let entries = assembler.image().entries().expect("image entries");
     assert_eq!(entries, vec![(0, 1), (1, 2)]);
+}
+
+#[test]
+fn dotted_identifier_prefers_exact_symbol_before_struct_member_resolution() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "p0 .const Point { x: 1, y: 2 }",
+        "p0.x .const 42",
+        ".byte p0.x",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 42)]);
 }
 
 #[test]

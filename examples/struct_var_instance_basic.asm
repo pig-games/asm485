@@ -10,5 +10,5 @@ pt .var Point
 
 ; Point size, then offsets via the struct-valued variable.
 .byte Point
-.byte (pt).x
-.byte (pt).y
+.byte pt.x
+.byte pt.y

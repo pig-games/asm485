@@ -460,13 +460,15 @@ unknown field, duplicate field, missing required field, and unknown struct type 
 5. Preserve existing semantics:
 `StructName.field` resolves to field offset,
 `instance.field` resolves to field value.
-6. Integrate literal struct instances in symbol assignment paths:
+6. Keep a single symbol namespace/scope across scalar/set/struct symbols:
+resolve exact dotted symbols first, then typed member access fallback (`base.field`) when no exact symbol exists.
+7. Integrate literal struct instances in symbol assignment paths:
 `.const/.var/.set`, `=`, `:=`, and value-symbol storage.
-7. Keep assignment operator constraints explicit:
+8. Keep assignment operator constraints explicit:
 scalar operators (`+=`, etc.) reject struct-instance symbols.
-8. Add parser/evaluator/integration tests and example fixtures for:
+9. Add parser/evaluator/integration tests and example fixtures for:
 literal declaration, field access, validation failures, and scalar/non-scalar transitions.
-9. Update formatter/LSP expectations for the new typed-literal syntax where needed.
+10. Update formatter/LSP expectations for the new typed-literal syntax where needed.
 
 Exit criteria:
 

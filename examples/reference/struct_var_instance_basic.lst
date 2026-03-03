@@ -13,8 +13,8 @@ ADDR    BYTES                    LINE  SOURCE
 ----                               10  
 ----                               11  ; Point size, then offsets via the struct-valued variable.
 0000    03                         12  .byte Point
-0001    00                         13  .byte (pt).x
-0002    01                         14  .byte (pt).y
+0001    00                         13  .byte pt.x
+0002    01                         14  .byte pt.y
 
 Lines: 14  Errors: 0  Warnings: 0
 
