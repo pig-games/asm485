@@ -235,6 +235,57 @@ fn list_and_range_index_expressions_evaluate_in_scalar_context() {
 }
 
 #[test]
+fn const_symbol_can_store_list_value_and_be_indexed() {
+    let assembler = run_passes(&["vals .const {10,20,30}", ".byte vals[2]"]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 30)]);
+}
+
+#[test]
+fn assignment_syntax_var_can_store_list_value_and_be_indexed() {
+    let assembler = run_passes(&["vals := {3,4}", ".byte vals[1]"]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 4)]);
+}
+
+#[test]
+fn var_set_reassignment_from_list_to_scalar_updates_symbol_kind() {
+    let assembler = run_passes(&["vals .var {1,2}", "vals .set 7", ".byte vals"]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 7)]);
+}
+
+#[test]
+fn var_symbol_can_store_struct_type_for_member_access() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "pt .var Point",
+        ".byte (pt).x, (pt).y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 0), (1, 1)]);
+}
+
+#[test]
+fn assignment_operators_reject_non_scalar_symbols() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "vals .var {1,2}", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+
+    let status = process_line(&mut asm, "vals += 1", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("assignment operators require scalar symbols"));
+}
+
+#[test]
 fn range_zero_step_reports_diagnostic() {
     let (status, message) = assemble_line_status(i8085_cpu_id, ".byte .len(0..10:0)");
     assert_eq!(status, LineStatus::Error);

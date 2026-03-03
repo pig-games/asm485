@@ -1012,8 +1012,27 @@ impl<'a> AsmLine<'a> {
             .insert(Self::value_symbol_key(name), value);
     }
 
+    fn clear_value_symbol(&mut self, name: &str) {
+        self.value_symbols.remove(&Self::value_symbol_key(name));
+    }
+
     fn lookup_value_symbol(&self, name: &str) -> Option<&AsmValue> {
         self.value_symbols.get(&Self::value_symbol_key(name))
+    }
+
+    fn scalar_shadow_for_value_symbol(value: &AsmValue) -> u32 {
+        match value {
+            AsmValue::Scalar(value) => *value as u32,
+            AsmValue::Struct(def) => def.size,
+            AsmValue::List(_) | AsmValue::Range { .. } => 0,
+        }
+    }
+
+    fn sync_value_symbol(&mut self, name: &str, value: &AsmValue) {
+        match value {
+            AsmValue::Scalar(_) => self.clear_value_symbol(name),
+            _ => self.set_value_symbol(name, value.clone()),
+        }
     }
 
     fn resolve_scoped_value_name(&self, name: &str) -> Option<String> {
@@ -1863,18 +1882,29 @@ impl<'a> AsmLine<'a> {
                         return LineStatus::DirEqu;
                     }
                 }
-                let val = match self.eval_expr_ast(expr) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            err.error.kind(),
-                            err.error.message(),
-                            None,
-                            err.span,
-                        )
-                    }
+                let value = match self.eval_expr_ast(expr) {
+                    Ok(scalar) => match self.eval_value_ast(expr) {
+                        Ok(
+                            value @ (AsmValue::List(_)
+                            | AsmValue::Range { .. }
+                            | AsmValue::Struct(_)),
+                        ) => value,
+                        Ok(AsmValue::Scalar(_)) | Err(_) => AsmValue::Scalar(i64::from(scalar)),
+                    },
+                    Err(scalar_err) => match self.eval_value_ast(expr) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                scalar_err.error.kind(),
+                                scalar_err.error.message(),
+                                None,
+                                scalar_err.span,
+                            )
+                        }
+                    },
                 };
+                let scalar_val = Self::scalar_shadow_for_value_symbol(&value);
                 let is_rw = op != AssignOp::Const;
                 if self.pass == 1 && self.selective_import_conflict(&label.name) {
                     return self.failure_at_span(
@@ -1888,13 +1918,13 @@ impl<'a> AsmLine<'a> {
                 let res = if self.pass == 1 {
                     self.symbols.add(
                         &full_name,
-                        val,
+                        scalar_val,
                         is_rw,
                         self.current_visibility(),
                         self.symbol_scope.module_active.as_deref(),
                     )
                 } else {
-                    self.symbols.update(&full_name, val)
+                    self.symbols.update(&full_name, scalar_val)
                 };
                 if res == crate::symbol_table::SymbolTableResult::Duplicate {
                     return self.failure_at(
@@ -1913,7 +1943,8 @@ impl<'a> AsmLine<'a> {
                         Some(1),
                     );
                 }
-                self.aux_value = val;
+                self.sync_value_symbol(&full_name, &value);
+                self.aux_value = scalar_val;
                 return LineStatus::DirEqu;
             }
             _ => {}
@@ -1958,6 +1989,16 @@ impl<'a> AsmLine<'a> {
                 LineStatus::Error,
                 AsmErrorKind::Symbol,
                 "symbol is read-only",
+                Some(&label.name),
+                Some(1),
+            );
+        }
+
+        if self.lookup_value_symbol(&target).is_some() {
+            return self.failure_at(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "assignment operators require scalar symbols",
                 Some(&label.name),
                 Some(1),
             );

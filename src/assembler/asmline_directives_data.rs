@@ -168,18 +168,31 @@ impl<'a> AsmLine<'a> {
             }
         };
         let is_rw = directive == "SET" || directive == "VAR";
-        let val = match self.eval_expr_for_data_directive(expr) {
-            Ok(value) => value,
-            Err(err) => {
-                return self.failure_at_span(
-                    LineStatus::Error,
-                    err.error.kind(),
-                    err.error.message(),
-                    None,
-                    err.span,
-                )
-            }
+        let value = match self.eval_expr_for_data_directive(expr) {
+            Ok(scalar) => match self.eval_value_ast(expr) {
+                Ok(
+                    value @ (crate::core::AsmValue::List(_)
+                    | crate::core::AsmValue::Range { .. }
+                    | crate::core::AsmValue::Struct(_)),
+                ) => value,
+                Ok(crate::core::AsmValue::Scalar(_)) | Err(_) => {
+                    crate::core::AsmValue::Scalar(i64::from(scalar))
+                }
+            },
+            Err(scalar_err) => match self.eval_value_ast(expr) {
+                Ok(value) => value,
+                Err(_) => {
+                    return self.failure_at_span(
+                        LineStatus::Error,
+                        scalar_err.error.kind(),
+                        scalar_err.error.message(),
+                        None,
+                        scalar_err.span,
+                    )
+                }
+            },
         };
+        let scalar_val = Self::scalar_shadow_for_value_symbol(&value);
         let label = self.label.clone().unwrap_or_default();
         if self.pass == 1 && self.selective_import_conflict(&label) {
             return self.failure_at(
@@ -194,13 +207,13 @@ impl<'a> AsmLine<'a> {
         let res = if self.pass == 1 {
             self.symbols.add(
                 &full_name,
-                val,
+                scalar_val,
                 is_rw,
                 self.current_visibility(),
                 self.symbol_scope.module_active.as_deref(),
             )
         } else {
-            self.symbols.update(&full_name, val)
+            self.symbols.update(&full_name, scalar_val)
         };
         if res == crate::symbol_table::SymbolTableResult::Duplicate {
             return self.failure_at(
@@ -219,7 +232,8 @@ impl<'a> AsmLine<'a> {
                 Some(1),
             );
         }
-        self.aux_value = val;
+        self.sync_value_symbol(&full_name, &value);
+        self.aux_value = scalar_val;
         LineStatus::DirEqu
     }
 

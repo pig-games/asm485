@@ -12,10 +12,24 @@ use crate::core::{AsmValue, AsmValueError};
 impl<'a> AsmLine<'a> {
     pub(super) fn eval_value_ast(&self, expr: &Expr) -> Result<AsmValue, AstEvalError> {
         match expr {
-            Expr::Identifier(name, _span) | Expr::Register(name, _span) => {
+            Expr::Identifier(name, span) | Expr::Register(name, span) => {
                 if let Some(full_name) = self.resolve_scoped_value_name(name) {
                     if let Some(value) = self.lookup_value_symbol(&full_name) {
                         return Ok(value.clone());
+                    }
+                }
+                match self.resolve_scoped_name(name) {
+                    Ok(Some(full_name)) => {
+                        if let Some(def) = self.struct_table.get(&full_name) {
+                            return Ok(AsmValue::Struct(def.clone()));
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        return Err(AstEvalError {
+                            error: err,
+                            span: *span,
+                        });
                     }
                 }
                 self.eval_expr_ast(expr)
@@ -96,7 +110,16 @@ impl<'a> AsmLine<'a> {
                             });
                         }
                     };
-                    if let Some(def) = self.struct_table.get(&scoped_name) {
+                    let struct_def = if let Some(def) = self.struct_table.get(&scoped_name) {
+                        Some(def.clone())
+                    } else if let Some(AsmValue::Struct(def)) =
+                        self.lookup_value_symbol(&scoped_name)
+                    {
+                        Some(def.clone())
+                    } else {
+                        None
+                    };
+                    if let Some(def) = struct_def {
                         if let Some(offset) = def
                             .fields
                             .iter()
@@ -258,13 +281,19 @@ impl<'a> AsmLine<'a> {
                 if let Some(value) = self.lookup_loop_var(name) {
                     return Ok(value);
                 }
-                if self.resolve_scoped_value_name(name).is_some() {
+                if let Some(full_name) = self.resolve_scoped_value_name(name) {
+                    let message = match self.lookup_value_symbol(&full_name) {
+                        Some(AsmValue::List(_)) => "List cannot be evaluated as scalar expression",
+                        Some(AsmValue::Range { .. }) => {
+                            "Range cannot be evaluated as scalar expression"
+                        }
+                        Some(AsmValue::Struct(_)) => {
+                            "Struct cannot be evaluated as scalar expression"
+                        }
+                        _ => "List cannot be evaluated as scalar expression",
+                    };
                     return Err(AstEvalError {
-                        error: AsmError::new(
-                            AsmErrorKind::Expression,
-                            "List cannot be evaluated as scalar expression",
-                            None,
-                        ),
+                        error: AsmError::new(AsmErrorKind::Expression, message, None),
                         span: *span,
                     });
                 }
