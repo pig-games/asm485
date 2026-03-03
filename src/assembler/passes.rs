@@ -79,7 +79,8 @@ fn resolve_formatter_module_paths(
 ) -> Result<Vec<PathBuf>, AsmRunError> {
     let (asm_name, _) = input_base_from_path(input_path, &config.input_extensions)?;
     let root_path = PathBuf::from(asm_name);
-    let effective_include_paths = effective_include_paths_for_root(&root_path, &config.include_paths);
+    let effective_include_paths =
+        effective_include_paths_for_root(&root_path, &config.include_paths);
     let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
         &root_path,
         &config.defines,
@@ -138,7 +139,8 @@ fn run_one(
     config: &cli::CliConfig,
 ) -> Result<AsmRunReport, AsmRunError> {
     let root_path = Path::new(asm_name);
-    let effective_include_paths = effective_include_paths_for_root(root_path, &config.include_paths);
+    let effective_include_paths =
+        effective_include_paths_for_root(root_path, &config.include_paths);
     let (root_lines, root_dependency_files) = expand_source_file_with_dependencies(
         root_path,
         &config.defines,

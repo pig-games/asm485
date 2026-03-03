@@ -18,10 +18,6 @@ use crate::vm::runtime::{
 };
 
 #[cfg(test)]
-use crate::vm::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
-#[cfg(test)]
-use crate::vm::runtime::RuntimeParserVmProgram;
-#[cfg(test)]
 use crate::core::registry::ModuleRegistry;
 #[cfg(test)]
 use crate::families::intel8080::module::Intel8080FamilyModule;
@@ -39,6 +35,10 @@ use crate::m65816::module::M65816CpuModule;
 use crate::m65c02::module::M65C02CpuModule;
 #[cfg(test)]
 use crate::m6809::module::M6809CpuModule;
+#[cfg(test)]
+use crate::vm::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
+#[cfg(test)]
+use crate::vm::runtime::RuntimeParserVmProgram;
 #[cfg(test)]
 use crate::z80::module::Z80CpuModule;
 
@@ -792,7 +792,9 @@ fn build_default_runtime_model() -> Option<HierarchyExecutionModel> {
                 .map(|base| PathBuf::from(base).join(VM_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH));
             if let Some(path) = path {
                 if let Ok(package_bytes) = fs::read(path) {
-                    if let Ok(model) = HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()) {
+                    if let Ok(model) =
+                        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice())
+                    {
                         return Some(model);
                     }
                 }

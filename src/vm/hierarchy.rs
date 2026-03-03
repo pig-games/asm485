@@ -544,7 +544,11 @@ impl HierarchyPackage {
 
     /// Return sorted family identifiers from package metadata.
     pub fn family_ids(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self.families.values().map(|family| family.id.clone()).collect();
+        let mut ids: Vec<String> = self
+            .families
+            .values()
+            .map(|family| family.id.clone())
+            .collect();
         ids.sort();
         ids
     }

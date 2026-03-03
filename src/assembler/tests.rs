@@ -2132,7 +2132,9 @@ fn normalize_listing_for_reference_compare(text: &str) -> String {
     text.lines()
         .filter(|line| {
             let trimmed = line.trim_start();
-            !(trimmed.starts_with("Build profile:") || trimmed.contains("| vm-only |") || trimmed.contains("| full-runtime |"))
+            !(trimmed.starts_with("Build profile:")
+                || trimmed.contains("| vm-only |")
+                || trimmed.contains("| full-runtime |"))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -2317,8 +2319,10 @@ fn examples_match_reference_outputs() {
         let ref_lst = fs::read(&ref_lst_path).unwrap_or_else(|err| {
             panic!("Missing reference list {}: {err}", ref_lst_path.display())
         });
-        let out_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&out_lst));
-        let ref_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&ref_lst));
+        let out_lst_text =
+            normalize_listing_for_reference_compare(&String::from_utf8_lossy(&out_lst));
+        let ref_lst_text =
+            normalize_listing_for_reference_compare(&String::from_utf8_lossy(&ref_lst));
         if out_lst_text != ref_lst_text {
             let diff = diff_text(&ref_lst_text, &out_lst_text, 20);
             panic!("List mismatch for {base}\n{diff}");
@@ -2395,8 +2399,10 @@ fn project_root_example_matches_reference_outputs() {
         let ref_lst = fs::read(&ref_lst_path).unwrap_or_else(|err| {
             panic!("Missing reference list {}: {err}", ref_lst_path.display())
         });
-        let out_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&out_lst));
-        let ref_lst_text = normalize_listing_for_reference_compare(&String::from_utf8_lossy(&ref_lst));
+        let out_lst_text =
+            normalize_listing_for_reference_compare(&String::from_utf8_lossy(&out_lst));
+        let ref_lst_text =
+            normalize_listing_for_reference_compare(&String::from_utf8_lossy(&ref_lst));
         if out_lst_text != ref_lst_text {
             let diff = diff_text(&ref_lst_text, &out_lst_text, 20);
             panic!("List mismatch for {base}\n{diff}");

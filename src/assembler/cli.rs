@@ -58,42 +58,93 @@ fn with_env_lock<T>(action: impl FnOnce() -> T) -> T {
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled", feature = "vm-runtime-opcpu-artifact"))]
+#[cfg(all(
+    feature = "vm-runtime-only",
+    feature = "vm-runtime-opcpu-unbundled",
+    feature = "vm-runtime-opcpu-artifact"
+))]
 pub const BUILD_PROFILE_SUMMARY: &str = "vm-only | unbundled (artifact default)";
-#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled", not(feature = "vm-runtime-opcpu-artifact")))]
+#[cfg(all(
+    feature = "vm-runtime-only",
+    feature = "vm-runtime-opcpu-unbundled",
+    not(feature = "vm-runtime-opcpu-artifact")
+))]
 pub const BUILD_PROFILE_SUMMARY: &str = "vm-only | unbundled (external package required)";
-#[cfg(all(feature = "vm-runtime-only", not(feature = "vm-runtime-opcpu-unbundled")))]
+#[cfg(all(
+    feature = "vm-runtime-only",
+    not(feature = "vm-runtime-opcpu-unbundled")
+))]
 pub const BUILD_PROFILE_SUMMARY: &str = "vm-only | bundled";
 #[cfg(not(feature = "vm-runtime-only"))]
 pub const BUILD_PROFILE_SUMMARY: &str = "full-runtime | bundled";
 
-#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled", feature = "vm-runtime-opcpu-artifact"))]
-const LONG_VERSION: &str =
-    concat!(env!("CARGO_PKG_VERSION"), " | ", "vm-only | unbundled (artifact default)");
-#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled", not(feature = "vm-runtime-opcpu-artifact")))]
+#[cfg(all(
+    feature = "vm-runtime-only",
+    feature = "vm-runtime-opcpu-unbundled",
+    feature = "vm-runtime-opcpu-artifact"
+))]
+const LONG_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " | ",
+    "vm-only | unbundled (artifact default)"
+);
+#[cfg(all(
+    feature = "vm-runtime-only",
+    feature = "vm-runtime-opcpu-unbundled",
+    not(feature = "vm-runtime-opcpu-artifact")
+))]
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " | ",
     "vm-only | unbundled (external package required)"
 );
-#[cfg(all(feature = "vm-runtime-only", not(feature = "vm-runtime-opcpu-unbundled")))]
+#[cfg(all(
+    feature = "vm-runtime-only",
+    not(feature = "vm-runtime-opcpu-unbundled")
+))]
 const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " | ", "vm-only | bundled");
 #[cfg(not(feature = "vm-runtime-only"))]
-const LONG_VERSION: &str =
-    concat!(env!("CARGO_PKG_VERSION"), " | ", "full-runtime | bundled");
+const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " | ", "full-runtime | bundled");
 
-#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled", feature = "vm-runtime-opcpu-artifact"))]
-const HELP_BUILD_PROFILE: &str =
-    concat!("Build profile: v", env!("CARGO_PKG_VERSION"), " | ", "vm-only | unbundled (artifact default)");
-#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-unbundled", not(feature = "vm-runtime-opcpu-artifact")))]
-const HELP_BUILD_PROFILE: &str =
-    concat!("Build profile: v", env!("CARGO_PKG_VERSION"), " | ", "vm-only | unbundled (external package required)");
-#[cfg(all(feature = "vm-runtime-only", not(feature = "vm-runtime-opcpu-unbundled")))]
-const HELP_BUILD_PROFILE: &str =
-    concat!("Build profile: v", env!("CARGO_PKG_VERSION"), " | ", "vm-only | bundled");
+#[cfg(all(
+    feature = "vm-runtime-only",
+    feature = "vm-runtime-opcpu-unbundled",
+    feature = "vm-runtime-opcpu-artifact"
+))]
+const HELP_BUILD_PROFILE: &str = concat!(
+    "Build profile: v",
+    env!("CARGO_PKG_VERSION"),
+    " | ",
+    "vm-only | unbundled (artifact default)"
+);
+#[cfg(all(
+    feature = "vm-runtime-only",
+    feature = "vm-runtime-opcpu-unbundled",
+    not(feature = "vm-runtime-opcpu-artifact")
+))]
+const HELP_BUILD_PROFILE: &str = concat!(
+    "Build profile: v",
+    env!("CARGO_PKG_VERSION"),
+    " | ",
+    "vm-only | unbundled (external package required)"
+);
+#[cfg(all(
+    feature = "vm-runtime-only",
+    not(feature = "vm-runtime-opcpu-unbundled")
+))]
+const HELP_BUILD_PROFILE: &str = concat!(
+    "Build profile: v",
+    env!("CARGO_PKG_VERSION"),
+    " | ",
+    "vm-only | bundled"
+);
 #[cfg(not(feature = "vm-runtime-only"))]
-const HELP_BUILD_PROFILE: &str =
-    concat!("Build profile: v", env!("CARGO_PKG_VERSION"), " | ", "full-runtime | bundled");
+const HELP_BUILD_PROFILE: &str = concat!(
+    "Build profile: v",
+    env!("CARGO_PKG_VERSION"),
+    " | ",
+    "full-runtime | bundled"
+);
 
 const LONG_ABOUT: &str =
     "Multi-CPU assembler supporting Intel 8080/8085, Zilog Z80, Motorola 6809/Hitachi 6309, MOS 6502, WDC 65C02, WDC 65816, and CSG 45GS02.

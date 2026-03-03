@@ -671,7 +671,10 @@ impl<'a> AsmLine<'a> {
             None
         }
 
-        #[cfg(all(feature = "vm-runtime-opcpu-unbundled", not(feature = "vm-runtime-only")))]
+        #[cfg(all(
+            feature = "vm-runtime-opcpu-unbundled",
+            not(feature = "vm-runtime-only")
+        ))]
         {
             let _ = (registry, cpu);
             None
