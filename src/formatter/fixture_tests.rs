@@ -15,6 +15,7 @@ const REPRESENTATIVE_SNAPSHOT_STEMS: &[&str] = &[
     "m65c02_basic",
     "m65816_basic",
     "m45gs02_basic",
+    "ranges_lists_member_struct",
     "directives_heavy",
     "macro_preproc_heavy",
 ];
@@ -26,6 +27,7 @@ const FULL_CORPUS_STEMS: &[&str] = &[
     "m65c02_basic",
     "m65816_basic",
     "m45gs02_basic",
+    "ranges_lists_member_struct",
     "directives_heavy",
     "data_directives_alignment",
     "directive_alignment",

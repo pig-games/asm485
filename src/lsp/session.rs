@@ -16,14 +16,15 @@ use crate::core::cpu::CpuType;
 use crate::core::registry::ModuleRegistry;
 use crate::lsp::capabilities::CapabilitySnapshot;
 use crate::lsp::code_actions::quick_fix_actions;
-use crate::lsp::completion::completion_items;
+use crate::lsp::completion::{completion_items, CompletionRequestContext};
 use crate::lsp::config::LspConfig;
 use crate::lsp::cpu_context::resolve_cpu_for_line;
 use crate::lsp::definition::definition_locations;
 use crate::lsp::diagnostics::{dedup_diagnostics, diagnostics_for_uri};
 use crate::lsp::document_state::{DocumentState, UseImportDecl};
 use crate::lsp::document_symbols::document_symbols;
-use crate::lsp::hover::hover_response;
+use crate::lsp::hover::{hover_response, HoverRequestContext};
+use crate::lsp::member_context::{member_completion_context, member_lookup_context};
 use crate::lsp::validation_runner::{run_cli_validation, ValidationDiagnostic};
 use crate::lsp::workspace_index::{IndexedSymbol, WorkspaceIndex};
 
@@ -317,18 +318,23 @@ impl LspSession {
             .unwrap_or(0) as usize;
         let doc = self.documents.get(uri);
         let cpu = self.resolve_cpu_for_request(doc, line + 1);
-        let prefix = doc
-            .and_then(|state| state.lines.get(line as usize))
-            .map(|line_text| token_prefix_at(line_text, character))
+        let line_text = doc.and_then(|state| state.lines.get(line as usize));
+        let prefix = line_text
+            .map(|line_value| token_prefix_at(line_value, character))
             .unwrap_or_default();
+        let member_ctx =
+            line_text.and_then(|line_value| member_completion_context(line_value, character));
         Value::Array(completion_items(
             &self.snapshot,
             &self.workspace_index,
             doc,
-            uri,
             cpu,
-            line + 1,
-            prefix.as_str(),
+            CompletionRequestContext {
+                current_uri: uri,
+                cursor_line: line + 1,
+                prefix: prefix.as_str(),
+                member_ctx: member_ctx.as_ref(),
+            },
         ))
     }
 
@@ -352,17 +358,23 @@ impl LspSession {
             .unwrap_or(0) as usize;
         let doc = self.documents.get(uri);
         let cpu = self.resolve_cpu_for_request(doc, line + 1);
-        let word = doc
-            .and_then(|state| state.lines.get(line as usize))
-            .map(|line_text| token_word_at(line_text, character))
+        let line_text = doc.and_then(|state| state.lines.get(line as usize));
+        let word = line_text
+            .map(|line_value| token_word_at(line_value, character))
             .unwrap_or_default();
+        let member_ctx =
+            line_text.and_then(|line_value| member_lookup_context(line_value, character));
         hover_response(
             &self.snapshot,
             &self.workspace_index,
             doc,
-            uri,
             cpu,
-            word.as_str(),
+            HoverRequestContext {
+                current_uri: uri,
+                request_line: line + 1,
+                word: word.as_str(),
+                member_ctx: member_ctx.as_ref(),
+            },
         )
         .unwrap_or(Value::Null)
     }
@@ -386,10 +398,12 @@ impl LspSession {
             .and_then(Value::as_u64)
             .unwrap_or(0) as usize;
         let doc = self.documents.get(uri);
-        let word = doc
-            .and_then(|state| state.lines.get(line))
-            .map(|line_text| token_word_at(line_text, character))
+        let line_text = doc.and_then(|state| state.lines.get(line));
+        let word = line_text
+            .map(|line_value| token_word_at(line_value, character))
             .unwrap_or_default();
+        let member_ctx =
+            line_text.and_then(|line_value| member_lookup_context(line_value, character));
         Value::Array(definition_locations(
             &self.config,
             &self.workspace_index,
@@ -397,6 +411,7 @@ impl LspSession {
             uri,
             (line + 1) as u32,
             word.as_str(),
+            member_ctx.as_ref(),
         ))
     }
 
@@ -438,10 +453,12 @@ impl LspSession {
             .and_then(Value::as_bool)
             .unwrap_or(true);
         let doc = self.documents.get(uri);
-        let word = doc
-            .and_then(|state| state.lines.get(line))
-            .map(|line_text| token_word_at(line_text, character))
+        let line_text = doc.and_then(|state| state.lines.get(line));
+        let word = line_text
+            .map(|line_value| token_word_at(line_value, character))
             .unwrap_or_default();
+        let member_ctx =
+            line_text.and_then(|line_value| member_lookup_context(line_value, character));
         if word.is_empty() {
             return Value::Array(Vec::new());
         }
@@ -453,6 +470,7 @@ impl LspSession {
             uri,
             (line + 1) as u32,
             word.as_str(),
+            member_ctx.as_ref(),
         );
         let Some(target) = defs
             .first()
@@ -584,6 +602,7 @@ impl LspSession {
         if word.is_empty() {
             return None;
         }
+        let member_ctx = member_lookup_context(line_text, character);
         let defs = definition_locations(
             &self.config,
             &self.workspace_index,
@@ -591,6 +610,7 @@ impl LspSession {
             uri,
             (line + 1) as u32,
             word.as_str(),
+            member_ctx.as_ref(),
         );
         let target = defs
             .first()

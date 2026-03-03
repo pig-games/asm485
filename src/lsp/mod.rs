@@ -13,6 +13,7 @@ pub mod diagnostics;
 pub mod document_state;
 pub mod document_symbols;
 pub mod hover;
+pub mod member_context;
 pub mod protocol;
 pub mod session;
 pub mod validation_runner;

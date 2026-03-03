@@ -6,25 +6,60 @@ use serde_json::{json, Value};
 use crate::core::cpu::CpuType;
 use crate::lsp::capabilities::CapabilitySnapshot;
 use crate::lsp::document_state::DocumentState;
+use crate::lsp::member_context::MemberLookupContext;
 use crate::lsp::workspace_index::WorkspaceIndex;
+
+pub struct HoverRequestContext<'a> {
+    pub current_uri: &'a str,
+    pub request_line: u32,
+    pub word: &'a str,
+    pub member_ctx: Option<&'a MemberLookupContext>,
+}
 
 pub fn hover_response(
     snapshot: &CapabilitySnapshot,
     workspace: &WorkspaceIndex,
     doc: Option<&DocumentState>,
-    current_uri: &str,
     cpu: CpuType,
-    word: &str,
+    ctx: HoverRequestContext<'_>,
 ) -> Option<Value> {
-    if word.is_empty() {
+    if ctx.word.is_empty() {
         return None;
+    }
+
+    if let Some(member_ctx) = ctx
+        .member_ctx
+        .cloned()
+        .or_else(|| member_lookup_from_word(ctx.word))
+    {
+        let fields = workspace.member_fields_for_symbol(
+            ctx.current_uri,
+            doc,
+            ctx.request_line,
+            member_ctx.base_symbol.as_str(),
+        );
+        if let Some(field) = fields.iter().find(|field| {
+            field
+                .name
+                .eq_ignore_ascii_case(member_ctx.field_name.as_str())
+        }) {
+            return Some(json!({
+                "contents": {
+                    "kind": "markdown",
+                    "value": format!(
+                        "`{}`\n\nKind: `field`\nOwner: `{}`\nLine: `{}`\n\nDecl: `{}`",
+                        field.name, field.owner_name, field.line, field.declaration
+                    ),
+                }
+            }));
+        }
     }
 
     if let Some(doc) = doc {
         if let Some(symbol) = doc
             .symbols
             .iter()
-            .find(|symbol| symbol.name.eq_ignore_ascii_case(word))
+            .find(|symbol| symbol.name.eq_ignore_ascii_case(ctx.word))
         {
             return Some(json!({
                 "contents": {
@@ -44,7 +79,7 @@ pub fn hover_response(
         }
     }
 
-    let imported = workspace.imported_symbols_named(current_uri, doc, word);
+    let imported = workspace.imported_symbols_named(ctx.current_uri, doc, ctx.word);
     if let Some(symbol) = imported.first() {
         return Some(json!({
             "contents": {
@@ -64,7 +99,7 @@ pub fn hover_response(
     }
 
     if let Some(view) = snapshot.view_for_cpu(cpu) {
-        let needle = word.to_ascii_lowercase();
+        let needle = ctx.word.to_ascii_lowercase();
         if view.mnemonics.iter().any(|mnemonic| mnemonic == &needle) {
             let owner = view
                 .mnemonic_owner
@@ -74,25 +109,25 @@ pub fn hover_response(
             return Some(json!({
                 "contents": {
                     "kind": "markdown",
-                    "value": format!("`{}`\n\nOwner: `{}`\n\nFamily: `{}`\nDialect: `{}`", word, owner, view.family_id, view.dialect_id),
+                    "value": format!("`{}`\n\nOwner: `{}`\n\nFamily: `{}`\nDialect: `{}`", ctx.word, owner, view.family_id, view.dialect_id),
                 }
             }));
         }
         if view
             .runtime_directives
             .iter()
-            .any(|directive| directive.eq_ignore_ascii_case(word))
+            .any(|directive| directive.eq_ignore_ascii_case(ctx.word))
         {
             return Some(json!({
                 "contents": {
                     "kind": "markdown",
-                    "value": format!("`{}`\n\nCPU runtime directive for `{}`.", word, cpu.as_str()),
+                    "value": format!("`{}`\n\nCPU runtime directive for `{}`.", ctx.word, cpu.as_str()),
                 }
             }));
         }
     }
 
-    let matches = workspace.symbols_named(word);
+    let matches = workspace.symbols_named(ctx.word);
     if let Some(symbol) = matches.first() {
         return Some(json!({
             "contents": {
@@ -112,6 +147,17 @@ pub fn hover_response(
     }
 
     None
+}
+
+fn member_lookup_from_word(word: &str) -> Option<MemberLookupContext> {
+    let (base_symbol, field_name) = word.rsplit_once('.')?;
+    if base_symbol.is_empty() || field_name.is_empty() {
+        return None;
+    }
+    Some(MemberLookupContext {
+        base_symbol: base_symbol.to_string(),
+        field_name: field_name.to_string(),
+    })
 }
 
 struct HoverSymbol<'a> {
