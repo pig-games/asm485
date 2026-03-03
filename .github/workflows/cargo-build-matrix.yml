@@ -27,3 +27,9 @@ jobs:
 
       - name: Build release
         run: cargo build --release --locked
+
+      - name: Build vm-only embedded
+        run: cargo build --release --locked --features vm-runtime-only
+
+      - name: Build vm-only unbundled
+        run: cargo build --release --locked --features vm-runtime-only,vm-runtime-opcpu-unbundled

@@ -35,3 +35,20 @@ jobs:
 
       - name: Test suite
         run: cargo test --locked
+
+  vm-opcpu-modes:
+    name: VM opcpu package modes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Validate vm package source modes
+        run: make test-vm-opcpu-modes

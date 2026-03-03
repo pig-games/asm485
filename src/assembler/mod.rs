@@ -82,7 +82,7 @@ use crate::families::intel8080::{
     dialect::{canonical_suggestion_for_zilog_mnemonic, map_zilog_to_canonical},
     module::FAMILY_ID as INTEL8080_FAMILY_ID,
 };
-#[cfg(not(feature = "vm-runtime-only"))]
+#[cfg(not(feature = "vm-runtime-opcpu-unbundled"))]
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::runtime::HierarchyExecutionModel;
 use crate::vm::token_bridge::parse_line_with_model;
@@ -609,6 +609,9 @@ impl<'a> AsmLine<'a> {
         registry: &ModuleRegistry,
         cpu: CpuType,
     ) -> Option<HierarchyExecutionModel> {
+        #[cfg(feature = "vm-runtime-only")]
+        let _ = cpu;
+
         #[cfg(not(feature = "vm-runtime-only"))]
         let has_host_pipeline = registry.resolve_pipeline(cpu, None).is_ok();
 

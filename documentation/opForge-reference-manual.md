@@ -702,6 +702,17 @@ See also:
 - The bridge validates override compatibility against family ownership + optional CPU allow-list.
 - Dialect modules are rewrite-only surfaces; instruction encoding remains family/CPU owned.
 
+#### VM runtime package source selection
+
+- opForge supports explicit VM runtime package loading with `--opcpu-package <FILE>` (or `OPFORGE_OPCPU_PACKAGE`).
+- Package source precedence is:
+  1. explicit package path (`--opcpu-package` / `OPFORGE_OPCPU_PACKAGE`)
+  2. default artifact path `target/vm/opforge-vm-runtime.opcpu` (when `vm-runtime-opcpu-artifact` is enabled)
+  3. bundled/runtime-generated fallback (disabled when `vm-runtime-opcpu-unbundled` is enabled)
+- In `vm-runtime-only` + `vm-runtime-opcpu-unbundled` builds, runtime package sourcing is mandatory:
+  - either provide `--opcpu-package <FILE>`
+  - or enable artifact mode and provide the default artifact file
+
 ## 6. Compatibility
 
 - Dot-prefixed directives are required (for `.org`, `.set`, `.if`, etc.).
@@ -755,6 +766,7 @@ Other options:
 - `--fmt-stdout`: format exactly one input file and write the result to stdout.
 - `--fmt-config <FILE>`: formatter config file path (requires a formatter mode flag).
 - `--cpu <ID>`: select initial CPU before source parsing (`.cpu` in source can still override later).
+- `--opcpu-package <FILE>`: load runtime `.opcpu` package from FILE and prefer it over artifact/bundled package sources.
 - `--print-capabilities`: print deterministic capability metadata and exit.
 - `--print-cpusupport`: print deterministic CPU support metadata and exit.
 - `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default `64`, minimum `1`).

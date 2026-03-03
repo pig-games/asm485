@@ -120,9 +120,29 @@ Optional on-disk runtime package artifact mode:
 - Runtime then loads/writes `.opcpu` bytes at `target/vm/opforge-vm-runtime.opcpu` with registry-build fallback.
 - Rust-table-driven package generation remains the supported authoring path for new families/CPUs (`build_hierarchy_package_from_registry`).
 
+Explicit runtime package selection:
+- Use `--opcpu-package <FILE>` (or `OPFORGE_OPCPU_PACKAGE`) to force a specific `.opcpu` package.
+- Explicit package selection takes precedence over artifact and bundled/runtime-generated package sources.
+
+VM-only package source modes:
+- Embedded/default mode: feature `vm-runtime-only` (bundled/runtime-generated fallback allowed).
+- Artifact mode: feature `vm-runtime-opcpu-artifact` adds default path `target/vm/opforge-vm-runtime.opcpu`.
+- Unbundled mode: feature `vm-runtime-opcpu-unbundled` disables bundled fallback.
+    - In vm-only unbundled mode, opForge requires either `--opcpu-package <FILE>` or the default artifact path (when artifact feature is enabled).
+
 Cargo feature flags:
 - `vm-runtime-opcpu-artifact`: enables on-disk runtime package artifact mode (`target/vm/opforge-vm-runtime.opcpu`) with registry fallback.
+- `vm-runtime-opcpu-unbundled`: disables bundled/runtime-generated package fallback; runtime package must come from explicit path or artifact.
 - `vm-parity`: enables parity-focused VM test lanes and CI checks.
+
+VM-only build target variants:
+- `make vm-only-build-embedded`
+- `make vm-only-build`
+- `make vm-only-build-unbundled`
+- `make vm-only-build-unbundled-artifact`
+
+VM package-source validation target:
+- `make test-vm-opcpu-modes`
 
 Rebuild reference outputs (updates examples/reference/*.lst and *.hex):
 
@@ -208,6 +228,7 @@ Arguments:
     --fmt-stdout                 Format exactly one input file and write result to stdout.
     --fmt-config <FILE>          Formatter config path (requires a formatter mode flag).
     --cpu <ID>                   Set initial CPU before parsing source directives.
+    --opcpu-package <FILE>       Load VM runtime package (.opcpu) from FILE and prefer it over bundled/artifact package sources.
     --print-capabilities         Print deterministic capability metadata and exit.
     --print-cpusupport           Print deterministic CPU support metadata and exit.
     --pp-macro-depth <N>         Maximum preprocessor macro expansion depth (default 64, minimum 1).
