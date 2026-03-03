@@ -1590,7 +1590,7 @@ pub struct CliConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use clap::{error::ErrorKind, CommandFactory, Parser};
     use std::env;
     use std::ffi::OsString;
     use std::fs;
@@ -1709,6 +1709,75 @@ mod tests {
         assert_eq!(cli.bin_outputs, vec!["0000:ffff".to_string()]);
         assert_eq!(cli.fill_byte, Some("aa".to_string()));
         assert_eq!(cli.pp_macro_depth, 80);
+    }
+
+    #[test]
+    fn version_flag_reports_build_profile() {
+        let err = Cli::try_parse_from(["opForge", "-V"]).expect_err("-V should short-circuit");
+        assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+        let rendered = err.to_string();
+        assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
+        assert!(rendered.contains(BUILD_PROFILE_SUMMARY));
+    }
+
+    #[test]
+    fn clap_command_version_contains_build_profile() {
+        let cmd = Cli::command();
+        let rendered = cmd.render_version().to_string();
+        assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
+        assert!(rendered.contains(BUILD_PROFILE_SUMMARY));
+    }
+
+    #[cfg(not(feature = "vm-runtime-only"))]
+    #[test]
+    fn build_profile_summary_matches_full_runtime_variant() {
+        assert_eq!(BUILD_PROFILE_SUMMARY, "full-runtime | bundled");
+    }
+
+    #[cfg(all(
+        feature = "vm-runtime-only",
+        not(feature = "vm-runtime-opcpu-unbundled"),
+        not(feature = "vm-runtime-opcpu-artifact")
+    ))]
+    #[test]
+    fn build_profile_summary_matches_vm_only_bundled_variant() {
+        assert_eq!(BUILD_PROFILE_SUMMARY, "vm-only | bundled");
+    }
+
+    #[cfg(all(
+        feature = "vm-runtime-only",
+        not(feature = "vm-runtime-opcpu-unbundled"),
+        feature = "vm-runtime-opcpu-artifact"
+    ))]
+    #[test]
+    fn build_profile_summary_matches_vm_only_bundled_artifact_variant() {
+        assert_eq!(BUILD_PROFILE_SUMMARY, "vm-only | bundled");
+    }
+
+    #[cfg(all(
+        feature = "vm-runtime-only",
+        feature = "vm-runtime-opcpu-unbundled",
+        not(feature = "vm-runtime-opcpu-artifact")
+    ))]
+    #[test]
+    fn build_profile_summary_matches_vm_only_unbundled_variant() {
+        assert_eq!(
+            BUILD_PROFILE_SUMMARY,
+            "vm-only | unbundled (external package required)"
+        );
+    }
+
+    #[cfg(all(
+        feature = "vm-runtime-only",
+        feature = "vm-runtime-opcpu-unbundled",
+        feature = "vm-runtime-opcpu-artifact"
+    ))]
+    #[test]
+    fn build_profile_summary_matches_vm_only_unbundled_artifact_variant() {
+        assert_eq!(
+            BUILD_PROFILE_SUMMARY,
+            "vm-only | unbundled (artifact default)"
+        );
     }
 
     #[test]
