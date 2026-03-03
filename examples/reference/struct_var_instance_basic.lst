@@ -1,0 +1,34 @@
+opForge Assembler v0.9.5
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Struct type assigned to a variable symbol and accessed via member expressions.
+----                                2  .cpu 6502
+----                                3  
+----                                4  Point .struct
+----                                5  x .byte ?
+----                                6  y .word ?
+----                                7  .endstruct
+----                                8  
+----    EQU 0003                    9  pt .var Point
+----                               10  
+----                               11  ; Point size, then offsets via the struct-valued variable.
+0000    03                         12  .byte Point
+0001    00                         13  .byte (pt).x
+0002    01                         14  .byte (pt).y
+
+Lines: 14  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+Point           : 0003 (3)
+Point.x         : 0000 (0)
+Point.y         : 0001 (1)
+pt              : 0003 (3)
+
+Total memory is 3 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    03 00 01
