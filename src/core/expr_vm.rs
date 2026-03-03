@@ -670,6 +670,11 @@ impl ExprCompiler {
                 "member expression is not supported by portable expression VM",
                 *span,
             )),
+            Expr::StructLiteral { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "struct literal expression is not supported by portable expression VM",
+                *span,
+            )),
             Expr::Call { span, .. } => Err(PortableExprError::with_span(
                 DIAG_EXPR_UNSUPPORTED_FEATURE,
                 "call expression is not supported by portable expression VM",

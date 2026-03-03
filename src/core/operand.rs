@@ -106,6 +106,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::List(_, span) => *span,
         Expr::Index { span, .. } => *span,
         Expr::Member { span, .. } => *span,
+        Expr::StructLiteral { span, .. } => *span,
         Expr::Call { span, .. } => *span,
         Expr::Placeholder(span) => *span,
         Expr::Indirect(_, span) => *span,

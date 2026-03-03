@@ -87,6 +87,11 @@ pub enum Expr {
         field: String,
         span: Span,
     },
+    StructLiteral {
+        type_name: String,
+        fields: Vec<(String, Expr)>,
+        span: Span,
+    },
     Call {
         name: String,
         args: Vec<Expr>,
@@ -1889,7 +1894,78 @@ impl Parser {
             }),
         }?;
 
+        let base = self.parse_struct_literal_if_present(base)?;
         self.parse_postfix_expr(base)
+    }
+
+    fn parse_struct_literal_if_present(&mut self, expr: Expr) -> Result<Expr, ParseError> {
+        let (type_name, type_span) = match &expr {
+            Expr::Identifier(name, span) | Expr::Register(name, span) => (name.clone(), *span),
+            _ => return Ok(expr),
+        };
+        if !self.peek_kind(TokenKind::OpenBrace) {
+            return Ok(expr);
+        }
+        self.index += 1; // '{'
+
+        let mut fields = Vec::new();
+        if !self.consume_kind(TokenKind::CloseBrace) {
+            loop {
+                let field_name = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        ..
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        ..
+                    }) => name,
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected field name in struct literal".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected field name in struct literal".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+
+                if !self.consume_kind(TokenKind::Colon) {
+                    return Err(ParseError {
+                        message: "Expected ':' after field name in struct literal".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let field_expr = self.parse_expr()?;
+                fields.push((field_name, field_expr));
+
+                if self.consume_comma() {
+                    continue;
+                }
+                if !self.consume_kind(TokenKind::CloseBrace) {
+                    return Err(ParseError {
+                        message: "Missing '}' in struct literal".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                break;
+            }
+        }
+
+        let close_span = self.prev_span();
+        Ok(Expr::StructLiteral {
+            type_name,
+            fields,
+            span: Span {
+                line: type_span.line,
+                col_start: type_span.col_start,
+                col_end: close_span.col_end,
+            },
+        })
     }
 
     fn parse_postfix_expr(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
@@ -2039,6 +2115,7 @@ fn span_of_expr(expr: &Expr) -> Span {
         | Expr::List(_, span)
         | Expr::Index { span, .. }
         | Expr::Member { span, .. }
+        | Expr::StructLiteral { span, .. }
         | Expr::Call { span, .. }
         | Expr::Placeholder(span)
         | Expr::Indirect(_, span)
@@ -2710,6 +2787,56 @@ mod tests {
                 assert!(items.iter().all(|item| matches!(item, Expr::Number(_, _))));
             }
             other => panic!("Expected list expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_typed_struct_literal_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("Point{x:1,y:2}"),
+            Span {
+                line: 1,
+                col_start: 14,
+                col_end: 14,
+            },
+            None,
+        )
+        .expect("struct literal expression should parse");
+
+        match expr {
+            Expr::StructLiteral {
+                type_name, fields, ..
+            } => {
+                assert_eq!(type_name, "Point");
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].0, "x");
+                assert!(matches!(fields[0].1, Expr::Number(_, _)));
+                assert_eq!(fields[1].0, "y");
+                assert!(matches!(fields[1].1, Expr::Number(_, _)));
+            }
+            other => panic!("Expected struct literal expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_struct_literal_followed_by_member_access() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("Point{x:1,y:2}.x"),
+            Span {
+                line: 1,
+                col_start: 16,
+                col_end: 16,
+            },
+            None,
+        )
+        .expect("struct literal member expression should parse");
+
+        match expr {
+            Expr::Member { base, field, .. } => {
+                assert_eq!(field, "x");
+                assert!(matches!(*base, Expr::StructLiteral { .. }));
+            }
+            other => panic!("Expected member expression, got {other:?}"),
         }
     }
 

@@ -234,6 +234,9 @@ impl M65816CpuHandler {
                     || Self::expr_has_unresolved_symbols(index, ctx)
             }
             Expr::Member { base, .. } => Self::expr_has_unresolved_symbols(base, ctx),
+            Expr::StructLiteral { fields, .. } => fields
+                .iter()
+                .any(|(_, value)| Self::expr_has_unresolved_symbols(value, ctx)),
             Expr::Call { args, .. } => args
                 .iter()
                 .any(|arg| Self::expr_has_unresolved_symbols(arg, ctx)),
@@ -282,6 +285,9 @@ impl M65816CpuHandler {
                 Self::expr_has_symbol_references(base) || Self::expr_has_symbol_references(index)
             }
             Expr::Member { base, .. } => Self::expr_has_symbol_references(base),
+            Expr::StructLiteral { fields, .. } => fields
+                .iter()
+                .any(|(_, value)| Self::expr_has_symbol_references(value)),
             Expr::Call { args, .. } => args.iter().any(Self::expr_has_symbol_references),
             Expr::Placeholder(_) => false,
             Expr::Tuple(items, _) => items.iter().any(Self::expr_has_symbol_references),

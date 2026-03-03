@@ -205,7 +205,7 @@ pub(crate) fn evaluate_for_plan(
                     }
                 }
             }
-            AsmValue::Scalar(_) | AsmValue::Struct(_) => {
+            AsmValue::Scalar(_) | AsmValue::Struct(_) | AsmValue::StructInstance(_) => {
                 return Err(AstEvalError {
                     error: AsmError::new(
                         AsmErrorKind::Directive,

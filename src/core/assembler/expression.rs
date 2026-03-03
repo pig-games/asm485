@@ -332,6 +332,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         | Expr::List(_, span)
         | Expr::Index { span, .. }
         | Expr::Member { span, .. }
+        | Expr::StructLiteral { span, .. }
         | Expr::Call { span, .. }
         | Expr::Placeholder(span)
         | Expr::Indirect(_, span)
@@ -365,6 +366,15 @@ pub fn expr_text(expr: &Expr) -> Option<String> {
             Some(format!("{}[{}]", expr_text(base)?, expr_text(index)?))
         }
         Expr::Member { base, field, .. } => Some(format!("{}.{}", expr_text(base)?, field)),
+        Expr::StructLiteral {
+            type_name, fields, ..
+        } => {
+            let mut parts = Vec::with_capacity(fields.len());
+            for (name, value) in fields {
+                parts.push(format!("{name}: {}", expr_text(value)?));
+            }
+            Some(format!("{type_name}{{{}}}", parts.join(", ")))
+        }
         Expr::Call { name, args, .. } => {
             let parts: Vec<_> = args.iter().filter_map(expr_text).collect();
             if parts.len() == args.len() {

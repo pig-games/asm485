@@ -6,6 +6,8 @@
 //! This module introduces non-scalar value shapes used by upcoming repetition
 //! and struct features while preserving the legacy scalar path.
 
+use std::collections::HashMap;
+
 /// Assembly-time value representation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AsmValue {
@@ -17,6 +19,8 @@ pub enum AsmValue {
     List(Vec<i64>),
     /// Struct layout definition.
     Struct(StructDef),
+    /// Struct instance value (field name -> scalar value).
+    StructInstance(StructInstance),
 }
 
 /// Struct definition metadata.
@@ -33,6 +37,13 @@ pub struct StructField {
     pub name: String,
     pub offset: u32,
     pub size: u32,
+}
+
+/// Struct instance value with concrete field payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StructInstance {
+    pub type_name: String,
+    pub fields: HashMap<String, i64>,
 }
 
 /// Construction/evaluation errors for [`AsmValue`].
@@ -127,7 +138,7 @@ impl AsmValue {
 
     pub fn len(&self) -> Option<usize> {
         match self {
-            AsmValue::Scalar(_) | AsmValue::Struct(_) => None,
+            AsmValue::Scalar(_) | AsmValue::Struct(_) | AsmValue::StructInstance(_) => None,
             AsmValue::List(items) => Some(items.len()),
             AsmValue::Range { start, end, step } => Some(range_len(*start, *end, *step)),
         }
@@ -139,7 +150,7 @@ impl AsmValue {
 
     pub fn iter(&self) -> Option<AsmValueIter<'_>> {
         match self {
-            AsmValue::Scalar(_) | AsmValue::Struct(_) => None,
+            AsmValue::Scalar(_) | AsmValue::Struct(_) | AsmValue::StructInstance(_) => None,
             AsmValue::List(items) => Some(AsmValueIter::List(items.iter().copied())),
             AsmValue::Range { start, end, step } => Some(AsmValueIter::Range {
                 current: *start,
@@ -152,7 +163,7 @@ impl AsmValue {
 
     pub fn get(&self, index: usize) -> Option<i64> {
         match self {
-            AsmValue::Scalar(_) | AsmValue::Struct(_) => None,
+            AsmValue::Scalar(_) | AsmValue::Struct(_) | AsmValue::StructInstance(_) => None,
             AsmValue::List(items) => items.get(index).copied(),
             AsmValue::Range { start, end, step } => {
                 let len = range_len(*start, *end, *step);
@@ -176,6 +187,18 @@ impl AsmValue {
                 .iter()
                 .find(|field| field.name == name)
                 .map(|field| field.offset),
+            _ => None,
+        }
+    }
+
+    pub fn field_value(&self, name: &str) -> Option<i64> {
+        match self {
+            AsmValue::StructInstance(instance) => {
+                instance.fields.get(name).copied().or_else(|| {
+                    let lookup = name.to_ascii_uppercase();
+                    instance.fields.get(&lookup).copied()
+                })
+            }
             _ => None,
         }
     }
@@ -203,7 +226,8 @@ fn range_len(start: i64, end: i64, step: i64) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{AsmValue, AsmValueError, StructDef, StructField};
+    use super::{AsmValue, AsmValueError, StructDef, StructField, StructInstance};
+    use std::collections::HashMap;
 
     #[test]
     fn range_construction_normalizes_inclusive_end() {
@@ -289,5 +313,21 @@ mod tests {
         assert_eq!(value.field_offset("x"), Some(0));
         assert_eq!(value.field_offset("y"), Some(1));
         assert_eq!(value.field_offset("z"), None);
+    }
+
+    #[test]
+    fn struct_instance_field_value_lookup_works() {
+        let mut fields = HashMap::new();
+        fields.insert("X".to_string(), 24);
+        fields.insert("Y".to_string(), 50);
+        let value = AsmValue::StructInstance(StructInstance {
+            type_name: "Sprite".to_string(),
+            fields,
+        });
+        assert_eq!(value.field_value("x"), Some(24));
+        assert_eq!(value.field_value("Y"), Some(50));
+        assert_eq!(value.field_value("color"), None);
+        assert_eq!(value.len(), None);
+        assert_eq!(value.get(0), None);
     }
 }

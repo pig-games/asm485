@@ -100,6 +100,10 @@ fn eval_expr_with_depth(
             "Member expression cannot be evaluated as scalar expression",
             *span,
         )),
+        Expr::StructLiteral { span, .. } => Err(EvalError::with_span(
+            "Struct literal cannot be evaluated as scalar expression",
+            *span,
+        )),
         Expr::Call { span, .. } => Err(EvalError::with_span(
             "Call expression cannot be evaluated as scalar expression",
             *span,

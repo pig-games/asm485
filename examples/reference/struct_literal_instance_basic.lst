@@ -1,0 +1,41 @@
+opForge Assembler v0.9.5
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Typed struct literals assigned to const/var symbols with member value access.
+----                                2  .cpu 6502
+----                                3  
+----                                4  Point .struct
+----                                5  x .byte ?
+----                                6  y .byte ?
+----                                7  .endstruct
+----                                8  
+----    EQU 0000                    9  p0 .const Point { x: 24, y: 50 }
+----    EQU 0000                   10  p1 .var Point { x: 40, y: 60 }
+----                               11  
+0000    18                         12  .byte (p0).x
+0001    32                         13  .byte (p0).y
+0002    28                         14  .byte (p1).x
+0003    3C                         15  .byte (p1).y
+----                               16  
+----    EQU 0000                   17  p1 .set Point { x: 41, y: 61 }
+----                               18  
+0004    29                         19  .byte (p1).x
+0005    3D                         20  .byte (p1).y
+
+Lines: 20  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+Point           : 0002 (2)
+Point.x         : 0000 (0)
+Point.y         : 0001 (1)
+p0              : 0000 (0)
+p1              : 0000 (0)
+
+Total memory is 6 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    18 32 28 3C 29 3D

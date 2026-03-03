@@ -543,7 +543,78 @@ impl RuntimeExpressionParser {
             }),
         }?;
 
+        let base = self.parse_struct_literal_if_present(base)?;
         self.parse_postfix_expr(base)
+    }
+
+    fn parse_struct_literal_if_present(&mut self, expr: Expr) -> Result<Expr, ParseError> {
+        let (type_name, type_span) = match &expr {
+            Expr::Identifier(name, span) | Expr::Register(name, span) => (name.clone(), *span),
+            _ => return Ok(expr),
+        };
+        if !self.peek_kind(TokenKind::OpenBrace) {
+            return Ok(expr);
+        }
+        self.index += 1; // '{'
+
+        let mut fields = Vec::new();
+        if !self.consume_kind(TokenKind::CloseBrace) {
+            loop {
+                let field_name = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        ..
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        ..
+                    }) => name,
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected field name in struct literal".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected field name in struct literal".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+
+                if !self.consume_kind(TokenKind::Colon) {
+                    return Err(ParseError {
+                        message: "Expected ':' after field name in struct literal".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let field_expr = self.parse_expr()?;
+                fields.push((field_name, field_expr));
+
+                if self.consume_comma() {
+                    continue;
+                }
+                if !self.consume_kind(TokenKind::CloseBrace) {
+                    return Err(ParseError {
+                        message: "Missing '}' in struct literal".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                break;
+            }
+        }
+
+        let close_span = self.prev_span();
+        Ok(Expr::StructLiteral {
+            type_name,
+            fields,
+            span: Span {
+                line: type_span.line,
+                col_start: type_span.col_start,
+                col_end: close_span.col_end,
+            },
+        })
     }
 
     fn parse_postfix_expr(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
@@ -625,6 +696,10 @@ impl RuntimeExpressionParser {
         false
     }
 
+    fn peek_kind(&self, kind: TokenKind) -> bool {
+        self.peek().is_some_and(|token| token.kind == kind)
+    }
+
     fn match_operator(&mut self, op: OperatorKind) -> bool {
         if let Some(token) = self.peek() {
             if token.kind == TokenKind::Operator(op) {
@@ -686,6 +761,7 @@ fn span_of_expr(expr: &Expr) -> Span {
         | Expr::List(_, span)
         | Expr::Index { span, .. }
         | Expr::Member { span, .. }
+        | Expr::StructLiteral { span, .. }
         | Expr::Call { span, .. }
         | Expr::Placeholder(span)
         | Expr::Indirect(_, span)

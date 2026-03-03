@@ -1726,6 +1726,22 @@ fn runtime_expression_parser_parses_call_with_list_and_placeholder_args() {
 }
 
 #[test]
+fn runtime_expression_parser_parses_struct_literal_expression() {
+    let (tokens, end_span) = tokenize_core_expr_tokens("Point{x:1,y:2}.x", 1);
+    let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+        .parse_expr_from_tokens()
+        .expect("direct runtime parser should parse struct literal");
+
+    match expr {
+        Expr::Member { base, field, .. } => {
+            assert_eq!(field, "x");
+            assert!(matches!(*base, Expr::StructLiteral { .. }));
+        }
+        other => panic!("expected struct-literal member expression, got {other:?}"),
+    }
+}
+
+#[test]
 fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
     let registry = mos6502_family_registry();
 

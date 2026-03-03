@@ -173,7 +173,8 @@ impl<'a> AsmLine<'a> {
                 Ok(
                     value @ (crate::core::AsmValue::List(_)
                     | crate::core::AsmValue::Range { .. }
-                    | crate::core::AsmValue::Struct(_)),
+                    | crate::core::AsmValue::Struct(_)
+                    | crate::core::AsmValue::StructInstance(_)),
                 ) => value,
                 Ok(crate::core::AsmValue::Scalar(_)) | Err(_) => {
                     crate::core::AsmValue::Scalar(i64::from(scalar))

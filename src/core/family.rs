@@ -343,6 +343,9 @@ pub fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> boo
             expr_has_unstable_symbols(base, ctx) || expr_has_unstable_symbols(index, ctx)
         }
         Expr::Member { base, .. } => expr_has_unstable_symbols(base, ctx),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_, value)| expr_has_unstable_symbols(value, ctx)),
         Expr::Call { args, .. } => args.iter().any(|arg| expr_has_unstable_symbols(arg, ctx)),
         Expr::Placeholder(_) => false,
         Expr::Tuple(items, _) => items

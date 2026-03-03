@@ -412,6 +412,9 @@ fn expr_has_symbol_references(expr: &Expr) -> bool {
             expr_has_symbol_references(base) || expr_has_symbol_references(index)
         }
         Expr::Member { base, .. } => expr_has_symbol_references(base),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_, value)| expr_has_symbol_references(value)),
         Expr::Call { args, .. } => args.iter().any(expr_has_symbol_references),
         Expr::Placeholder(_) => false,
         Expr::Tuple(items, _) => items.iter().any(expr_has_symbol_references),

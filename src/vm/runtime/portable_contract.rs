@@ -298,6 +298,11 @@ pub enum PortableAstExpr {
         field: String,
         span: PortableSpan,
     },
+    StructLiteral {
+        type_name: String,
+        fields: Vec<(String, PortableAstExpr)>,
+        span: PortableSpan,
+    },
     Call {
         name: String,
         args: Vec<PortableAstExpr>,
@@ -355,6 +360,18 @@ impl PortableAstExpr {
             Self::Member { base, field, span } => Expr::Member {
                 base: Box::new(base.to_core_expr()),
                 field: field.clone(),
+                span: (*span).into(),
+            },
+            Self::StructLiteral {
+                type_name,
+                fields,
+                span,
+            } => Expr::StructLiteral {
+                type_name: type_name.clone(),
+                fields: fields
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.to_core_expr()))
+                    .collect(),
                 span: (*span).into(),
             },
             Self::Call { name, args, span } => Expr::Call {
@@ -441,6 +458,18 @@ impl PortableAstExpr {
             Expr::Member { base, field, span } => Self::Member {
                 base: Box::new(Self::from_core_expr(base)),
                 field: field.clone(),
+                span: (*span).into(),
+            },
+            Expr::StructLiteral {
+                type_name,
+                fields,
+                span,
+            } => Self::StructLiteral {
+                type_name: type_name.clone(),
+                fields: fields
+                    .iter()
+                    .map(|(name, value)| (name.clone(), Self::from_core_expr(value)))
+                    .collect(),
                 span: (*span).into(),
             },
             Expr::Call { name, args, span } => Self::Call {

@@ -1024,7 +1024,7 @@ impl<'a> AsmLine<'a> {
         match value {
             AsmValue::Scalar(value) => *value as u32,
             AsmValue::Struct(def) => def.size,
-            AsmValue::List(_) | AsmValue::Range { .. } => 0,
+            AsmValue::List(_) | AsmValue::Range { .. } | AsmValue::StructInstance(_) => 0,
         }
     }
 
@@ -1032,6 +1032,32 @@ impl<'a> AsmLine<'a> {
         match value {
             AsmValue::Scalar(_) => self.clear_value_symbol(name),
             _ => self.set_value_symbol(name, value.clone()),
+        }
+    }
+
+    fn assign_op_text(op: AssignOp) -> &'static str {
+        match op {
+            AssignOp::Const => "=",
+            AssignOp::Var => ":=",
+            AssignOp::VarIfUndef => ":?=",
+            AssignOp::Add => "+=",
+            AssignOp::Sub => "-=",
+            AssignOp::Mul => "*=",
+            AssignOp::Div => "/=",
+            AssignOp::Mod => "%=",
+            AssignOp::Pow => "^=",
+            AssignOp::BitOr => "|=",
+            AssignOp::BitXor => "^^=",
+            AssignOp::BitAnd => "&=",
+            AssignOp::LogicOr => "||=",
+            AssignOp::LogicAnd => "&&=",
+            AssignOp::Shl => "<<=",
+            AssignOp::Shr => ">>=",
+            AssignOp::Concat => "..=",
+            AssignOp::Min => "<?=",
+            AssignOp::Max => ">?=",
+            AssignOp::Repeat => "x=",
+            AssignOp::Member => ".=",
         }
     }
 
@@ -1887,7 +1913,8 @@ impl<'a> AsmLine<'a> {
                         Ok(
                             value @ (AsmValue::List(_)
                             | AsmValue::Range { .. }
-                            | AsmValue::Struct(_)),
+                            | AsmValue::Struct(_)
+                            | AsmValue::StructInstance(_)),
                         ) => value,
                         Ok(AsmValue::Scalar(_)) | Err(_) => AsmValue::Scalar(i64::from(scalar)),
                     },
@@ -1994,7 +2021,21 @@ impl<'a> AsmLine<'a> {
             );
         }
 
-        if self.lookup_value_symbol(&target).is_some() {
+        if let Some(value_symbol) = self.lookup_value_symbol(&target) {
+            if matches!(value_symbol, AsmValue::StructInstance(_)) {
+                let op_text = Self::assign_op_text(op).trim();
+                let message = format!(
+                    "operator '{op_text}' requires scalar symbol, found struct instance '{}'",
+                    label.name
+                );
+                return self.failure_at(
+                    LineStatus::Error,
+                    AsmErrorKind::Symbol,
+                    &message,
+                    Some(&label.name),
+                    Some(1),
+                );
+            }
             return self.failure_at(
                 LineStatus::Error,
                 AsmErrorKind::Symbol,
@@ -2259,6 +2300,9 @@ impl<'a> AsmLine<'a> {
                 .find_private_symbol_in_expr(base)
                 .or_else(|| self.find_private_symbol_in_expr(index)),
             Expr::Member { base, .. } => self.find_private_symbol_in_expr(base),
+            Expr::StructLiteral { fields, .. } => fields
+                .iter()
+                .find_map(|(_, value)| self.find_private_symbol_in_expr(value)),
             Expr::Call { args, .. } => args
                 .iter()
                 .find_map(|arg| self.find_private_symbol_in_expr(arg)),

@@ -501,6 +501,9 @@ Typed struct literals create field-value instances of a previously defined struc
 ```asm
 player0 .const SpriteData { x: 24, y: 50, color: 1, flags: $00 }
 player1 .var   SpriteData { x: 40, y: 50, color: 2, flags: $00 }
+
+        .byte (player0).x
+        .byte (player1).color
 ```
 
 Syntax:
@@ -519,8 +522,26 @@ Rules:
 - Struct instances are assignable using `.const`, `.var`, `.set`, `=`, and `:=`.
 - Member access is type-sensitive:
   - `SpriteData.color` resolves to field offset.
-  - `player0.color` resolves to the instance field value.
+  - `(player0).color` resolves to the instance field value.
 - Scalar compound assignment operators (`+=`, `-=`, etc.) reject struct-instance symbols.
+
+Additional examples:
+
+```asm
+; Assignment syntax + reassignment
+p := SpriteData { x: 8, y: 16, color: 3, flags: $80 }
+p .set SpriteData { x: 9, y: 16, color: 3, flags: $80 }
+
+        .byte (p).x            ; 9
+        .byte SpriteData.x     ; 0 (offset)
+```
+
+```asm
+; Validation failures
+bad1 .var SpriteData { x: 1, y: 2 }                    ; missing color/flags
+bad2 .var SpriteData { x: 1, y: 2, color: 3, z: 4 }    ; unknown field z
+bad3 .var MissingType { x: 1 }                         ; unknown struct type
+```
 
 ### 8.5 Struct Nesting (Future)
 
@@ -913,8 +934,10 @@ flags       .byte ?
 player0 .const SpriteData { x: 24, y: 50, color: 1, flags: $00 }
 player1 .var   SpriteData { x: 40, y: 50, color: 2, flags: $00 }
 
-        lda #player0.x       ; 24 (instance value)
-        lda #player1.color   ; 2  (instance value)
+        lda #(player0).x     ; 24 (instance value)
+        lda #(player1).color ; 2  (instance value)
+        player1 .set SpriteData { x: 41, y: 50, color: 3, flags: $00 }
+        lda #(player1).x     ; 41 after reassignment
         lda sprites[3].x     ; address + struct offset (existing behavior)
 ```
 

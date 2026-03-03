@@ -7,7 +7,8 @@
 //! the `AssemblerContext` trait implementation.
 
 use super::*;
-use crate::core::{AsmValue, AsmValueError};
+use crate::core::{AsmValue, AsmValueError, StructDef, StructInstance};
+use std::collections::HashMap;
 
 impl<'a> AsmLine<'a> {
     pub(super) fn eval_value_ast(&self, expr: &Expr) -> Result<AsmValue, AstEvalError> {
@@ -97,9 +98,99 @@ impl<'a> AsmLine<'a> {
                     }),
                 }
             }
+            Expr::StructLiteral {
+                type_name,
+                fields,
+                span,
+            } => {
+                let def = self.resolve_struct_def_for_literal(type_name, *span)?;
+                let mut values: HashMap<String, i64> = HashMap::new();
+
+                for (field_name, field_expr) in fields {
+                    let resolved_field = match def
+                        .fields
+                        .iter()
+                        .find(|candidate| candidate.name.eq_ignore_ascii_case(field_name))
+                    {
+                        Some(field) => field.name.clone(),
+                        None => {
+                            return Err(AstEvalError {
+                                error: AsmError::new(
+                                    AsmErrorKind::Expression,
+                                    &format!(
+                                        "unknown field '{}' in struct literal for '{}'",
+                                        field_name, def.name
+                                    ),
+                                    None,
+                                ),
+                                span: *span,
+                            })
+                        }
+                    };
+                    let field_key = resolved_field.to_ascii_uppercase();
+                    if values.contains_key(&field_key) {
+                        return Err(AstEvalError {
+                            error: AsmError::new(
+                                AsmErrorKind::Expression,
+                                &format!(
+                                    "duplicate field '{}' in struct literal for '{}'",
+                                    resolved_field, def.name
+                                ),
+                                None,
+                            ),
+                            span: *span,
+                        });
+                    }
+                    let field_value = i64::from(self.eval_expr_ast(field_expr)?);
+                    values.insert(field_key, field_value);
+                }
+
+                for required in &def.fields {
+                    let required_key = required.name.to_ascii_uppercase();
+                    if !values.contains_key(&required_key) {
+                        return Err(AstEvalError {
+                            error: AsmError::new(
+                                AsmErrorKind::Expression,
+                                &format!(
+                                    "missing required field '{}' in struct literal for '{}'",
+                                    required.name, def.name
+                                ),
+                                None,
+                            ),
+                            span: *span,
+                        });
+                    }
+                }
+
+                Ok(AsmValue::StructInstance(StructInstance {
+                    type_name: def.name,
+                    fields: values,
+                }))
+            }
             Expr::Member { base, field, span } => {
                 if let Expr::Identifier(name, name_span) | Expr::Register(name, name_span) = &**base
                 {
+                    if let Some(full_name) = self.resolve_scoped_value_name(name) {
+                        if let Some(value) = self.lookup_value_symbol(&full_name) {
+                            if let Some(field_value) = value.field_value(field) {
+                                return Ok(AsmValue::Scalar(field_value));
+                            }
+                            if let AsmValue::StructInstance(instance) = value {
+                                return Err(AstEvalError {
+                                    error: AsmError::new(
+                                        AsmErrorKind::Expression,
+                                        &format!(
+                                            "struct '{}' has no field '{}'",
+                                            instance.type_name, field
+                                        ),
+                                        None,
+                                    ),
+                                    span: *span,
+                                });
+                            }
+                        }
+                    }
+
                     let scoped_name = match self.resolve_scoped_name(name) {
                         Ok(Some(full)) => full,
                         Ok(None) => name.clone(),
@@ -162,6 +253,23 @@ impl<'a> AsmLine<'a> {
                                 error: AsmError::new(
                                     AsmErrorKind::Expression,
                                     &format!("struct '{}' has no field '{}'", def.name, field),
+                                    None,
+                                ),
+                                span: *span,
+                            })
+                        }
+                    }
+                    AsmValue::StructInstance(instance) => {
+                        if let Some(value) = instance.fields.get(&field.to_ascii_uppercase()) {
+                            Ok(AsmValue::Scalar(*value))
+                        } else {
+                            Err(AstEvalError {
+                                error: AsmError::new(
+                                    AsmErrorKind::Expression,
+                                    &format!(
+                                        "struct '{}' has no field '{}'",
+                                        instance.type_name, field
+                                    ),
                                     None,
                                 ),
                                 span: *span,
@@ -258,6 +366,38 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    fn resolve_struct_def_for_literal(
+        &self,
+        type_name: &str,
+        span: Span,
+    ) -> Result<StructDef, AstEvalError> {
+        if let Some(full_name) = self.resolve_scoped_value_name(type_name) {
+            if let Some(AsmValue::Struct(def)) = self.lookup_value_symbol(&full_name) {
+                return Ok(def.clone());
+            }
+        }
+
+        let scoped_name = match self.resolve_scoped_name(type_name) {
+            Ok(Some(full)) => full,
+            Ok(None) => type_name.to_string(),
+            Err(err) => return Err(AstEvalError { error: err, span }),
+        };
+        if let Some(def) = self.struct_table.get(&scoped_name) {
+            return Ok(def.clone());
+        }
+        if let Some(AsmValue::Struct(def)) = self.lookup_value_symbol(&scoped_name) {
+            return Ok(def.clone());
+        }
+        Err(AstEvalError {
+            error: AsmError::new(
+                AsmErrorKind::Expression,
+                &format!("unknown struct type '{type_name}' for struct literal"),
+                None,
+            ),
+            span,
+        })
+    }
+
     pub(super) fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
         #[cfg(test)]
         if HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.get()) {
@@ -289,6 +429,9 @@ impl<'a> AsmLine<'a> {
                         }
                         Some(AsmValue::Struct(_)) => {
                             "Struct cannot be evaluated as scalar expression"
+                        }
+                        Some(AsmValue::StructInstance(_)) => {
+                            "Struct instance cannot be evaluated as scalar expression"
                         }
                         _ => "List cannot be evaluated as scalar expression",
                     };
@@ -331,7 +474,10 @@ impl<'a> AsmLine<'a> {
                 ),
                 span: *span,
             }),
-            Expr::Index { .. } | Expr::Member { .. } | Expr::Call { .. } => {
+            Expr::Index { .. }
+            | Expr::Member { .. }
+            | Expr::StructLiteral { .. }
+            | Expr::Call { .. } => {
                 let value = self.eval_value_ast(expr)?;
                 match value {
                     AsmValue::Scalar(value) => Ok(value as u32),
@@ -355,6 +501,14 @@ impl<'a> AsmLine<'a> {
                         error: AsmError::new(
                             AsmErrorKind::Expression,
                             "Struct cannot be evaluated as scalar expression",
+                            None,
+                        ),
+                        span: expr_span(expr),
+                    }),
+                    AsmValue::StructInstance(_) => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "Struct instance cannot be evaluated as scalar expression",
                             None,
                         ),
                         span: expr_span(expr),
@@ -588,7 +742,11 @@ impl<'a> AssemblerContext for AsmLine<'a> {
 impl<'a> AsmLine<'a> {
     fn expr_requires_host_eval(expr: &Expr) -> bool {
         match expr {
-            Expr::List(_, _) | Expr::Index { .. } | Expr::Member { .. } | Expr::Call { .. } => true,
+            Expr::List(_, _)
+            | Expr::Index { .. }
+            | Expr::Member { .. }
+            | Expr::StructLiteral { .. }
+            | Expr::Call { .. } => true,
             Expr::Range { .. } => true,
             Expr::Indirect(inner, _)
             | Expr::IndirectLong(inner, _)

@@ -270,6 +270,76 @@ fn var_symbol_can_store_struct_type_for_member_access() {
 }
 
 #[test]
+fn struct_literal_instances_support_const_var_set_and_member_access() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "p0 .const Point { x: 24, y: 50 }",
+        "p1 .var Point { x: 40, y: 60 }",
+        ".byte (p0).x, (p1).y",
+        "p1 .set Point { x: 41, y: 61 }",
+        ".byte (p1).x, (p1).y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 24), (1, 60), (2, 41), (3, 61)]);
+}
+
+#[test]
+fn assignment_syntax_var_can_store_struct_literal_instance() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "p := Point { x: 1, y: 2 }",
+        ".byte (p).x, (p).y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 1), (1, 2)]);
+}
+
+#[test]
+fn struct_literal_reports_validation_errors() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(
+        process_line(&mut asm, "Point .struct", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "x .byte ?", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "y .byte ?", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".endstruct", 0, 1), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "bad_unknown .var Point { z: 1, y: 2 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("unknown field 'z' in struct literal for 'Point'"));
+
+    let status = process_line(&mut asm, "bad_duplicate .var Point { x: 1, x: 2 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("duplicate field 'x' in struct literal for 'Point'"));
+
+    let status = process_line(&mut asm, "bad_missing .var Point { x: 1 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("missing required field 'y' in struct literal for 'Point'"));
+
+    let status = process_line(&mut asm, "bad_type .var MissingType { x: 1, y: 2 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("unknown struct type 'MissingType' for struct literal"));
+}
+
+#[test]
 fn assignment_operators_reject_non_scalar_symbols() {
     let mut symbols = SymbolTable::new();
     let registry = default_registry();
@@ -283,6 +353,30 @@ fn assignment_operators_reject_non_scalar_symbols() {
     assert!(asm
         .error_message()
         .contains("assignment operators require scalar symbols"));
+}
+
+#[test]
+fn assignment_operators_reject_struct_instance_symbols() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(
+        process_line(&mut asm, "Point .struct", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "x .byte ?", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".endstruct", 0, 1), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, "p .var Point { x: 1 }", 0, 1),
+        LineStatus::DirEqu
+    );
+
+    let status = process_line(&mut asm, "p += 1", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("operator '+=' requires scalar symbol, found struct instance 'p'"));
 }
 
 #[test]
@@ -1083,11 +1177,31 @@ fn run_passes(lines: &[&str]) -> Assembler {
     let mut assembler = Assembler::new();
     let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
     let pass1 = assembler.pass1(&lines);
-    assert_eq!(pass1.errors, 0, "pass1 should succeed");
+    assert_eq!(
+        pass1.errors,
+        0,
+        "pass1 should succeed: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .filter(|diag| diag.severity == Severity::Error)
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
     let mut listing_out = Vec::new();
     let mut listing = ListingWriter::new(&mut listing_out, false);
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-    assert_eq!(pass2.errors, 0, "pass2 should succeed");
+    assert_eq!(
+        pass2.errors,
+        0,
+        "pass2 should succeed: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .filter(|diag| diag.severity == Severity::Error)
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
     assembler
 }
 
