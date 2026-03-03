@@ -3,7 +3,7 @@
 This document describes the opForge assembler language, directives, and tooling.
 It follows a chapter layout similar to 64tass. Sections marked **Planned** describe 
 features that are not implemented yet.
-This manual is validated against opForge CLI `0.9.3` (crate `0.9.3`).
+This manual is validated against opForge CLI `0.9.5` (crate `0.9.5`).
 
 ## 1. Introduction
 
@@ -99,9 +99,24 @@ The ternary operator `?:` is supported with standard precedence rules:
 flag ? value_if_true : value_if_false
 ```
 
-### 3.8 Planned data types
+### 3.8 Compound values
 
-Planned (not implemented yet): bit strings, floating-point values, lists,
+opForge supports compile-time compound values in expressions:
+- Ranges: `start..end`, `start..=end`, optional step `:step`.
+- Lists: `{expr, expr, ...}`.
+- Indexing: `value[n]` for range/list values.
+- Member access: `value.field` when a struct type is associated with the value.
+- Builtin length: `.len(expr)` for range/list values.
+
+Examples:
+
+```
+vals = {1, 2, 3}
+.byte vals[1]
+.byte .len(0..=6:2)
+```
+
+Still planned (not implemented yet): bit strings, floating-point values,
 tuples, code blocks, and type values.
 
 ## 4. Compiler directives
@@ -237,6 +252,69 @@ Compound assignment operators:
 .elseif expr
 .else
 .endif
+```
+
+### 4.5.1 Structured repetition
+
+opForge supports structured loop directives in assembler passes:
+
+```
+.for 4
+    .byte $ff
+.endfor
+
+.for n in {1, 3, 5}
+    .byte n
+.endfor
+
+.while expr
+    ; body
+.endwhile
+```
+
+Scoped repetition variants create per-iteration repeat scopes:
+
+```
+items .bfor i in 0..=2
+value .byte i
+.endfor
+
+.bwhile expr
+    ; body
+.endwhile
+```
+
+Notes:
+- Labels inside unscoped `.for`/`.while` bodies are rejected (use `.bfor`/`.bwhile`).
+- Labels on `.endfor`/`.endwhile` are rejected.
+- Loop iteration counts must be stable between pass1 and pass2.
+- Loop execution is guarded by `--max-loop-iterations` (default `65536`, env override `OPFORGE_MAX_LOOP_ITERATIONS`).
+
+### 4.5.2 Struct definitions
+
+Struct definitions declare field offsets and total size:
+
+```
+Point .struct
+x .byte ?
+y .byte ?
+.endstruct
+```
+
+Generated symbols:
+- `Point`: struct size in bytes.
+- `Point.x`, `Point.y`: field offsets.
+
+When a labeled `.bfor` has inferred/annotated struct layout, indexed member access is available:
+
+```
+points .bfor i in 0..=1
+x .byte i
+y .byte i + 10
+.endfor
+
+.word points[1].x
+.word points[1].y
 ```
 
 ### 4.10 Modules and metadata
@@ -770,6 +848,7 @@ Other options:
 - `--print-capabilities`: print deterministic capability metadata and exit.
 - `--print-cpusupport`: print deterministic CPU support metadata and exit.
 - `--pp-macro-depth <N>`: maximum preprocessor macro expansion depth (default `64`, minimum `1`).
+- `--max-loop-iterations <N>`: maximum `.for`/`.while` iterations before emitting an error (default `65536`, minimum `1`).
 - `--input-asm-ext <EXT>`: additional accepted source-file extension for direct file inputs.
 - `--input-inc-ext <EXT>`: additional accepted root-module extension for folder inputs.
 - `-h, --help`: print help.
@@ -879,6 +958,8 @@ Instruction mnemonics are selected by `.cpu`:
 .byte  .db  .word  .dw  .long  .text  .null  .ptext  .ds  .emit  .res  .fill
 .const  .var  .set
 .if  .elseif  .else  .endif  .match  .case  .default  .endmatch
+.for  .bfor  .endfor  .while  .bwhile  .endwhile
+.struct  .endstruct
 .ifdef  .ifndef  .include
 .module  .endmodule  .use  .pub  .priv  .block  .endblock  .bend  .namespace  .endn  .endnamespace
 .macro  .endmacro  .endm  .segment  .endsegment  .ends  .statement  .endstatement

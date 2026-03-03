@@ -14,6 +14,8 @@ For single-input builds, opForge can default to list+hex output when an output b
 
 It also supports patterned `.statement` definitions for custom statement syntax, with typed captures using
 `type:name` and quoted literal commas (use `","`). Statement labels may include dots (e.g. `move.b`).
+Recent directive/expression additions include range/list values, `.len(...)`, `.for/.bfor/.while/.bwhile`,
+and `.struct/.endstruct`.
 
 For full documentation on features and syntax, read the [opForge Reference Manual](documentation/opForge-reference-manual.md).
 For VM host/boundary semantics, see [VM Boundary & Protocol Specification (v1)](documentation/vm-boundary-protocol-v1.md).
@@ -41,6 +43,26 @@ Generate binary output from emitted address range:
     opForge -b -i examples/helloworld.asm
 
 For full syntax and directive semantics, see the [reference manual](documentation/opForge-reference-manual.md).
+
+## Ranges, lists, and repetition
+
+opForge now supports compile-time ranges/lists and structured repetition:
+
+```asm
+vals = {1, 2, 3}
+.for n in 0..=4:2
+    .byte vals[n/2]
+.endfor
+```
+
+Scoped repetition (`.bfor`, `.bwhile`) allows per-iteration local labels and labeled indexed access (`label[n]`, `label[n].field` when struct-typed).
+
+Reference examples:
+- `examples/ranges_lists_basic.asm`
+- `examples/for_counter_basic.asm`
+- `examples/for_collection_basic.asm`
+- `examples/bfor_labeled_struct_basic.asm`
+- `examples/while_basic.asm`
 
 ## Architecture overview
 
@@ -232,6 +254,7 @@ Arguments:
     --print-capabilities         Print deterministic capability metadata and exit.
     --print-cpusupport           Print deterministic CPU support metadata and exit.
     --pp-macro-depth <N>         Maximum preprocessor macro expansion depth (default 64, minimum 1).
+    --max-loop-iterations <N>    Maximum .for/.while iterations before reporting an error (default 65536, minimum 1).
     --input-asm-ext <EXT>        Additional accepted source-file extension for direct file inputs.
     --input-inc-ext <EXT>        Additional accepted root-module extension for folder inputs.
     -h, --help                   Print help.

@@ -1,0 +1,5 @@
+Assembly failed:
+3: ERROR [asm202]
+    3 | item .byte 1
+^
+ERROR: label 'item' not allowed inside .for (use .bfor for scoped repetition)

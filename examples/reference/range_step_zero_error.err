@@ -1,0 +1,5 @@
+Assembly failed:
+2: ERROR [asm401]
+    2 | .byte .len(0..=4:0)
+      ^
+ERROR: range step must be non-zero

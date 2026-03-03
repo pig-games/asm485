@@ -1,0 +1,36 @@
+opForge Assembler v0.9.5
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Ranges, lists, indexing, and .len.
+----                                2  .cpu 6502
+----                                3  
+----                                4  values = {2, 4, 6, 8}
+    4 | values = {2, 4, 6, 8}
+         ^
+ERROR: List cannot be evaluated as scalar expression
+----                                5  
+----                                6  .byte .len(values)
+    6 | .byte .len(values)
+      ^
+ERROR: Label not found: values
+----                                7  .byte values[2]
+    7 | .byte values[2]
+      ^
+ERROR: Label not found: values
+----                                8  
+0000    00                         10      .byte n
+0001    03                         10      .byte n
+0002    06                         10      .byte n
+
+Lines: 11  Errors: 3  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 3 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    00 03 06
