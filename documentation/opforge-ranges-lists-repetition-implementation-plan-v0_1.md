@@ -18,6 +18,7 @@ It covers:
 6. Labeled repetition outputs (`label[n]`, optional struct annotation)
 7. `.len(...)` builtin
 8. Tests, examples, references, and docs sync
+9. Formatter and LSP support for new notation and semantics
 
 ## 2. Locked Scope and Decisions
 
@@ -103,6 +104,17 @@ Primary files:
 16. `README.md`
 17. `CHANGELOG.md`
 18. `examples/*.asm` and `examples/reference/*`
+19. `src/formatter/surface_tokenizer.rs`
+20. `src/formatter/surface_parser.rs`
+21. `src/formatter/planner.rs`
+22. `src/formatter/renderer.rs`
+23. `src/formatter/fixture_tests.rs`
+24. `src/lsp/document_symbols.rs`
+25. `src/lsp/definition.rs`
+26. `src/lsp/hover.rs`
+27. `src/lsp/completion.rs`
+28. `src/lsp/diagnostics.rs`
+29. `src/lsp/validation_runner.rs`
 
 Expected new files:
 
@@ -391,6 +403,38 @@ Exit criteria:
 Suggested commit:
 `docs/examples: add ranges-lists-repetition examples, references, and manual updates`
 
+## Phase 9: Formatter and LSP Parity for New Syntax and Semantics
+
+Objectives:
+
+1. Ensure formatter understands and preserves/normalizes the new syntax safely.
+2. Ensure LSP semantic features resolve the new constructs consistently with assembler behavior.
+
+Tasks:
+
+1. Update formatter surface tokenization/parsing for:
+`..`, `..=`, `:step`, list literals, index/member chains, and `.for/.bfor/.while/.bwhile/.struct` block directives.
+2. Update formatter planner/renderer so formatting remains idempotent for new constructs and block layout remains stable.
+3. Add/extend formatter fixtures for:
+range/list expressions, `.len(...)`, index/member expressions, nested repetition directives, and struct blocks.
+4. Verify formatter semantic token projection preservation tests for range/list/repetition/member notation.
+5. Extend LSP diagnostics path so parse/eval diagnostics for new notation are surfaced with stable spans.
+6. Extend LSP hover/definition/symbol extraction behavior for:
+loop variables, indexed labeled repetition symbols (`label[n]`), and struct field member access (`label[n].field`).
+7. Extend LSP completion context handling for `.for/.while/.struct` and member/index expression contexts where supported.
+8. Add LSP regression/integration tests covering dialect-sensitive and VM-only execution combinations for impacted semantics.
+9. Confirm formatter and LSP behavior parity against assembler diagnostics on the same source fixtures.
+
+Exit criteria:
+
+1. Formatter fixture snapshots and idempotence tests pass with intentional outputs only.
+2. LSP validation/integration tests for new notation pass.
+3. Assembler vs LSP diagnostics are consistent for the new syntax on shared fixtures.
+4. No regressions in existing formatter/LSP scenarios.
+
+Suggested commit:
+`feat(tooling): add formatter and lsp support for ranges/lists/repetition semantics`
+
 ## 7. Required Test Matrix
 
 Minimum required tests to add or update:
@@ -422,6 +466,10 @@ per-iteration label isolation and labeled repetition indexing.
 8. Example/reference tests:
 `examples_match_reference_outputs`,
 `project_root_example_matches_reference_outputs`.
+9. Formatter tests:
+fixture snapshots, idempotence, and semantic token projection for range/list/repetition/member syntax.
+10. LSP tests:
+diagnostics, hover, definition, completion, and document symbols for new syntax/semantics.
 
 ## 8. Diagnostics Contract (must match)
 
@@ -448,7 +496,7 @@ Implement and test these messages (exact text or stable equivalent):
 
 All must be true:
 
-1. All Phase 1-8 objectives are completed.
+1. All Phase 1-9 objectives are completed.
 2. `cargo fmt --all`, `cargo clippy -- -D warnings`, `cargo audit`, and `make test` pass.
 3. CI matrix succeeds for all supported build/runtime combinations, including VM-only variants, by passing:
 `make ci-core`,
@@ -472,3 +520,4 @@ All must be true:
 7. `feat(loop): add .while/.bwhile and configurable max loop iteration guard`
 8. `fix(integration): wire repetition/value features through macro/formatter/runtime compatibility paths`
 9. `docs/examples: add ranges-lists-repetition examples, references, and manual updates`
+10. `feat(tooling): add formatter and lsp support for ranges/lists/repetition semantics`
