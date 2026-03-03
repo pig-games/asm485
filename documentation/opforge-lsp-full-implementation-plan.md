@@ -6,7 +6,16 @@ Baseline branch state: `codex/opforge-lsp` after commits:
 - `8acd744` (`test(lsp): add client-perspective integration harness`)
 - `a20257b` (`test(lsp): expand client-perspective acceptance coverage`)
 
-Primary gap to close: current LSP works end-to-end, but several user-facing behaviors still provide thin/placeholder-grade symbol intelligence instead of rich semantic results.
+Status: historical planning snapshot.
+Current status (2026-03-03, branch `codex/ranges-lists-repetition-plan-v0_1`):
+- semantic symbol extraction/indexing is implemented;
+- completion/hover/definition responses include semantic metadata;
+- member-aware lookup/completion for struct/repetition dotted/indexed access is implemented;
+- integration coverage exists for member-aware completion/hover/definition.
+
+Primary remaining gaps versus this original plan:
+- true async validation cancellation lane is still open;
+- explicit dialect-specific LSP parity lane remains partial.
 
 ---
 
@@ -49,8 +58,6 @@ This plan defines “full” as all of the following:
 - Client-perspective integration tests and acceptance trace matrix.
 
 ### Known deficits to resolve
-- Symbol info richness is low in hover/completion/definition payloads.
-- Symbol model is lightweight and not yet semantic enough (scope/value/visibility depth).
 - Validation lane is synchronous in-session; cancellation semantics are only partial.
 - Dialect-specific LSP parity assertions are incomplete.
 

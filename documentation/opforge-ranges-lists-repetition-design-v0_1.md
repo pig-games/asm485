@@ -1,7 +1,7 @@
 # opForge Design: Ranges, Lists, and Repetition Constructs — v0.1
 
-**Status:** Proposal  
-**Date:** 2026-03-02
+**Status:** Implemented design record (v0.1 scope completed on branch `codex/ranges-lists-repetition-plan-v0_1`)  
+**Date:** 2026-03-03
 
 ---
 

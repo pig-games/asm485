@@ -697,7 +697,9 @@ Alternate directive-first form:
 
 ### 5.4 Repetition
 
-Planned (not implemented yet): repeat/loop-style directives.
+Assembler repetition directives are implemented in Section 4.5.1
+(`.for`, `.bfor`, `.while`, `.bwhile` with `.endfor`/`.endwhile`).
+Additional macro-preprocessor repetition forms are not implemented in v0.9.x.
 
 ### 5.5 Statement patterns (`.statement`)
 
