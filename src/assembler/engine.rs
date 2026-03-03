@@ -470,9 +470,63 @@ impl Assembler {
             let parsed_ast =
                 super::repetition::parse_line_ast_for_repetition(asm_line, src, line_num).ok();
             if let Some(ast) = parsed_ast {
-                if let Some(repeat_kind) = unscoped_repeat_kind {
-                    if let Some(label) = super::repetition::line_label(&ast) {
-                        let message = match repeat_kind {
+                let statement_parts = super::repetition::statement_parts(&ast);
+
+                if let Some((_, ref mnemonic, _)) = statement_parts {
+                    if asm_line.cond_stack.skipping() {
+                        if super::repetition::is_for_like_directive_name(mnemonic) {
+                            let Some(end_idx) = super::repetition::find_matching_endfor(
+                                lines,
+                                asm_line,
+                                idx.saturating_add(1),
+                                end_idx_exclusive,
+                            ) else {
+                                let message =
+                                    format!("unterminated {mnemonic} (opened at line {line_num})");
+                                diagnostics.push(Diagnostic::new(
+                                    line_num,
+                                    Severity::Error,
+                                    AsmError::new(AsmErrorKind::Directive, &message, None),
+                                ));
+                                counts.errors += 1;
+                                return;
+                            };
+                            idx = end_idx.saturating_add(1);
+                            continue;
+                        }
+                        if super::repetition::is_while_like_directive_name(mnemonic) {
+                            let Some(end_idx) = super::repetition::find_matching_endwhile(
+                                lines,
+                                asm_line,
+                                idx.saturating_add(1),
+                                end_idx_exclusive,
+                            ) else {
+                                let message =
+                                    format!("unterminated {mnemonic} (opened at line {line_num})");
+                                diagnostics.push(Diagnostic::new(
+                                    line_num,
+                                    Severity::Error,
+                                    AsmError::new(AsmErrorKind::Directive, &message, None),
+                                ));
+                                counts.errors += 1;
+                                return;
+                            };
+                            idx = end_idx.saturating_add(1);
+                            continue;
+                        }
+                        if super::repetition::is_endfor_directive_name(mnemonic)
+                            || super::repetition::is_endwhile_directive_name(mnemonic)
+                        {
+                            idx = idx.saturating_add(1);
+                            continue;
+                        }
+                    }
+                }
+
+                if !asm_line.cond_stack.skipping() {
+                    if let Some(repeat_kind) = unscoped_repeat_kind {
+                        if let Some(label) = super::repetition::line_label(&ast) {
+                            let message = match repeat_kind {
                             UnscopedRepeatKind::For => format!(
                                 "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
                                 label.name
@@ -482,22 +536,22 @@ impl Assembler {
                                 label.name
                             ),
                         };
-                        diagnostics.push(
-                            Diagnostic::new(
-                                line_num,
-                                Severity::Error,
-                                AsmError::new(AsmErrorKind::Directive, &message, None),
-                            )
-                            .with_column(Some(label.span.col_start)),
-                        );
-                        counts.errors += 1;
-                        idx = idx.saturating_add(1);
-                        continue;
+                            diagnostics.push(
+                                Diagnostic::new(
+                                    line_num,
+                                    Severity::Error,
+                                    AsmError::new(AsmErrorKind::Directive, &message, None),
+                                )
+                                .with_column(Some(label.span.col_start)),
+                            );
+                            counts.errors += 1;
+                            idx = idx.saturating_add(1);
+                            continue;
+                        }
                     }
                 }
 
-                if let Some((label, mnemonic, operands)) = super::repetition::statement_parts(&ast)
-                {
+                if let Some((label, mnemonic, operands)) = statement_parts {
                     if super::repetition::is_endfor_directive_name(&mnemonic)
                         || super::repetition::is_endwhile_directive_name(&mnemonic)
                     {
@@ -809,9 +863,67 @@ impl Assembler {
             let parsed_ast =
                 super::repetition::parse_line_ast_for_repetition(asm_line, src, line_num).ok();
             if let Some(ast) = parsed_ast {
-                if let Some(repeat_kind) = unscoped_repeat_kind {
-                    if let Some(label) = super::repetition::line_label(&ast) {
-                        let message = match repeat_kind {
+                let statement_parts = super::repetition::statement_parts(&ast);
+
+                if let Some((_, ref mnemonic, _)) = statement_parts {
+                    if asm_line.cond_stack.skipping() {
+                        if super::repetition::is_for_like_directive_name(mnemonic) {
+                            let Some(end_idx) = super::repetition::find_matching_endfor(
+                                lines,
+                                asm_line,
+                                idx.saturating_add(1),
+                                end_idx_exclusive,
+                            ) else {
+                                let message =
+                                    format!("unterminated {mnemonic} (opened at line {line_num})");
+                                let diagnostic = Diagnostic::new(
+                                    line_num,
+                                    Severity::Error,
+                                    AsmError::new(AsmErrorKind::Directive, &message, None),
+                                );
+                                diagnostics.push(diagnostic.clone());
+                                listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                                counts.errors += 1;
+                                return Ok(());
+                            };
+                            idx = end_idx.saturating_add(1);
+                            continue;
+                        }
+                        if super::repetition::is_while_like_directive_name(mnemonic) {
+                            let Some(end_idx) = super::repetition::find_matching_endwhile(
+                                lines,
+                                asm_line,
+                                idx.saturating_add(1),
+                                end_idx_exclusive,
+                            ) else {
+                                let message =
+                                    format!("unterminated {mnemonic} (opened at line {line_num})");
+                                let diagnostic = Diagnostic::new(
+                                    line_num,
+                                    Severity::Error,
+                                    AsmError::new(AsmErrorKind::Directive, &message, None),
+                                );
+                                diagnostics.push(diagnostic.clone());
+                                listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                                counts.errors += 1;
+                                return Ok(());
+                            };
+                            idx = end_idx.saturating_add(1);
+                            continue;
+                        }
+                        if super::repetition::is_endfor_directive_name(mnemonic)
+                            || super::repetition::is_endwhile_directive_name(mnemonic)
+                        {
+                            idx = idx.saturating_add(1);
+                            continue;
+                        }
+                    }
+                }
+
+                if !asm_line.cond_stack.skipping() {
+                    if let Some(repeat_kind) = unscoped_repeat_kind {
+                        if let Some(label) = super::repetition::line_label(&ast) {
+                            let message = match repeat_kind {
                             UnscopedRepeatKind::For => format!(
                                 "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
                                 label.name
@@ -821,22 +933,22 @@ impl Assembler {
                                 label.name
                             ),
                         };
-                        let diagnostic = Diagnostic::new(
-                            line_num,
-                            Severity::Error,
-                            AsmError::new(AsmErrorKind::Directive, &message, None),
-                        )
-                        .with_column(Some(label.span.col_start));
-                        diagnostics.push(diagnostic.clone());
-                        listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
-                        counts.errors += 1;
-                        idx = idx.saturating_add(1);
-                        continue;
+                            let diagnostic = Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            )
+                            .with_column(Some(label.span.col_start));
+                            diagnostics.push(diagnostic.clone());
+                            listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                            counts.errors += 1;
+                            idx = idx.saturating_add(1);
+                            continue;
+                        }
                     }
                 }
 
-                if let Some((label, mnemonic, operands)) = super::repetition::statement_parts(&ast)
-                {
+                if let Some((label, mnemonic, operands)) = statement_parts {
                     if super::repetition::is_endfor_directive_name(&mnemonic)
                         || super::repetition::is_endwhile_directive_name(&mnemonic)
                     {

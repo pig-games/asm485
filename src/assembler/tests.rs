@@ -872,6 +872,30 @@ fn while_loop_respects_max_iteration_limit() {
     );
 }
 
+#[test]
+fn conditionals_skip_repetition_blocks_without_loop_diagnostics() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[
+            ".if 0",
+            ".for i in {1,2,3}",
+            "item .byte i",
+            ".endfor",
+            ".while 1",
+            "other .byte 1",
+            ".endwhile",
+            ".endif",
+            ".byte 7",
+        ],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics in skipped repetition blocks: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 7)]);
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()
@@ -11419,6 +11443,24 @@ fn vm_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
     for (cpu, line) in corpus {
         let native = assemble_line_with_runtime_mode(cpu, line, false);
         let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn vm_runtime_range_list_directive_lines_match_native_mode() {
+    let corpus = [
+        "vals = {1,2,3}",
+        "    .byte .len({1,2,3})",
+        "    .byte {1,2,3}[1]",
+        "    .byte .len(0..=6:2)",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
+        let runtime = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
         assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
         assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
         assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
