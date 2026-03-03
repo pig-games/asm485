@@ -1,6 +1,7 @@
 # opForge LSP Acceptance Traceability (Spec v0.1)
 
 Source spec: `dev-docs/NextSteps/lsp/opforge_language_server_spec_v0_1.md`
+Status snapshot: updated for `codex/ranges-lists-repetition-plan-v0_1` on 2026-03-03.
 
 ## Scenario Mapping
 
@@ -39,6 +40,11 @@ Source spec: `dev-docs/NextSteps/lsp/opforge_language_server_spec_v0_1.md`
   Tests:
   `tests/lsp_client_integration.rs::definition_resolves_local_symbol_declaration`
   `tests/lsp_client_integration.rs::definition_returns_deterministic_multi_results_for_module_targets`
+
+- [x] Struct/repetition member context coverage (indexed+dotted navigation/intelligence)
+  Tests:
+  `tests/lsp_client_integration.rs::definition_and_hover_resolve_struct_member_field_declarations`
+  `tests/lsp_client_integration.rs::completion_suggests_fields_for_indexed_member_context`
 
 - [x] Code action correctness (`machine-applicable` preferred, `maybe-incorrect` non-preferred)
   Tests:

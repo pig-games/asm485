@@ -655,6 +655,36 @@ impl ExprCompiler {
                 self.stack_push();
                 Ok(())
             }
+            Expr::List(_, span) => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "list expression is not supported by portable expression VM",
+                *span,
+            )),
+            Expr::Index { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "index expression is not supported by portable expression VM",
+                *span,
+            )),
+            Expr::Member { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "member expression is not supported by portable expression VM",
+                *span,
+            )),
+            Expr::StructLiteral { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "struct literal expression is not supported by portable expression VM",
+                *span,
+            )),
+            Expr::Call { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "call expression is not supported by portable expression VM",
+                *span,
+            )),
+            Expr::Placeholder(span) => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "placeholder expression is not supported by portable expression VM",
+                *span,
+            )),
             Expr::Dollar(_) => {
                 self.emit_u8(ExprVmOpcode::PushCurrentAddress as u8);
                 self.stack_push();
@@ -699,6 +729,11 @@ impl ExprCompiler {
             Expr::Tuple(_, span) => Err(PortableExprError::with_span(
                 DIAG_EXPR_UNSUPPORTED_FEATURE,
                 "tuple expression is not supported by portable expression VM",
+                *span,
+            )),
+            Expr::Range { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "range expression is not supported by portable expression VM",
                 *span,
             )),
             Expr::String(bytes, _) => {

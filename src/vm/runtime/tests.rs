@@ -1692,6 +1692,56 @@ fn runtime_expression_parser_supports_bracket_tuple_indirect_long_forms() {
 }
 
 #[test]
+fn runtime_expression_parser_parses_index_member_postfix_chain() {
+    let (tokens, end_span) = tokenize_core_expr_tokens("arr[2].len", 1);
+    let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+        .parse_expr_from_tokens()
+        .expect("direct runtime parser should parse postfix chain");
+
+    match expr {
+        Expr::Member { base, field, .. } => {
+            assert_eq!(field, "len");
+            assert!(matches!(*base, Expr::Index { .. }));
+        }
+        other => panic!("expected member expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn runtime_expression_parser_parses_call_with_list_and_placeholder_args() {
+    let (tokens, end_span) = tokenize_core_expr_tokens(".pick({1,2},?)", 1);
+    let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+        .parse_expr_from_tokens()
+        .expect("direct runtime parser should parse call");
+
+    match expr {
+        Expr::Call { name, args, .. } => {
+            assert_eq!(name, ".pick");
+            assert_eq!(args.len(), 2);
+            assert!(matches!(args[0], Expr::List(_, _)));
+            assert!(matches!(args[1], Expr::Placeholder(_)));
+        }
+        other => panic!("expected call expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn runtime_expression_parser_parses_struct_literal_expression() {
+    let (tokens, end_span) = tokenize_core_expr_tokens("Point{x:1,y:2}.x", 1);
+    let expr = RuntimeExpressionParser::new(tokens, end_span, None)
+        .parse_expr_from_tokens()
+        .expect("direct runtime parser should parse struct literal");
+
+    match expr {
+        Expr::Member { base, field, .. } => {
+            assert_eq!(field, "x");
+            assert!(matches!(*base, Expr::StructLiteral { .. }));
+        }
+        other => panic!("expected struct-literal member expression, got {other:?}"),
+    }
+}
+
+#[test]
 fn execution_model_expr_parser_contract_resolution_prefers_dialect_then_cpu_then_family() {
     let registry = mos6502_family_registry();
 

@@ -88,6 +88,30 @@ fn eval_expr_with_depth(
                 )
             })
         }
+        Expr::List(_, span) => Err(EvalError::with_span(
+            "List cannot be evaluated as scalar expression",
+            *span,
+        )),
+        Expr::Index { span, .. } => Err(EvalError::with_span(
+            "Index expression cannot be evaluated as scalar expression",
+            *span,
+        )),
+        Expr::Member { span, .. } => Err(EvalError::with_span(
+            "Member expression cannot be evaluated as scalar expression",
+            *span,
+        )),
+        Expr::StructLiteral { span, .. } => Err(EvalError::with_span(
+            "Struct literal cannot be evaluated as scalar expression",
+            *span,
+        )),
+        Expr::Call { span, .. } => Err(EvalError::with_span(
+            "Call expression cannot be evaluated as scalar expression",
+            *span,
+        )),
+        Expr::Placeholder(span) => Err(EvalError::with_span(
+            "Placeholder cannot be evaluated as scalar expression",
+            *span,
+        )),
 
         Expr::Dollar(span) => ctx
             .current_address()
@@ -158,6 +182,11 @@ fn eval_expr_with_depth(
 
         Expr::Tuple(_, span) => Err(EvalError::with_span(
             "Tuple cannot be evaluated as expression",
+            *span,
+        )),
+
+        Expr::Range { span, .. } => Err(EvalError::with_span(
+            "Range cannot be evaluated as scalar expression",
             *span,
         )),
 

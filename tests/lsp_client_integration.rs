@@ -908,6 +908,127 @@ fn completion_and_hover_resolve_selective_import_alias_symbols() {
 }
 
 #[test]
+fn definition_and_hover_resolve_struct_member_field_declarations() {
+    let temp_file = unique_temp_file("member_field_definition.asm");
+    let uri = path_to_file_uri(&temp_file);
+    let source = "Point .struct\nx .byte ?\ny .byte ?\n.endstruct\n\np0 .const Point { x: 1, y: 2 }\n    lda p0.x\n";
+    write_text(&temp_file, source);
+
+    let mut client = LspTestClient::spawn().expect("spawn lsp");
+    let _ = client.initialize(json!({}));
+    client.notify("initialized", json!({}));
+    client.notify(
+        "textDocument/didOpen",
+        json!({
+            "textDocument": {
+                "uri": uri,
+                "version": 1,
+                "languageId": "opforge",
+                "text": source
+            }
+        }),
+    );
+
+    let defs = client.request(
+        "textDocument/definition",
+        json!({
+            "textDocument": {"uri": uri},
+            "position": {"line": 6, "character": 11}
+        }),
+    );
+    let entries = defs.as_array().expect("definition array");
+    assert!(!entries.is_empty(), "expected field definition candidate");
+    assert_eq!(
+        entries[0]
+            .get("uri")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default(),
+        uri
+    );
+    assert_eq!(
+        entries[0]
+            .get("range")
+            .and_then(|range| range.get("start"))
+            .and_then(|start| start.get("line"))
+            .and_then(|line| line.as_u64())
+            .unwrap_or(999),
+        1
+    );
+
+    let hover = client.request(
+        "textDocument/hover",
+        json!({
+            "textDocument": {"uri": uri},
+            "position": {"line": 6, "character": 11}
+        }),
+    );
+    let contents = hover
+        .get("contents")
+        .and_then(|value| value.get("value"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    assert!(contents.contains("Kind: `field`"));
+    assert!(contents.contains("Owner: `Point`"));
+
+    client.shutdown();
+}
+
+#[test]
+fn completion_suggests_fields_for_indexed_member_context() {
+    let temp_file = unique_temp_file("indexed_member_completion.asm");
+    let uri = path_to_file_uri(&temp_file);
+    let source = "points .bfor i in 0..=2\nx .byte i\ny .byte i + 1\n.endfor\n    lda points[1].\n";
+    write_text(&temp_file, source);
+    let completion_col = "    lda points[1].".len();
+
+    let mut client = LspTestClient::spawn().expect("spawn lsp");
+    let _ = client.initialize(json!({}));
+    client.notify("initialized", json!({}));
+    client.notify(
+        "textDocument/didOpen",
+        json!({
+            "textDocument": {
+                "uri": uri,
+                "version": 1,
+                "languageId": "opforge",
+                "text": source
+            }
+        }),
+    );
+
+    let completion = client.request(
+        "textDocument/completion",
+        json!({
+            "textDocument": {"uri": uri},
+            "position": {"line": 4, "character": completion_col}
+        }),
+    );
+    let items = completion.as_array().expect("completion array");
+    let has_x = items.iter().any(|item| {
+        item.get("label")
+            .and_then(|value| value.as_str())
+            .is_some_and(|label| label.eq_ignore_ascii_case("x"))
+            && item
+                .get("detail")
+                .and_then(|value| value.as_str())
+                .is_some_and(|detail| detail.contains("field of points"))
+    });
+    let has_y = items.iter().any(|item| {
+        item.get("label")
+            .and_then(|value| value.as_str())
+            .is_some_and(|label| label.eq_ignore_ascii_case("y"))
+            && item
+                .get("detail")
+                .and_then(|value| value.as_str())
+                .is_some_and(|detail| detail.contains("field of points"))
+    });
+    assert!(has_x, "expected x field completion for indexed member base");
+    assert!(has_y, "expected y field completion for indexed member base");
+
+    client.shutdown();
+}
+
+#[test]
 fn workspace_symbol_supports_partial_query_with_stable_order() {
     let temp_dir = unique_temp_dir();
     let file_a = temp_dir.join("alpha.asm");

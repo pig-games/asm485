@@ -20,6 +20,7 @@ pub mod cli;
 mod engine;
 mod output;
 mod passes;
+mod repetition;
 #[cfg(test)]
 mod tests;
 
@@ -42,6 +43,7 @@ use std::sync::{Mutex, OnceLock};
 use clap::Parser;
 use serde_json::json;
 
+use crate::core::asm_value::StructField;
 use crate::core::assembler::conditional::{
     ConditionalBlockKind, ConditionalContext, ConditionalStack, ConditionalSubType,
 };
@@ -66,9 +68,11 @@ use crate::core::preprocess::Preprocessor;
 use crate::core::registry::{FamilyOperandSet, OperandSet, ResolvedPipeline};
 use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::source_map::SourceMap;
+use crate::core::struct_table::StructTable;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
+use crate::core::AsmValue;
 #[cfg(test)]
 use std::cell::Cell;
 use std::sync::Arc;
@@ -420,6 +424,24 @@ impl AsmCpuModeState {
     }
 }
 
+struct ActiveStructDefinition {
+    name: String,
+    open_line: u32,
+    fields: Vec<StructField>,
+    size: u32,
+}
+
+impl ActiveStructDefinition {
+    fn new(name: String, open_line: u32) -> Self {
+        Self {
+            name,
+            open_line,
+            fields: Vec::new(),
+            size: 0,
+        }
+    }
+}
+
 /// Per-line assembler state.
 struct AsmLine<'a> {
     symbols: &'a mut SymbolTable,
@@ -428,6 +450,9 @@ struct AsmLine<'a> {
     symbol_scope: AsmSymbolScopeState,
     output_state: AsmOutputState,
     layout: AsmLayoutState,
+    struct_table: StructTable,
+    value_symbols: HashMap<String, AsmValue>,
+    active_struct: Option<ActiveStructDefinition>,
     diagnostics: AsmDiagnosticsState,
     current_line_num: u32,
     current_source_line: Option<String>,
@@ -448,6 +473,7 @@ struct AsmLine<'a> {
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
     encoding_scope_stack: Vec<EncodingScopeState>,
+    loop_vars: Vec<(String, u32)>,
     statement_depth: usize,
 }
 
@@ -476,6 +502,9 @@ impl<'a> AsmLine<'a> {
             symbol_scope: AsmSymbolScopeState::new(),
             output_state: AsmOutputState::new(root_metadata),
             layout: AsmLayoutState::new(),
+            struct_table: StructTable::new(),
+            value_symbols: HashMap::new(),
+            active_struct: None,
             diagnostics: AsmDiagnosticsState::new(),
             current_line_num: 1,
             current_source_line: None,
@@ -496,6 +525,7 @@ impl<'a> AsmLine<'a> {
             text_encoding_registry,
             active_text_encoding,
             encoding_scope_stack: Vec::new(),
+            loop_vars: Vec::new(),
             statement_depth: 0,
         }
     }
@@ -959,6 +989,125 @@ impl<'a> AsmLine<'a> {
 
     fn in_section(&self) -> bool {
         self.layout.current_section.is_some()
+    }
+
+    fn in_struct_definition(&self) -> bool {
+        self.active_struct.is_some()
+    }
+
+    fn open_struct_line(&self) -> Option<u32> {
+        self.active_struct.as_ref().map(|state| state.open_line)
+    }
+
+    fn clear_struct_definition(&mut self) {
+        self.active_struct = None;
+    }
+
+    fn value_symbol_key(name: &str) -> String {
+        name.to_ascii_uppercase()
+    }
+
+    fn set_value_symbol(&mut self, name: &str, value: AsmValue) {
+        self.value_symbols
+            .insert(Self::value_symbol_key(name), value);
+    }
+
+    fn clear_value_symbol(&mut self, name: &str) {
+        self.value_symbols.remove(&Self::value_symbol_key(name));
+    }
+
+    fn lookup_value_symbol(&self, name: &str) -> Option<&AsmValue> {
+        self.value_symbols.get(&Self::value_symbol_key(name))
+    }
+
+    fn scalar_shadow_for_value_symbol(value: &AsmValue) -> u32 {
+        match value {
+            AsmValue::Scalar(value) => *value as u32,
+            AsmValue::Struct(def) => def.size,
+            AsmValue::List(_) | AsmValue::Range { .. } | AsmValue::StructInstance(_) => 0,
+        }
+    }
+
+    fn sync_value_symbol(&mut self, name: &str, value: &AsmValue) {
+        match value {
+            AsmValue::Scalar(_) => self.clear_value_symbol(name),
+            _ => self.set_value_symbol(name, value.clone()),
+        }
+    }
+
+    fn assign_op_text(op: AssignOp) -> &'static str {
+        match op {
+            AssignOp::Const => "=",
+            AssignOp::Var => ":=",
+            AssignOp::VarIfUndef => ":?=",
+            AssignOp::Add => "+=",
+            AssignOp::Sub => "-=",
+            AssignOp::Mul => "*=",
+            AssignOp::Div => "/=",
+            AssignOp::Mod => "%=",
+            AssignOp::Pow => "^=",
+            AssignOp::BitOr => "|=",
+            AssignOp::BitXor => "^^=",
+            AssignOp::BitAnd => "&=",
+            AssignOp::LogicOr => "||=",
+            AssignOp::LogicAnd => "&&=",
+            AssignOp::Shl => "<<=",
+            AssignOp::Shr => ">>=",
+            AssignOp::Concat => "..=",
+            AssignOp::Min => "<?=",
+            AssignOp::Max => ">?=",
+            AssignOp::Repeat => "x=",
+            AssignOp::Member => ".=",
+        }
+    }
+
+    fn resolve_scoped_value_name(&self, name: &str) -> Option<String> {
+        if name.contains('.') {
+            let candidate = self
+                .resolve_import_alias(name)
+                .unwrap_or_else(|| name.to_string());
+            if self.lookup_value_symbol(&candidate).is_some() {
+                return Some(candidate);
+            }
+            return None;
+        }
+
+        let mut depth = self.symbol_scope.scope_stack.depth();
+        while depth > 0 {
+            let prefix = self.symbol_scope.scope_stack.prefix(depth);
+            let candidate = format!("{prefix}.{name}");
+            if self.lookup_value_symbol(&candidate).is_some() {
+                return Some(candidate);
+            }
+            depth = depth.saturating_sub(1);
+        }
+
+        if self.lookup_value_symbol(name).is_some() {
+            return Some(name.to_string());
+        }
+
+        let imported = self.resolve_imported_name(name)?;
+        if self.lookup_value_symbol(&imported).is_some() {
+            Some(imported)
+        } else {
+            None
+        }
+    }
+
+    fn push_loop_var(&mut self, name: &str, value: u32) {
+        self.loop_vars.push((name.to_string(), value));
+    }
+
+    fn pop_loop_var(&mut self) {
+        let _ = self.loop_vars.pop();
+    }
+
+    fn lookup_loop_var(&self, name: &str) -> Option<u32> {
+        self.loop_vars
+            .iter()
+            .rev()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+            .map(|(_, value)| *value)
     }
 
     fn current_section_name(&self) -> Option<&str> {
@@ -1501,6 +1650,30 @@ impl<'a> AsmLine<'a> {
                 }
             }
         }
+        if self.in_struct_definition() {
+            return match ast {
+                LineAst::Empty => LineStatus::NothingDone,
+                LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                } => {
+                    self.label = label.as_ref().map(|l| l.name.clone());
+                    self.mnemonic = mnemonic.clone();
+                    self.process_struct_mode_statement_ast(
+                        label.as_ref(),
+                        mnemonic.as_deref(),
+                        &operands,
+                    )
+                }
+                _ => self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "invalid field directive in struct body",
+                    None,
+                ),
+            };
+        }
         match ast {
             LineAst::Empty => LineStatus::NothingDone,
             LineAst::Conditional { kind, exprs, span } => {
@@ -1649,7 +1822,9 @@ impl<'a> AsmLine<'a> {
                 };
 
                 if let Some(label) = &label {
-                    if !is_symbol_assignment_directive(&mnemonic) {
+                    if !is_symbol_assignment_directive(&mnemonic)
+                        && !directive_handles_label_lifecycle(&mnemonic)
+                    {
                         if let Some(status) = self.define_statement_label(label) {
                             return status;
                         }
@@ -1733,18 +1908,30 @@ impl<'a> AsmLine<'a> {
                         return LineStatus::DirEqu;
                     }
                 }
-                let val = match self.eval_expr_ast(expr) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return self.failure_at_span(
-                            LineStatus::Error,
-                            err.error.kind(),
-                            err.error.message(),
-                            None,
-                            err.span,
-                        )
-                    }
+                let value = match self.eval_expr_ast(expr) {
+                    Ok(scalar) => match self.eval_value_ast(expr) {
+                        Ok(
+                            value @ (AsmValue::List(_)
+                            | AsmValue::Range { .. }
+                            | AsmValue::Struct(_)
+                            | AsmValue::StructInstance(_)),
+                        ) => value,
+                        Ok(AsmValue::Scalar(_)) | Err(_) => AsmValue::Scalar(i64::from(scalar)),
+                    },
+                    Err(scalar_err) => match self.eval_value_ast(expr) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                scalar_err.error.kind(),
+                                scalar_err.error.message(),
+                                None,
+                                scalar_err.span,
+                            )
+                        }
+                    },
                 };
+                let scalar_val = Self::scalar_shadow_for_value_symbol(&value);
                 let is_rw = op != AssignOp::Const;
                 if self.pass == 1 && self.selective_import_conflict(&label.name) {
                     return self.failure_at_span(
@@ -1758,13 +1945,13 @@ impl<'a> AsmLine<'a> {
                 let res = if self.pass == 1 {
                     self.symbols.add(
                         &full_name,
-                        val,
+                        scalar_val,
                         is_rw,
                         self.current_visibility(),
                         self.symbol_scope.module_active.as_deref(),
                     )
                 } else {
-                    self.symbols.update(&full_name, val)
+                    self.symbols.update(&full_name, scalar_val)
                 };
                 if res == crate::symbol_table::SymbolTableResult::Duplicate {
                     return self.failure_at(
@@ -1783,7 +1970,8 @@ impl<'a> AsmLine<'a> {
                         Some(1),
                     );
                 }
-                self.aux_value = val;
+                self.sync_value_symbol(&full_name, &value);
+                self.aux_value = scalar_val;
                 return LineStatus::DirEqu;
             }
             _ => {}
@@ -1828,6 +2016,30 @@ impl<'a> AsmLine<'a> {
                 LineStatus::Error,
                 AsmErrorKind::Symbol,
                 "symbol is read-only",
+                Some(&label.name),
+                Some(1),
+            );
+        }
+
+        if let Some(value_symbol) = self.lookup_value_symbol(&target) {
+            if matches!(value_symbol, AsmValue::StructInstance(_)) {
+                let op_text = Self::assign_op_text(op).trim();
+                let message = format!(
+                    "operator '{op_text}' requires scalar symbol, found struct instance '{}'",
+                    label.name
+                );
+                return self.failure_at(
+                    LineStatus::Error,
+                    AsmErrorKind::Symbol,
+                    &message,
+                    Some(&label.name),
+                    Some(1),
+                );
+            }
+            return self.failure_at(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "assignment operators require scalar symbols",
                 Some(&label.name),
                 Some(1),
             );
@@ -2067,6 +2279,9 @@ impl<'a> AsmLine<'a> {
     fn find_private_symbol_in_expr(&self, expr: &Expr) -> Option<(String, Span)> {
         match expr {
             Expr::Identifier(name, span) | Expr::Register(name, span) => {
+                if self.lookup_loop_var(name).is_some() {
+                    return None;
+                }
                 if let Some(entry) = self.lookup_scoped_entry(name) {
                     if !self.entry_is_visible(entry) {
                         return Some((name.clone(), *span));
@@ -2078,6 +2293,20 @@ impl<'a> AsmLine<'a> {
             | Expr::IndirectLong(inner, _)
             | Expr::Immediate(inner, _)
             | Expr::Unary { expr: inner, .. } => self.find_private_symbol_in_expr(inner),
+            Expr::List(items, _) => items
+                .iter()
+                .find_map(|item| self.find_private_symbol_in_expr(item)),
+            Expr::Index { base, index, .. } => self
+                .find_private_symbol_in_expr(base)
+                .or_else(|| self.find_private_symbol_in_expr(index)),
+            Expr::Member { base, .. } => self.find_private_symbol_in_expr(base),
+            Expr::StructLiteral { fields, .. } => fields
+                .iter()
+                .find_map(|(_, value)| self.find_private_symbol_in_expr(value)),
+            Expr::Call { args, .. } => args
+                .iter()
+                .find_map(|arg| self.find_private_symbol_in_expr(arg)),
+            Expr::Placeholder(_) => None,
             Expr::Tuple(items, _) => items
                 .iter()
                 .find_map(|item| self.find_private_symbol_in_expr(item)),
@@ -2093,6 +2322,15 @@ impl<'a> AsmLine<'a> {
             Expr::Binary { left, right, .. } => self
                 .find_private_symbol_in_expr(left)
                 .or_else(|| self.find_private_symbol_in_expr(right)),
+            Expr::Range {
+                start, end, step, ..
+            } => self
+                .find_private_symbol_in_expr(start)
+                .or_else(|| self.find_private_symbol_in_expr(end))
+                .or_else(|| {
+                    step.as_ref()
+                        .and_then(|step_expr| self.find_private_symbol_in_expr(step_expr))
+                }),
             Expr::Error(_, _) | Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) => None,
         }
     }
@@ -2589,6 +2827,13 @@ fn is_symbol_assignment_directive(mnemonic: &str) -> bool {
     matches!(
         mnemonic.to_ascii_uppercase().as_str(),
         ".CONST" | ".VAR" | ".SET"
+    )
+}
+
+fn directive_handles_label_lifecycle(mnemonic: &str) -> bool {
+    matches!(
+        mnemonic.to_ascii_uppercase().as_str(),
+        ".STRUCT" | ".ENDSTRUCT"
     )
 }
 

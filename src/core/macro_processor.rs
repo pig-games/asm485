@@ -660,6 +660,21 @@ mod tests {
     }
 
     #[test]
+    fn macro_args_preserve_list_and_range_literals() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            "MIX .macro values, span".to_string(),
+            "    .byte .len(.values), .len(.span)".to_string(),
+            ".endmacro".to_string(),
+            "    .MIX {1,2,3}, 0..=6:2".to_string(),
+            "    .MIX({4,5}, 1..=3)".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.contains(&"    .byte .len({1,2,3}), .len(0..=6:2)".to_string()));
+        assert!(out.contains(&"    .byte .len({4,5}), .len(1..=3)".to_string()));
+    }
+
+    #[test]
     fn expands_segment_without_scope_block() {
         let mut mp = MacroProcessor::new();
         let lines = vec![
@@ -670,6 +685,21 @@ mod tests {
         ];
         let out = mp.expand(&lines).expect("expand");
         assert!(out.contains(&"    .byte 7".to_string()));
+        assert!(!out.iter().any(|line| line.trim() == ".block"));
+        assert!(!out.iter().any(|line| line.trim() == ".endblock"));
+    }
+
+    #[test]
+    fn segment_args_preserve_list_literals() {
+        let mut mp = MacroProcessor::new();
+        let lines = vec![
+            "INLINE .segment values".to_string(),
+            "    .byte .len(.values)".to_string(),
+            ".endsegment".to_string(),
+            "    .INLINE {10,20,30}".to_string(),
+        ];
+        let out = mp.expand(&lines).expect("expand");
+        assert!(out.contains(&"    .byte .len({10,20,30})".to_string()));
         assert!(!out.iter().any(|line| line.trim() == ".block"));
         assert!(!out.iter().any(|line| line.trim() == ".endblock"));
     }

@@ -1,0 +1,25 @@
+opForge Assembler v0.9.5
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Condition-based loop.
+----                                2  .cpu 6502
+----    EQU 0000                    3  .org 0
+----                                4  
+0000    FF                          6      .byte $ff
+0001    FF                          6      .byte $ff
+0002    FF                          6      .byte $ff
+0003    FF                          6      .byte $ff
+0004    FF                          6      .byte $ff
+
+Lines: 7  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 5 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    FF FF FF FF FF

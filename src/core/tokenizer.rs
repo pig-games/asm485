@@ -88,6 +88,8 @@ pub struct StringLiteral {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorKind {
+    Range,
+    RangeInclusive,
     Plus,
     Minus,
     Multiply,
@@ -152,6 +154,8 @@ impl Token {
             TokenKind::OpenParen => "(".to_string(),
             TokenKind::CloseParen => ")".to_string(),
             TokenKind::Operator(op) => match op {
+                OperatorKind::Range => "..",
+                OperatorKind::RangeInclusive => "..=",
                 OperatorKind::Plus => "+",
                 OperatorKind::Minus => "-",
                 OperatorKind::Multiply => "*",
@@ -254,11 +258,27 @@ impl<'a> Tokenizer<'a> {
             _ if is_digit(c) => self.scan_number(),
             b'"' | b'\'' => self.scan_string(),
             b'.' => {
-                self.cursor += 1;
-                Ok(Token {
-                    kind: TokenKind::Dot,
-                    span: Span::new(self.line_num, start, self.cursor),
-                })
+                if self.peek_raw_byte(1) == b'.' {
+                    if self.peek_raw_byte(2) == b'=' {
+                        self.cursor += 3;
+                        Ok(Token {
+                            kind: TokenKind::Operator(OperatorKind::RangeInclusive),
+                            span: Span::new(self.line_num, start, self.cursor),
+                        })
+                    } else {
+                        self.cursor += 2;
+                        Ok(Token {
+                            kind: TokenKind::Operator(OperatorKind::Range),
+                            span: Span::new(self.line_num, start, self.cursor),
+                        })
+                    }
+                } else {
+                    self.cursor += 1;
+                    Ok(Token {
+                        kind: TokenKind::Dot,
+                        span: Span::new(self.line_num, start, self.cursor),
+                    })
+                }
             }
             b'?' => {
                 self.cursor += 1;
@@ -824,6 +844,35 @@ mod tests {
         assert!(matches!(
             tok.next_token().unwrap().kind,
             TokenKind::CloseBracket
+        ));
+    }
+
+    #[test]
+    fn tokenizes_range_operators() {
+        let mut tok = Tokenizer::new("0..10 0..=10", 1);
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
+        assert_eq!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Operator(OperatorKind::Range)
+        );
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
+        assert_eq!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Operator(OperatorKind::RangeInclusive)
+        );
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
         ));
     }
 }

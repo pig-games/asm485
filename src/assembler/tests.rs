@@ -222,6 +222,189 @@ fn regression_operand_parse_error_is_diagnostic_not_panic() {
     assert!(message.is_some());
 }
 
+#[test]
+fn range_and_list_len_builtin_evaluates_in_scalar_context() {
+    let bytes = assemble_bytes(i8085_cpu_id, ".byte .len({1,2,3}), .len(0..=3)");
+    assert_eq!(bytes, vec![3, 4]);
+}
+
+#[test]
+fn list_and_range_index_expressions_evaluate_in_scalar_context() {
+    let bytes = assemble_bytes(i8085_cpu_id, ".byte {10,20,30}[1], (0..=6:3)[2]");
+    assert_eq!(bytes, vec![20, 6]);
+}
+
+#[test]
+fn const_symbol_can_store_list_value_and_be_indexed() {
+    let assembler = run_passes(&["vals .const {10,20,30}", ".byte vals[2]"]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 30)]);
+}
+
+#[test]
+fn assignment_syntax_var_can_store_list_value_and_be_indexed() {
+    let assembler = run_passes(&["vals := {3,4}", ".byte vals[1]"]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 4)]);
+}
+
+#[test]
+fn var_set_reassignment_from_list_to_scalar_updates_symbol_kind() {
+    let assembler = run_passes(&["vals .var {1,2}", "vals .set 7", ".byte vals"]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 7)]);
+}
+
+#[test]
+fn var_symbol_can_store_struct_type_for_member_access() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "pt .var Point",
+        ".byte pt.x, pt.y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 0), (1, 1)]);
+}
+
+#[test]
+fn struct_literal_instances_support_const_var_set_and_member_access() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "p0 .const Point { x: 24, y: 50 }",
+        "p1 .var Point { x: 40, y: 60 }",
+        ".byte p0.x, p1.y",
+        "p1 .set Point { x: 41, y: 61 }",
+        ".byte p1.x, p1.y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 24), (1, 60), (2, 41), (3, 61)]);
+}
+
+#[test]
+fn assignment_syntax_var_can_store_struct_literal_instance() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "p := Point { x: 1, y: 2 }",
+        ".byte p.x, p.y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 1), (1, 2)]);
+}
+
+#[test]
+fn dotted_identifier_prefers_exact_symbol_before_struct_member_resolution() {
+    let assembler = run_passes(&[
+        "Point .struct",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "p0 .const Point { x: 1, y: 2 }",
+        "p0.x .const 42",
+        ".byte p0.x",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 42)]);
+}
+
+#[test]
+fn struct_literal_reports_validation_errors() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(
+        process_line(&mut asm, "Point .struct", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "x .byte ?", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, "y .byte ?", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".endstruct", 0, 1), LineStatus::Ok);
+
+    let status = process_line(&mut asm, "bad_unknown .var Point { z: 1, y: 2 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("unknown field 'z' in struct literal for 'Point'"));
+
+    let status = process_line(&mut asm, "bad_duplicate .var Point { x: 1, x: 2 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("duplicate field 'x' in struct literal for 'Point'"));
+
+    let status = process_line(&mut asm, "bad_missing .var Point { x: 1 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("missing required field 'y' in struct literal for 'Point'"));
+
+    let status = process_line(&mut asm, "bad_type .var MissingType { x: 1, y: 2 }", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("unknown struct type 'MissingType' for struct literal"));
+}
+
+#[test]
+fn assignment_operators_reject_non_scalar_symbols() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    let status = process_line(&mut asm, "vals .var {1,2}", 0, 1);
+    assert_eq!(status, LineStatus::DirEqu);
+
+    let status = process_line(&mut asm, "vals += 1", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("assignment operators require scalar symbols"));
+}
+
+#[test]
+fn assignment_operators_reject_struct_instance_symbols() {
+    let mut symbols = SymbolTable::new();
+    let registry = default_registry();
+    let mut asm = make_asm_line(&mut symbols, &registry);
+
+    assert_eq!(
+        process_line(&mut asm, "Point .struct", 0, 1),
+        LineStatus::Ok
+    );
+    assert_eq!(process_line(&mut asm, "x .byte ?", 0, 1), LineStatus::Ok);
+    assert_eq!(process_line(&mut asm, ".endstruct", 0, 1), LineStatus::Ok);
+    assert_eq!(
+        process_line(&mut asm, "p .var Point { x: 1 }", 0, 1),
+        LineStatus::DirEqu
+    );
+
+    let status = process_line(&mut asm, "p += 1", 0, 1);
+    assert_eq!(status, LineStatus::Error);
+    assert!(asm
+        .error_message()
+        .contains("operator '+=' requires scalar symbol, found struct instance 'p'"));
+}
+
+#[test]
+fn range_zero_step_reports_diagnostic() {
+    let (status, message) = assemble_line_status(i8085_cpu_id, ".byte .len(0..10:0)");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.expect("expected range evaluation error message");
+    assert!(
+        message.contains("range step must be non-zero"),
+        "unexpected error message: {message}"
+    );
+}
+
 fn assemble_line_with_runtime_mode(
     cpu: crate::core::cpu::CpuType,
     line: &str,
@@ -437,6 +620,442 @@ fn assemble_source_entries_with_runtime_mode(
     Ok((entries, diagnostics))
 }
 
+#[test]
+fn struct_definition_registers_size_and_field_offsets_without_emitting_body_bytes() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        "SpriteData .struct".to_string(),
+        "x .byte ?".to_string(),
+        "y .byte ?".to_string(),
+        "color .word ?".to_string(),
+        "pad .res 2".to_string(),
+        ".endstruct".to_string(),
+        ".byte SpriteData.x, SpriteData.y, SpriteData.color, SpriteData.pad, SpriteData"
+            .to_string(),
+    ];
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(
+        pass1.errors,
+        0,
+        "pass1 diagnostics: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .expect("pass2 should run");
+    assert_eq!(
+        pass2.errors,
+        0,
+        "pass2 diagnostics: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+
+    let entries = assembler
+        .image()
+        .entries()
+        .expect("assembled image entries should be readable");
+    assert_eq!(entries, vec![(0, 0), (1, 1), (2, 2), (3, 4), (4, 6)]);
+
+    assert_eq!(assembler.symbols().lookup("SpriteData"), Some(6));
+    assert_eq!(assembler.symbols().lookup("SpriteData.x"), Some(0));
+    assert_eq!(assembler.symbols().lookup("SpriteData.y"), Some(1));
+    assert_eq!(assembler.symbols().lookup("SpriteData.color"), Some(2));
+    assert_eq!(assembler.symbols().lookup("SpriteData.pad"), Some(4));
+}
+
+#[test]
+fn endstruct_without_matching_struct_reports_error() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![".endstruct".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains(".endstruct without matching .struct")),
+        "expected unmatched .endstruct diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn unterminated_struct_reports_open_line() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec!["Sprite .struct".to_string(), "x .byte ?".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("unterminated .struct (opened at line 1)")),
+        "expected unterminated .struct diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn struct_body_rejects_non_field_directives() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        "Sprite .struct".to_string(),
+        ".module inner".to_string(),
+        ".endstruct".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("invalid field directive in struct body")),
+        "expected invalid field directive diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn for_counter_loop_emits_expected_bytes() {
+    let (entries, diagnostics) =
+        assemble_source_entries_with_runtime_mode(&[".for 3", ".byte $7f", ".endfor"], true)
+            .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 0x7f), (1, 0x7f), (2, 0x7f)]);
+}
+
+#[test]
+fn for_iterable_loop_emits_loop_variable_values() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[".for i in {1,2,3}", ".byte i", ".endfor"],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 2), (2, 3)]);
+}
+
+#[test]
+fn for_loop_rejects_labels_inside_body() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".for 2".to_string(),
+        "item .byte 1".to_string(),
+        ".endfor".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors >= 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("label 'item' not allowed inside .for")),
+        "expected loop-label diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bfor_allows_labels_inside_body() {
+    let (entries, diagnostics) =
+        assemble_source_entries_with_runtime_mode(&[".bfor 2", "item .byte 1", ".endfor"], true)
+            .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 1)]);
+}
+
+#[test]
+fn bfor_label_exposes_iteration_addresses_via_index() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[
+            "table .bfor i in {0,1,2,3}",
+            ".byte i",
+            ".endfor",
+            ".word table[2]",
+        ],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(
+        entries,
+        vec![(0, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 0)]
+    );
+}
+
+#[test]
+fn endfor_without_for_reports_error() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![".endfor".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains(".endfor without matching .for")),
+        "expected unmatched .endfor diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn for_loop_reports_pass_stability_mismatch() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".for target".to_string(),
+        ".byte 1".to_string(),
+        ".endfor".to_string(),
+        "target = 2".to_string(),
+    ];
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 0);
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .expect("pass2 should execute");
+    assert!(pass2.errors > 0, "pass2 should report loop instability");
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("loop iteration count changed between passes")),
+        "expected loop stability diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn while_loop_emits_expected_bytes() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[".org 0", ".while $ < 3", ".byte 1", ".endwhile"],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 1), (2, 1), (3, 1)]);
+}
+
+#[test]
+fn while_loop_rejects_labels_inside_body() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        "i .var 0".to_string(),
+        ".while i < 2".to_string(),
+        "item .byte 1".to_string(),
+        "i .set i + 1".to_string(),
+        ".endwhile".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors >= 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("label 'item' not allowed inside .while")),
+        "expected loop-label diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bwhile_allows_labels_inside_body() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[".org 0", ".bwhile $ < 2", "item .byte 1", ".endwhile"],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 1), (2, 1)]);
+}
+
+#[test]
+fn endwhile_without_while_reports_error() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![".endwhile".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains(".endwhile without matching .while")),
+        "expected unmatched .endwhile diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn while_loop_reports_pass_stability_mismatch() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".org 0".to_string(),
+        ".while $ < limit".to_string(),
+        ".byte 1".to_string(),
+        ".endwhile".to_string(),
+        "target = 2".to_string(),
+        "limit = target".to_string(),
+    ];
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 0);
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .expect("pass2 should execute");
+    assert!(pass2.errors > 0, "pass2 should report loop instability");
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("loop iteration count changed between passes")),
+        "expected loop stability diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn while_loop_respects_max_iteration_limit() {
+    let mut assembler = Assembler::new();
+    assembler.max_loop_iterations = 3;
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".while 1".to_string(),
+        ".byte 1".to_string(),
+        ".endwhile".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("loop exceeded maximum iteration limit (3)")),
+        "expected max-loop diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn conditionals_skip_repetition_blocks_without_loop_diagnostics() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[
+            ".if 0",
+            ".for i in {1,2,3}",
+            "item .byte i",
+            ".endfor",
+            ".while 1",
+            "other .byte 1",
+            ".endwhile",
+            ".endif",
+            ".byte 7",
+        ],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics in skipped repetition blocks: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 7)]);
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()
@@ -573,11 +1192,31 @@ fn run_passes(lines: &[&str]) -> Assembler {
     let mut assembler = Assembler::new();
     let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
     let pass1 = assembler.pass1(&lines);
-    assert_eq!(pass1.errors, 0, "pass1 should succeed");
+    assert_eq!(
+        pass1.errors,
+        0,
+        "pass1 should succeed: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .filter(|diag| diag.severity == Severity::Error)
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
     let mut listing_out = Vec::new();
     let mut listing = ListingWriter::new(&mut listing_out, false);
     let pass2 = assembler.pass2(&lines, &mut listing).expect("pass2");
-    assert_eq!(pass2.errors, 0, "pass2 should succeed");
+    assert_eq!(
+        pass2.errors,
+        0,
+        "pass2 should succeed: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .filter(|diag| diag.severity == Severity::Error)
+            .map(|diag| format!("{}:{}", diag.line, diag.error.message()))
+            .collect::<Vec<_>>()
+    );
     assembler
 }
 
@@ -2132,7 +2771,8 @@ fn normalize_listing_for_reference_compare(text: &str) -> String {
     text.lines()
         .filter(|line| {
             let trimmed = line.trim_start();
-            !(trimmed.starts_with("Build profile:")
+            !(trimmed.starts_with("opForge Assembler v")
+                || trimmed.starts_with("Build profile:")
                 || trimmed.contains("| vm-only |")
                 || trimmed.contains("| full-runtime |"))
         })
@@ -10983,6 +11623,24 @@ fn vm_runtime_vm_eval_enabled_families_parity_corpus_matches_native_mode() {
     for (cpu, line) in corpus {
         let native = assemble_line_with_runtime_mode(cpu, line, false);
         let runtime = assemble_line_with_runtime_mode(cpu, line, true);
+        assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
+        assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
+        assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);
+    }
+}
+
+#[test]
+fn vm_runtime_range_list_directive_lines_match_native_mode() {
+    let corpus = [
+        "vals = {1,2,3}",
+        "    .byte .len({1,2,3})",
+        "    .byte {1,2,3}[1]",
+        "    .byte .len(0..=6:2)",
+    ];
+
+    for line in corpus {
+        let native = assemble_line_with_runtime_mode(m6502_cpu_id, line, false);
+        let runtime = assemble_line_with_runtime_mode(m6502_cpu_id, line, true);
         assert_eq!(runtime.0, native.0, "status mismatch for '{}'", line);
         assert_eq!(runtime.1, native.1, "diagnostic mismatch for '{}'", line);
         assert_eq!(runtime.2, native.2, "bytes mismatch for '{}'", line);

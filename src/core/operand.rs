@@ -103,6 +103,12 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Number(_, span) => *span,
         Expr::Identifier(_, span) => *span,
         Expr::Register(_, span) => *span,
+        Expr::List(_, span) => *span,
+        Expr::Index { span, .. } => *span,
+        Expr::Member { span, .. } => *span,
+        Expr::StructLiteral { span, .. } => *span,
+        Expr::Call { span, .. } => *span,
+        Expr::Placeholder(span) => *span,
         Expr::Indirect(_, span) => *span,
         Expr::IndirectLong(_, span) => *span,
         Expr::Immediate(_, span) => *span,
@@ -113,6 +119,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Ternary { span, .. } => *span,
         Expr::Unary { span, .. } => *span,
         Expr::Binary { span, .. } => *span,
+        Expr::Range { span, .. } => *span,
     }
 }
 

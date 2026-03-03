@@ -1,0 +1,5 @@
+Assembly failed:
+2: ERROR [asm401]
+    2 | .byte .len(4..=0:1)
+      ^
+ERROR: range step direction conflicts with start..end

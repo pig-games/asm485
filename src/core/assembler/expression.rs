@@ -329,6 +329,12 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Number(_, span)
         | Expr::Identifier(_, span)
         | Expr::Register(_, span)
+        | Expr::List(_, span)
+        | Expr::Index { span, .. }
+        | Expr::Member { span, .. }
+        | Expr::StructLiteral { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::Placeholder(span)
         | Expr::Indirect(_, span)
         | Expr::IndirectLong(_, span)
         | Expr::Immediate(_, span)
@@ -336,7 +342,10 @@ pub fn expr_span(expr: &Expr) -> Span {
         | Expr::Dollar(span)
         | Expr::String(_, span)
         | Expr::Error(_, span) => *span,
-        Expr::Unary { span, .. } | Expr::Binary { span, .. } | Expr::Ternary { span, .. } => *span,
+        Expr::Unary { span, .. }
+        | Expr::Binary { span, .. }
+        | Expr::Ternary { span, .. }
+        | Expr::Range { span, .. } => *span,
     }
 }
 
@@ -345,6 +354,36 @@ pub fn expr_text(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Number(text, _) => Some(text.clone()),
         Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.clone()),
+        Expr::List(elements, _) => {
+            let parts: Vec<_> = elements.iter().filter_map(expr_text).collect();
+            if parts.len() == elements.len() {
+                Some(format!("{{{}}}", parts.join(", ")))
+            } else {
+                None
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            Some(format!("{}[{}]", expr_text(base)?, expr_text(index)?))
+        }
+        Expr::Member { base, field, .. } => Some(format!("{}.{}", expr_text(base)?, field)),
+        Expr::StructLiteral {
+            type_name, fields, ..
+        } => {
+            let mut parts = Vec::with_capacity(fields.len());
+            for (name, value) in fields {
+                parts.push(format!("{name}: {}", expr_text(value)?));
+            }
+            Some(format!("{type_name}{{{}}}", parts.join(", ")))
+        }
+        Expr::Call { name, args, .. } => {
+            let parts: Vec<_> = args.iter().filter_map(expr_text).collect();
+            if parts.len() == args.len() {
+                Some(format!("{name}({})", parts.join(", ")))
+            } else {
+                None
+            }
+        }
+        Expr::Placeholder(_) => Some("?".to_string()),
         Expr::Indirect(inner, _) => expr_text(inner).map(|s| format!("({})", s)),
         Expr::IndirectLong(inner, _) => expr_text(inner).map(|s| format!("[{}]", s)),
         Expr::Immediate(inner, _) => expr_text(inner).map(|s| format!("#{}", s)),
@@ -359,6 +398,33 @@ pub fn expr_text(expr: &Expr) -> Option<String> {
         Expr::Dollar(_) => Some("$".to_string()),
         Expr::String(_, _) => Some("<string>".to_string()),
         Expr::Error(_, _) => None,
+        Expr::Range {
+            start,
+            end,
+            step,
+            inclusive,
+            ..
+        } => {
+            let start_text = expr_text(start)?;
+            let end_text = expr_text(end)?;
+            if let Some(step_expr) = step {
+                let step_text = expr_text(step_expr)?;
+                Some(format!(
+                    "{}{}{}:{}",
+                    start_text,
+                    if *inclusive { "..=" } else { ".." },
+                    end_text,
+                    step_text
+                ))
+            } else {
+                Some(format!(
+                    "{}{}{}",
+                    start_text,
+                    if *inclusive { "..=" } else { ".." },
+                    end_text
+                ))
+            }
+        }
         Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => None,
     }
 }

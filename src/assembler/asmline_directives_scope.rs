@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Erik van der Tier
 
 use super::*;
+use crate::core::asm_value::StructDef;
 use crate::core::assembler::scope::{ScopeKind, ScopePopError};
+use crate::core::symbol_table::SymbolTableResult;
 
 impl<'a> AsmLine<'a> {
     pub(crate) fn route_scope_directive_ast(
@@ -31,6 +33,8 @@ impl<'a> AsmLine<'a> {
                 ))
             }
             "NAMESPACE" => Some(self.begin_namespace_directive_ast(operands)),
+            "STRUCT" => Some(self.begin_struct_directive_ast(operands)),
+            "ENDSTRUCT" => Some(self.end_struct_directive_ast(operands)),
             "ENDN" | "ENDNAMESPACE" => {
                 if !operands.is_empty() {
                     return Some(self.failure(
@@ -72,6 +76,55 @@ impl<'a> AsmLine<'a> {
                 Some(LineStatus::Ok)
             }
             _ => None,
+        }
+    }
+
+    pub(crate) fn process_struct_mode_statement_ast(
+        &mut self,
+        label: Option<&Label>,
+        mnemonic: Option<&str>,
+        operands: &[Expr],
+    ) -> LineStatus {
+        let Some(name) = mnemonic else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "invalid field directive in struct body",
+                None,
+            );
+        };
+        if !name.starts_with('.') {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "invalid field directive in struct body",
+                None,
+            );
+        }
+
+        let upper = name.to_ascii_uppercase();
+        let directive = upper.trim_start_matches('.');
+        match directive {
+            "ENDSTRUCT" => {
+                if label.is_some() {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "label not allowed on .endstruct",
+                        None,
+                    );
+                }
+                self.end_struct_directive_ast(operands)
+            }
+            "BYTE" | "DB" | "WORD" | "DW" | "LONG" | "RES" => {
+                self.struct_field_directive_ast(label, directive, operands)
+            }
+            _ => self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "invalid field directive in struct body",
+                None,
+            ),
         }
     }
 
@@ -292,6 +345,279 @@ impl<'a> AsmLine<'a> {
         }
         self.push_visibility();
         LineStatus::Ok
+    }
+
+    pub(crate) fn begin_struct_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if !operands.is_empty() {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Unexpected operands for .struct",
+                None,
+            );
+        }
+        if self.in_struct_definition() {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "nested .struct is not supported",
+                None,
+            );
+        }
+        let Some(struct_label) = self.label.clone() else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Missing struct name before .struct",
+                None,
+            );
+        };
+        let full_name = self.scoped_define_name(&struct_label);
+        self.active_struct = Some(ActiveStructDefinition::new(
+            full_name,
+            self.current_line_num,
+        ));
+        LineStatus::Ok
+    }
+
+    pub(crate) fn end_struct_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
+        if !operands.is_empty() {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Unexpected operands for .endstruct",
+                None,
+            );
+        }
+        let Some(active_struct) = self.active_struct.take() else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".endstruct without matching .struct",
+                None,
+            );
+        };
+
+        let struct_def = StructDef {
+            name: active_struct.name.clone(),
+            fields: active_struct.fields.clone(),
+            size: active_struct.size,
+        };
+        if let Err(err) = self.struct_table.register(struct_def) {
+            let message = match err {
+                crate::core::StructTableError::Duplicate(name) => {
+                    format!("struct has already been defined: {name}")
+                }
+            };
+            return self.failure(LineStatus::Error, AsmErrorKind::Directive, &message, None);
+        }
+
+        if let Some(status) = self.define_struct_symbol_ast(&active_struct.name, active_struct.size)
+        {
+            return status;
+        }
+        for field in &active_struct.fields {
+            let field_name = format!("{}.{}", active_struct.name, field.name);
+            if let Some(status) = self.define_struct_symbol_ast(&field_name, field.offset) {
+                return status;
+            }
+        }
+        LineStatus::Ok
+    }
+
+    fn struct_field_directive_ast(
+        &mut self,
+        label: Option<&Label>,
+        directive: &str,
+        operands: &[Expr],
+    ) -> LineStatus {
+        let field_label = match label {
+            Some(label) => label,
+            None => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Struct field declarations require a label",
+                    None,
+                );
+            }
+        };
+        let field_size = match directive {
+            "BYTE" | "DB" => match operands {
+                [Expr::Placeholder(_)] => 1,
+                _ => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Struct .byte/.db field must use placeholder '?'",
+                        None,
+                    );
+                }
+            },
+            "WORD" | "DW" => match operands {
+                [Expr::Placeholder(_)] => 2,
+                _ => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Struct .word/.dw field must use placeholder '?'",
+                        None,
+                    );
+                }
+            },
+            "LONG" => match operands {
+                [Expr::Placeholder(_)] => 4,
+                _ => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Struct .long field must use placeholder '?'",
+                        None,
+                    );
+                }
+            },
+            "RES" => {
+                let expr = match operands {
+                    [expr] => expr,
+                    _ => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Directive,
+                            "Struct .res field requires one size expression",
+                            None,
+                        );
+                    }
+                };
+                match self.eval_expr_for_non_negative_directive(expr, ".res field size") {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            err.error.kind(),
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
+                }
+            }
+            _ => {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "invalid field directive in struct body",
+                    None,
+                );
+            }
+        };
+
+        let Some(active_struct) = self.active_struct.as_ref() else {
+            return self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                ".struct state is not active",
+                None,
+            );
+        };
+        if active_struct
+            .fields
+            .iter()
+            .any(|field| field.name.eq_ignore_ascii_case(field_label.name.as_str()))
+        {
+            return self.failure_at_span(
+                LineStatus::Error,
+                AsmErrorKind::Directive,
+                "Struct field has already been defined",
+                Some(field_label.name.as_str()),
+                field_label.span,
+            );
+        }
+
+        let active_struct = self
+            .active_struct
+            .as_mut()
+            .expect("active struct checked above");
+        let offset = active_struct.size;
+        let size = match offset.checked_add(field_size) {
+            Some(size) => size,
+            None => {
+                return self.failure_at_span(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Struct size overflow exceeds supported range",
+                    None,
+                    field_label.span,
+                );
+            }
+        };
+
+        active_struct.fields.push(StructField {
+            name: field_label.name.clone(),
+            offset,
+            size: field_size,
+        });
+        active_struct.size = size;
+
+        LineStatus::Ok
+    }
+
+    fn define_struct_symbol_ast(&mut self, name: &str, value: u32) -> Option<LineStatus> {
+        let result = if self.pass == 1 {
+            self.symbols.add(
+                name,
+                value,
+                false,
+                self.current_visibility(),
+                self.symbol_scope.module_active.as_deref(),
+            )
+        } else {
+            self.symbols.update(name, value)
+        };
+        match result {
+            SymbolTableResult::Ok => None,
+            SymbolTableResult::Duplicate => Some(self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "symbol has already been defined",
+                Some(name),
+            )),
+            SymbolTableResult::TableFull => Some(self.failure(
+                LineStatus::Error,
+                AsmErrorKind::Symbol,
+                "could not add symbol, table full",
+                Some(name),
+            )),
+            SymbolTableResult::NotFound => {
+                let add_result = self.symbols.add(
+                    name,
+                    value,
+                    false,
+                    self.current_visibility(),
+                    self.symbol_scope.module_active.as_deref(),
+                );
+                match add_result {
+                    SymbolTableResult::Ok => None,
+                    SymbolTableResult::Duplicate => Some(self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Symbol,
+                        "symbol has already been defined",
+                        Some(name),
+                    )),
+                    SymbolTableResult::TableFull => Some(self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Symbol,
+                        "could not add symbol, table full",
+                        Some(name),
+                    )),
+                    SymbolTableResult::NotFound => Some(self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Symbol,
+                        "symbol has not been defined",
+                        Some(name),
+                    )),
+                }
+            }
+        }
     }
 
     pub(crate) fn close_scope(

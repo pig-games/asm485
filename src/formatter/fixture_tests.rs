@@ -15,6 +15,7 @@ const REPRESENTATIVE_SNAPSHOT_STEMS: &[&str] = &[
     "m65c02_basic",
     "m65816_basic",
     "m45gs02_basic",
+    "ranges_lists_member_struct",
     "directives_heavy",
     "macro_preproc_heavy",
 ];
@@ -26,6 +27,7 @@ const FULL_CORPUS_STEMS: &[&str] = &[
     "m65c02_basic",
     "m65816_basic",
     "m45gs02_basic",
+    "ranges_lists_member_struct",
     "directives_heavy",
     "data_directives_alignment",
     "directive_alignment",
@@ -72,6 +74,14 @@ fn formatter_preserves_semantic_token_stream_across_fixture_corpus() {
             "formatter semantic token projection drift for {stem}"
         );
     }
+}
+
+#[test]
+fn formatter_preserves_range_list_and_repetition_token_semantics() {
+    let engine = FormatterEngine::new(FormatterConfig::default());
+    let input = "vals = {1,2,3}\n    .byte .len(vals), vals[1], 0..=6:2\n    .for i in vals\n    .byte i\n    .endfor\n    .while 0\n    .byte 1\n    .endwhile\n";
+    let output = engine.format_source(input);
+    assert_eq!(semantic_projection(input), semantic_projection(&output));
 }
 
 #[test]

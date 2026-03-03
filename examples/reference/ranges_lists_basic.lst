@@ -1,0 +1,28 @@
+opForge Assembler v0.9.5
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Ranges, lists, indexing, and .len.
+----                                2  .cpu 6502
+----                                3  
+----    EQU 0000                    4  values = {2, 4, 6, 8}
+----                                5  
+0000    04                          6  .byte .len(values)
+0001    06                          7  .byte values[2]
+----                                8  
+0002    00                         10      .byte n
+0003    03                         10      .byte n
+0004    06                         10      .byte n
+
+Lines: 11  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+values          : 0000 (0)
+
+Total memory is 5 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    04 06 00 03 06

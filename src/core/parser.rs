@@ -76,6 +76,28 @@ pub enum Expr {
     Number(String, Span),
     Identifier(String, Span),
     Register(String, Span),
+    List(Vec<Expr>, Span),
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
+    Member {
+        base: Box<Expr>,
+        field: String,
+        span: Span,
+    },
+    StructLiteral {
+        type_name: String,
+        fields: Vec<(String, Expr)>,
+        span: Span,
+    },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    Placeholder(Span),
     /// Indirect/memory reference via register: (HL), (BC), (IX+d), etc.
     /// For simple cases like (HL), the inner is Register.
     /// For indexed like (IX+5), the inner is Binary with base register.
@@ -104,6 +126,13 @@ pub enum Expr {
         op: BinaryOp,
         left: Box<Expr>,
         right: Box<Expr>,
+        span: Span,
+    },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        step: Option<Box<Expr>>,
+        inclusive: bool,
         span: Span,
     },
 }
@@ -512,6 +541,28 @@ impl Parser {
             if upper.as_str() == "PACK" {
                 return self.parse_pack_directive(span);
             }
+            if matches!(upper.as_str(), "FOR" | "BFOR") {
+                return self.parse_for_like_directive(label, name);
+            }
+            if matches!(upper.as_str(), "WHILE" | "BWHILE") {
+                return self.parse_while_like_directive(label, name);
+            }
+            if matches!(
+                upper.as_str(),
+                "STRUCT" | "ENDSTRUCT" | "ENDFOR" | "ENDWHILE"
+            ) {
+                if self.index < self.tokens.len() {
+                    return Err(ParseError {
+                        message: "Unexpected trailing tokens".to_string(),
+                        span: self.tokens[self.index].span,
+                    });
+                }
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic: Some(format!(".{name}")),
+                    operands: Vec::new(),
+                });
+            }
             if matches!(
                 upper.as_str(),
                 "MACRO" | "SEGMENT" | "ENDMACRO" | "ENDSEGMENT" | "ENDM" | "ENDS"
@@ -726,6 +777,109 @@ impl Parser {
         })
     }
 
+    fn parse_for_like_directive(
+        &mut self,
+        label: Option<Label>,
+        name: String,
+    ) -> Result<LineAst, ParseError> {
+        let mut operands = Vec::new();
+        let mnemonic = Some(format!(".{name}"));
+
+        let start_index = self.index;
+        if let Some(Token {
+            kind: TokenKind::Identifier(var_name),
+            span: var_span,
+        })
+        | Some(Token {
+            kind: TokenKind::Register(var_name),
+            span: var_span,
+        }) = self.peek().cloned()
+        {
+            self.index = self.index.saturating_add(1);
+            if self.match_keyword("in") {
+                operands.push(Expr::Identifier(var_name, var_span));
+                match self.parse_expr() {
+                    Ok(expr) => operands.push(expr),
+                    Err(err) => {
+                        operands.push(Expr::Error(err.message, err.span));
+                        return Ok(LineAst::Statement {
+                            label,
+                            mnemonic,
+                            operands,
+                        });
+                    }
+                }
+                if self.index < self.tokens.len() {
+                    return Err(ParseError {
+                        message: "Unexpected trailing tokens".to_string(),
+                        span: self.tokens[self.index].span,
+                    });
+                }
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                });
+            }
+        }
+
+        self.index = start_index;
+        match self.parse_expr() {
+            Ok(expr) => operands.push(expr),
+            Err(err) => {
+                operands.push(Expr::Error(err.message, err.span));
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                });
+            }
+        }
+        if self.index < self.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: self.tokens[self.index].span,
+            });
+        }
+        Ok(LineAst::Statement {
+            label,
+            mnemonic,
+            operands,
+        })
+    }
+
+    fn parse_while_like_directive(
+        &mut self,
+        label: Option<Label>,
+        name: String,
+    ) -> Result<LineAst, ParseError> {
+        let mut operands = Vec::new();
+        let mnemonic = Some(format!(".{name}"));
+
+        match self.parse_expr() {
+            Ok(expr) => operands.push(expr),
+            Err(err) => {
+                operands.push(Expr::Error(err.message, err.span));
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                });
+            }
+        }
+        if self.index < self.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: self.tokens[self.index].span,
+            });
+        }
+        Ok(LineAst::Statement {
+            label,
+            mnemonic,
+            operands,
+        })
+    }
+
     fn parse_pack_directive(&mut self, start_span: Span) -> Result<LineAst, ParseError> {
         let (in_kw, in_span) = self.parse_ident_like("Expected 'in' in .pack directive")?;
         if !in_kw.eq_ignore_ascii_case("in") {
@@ -809,6 +963,9 @@ impl Parser {
                 }
             }
             TokenKind::Operator(kind) => {
+                if *kind == OperatorKind::RangeInclusive {
+                    return Some((AssignOp::Concat, token.span, 1));
+                }
                 let op = match kind {
                     OperatorKind::Plus => AssignOp::Add,
                     OperatorKind::Minus => AssignOp::Sub,
@@ -1328,10 +1485,10 @@ impl Parser {
     }
 
     fn parse_bit_and(&mut self) -> Result<Expr, ParseError> {
-        let mut node = self.parse_compare()?;
+        let mut node = self.parse_range()?;
         while self.match_operator(OperatorKind::BitAnd) {
             let op_span = self.prev_span();
-            let right = self.parse_compare()?;
+            let right = self.parse_range()?;
             node = Expr::Binary {
                 op: BinaryOp::BitAnd,
                 left: Box::new(node),
@@ -1340,6 +1497,36 @@ impl Parser {
             };
         }
         Ok(node)
+    }
+
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let start = self.parse_compare()?;
+        let (inclusive, op_span) = match self.peek_operator_kind() {
+            Some(OperatorKind::Range) => {
+                self.index += 1;
+                (false, self.prev_span())
+            }
+            Some(OperatorKind::RangeInclusive) => {
+                self.index += 1;
+                (true, self.prev_span())
+            }
+            _ => return Ok(start),
+        };
+
+        let end = self.parse_compare()?;
+        let step = if self.consume_kind(TokenKind::Colon) {
+            Some(Box::new(self.parse_compare()?))
+        } else {
+            None
+        };
+
+        Ok(Expr::Range {
+            start: Box::new(start),
+            end: Box::new(end),
+            step,
+            inclusive,
+            span: op_span,
+        })
     }
 
     fn parse_compare(&mut self) -> Result<Expr, ParseError> {
@@ -1480,7 +1667,7 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
-        match self.next() {
+        let base = match self.next() {
             Some(Token {
                 kind: TokenKind::Hash,
                 span: hash_span,
@@ -1515,6 +1702,66 @@ impl Parser {
                 kind: TokenKind::String(lit),
                 span,
             }) => Ok(Expr::String(lit.bytes, span)),
+            Some(Token {
+                kind: TokenKind::Question,
+                span,
+            }) => Ok(Expr::Placeholder(span)),
+            Some(Token {
+                kind: TokenKind::Dot,
+                span: dot_span,
+            }) => {
+                let name = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        ..
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        ..
+                    }) => name,
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected function name after '.'".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected function name after '.'".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+                if !self.consume_kind(TokenKind::OpenParen) {
+                    return Err(ParseError {
+                        message: "Expected '(' after function name".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let mut args = Vec::new();
+                if !self.consume_kind(TokenKind::CloseParen) {
+                    args.push(self.parse_expr()?);
+                    while self.consume_comma() {
+                        args.push(self.parse_expr()?);
+                    }
+                    if !self.consume_kind(TokenKind::CloseParen) {
+                        return Err(ParseError {
+                            message: "Missing ')' in function call".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                }
+                let end_span = self.prev_span();
+                Ok(Expr::Call {
+                    name: format!(".{name}"),
+                    args,
+                    span: Span {
+                        line: dot_span.line,
+                        col_start: dot_span.col_start,
+                        col_end: end_span.col_end,
+                    },
+                })
+            }
             Some(Token {
                 kind: TokenKind::OpenParen,
                 span: open_span,
@@ -1607,6 +1854,33 @@ impl Parser {
                     ))
                 }
             }
+            Some(Token {
+                kind: TokenKind::OpenBrace,
+                span: open_span,
+            }) => {
+                let mut elements = Vec::new();
+                if !self.consume_kind(TokenKind::CloseBrace) {
+                    elements.push(self.parse_expr()?);
+                    while self.consume_comma() {
+                        elements.push(self.parse_expr()?);
+                    }
+                    if !self.consume_kind(TokenKind::CloseBrace) {
+                        return Err(ParseError {
+                            message: "Missing '}' in list literal".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                }
+                let close_span = self.prev_span();
+                Ok(Expr::List(
+                    elements,
+                    Span {
+                        line: open_span.line,
+                        col_start: open_span.col_start,
+                        col_end: close_span.col_end,
+                    },
+                ))
+            }
             Some(token) => Err(ParseError {
                 message: "Unexpected token in expression".to_string(),
                 span: token.span,
@@ -1618,7 +1892,145 @@ impl Parser {
                 },
                 span: self.end_span,
             }),
+        }?;
+
+        let base = self.parse_struct_literal_if_present(base)?;
+        self.parse_postfix_expr(base)
+    }
+
+    fn parse_struct_literal_if_present(&mut self, expr: Expr) -> Result<Expr, ParseError> {
+        let (type_name, type_span) = match &expr {
+            Expr::Identifier(name, span) | Expr::Register(name, span) => (name.clone(), *span),
+            _ => return Ok(expr),
+        };
+        if !self.peek_kind(TokenKind::OpenBrace) {
+            return Ok(expr);
         }
+        self.index += 1; // '{'
+
+        let mut fields = Vec::new();
+        if !self.consume_kind(TokenKind::CloseBrace) {
+            loop {
+                let field_name = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        ..
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        ..
+                    }) => name,
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected field name in struct literal".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected field name in struct literal".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+
+                if !self.consume_kind(TokenKind::Colon) {
+                    return Err(ParseError {
+                        message: "Expected ':' after field name in struct literal".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let field_expr = self.parse_expr()?;
+                fields.push((field_name, field_expr));
+
+                if self.consume_comma() {
+                    continue;
+                }
+                if !self.consume_kind(TokenKind::CloseBrace) {
+                    return Err(ParseError {
+                        message: "Missing '}' in struct literal".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                break;
+            }
+        }
+
+        let close_span = self.prev_span();
+        Ok(Expr::StructLiteral {
+            type_name,
+            fields,
+            span: Span {
+                line: type_span.line,
+                col_start: type_span.col_start,
+                col_end: close_span.col_end,
+            },
+        })
+    }
+
+    fn parse_postfix_expr(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
+        loop {
+            if self.consume_kind(TokenKind::OpenBracket) {
+                let index = self.parse_expr()?;
+                let close_span = self.current_span();
+                if !self.consume_kind(TokenKind::CloseBracket) {
+                    return Err(ParseError {
+                        message: "Missing ']' in index expression".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let start_span = span_of_expr(&expr);
+                expr = Expr::Index {
+                    base: Box::new(expr),
+                    index: Box::new(index),
+                    span: Span {
+                        line: start_span.line,
+                        col_start: start_span.col_start,
+                        col_end: close_span.col_end,
+                    },
+                };
+                continue;
+            }
+
+            if self.consume_kind(TokenKind::Dot) {
+                let (field, field_span) = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        span,
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        span,
+                    }) => (name, span),
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected member name after '.'".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected member name after '.'".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+                let start_span = span_of_expr(&expr);
+                expr = Expr::Member {
+                    base: Box::new(expr),
+                    field,
+                    span: Span {
+                        line: start_span.line,
+                        col_start: start_span.col_start,
+                        col_end: field_span.col_end,
+                    },
+                };
+                continue;
+            }
+
+            break;
+        }
+        Ok(expr)
     }
 
     fn consume_comma(&mut self) -> bool {
@@ -1695,11 +2107,34 @@ fn map_tokenize_error(err: TokenizeError) -> ParseError {
     }
 }
 
+fn span_of_expr(expr: &Expr) -> Span {
+    match expr {
+        Expr::Number(_, span)
+        | Expr::Identifier(_, span)
+        | Expr::Register(_, span)
+        | Expr::List(_, span)
+        | Expr::Index { span, .. }
+        | Expr::Member { span, .. }
+        | Expr::StructLiteral { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::Placeholder(span)
+        | Expr::Indirect(_, span)
+        | Expr::Immediate(_, span)
+        | Expr::IndirectLong(_, span)
+        | Expr::Tuple(_, span)
+        | Expr::Dollar(span)
+        | Expr::String(_, span)
+        | Expr::Error(_, span)
+        | Expr::Range { span, .. } => *span,
+        Expr::Ternary { span, .. } | Expr::Unary { span, .. } | Expr::Binary { span, .. } => *span,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        match_statement_signature, select_statement_signature, AssignOp, ConditionalKind, LineAst,
-        Parser, SignatureAtom,
+        match_statement_signature, select_statement_signature, AssignOp, BinaryOp, ConditionalKind,
+        Expr, LineAst, Parser, SignatureAtom,
     };
     use crate::core::tokenizer::{Span, Tokenizer};
 
@@ -2271,5 +2706,262 @@ mod tests {
             }
             _ => panic!("Expected statement"),
         }
+    }
+
+    #[test]
+    fn parses_range_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("0..8"),
+            Span {
+                line: 1,
+                col_start: 5,
+                col_end: 5,
+            },
+            None,
+        )
+        .expect("range expression should parse");
+
+        match expr {
+            Expr::Range {
+                inclusive,
+                step,
+                start,
+                end,
+                ..
+            } => {
+                assert!(!inclusive);
+                assert!(step.is_none());
+                assert!(matches!(*start, Expr::Number(_, _)));
+                assert!(matches!(*end, Expr::Number(_, _)));
+            }
+            other => panic!("Expected range expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_inclusive_range_with_step_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("10..=0:-1"),
+            Span {
+                line: 1,
+                col_start: 10,
+                col_end: 10,
+            },
+            None,
+        )
+        .expect("inclusive range with step should parse");
+
+        match expr {
+            Expr::Range {
+                inclusive,
+                step,
+                start,
+                end,
+                ..
+            } => {
+                assert!(inclusive);
+                assert!(step.is_some());
+                assert!(matches!(*start, Expr::Number(_, _)));
+                assert!(matches!(*end, Expr::Number(_, _)));
+            }
+            other => panic!("Expected range expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_list_literal_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("{1,2,3}"),
+            Span {
+                line: 1,
+                col_start: 8,
+                col_end: 8,
+            },
+            None,
+        )
+        .expect("list expression should parse");
+
+        match expr {
+            Expr::List(items, _) => {
+                assert_eq!(items.len(), 3);
+                assert!(items.iter().all(|item| matches!(item, Expr::Number(_, _))));
+            }
+            other => panic!("Expected list expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_typed_struct_literal_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("Point{x:1,y:2}"),
+            Span {
+                line: 1,
+                col_start: 14,
+                col_end: 14,
+            },
+            None,
+        )
+        .expect("struct literal expression should parse");
+
+        match expr {
+            Expr::StructLiteral {
+                type_name, fields, ..
+            } => {
+                assert_eq!(type_name, "Point");
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].0, "x");
+                assert!(matches!(fields[0].1, Expr::Number(_, _)));
+                assert_eq!(fields[1].0, "y");
+                assert!(matches!(fields[1].1, Expr::Number(_, _)));
+            }
+            other => panic!("Expected struct literal expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_struct_literal_followed_by_member_access() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("Point{x:1,y:2}.x"),
+            Span {
+                line: 1,
+                col_start: 16,
+                col_end: 16,
+            },
+            None,
+        )
+        .expect("struct literal member expression should parse");
+
+        match expr {
+            Expr::Member { base, field, .. } => {
+                assert_eq!(field, "x");
+                assert!(matches!(*base, Expr::StructLiteral { .. }));
+            }
+            other => panic!("Expected member expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_index_then_member_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("arr[2].len"),
+            Span {
+                line: 1,
+                col_start: 11,
+                col_end: 11,
+            },
+            None,
+        )
+        .expect("postfix expression should parse");
+
+        match expr {
+            Expr::Member { base, field, .. } => {
+                assert_eq!(field, "len");
+                assert!(matches!(*base, Expr::Index { .. }));
+            }
+            other => panic!("Expected member expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_dot_call_with_placeholder_argument() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line(".pick({1,2},?)"),
+            Span {
+                line: 1,
+                col_start: 14,
+                col_end: 14,
+            },
+            None,
+        )
+        .expect("call expression should parse");
+
+        match expr {
+            Expr::Call { name, args, .. } => {
+                assert_eq!(name, ".pick");
+                assert_eq!(args.len(), 2);
+                assert!(matches!(args[0], Expr::List(_, _)));
+                assert!(matches!(args[1], Expr::Placeholder(_)));
+            }
+            other => panic!("Expected call expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_for_directive_var_in_head() {
+        let mut parser = Parser::from_line(".for i in 0..8", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".for"));
+                assert_eq!(operands.len(), 2);
+                assert!(matches!(operands[0], Expr::Identifier(ref name, _) if name == "i"));
+                assert!(matches!(operands[1], Expr::Range { .. }));
+            }
+            other => panic!("Expected .for statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_for_directive_count_head() {
+        let mut parser = Parser::from_line(".for 4+1", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".for"));
+                assert_eq!(operands.len(), 1);
+                assert!(matches!(operands[0], Expr::Binary { .. }));
+            }
+            other => panic!("Expected .for statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_while_directive_head() {
+        let mut parser = Parser::from_line(".while addr < $c100", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".while"));
+                assert_eq!(operands.len(), 1);
+                assert!(matches!(
+                    operands[0],
+                    Expr::Binary {
+                        op: BinaryOp::Lt,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("Expected .while statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_endfor_without_operands() {
+        let mut parser = Parser::from_line(".endfor", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".endfor"));
+                assert!(operands.is_empty());
+            }
+            other => panic!("Expected .endfor statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_trailing_tokens_after_endfor() {
+        let mut parser = Parser::from_line(".endfor 1", 1).unwrap();
+        let err = parser
+            .parse_line()
+            .expect_err("trailing tokens after .endfor should fail");
+        assert!(err.message.contains("Unexpected trailing tokens"));
     }
 }

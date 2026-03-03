@@ -407,6 +407,16 @@ fn expr_has_symbol_references(expr: &Expr) -> bool {
         Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
             expr_has_symbol_references(inner)
         }
+        Expr::List(items, _) => items.iter().any(expr_has_symbol_references),
+        Expr::Index { base, index, .. } => {
+            expr_has_symbol_references(base) || expr_has_symbol_references(index)
+        }
+        Expr::Member { base, .. } => expr_has_symbol_references(base),
+        Expr::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|(_, value)| expr_has_symbol_references(value)),
+        Expr::Call { args, .. } => args.iter().any(expr_has_symbol_references),
+        Expr::Placeholder(_) => false,
         Expr::Tuple(items, _) => items.iter().any(expr_has_symbol_references),
         Expr::Ternary {
             cond,
@@ -421,6 +431,15 @@ fn expr_has_symbol_references(expr: &Expr) -> bool {
         Expr::Unary { expr, .. } => expr_has_symbol_references(expr),
         Expr::Binary { left, right, .. } => {
             expr_has_symbol_references(left) || expr_has_symbol_references(right)
+        }
+        Expr::Range {
+            start, end, step, ..
+        } => {
+            expr_has_symbol_references(start)
+                || expr_has_symbol_references(end)
+                || step
+                    .as_ref()
+                    .is_some_and(|step_expr| expr_has_symbol_references(step_expr))
         }
         Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
     }

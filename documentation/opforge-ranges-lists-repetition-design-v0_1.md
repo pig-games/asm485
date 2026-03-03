@@ -1,7 +1,7 @@
 # opForge Design: Ranges, Lists, and Repetition Constructs — v0.1
 
-**Status:** Proposal  
-**Date:** 2026-03-02
+**Status:** Implemented design record (v0.1 scope completed on branch `codex/ranges-lists-repetition-plan-v0_1`)  
+**Date:** 2026-03-03
 
 ---
 
@@ -18,6 +18,7 @@ This document proposes adding **ranges**, **lists**, and **repetition constructs
 5. **`.bfor` / `.bwhile`** — scoped variants that open an implicit `.block`.
 6. **Labeled repetition** with `[n]` indexing into generated iterations.
 7. Ranges and lists as valid parameters for macros, segments, etc.
+8. Typed literal struct instances assignable to symbols.
 
 ### Design Principles
 
@@ -38,7 +39,7 @@ Expressions evaluate to scalar `i64` (CPU handlers) or `u32` (assembler pipeline
 Introduce a first-class value enum that generalizes scalar, range, list, and struct:
 
 ```rust
-/// Assembly-time value: scalar, range, list, or struct definition.
+/// Assembly-time value: scalar, range, list, struct type, or struct instance.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AsmValue {
     /// Single integer value (backwards compatible with all existing code).
@@ -57,6 +58,9 @@ pub enum AsmValue {
 
     /// Struct type definition: named fields with byte offsets and sizes.
     Struct(StructDef),
+
+    /// Struct instance value: typed field-value map.
+    StructInstance(StructInstance),
 }
 
 /// A compile-time struct layout (field names → offsets).
@@ -73,13 +77,21 @@ pub struct StructField {
     pub offset: u32,             // byte offset from struct start
     pub size: u32,               // byte size of this field
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructInstance {
+    pub type_name: String,
+    pub fields: HashMap<String, i64>,
+}
 ```
 
-Every existing code path that produces/consumes a plain integer continues to operate on `AsmValue::Scalar`. Range, list, and struct are new variants that only appear where explicitly constructed.
+Every existing code path that produces/consumes a plain integer continues to operate on `AsmValue::Scalar`. Range, list, struct type, and struct instance are explicit variants that appear only where explicitly constructed.
+
+All symbol kinds share one scoped symbol namespace. A name can refer to exactly one symbol in a scope, and the symbol's type is carried by its `AsmValue` variant (`Scalar`, `List`, `Range`, `Struct`, `StructInstance`; future `Union` follows the same rule).
 
 ### 2.3 Type Relationships
 
-The four value types compose naturally:
+The five value types compose naturally:
 
 | Type       | Indexable `[n]` | Has fields `.f` | Iterable     | Description                       |
 |------------|-----------------|-----------------|--------------|-----------------------------------|
@@ -87,6 +99,7 @@ The four value types compose naturally:
 | `Range`    | Yes (→ scalar)  | No              | Yes          | Lazy arithmetic sequence          |
 | `List`     | Yes (→ scalar)  | No              | Yes          | Materialized value sequence       |
 | `Struct`   | No              | Yes (→ offset)  | No           | Layout type with named fields     |
+| `StructInstance` | No        | Yes (→ scalar)  | No           | Typed field-value object          |
 
 A **list of struct instances** is not a new type — it is a `List` whose elements are base addresses, combined with a `Struct` that defines the field layout. Indexing `name[k]` returns the address; `.field` adds the field offset.
 
@@ -99,8 +112,9 @@ A **list of struct instances** is not a new type — it is a `List` whose elemen
 | `.get(index)`       | `Option<i64>`       |
 | `.to_list()`        | Materializes a list |
 | `Scalar` → `i64`   | Direct unwrap       |
-| `.field_offset(n)`  | `Option<u32>` (struct only) |
-| `.size()`           | Struct instance size |
+| `.field_offset(n)`  | `Option<u32>` (struct type only) |
+| `.field_value(n)`   | `Option<i64>` (struct instance only) |
+| `.size()`           | Struct type/instance size |
 
 ---
 
@@ -482,11 +496,60 @@ Structs are used in three ways:
        .res SpriteData * 8            ; reserve space for 8 sprites
    ```
 
-### 8.4 Struct Nesting (Future)
+### 8.4 Typed Literal Struct Instances
+
+Typed struct literals create field-value instances of a previously defined struct type:
+
+```asm
+player0 .const SpriteData { x: 24, y: 50, color: 1, flags: $00 }
+player1 .var   SpriteData { x: 40, y: 50, color: 2, flags: $00 }
+
+        .byte player0.x
+        .byte player1.color
+```
+
+Syntax:
+
+```
+struct_literal = identifier '{' field_init (',' field_init)* '}'
+field_init     = identifier ':' expr
+```
+
+Rules:
+
+- The leading identifier must resolve to a known struct type.
+- Every declared field in the struct must be initialized exactly once.
+- Unknown fields, duplicate fields, and missing fields are errors.
+- The literal evaluates to `AsmValue::StructInstance`.
+- Struct instances are assignable using `.const`, `.var`, `.set`, `=`, and `:=`.
+- Member access is type-sensitive:
+  - `SpriteData.color` resolves to field offset.
+  - `player0.color` resolves to the instance field value.
+- Scalar compound assignment operators (`+=`, `-=`, etc.) reject struct-instance symbols.
+
+Additional examples:
+
+```asm
+; Assignment syntax + reassignment
+p := SpriteData { x: 8, y: 16, color: 3, flags: $80 }
+p .set SpriteData { x: 9, y: 16, color: 3, flags: $80 }
+
+        .byte p.x              ; 9
+        .byte SpriteData.x     ; 0 (offset)
+```
+
+```asm
+; Validation failures
+bad1 .var SpriteData { x: 1, y: 2 }                    ; missing color/flags
+bad2 .var SpriteData { x: 1, y: 2, color: 3, z: 4 }    ; unknown field z
+bad3 .var MissingType { x: 1 }                         ; unknown struct type
+```
+
+### 8.5 Struct Nesting (Future)
 
 Struct nesting (embedding one struct inside another) is deferred to a future version. For v0.1, fields are limited to scalar data directives.
 
-### 8.5 Parser / `Expr` Changes
+### 8.6 Parser / `Expr` Changes
 
 New `Expr` variant for struct field access (member operator):
 
@@ -498,9 +561,24 @@ Expr::Member {
 }
 ```
 
-The `.` member operator already exists conceptually in the scope system (for namespace-qualified identifiers). The `Member` expression reuses this syntax but resolves through the struct field table rather than the scope stack when the base is a struct type or a struct-typed list index.
+New `Expr` variant for typed struct literal expressions:
 
-### 8.6 Implementation
+```rust
+Expr::StructLiteral {
+    type_name: String,
+    fields: Vec<(String, Expr)>,
+    span: Span,
+}
+```
+
+The `.` member operator already exists conceptually in the scope system (for namespace-qualified identifiers). Resolution is:
+
+1. Resolve the exact dotted symbol name (qualified scope/module/import symbol).
+2. If no exact symbol exists, resolve as typed member access by splitting at `.` from right to left and finding the longest base symbol that has a struct type/instance.
+
+This keeps dotted symbols and struct member access in one unified namespace and scope model.
+
+### 8.7 Implementation
 
 The assembler maintains a `StructTable` alongside the `SymbolTable`:
 
@@ -632,10 +710,10 @@ All `[n]` indexing resolves through a single path:
 
 Field access (`.field`) after indexing:
 
-1. Evaluate `base[n]` to get a scalar address `addr`.
-2. Look up the struct type associated with `base` (via implicit inference or explicit annotation).
-3. Return `addr + struct.field_offset(field_name)`.
-4. If no struct is associated → error: "no struct type for field access".
+1. Evaluate `base`.
+2. If `base` is `AsmValue::StructInstance`, return the stored field value.
+3. Otherwise, for indexed list-of-struct access, evaluate `base[n]` to scalar address `addr`, look up the struct type associated with `base`, and return `addr + struct.field_offset(field_name)`.
+4. If no struct type or field is available → emit the corresponding struct/member diagnostic.
 
 Out-of-bounds index produces an assembly error with a clear diagnostic.
 
@@ -731,6 +809,11 @@ Because the two-pass model depends on pass 1 producing correct sizes, any loop w
 | Field access on non-struct list           | `error: no struct type associated with 'name' for field access` |
 | Unknown struct field                      | `error: struct 'S' has no field 'f'`                          |
 | Struct size mismatch in annotated `.bfor` | `error: iteration body size (N) does not match struct 'S' size (M)` |
+| Unknown field in struct literal           | `error: unknown field 'f' in struct literal for 'S'`          |
+| Duplicate field in struct literal         | `error: duplicate field 'f' in struct literal for 'S'`        |
+| Missing required field in struct literal  | `error: missing required field 'f' in struct literal for 'S'` |
+| Unknown struct type in literal            | `error: unknown struct type 'S' for struct literal`           |
+| Scalar operator on struct instance        | `error: operator '+=' requires scalar symbol, found struct instance 'X'` |
 
 ---
 
@@ -845,6 +928,26 @@ palette = {$00, $06, $0E, $01, $03, $07, $0F, $0A}
         ldx #.len(palette)       ; 8
 ```
 
+### 14.8 Typed Literal Struct Instance
+
+```asm
+SpriteData .struct
+x           .byte ?
+y           .byte ?
+color       .byte ?
+flags       .byte ?
+.endstruct
+
+player0 .const SpriteData { x: 24, y: 50, color: 1, flags: $00 }
+player1 .var   SpriteData { x: 40, y: 50, color: 2, flags: $00 }
+
+        lda #player0.x       ; 24 (instance value)
+        lda #player1.color   ; 2  (instance value)
+        player1 .set SpriteData { x: 41, y: 50, color: 3, flags: $00 }
+        lda #player1.x       ; 41 after reassignment
+        lda sprites[3].x     ; address + struct offset (existing behavior)
+```
+
 ---
 
 ## 15. Implementation Phases
@@ -897,6 +1000,17 @@ palette = {$00, $06, $0E, $01, $03, $07, $0F, $0A}
 - Documentation update (reference manual).
 - Full example suite + reference outputs.
 
+### Phase 7: Typed Literal Struct Instances
+- Add `Expr::StructLiteral` parser support (`StructName { field: expr, ... }`).
+- Add `AsmValue::StructInstance` evaluator/runtime support.
+- Validate unknown/duplicate/missing fields and unknown struct types.
+- Support `.const/.var/.set`, `=`, and `:=` assignment paths for struct instances.
+- Keep member semantics stable:
+  - `StructName.field` = offset.
+  - `instance.field` = field value.
+- Reject scalar compound assignments (`+=`, etc.) on struct-instance symbols.
+- Add unit tests and integration examples for valid/invalid struct literals.
+
 ---
 
 ## 16. Open Questions
@@ -911,7 +1025,7 @@ palette = {$00, $06, $0E, $01, $03, $07, $0F, $0A}
 
 5. **Struct nesting:** Should structs embed other structs as fields? *Proposed: defer to a future version. For v0.1, use `.res StructName` to reserve space and manual offset arithmetic.*
 
-6. **Struct instances without repetition:** Should standalone struct instantiation (`.instance StructName { field: value, ... }`) be supported? *Proposed: defer — for v0.1, structs are layout types and data is emitted with `.byte`/`.word` directives.*
+6. **Standalone struct instances:** Resolved for v0.1 — support typed literal struct instances with expression syntax `StructName { field: value, ... }`, requiring exact field coverage (all fields exactly once).
 
 ---
 

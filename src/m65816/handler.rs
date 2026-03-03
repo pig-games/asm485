@@ -226,6 +226,21 @@ impl M65816CpuHandler {
             Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
                 Self::expr_has_unresolved_symbols(inner, ctx)
             }
+            Expr::List(items, _) => items
+                .iter()
+                .any(|item| Self::expr_has_unresolved_symbols(item, ctx)),
+            Expr::Index { base, index, .. } => {
+                Self::expr_has_unresolved_symbols(base, ctx)
+                    || Self::expr_has_unresolved_symbols(index, ctx)
+            }
+            Expr::Member { base, .. } => Self::expr_has_unresolved_symbols(base, ctx),
+            Expr::StructLiteral { fields, .. } => fields
+                .iter()
+                .any(|(_, value)| Self::expr_has_unresolved_symbols(value, ctx)),
+            Expr::Call { args, .. } => args
+                .iter()
+                .any(|arg| Self::expr_has_unresolved_symbols(arg, ctx)),
+            Expr::Placeholder(_) => false,
             Expr::Tuple(items, _) => items
                 .iter()
                 .any(|item| Self::expr_has_unresolved_symbols(item, ctx)),
@@ -244,6 +259,15 @@ impl M65816CpuHandler {
                 Self::expr_has_unresolved_symbols(left, ctx)
                     || Self::expr_has_unresolved_symbols(right, ctx)
             }
+            Expr::Range {
+                start, end, step, ..
+            } => {
+                Self::expr_has_unresolved_symbols(start, ctx)
+                    || Self::expr_has_unresolved_symbols(end, ctx)
+                    || step
+                        .as_ref()
+                        .is_some_and(|step_expr| Self::expr_has_unresolved_symbols(step_expr, ctx))
+            }
             Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
         }
     }
@@ -256,6 +280,16 @@ impl M65816CpuHandler {
             Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
                 Self::expr_has_symbol_references(inner)
             }
+            Expr::List(items, _) => items.iter().any(Self::expr_has_symbol_references),
+            Expr::Index { base, index, .. } => {
+                Self::expr_has_symbol_references(base) || Self::expr_has_symbol_references(index)
+            }
+            Expr::Member { base, .. } => Self::expr_has_symbol_references(base),
+            Expr::StructLiteral { fields, .. } => fields
+                .iter()
+                .any(|(_, value)| Self::expr_has_symbol_references(value)),
+            Expr::Call { args, .. } => args.iter().any(Self::expr_has_symbol_references),
+            Expr::Placeholder(_) => false,
             Expr::Tuple(items, _) => items.iter().any(Self::expr_has_symbol_references),
             Expr::Ternary {
                 cond,
@@ -270,6 +304,15 @@ impl M65816CpuHandler {
             Expr::Unary { expr, .. } => Self::expr_has_symbol_references(expr),
             Expr::Binary { left, right, .. } => {
                 Self::expr_has_symbol_references(left) || Self::expr_has_symbol_references(right)
+            }
+            Expr::Range {
+                start, end, step, ..
+            } => {
+                Self::expr_has_symbol_references(start)
+                    || Self::expr_has_symbol_references(end)
+                    || step
+                        .as_ref()
+                        .is_some_and(|step_expr| Self::expr_has_symbol_references(step_expr))
             }
             Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
         }

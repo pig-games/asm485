@@ -1,0 +1,5 @@
+Assembly failed:
+2: ERROR [asm401]
+    2 | .byte {1, 2}[3]
+      ^
+ERROR: Index out of bounds

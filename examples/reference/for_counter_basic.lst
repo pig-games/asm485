@@ -1,0 +1,23 @@
+opForge Assembler v0.9.5
+ADDR    BYTES                    LINE  SOURCE
+------  -----------------------  ----  ------
+----                                1  ; Counted .for loop.
+----                                2  .cpu 6502
+----                                3  
+0000    AA                          5      .byte $aa
+0001    AA                          5      .byte $aa
+0002    AA                          5      .byte $aa
+0003    AA                          5      .byte $aa
+
+Lines: 6  Errors: 0  Warnings: 0
+
+SYMBOL TABLE
+
+
+Total memory is 4 bytes
+
+GENERATED OUTPUT
+
+ADDR    BYTES
+------  -----------------------
+0000    AA AA AA AA

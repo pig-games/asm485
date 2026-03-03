@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use crate::core::registry::ModuleRegistry;
 use crate::lsp::config::LspConfig;
 use crate::lsp::document_state::{
-    DocumentState, SymbolDecl, SymbolKind, SymbolVisibility, UseImportDecl,
+    DocumentState, RepetitionStructDecl, StructFieldDecl, StructTypeDecl, SymbolDecl, SymbolKind,
+    SymbolVisibility, TypedSymbolDecl, UseImportDecl,
 };
 use crate::lsp::session::{path_to_file_uri, uri_to_path};
 
@@ -33,6 +34,9 @@ pub struct WorkspaceIndex {
     per_uri: HashMap<String, Vec<IndexedSymbol>>,
     by_name: HashMap<String, Vec<IndexedSymbol>>,
     imports_by_uri: HashMap<String, Vec<UseImportDecl>>,
+    struct_types_by_uri: HashMap<String, Vec<StructTypeDecl>>,
+    typed_symbols_by_uri: HashMap<String, Vec<TypedSymbolDecl>>,
+    repetition_structs_by_uri: HashMap<String, Vec<RepetitionStructDecl>>,
     module_to_uris: HashMap<String, Vec<String>>,
 }
 
@@ -46,6 +50,9 @@ impl WorkspaceIndex {
         self.per_uri.clear();
         self.by_name.clear();
         self.imports_by_uri.clear();
+        self.struct_types_by_uri.clear();
+        self.typed_symbols_by_uri.clear();
+        self.repetition_structs_by_uri.clear();
         self.module_to_uris.clear();
 
         for doc in documents.values() {
@@ -81,6 +88,12 @@ impl WorkspaceIndex {
         self.per_uri.insert(doc.uri.clone(), entries);
         self.imports_by_uri
             .insert(doc.uri.clone(), doc.imports.clone());
+        self.struct_types_by_uri
+            .insert(doc.uri.clone(), doc.struct_types.clone());
+        self.typed_symbols_by_uri
+            .insert(doc.uri.clone(), doc.typed_symbols.clone());
+        self.repetition_structs_by_uri
+            .insert(doc.uri.clone(), doc.repetition_structs.clone());
         self.index_module_candidates(doc);
         self.rebuild_name_index();
     }
@@ -88,6 +101,9 @@ impl WorkspaceIndex {
     pub fn remove_document(&mut self, uri: &str) {
         self.per_uri.remove(uri);
         self.imports_by_uri.remove(uri);
+        self.struct_types_by_uri.remove(uri);
+        self.typed_symbols_by_uri.remove(uri);
+        self.repetition_structs_by_uri.remove(uri);
         self.rebuild_module_index();
         self.rebuild_name_index();
     }
@@ -316,12 +332,217 @@ impl WorkspaceIndex {
         });
         dedup_imported_completion(out)
     }
+
+    pub fn member_fields_for_symbol(
+        &self,
+        current_uri: &str,
+        current_doc: Option<&DocumentState>,
+        request_line: u32,
+        base_symbol: &str,
+    ) -> Vec<MemberFieldCandidate> {
+        if base_symbol.is_empty() {
+            return Vec::new();
+        }
+        let mut out =
+            self.repetition_fields_for_symbol(current_uri, current_doc, request_line, base_symbol);
+        if let Some(type_name) =
+            self.resolve_struct_type_for_symbol(current_uri, current_doc, request_line, base_symbol)
+        {
+            out.extend(self.struct_fields_for_type(current_uri, current_doc, &type_name));
+        }
+        dedup_member_fields(out)
+    }
+
+    fn repetition_fields_for_symbol(
+        &self,
+        current_uri: &str,
+        current_doc: Option<&DocumentState>,
+        request_line: u32,
+        base_symbol: &str,
+    ) -> Vec<MemberFieldCandidate> {
+        let mut out = Vec::new();
+        if let Some(repeat) = find_repetition_struct_in_set(
+            self.repetition_structs_for_context(current_uri, current_doc),
+            base_symbol,
+            request_line,
+        ) {
+            collect_member_fields_from_struct(
+                &mut out,
+                current_uri,
+                &repeat.symbol_name,
+                &repeat.fields,
+            );
+        }
+
+        for imported in self.imported_symbols_named(current_uri, current_doc, base_symbol) {
+            if let Some(repeats) = self.repetition_structs_by_uri.get(&imported.uri) {
+                if let Some(repeat) =
+                    find_repetition_struct_in_set(repeats, &imported.name, request_line)
+                {
+                    collect_member_fields_from_struct(
+                        &mut out,
+                        imported.uri.as_str(),
+                        &repeat.symbol_name,
+                        &repeat.fields,
+                    );
+                }
+            }
+        }
+
+        for symbol in self.symbols_named(base_symbol) {
+            if let Some(repeats) = self.repetition_structs_by_uri.get(&symbol.uri) {
+                if let Some(repeat) =
+                    find_repetition_struct_in_set(repeats, &symbol.name, request_line)
+                {
+                    collect_member_fields_from_struct(
+                        &mut out,
+                        symbol.uri.as_str(),
+                        &repeat.symbol_name,
+                        &repeat.fields,
+                    );
+                }
+            }
+        }
+
+        out
+    }
+
+    fn resolve_struct_type_for_symbol(
+        &self,
+        current_uri: &str,
+        current_doc: Option<&DocumentState>,
+        request_line: u32,
+        base_symbol: &str,
+    ) -> Option<String> {
+        if let Some(typed) = find_typed_symbol_in_set(
+            self.typed_symbols_for_context(current_uri, current_doc),
+            base_symbol,
+            request_line,
+        ) {
+            return Some(typed.type_name.clone());
+        }
+
+        for imported in self.imported_symbols_named(current_uri, current_doc, base_symbol) {
+            let Some(typed) = self
+                .typed_symbols_by_uri
+                .get(&imported.uri)
+                .and_then(|symbols| {
+                    find_typed_symbol_in_set(symbols, &imported.name, request_line)
+                })
+            else {
+                continue;
+            };
+            return Some(typed.type_name.clone());
+        }
+
+        for symbol in self.symbols_named(base_symbol) {
+            let Some(typed) = self
+                .typed_symbols_by_uri
+                .get(&symbol.uri)
+                .and_then(|symbols| find_typed_symbol_in_set(symbols, &symbol.name, request_line))
+            else {
+                continue;
+            };
+            return Some(typed.type_name.clone());
+        }
+
+        None
+    }
+
+    fn struct_fields_for_type(
+        &self,
+        current_uri: &str,
+        current_doc: Option<&DocumentState>,
+        type_name: &str,
+    ) -> Vec<MemberFieldCandidate> {
+        let mut out = Vec::new();
+
+        for struct_decl in self.struct_types_for_context(current_uri, current_doc) {
+            if struct_decl.name.eq_ignore_ascii_case(type_name) {
+                collect_member_fields_from_struct(
+                    &mut out,
+                    current_uri,
+                    &struct_decl.name,
+                    &struct_decl.fields,
+                );
+            }
+        }
+
+        for (uri, decls) in &self.struct_types_by_uri {
+            for struct_decl in decls {
+                if !struct_decl.name.eq_ignore_ascii_case(type_name) {
+                    continue;
+                }
+                collect_member_fields_from_struct(
+                    &mut out,
+                    uri,
+                    &struct_decl.name,
+                    &struct_decl.fields,
+                );
+            }
+        }
+
+        out
+    }
+
+    fn typed_symbols_for_context<'a>(
+        &'a self,
+        current_uri: &str,
+        current_doc: Option<&'a DocumentState>,
+    ) -> &'a [TypedSymbolDecl] {
+        if let Some(doc) = current_doc {
+            return doc.typed_symbols.as_slice();
+        }
+        self.typed_symbols_by_uri
+            .get(current_uri)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn struct_types_for_context<'a>(
+        &'a self,
+        current_uri: &str,
+        current_doc: Option<&'a DocumentState>,
+    ) -> &'a [StructTypeDecl] {
+        if let Some(doc) = current_doc {
+            return doc.struct_types.as_slice();
+        }
+        self.struct_types_by_uri
+            .get(current_uri)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn repetition_structs_for_context<'a>(
+        &'a self,
+        current_uri: &str,
+        current_doc: Option<&'a DocumentState>,
+    ) -> &'a [RepetitionStructDecl] {
+        if let Some(doc) = current_doc {
+            return doc.repetition_structs.as_slice();
+        }
+        self.repetition_structs_by_uri
+            .get(current_uri)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct ImportedCompletionSymbol {
     pub label: String,
     pub origin: IndexedSymbol,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemberFieldCandidate {
+    pub name: String,
+    pub owner_name: String,
+    pub uri: String,
+    pub line: u32,
+    pub col_start: u32,
+    pub col_end: u32,
+    pub declaration: String,
 }
 
 fn load_documents_from_roots(registry: &ModuleRegistry, config: &LspConfig) -> Vec<DocumentState> {
@@ -585,6 +806,58 @@ fn is_module_export_symbol(symbol: &IndexedSymbol) -> bool {
     )
 }
 
+fn find_typed_symbol_in_set<'a>(
+    symbols: &'a [TypedSymbolDecl],
+    name: &str,
+    request_line: u32,
+) -> Option<&'a TypedSymbolDecl> {
+    symbols
+        .iter()
+        .filter(|symbol| symbol.name.eq_ignore_ascii_case(name))
+        .min_by_key(|symbol| {
+            (
+                definition_line_rank(symbol.line, request_line),
+                symbol.line,
+                symbol.col_start,
+            )
+        })
+}
+
+fn find_repetition_struct_in_set<'a>(
+    reps: &'a [RepetitionStructDecl],
+    symbol_name: &str,
+    request_line: u32,
+) -> Option<&'a RepetitionStructDecl> {
+    reps.iter()
+        .filter(|decl| decl.symbol_name.eq_ignore_ascii_case(symbol_name))
+        .min_by_key(|decl| {
+            (
+                definition_line_rank(decl.line, request_line),
+                decl.line,
+                decl.col_start,
+            )
+        })
+}
+
+fn collect_member_fields_from_struct(
+    out: &mut Vec<MemberFieldCandidate>,
+    uri: &str,
+    owner_name: &str,
+    fields: &[StructFieldDecl],
+) {
+    for field in fields {
+        out.push(MemberFieldCandidate {
+            name: field.name.clone(),
+            owner_name: owner_name.to_string(),
+            uri: uri.to_string(),
+            line: field.line,
+            col_start: field.col_start,
+            col_end: field.col_end,
+            declaration: field.declaration.clone(),
+        });
+    }
+}
+
 fn dedup_indexed_symbols(items: Vec<IndexedSymbol>) -> Vec<IndexedSymbol> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -599,6 +872,37 @@ fn dedup_indexed_symbols(items: Vec<IndexedSymbol>) -> Vec<IndexedSymbol> {
             out.push(item);
         }
     }
+    out
+}
+
+fn dedup_member_fields(items: Vec<MemberFieldCandidate>) -> Vec<MemberFieldCandidate> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in items {
+        let key = (
+            item.name.to_ascii_lowercase(),
+            item.owner_name.to_ascii_lowercase(),
+            item.uri.clone(),
+            item.line,
+            item.col_start,
+        );
+        if seen.insert(key) {
+            out.push(item);
+        }
+    }
+    out.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+            .then(
+                a.owner_name
+                    .to_ascii_lowercase()
+                    .cmp(&b.owner_name.to_ascii_lowercase()),
+            )
+            .then(a.uri.cmp(&b.uri))
+            .then(a.line.cmp(&b.line))
+            .then(a.col_start.cmp(&b.col_start))
+    });
     out
 }
 
