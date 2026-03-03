@@ -128,6 +128,7 @@ pub enum RuntimeTokenizerMode {
     Vm,
 }
 
+#[cfg_attr(feature = "vm-runtime-only", allow(dead_code))]
 #[derive(Debug)]
 struct ExprResolverEntry {
     resolver: Box<dyn FamilyExprResolver>,
@@ -646,6 +647,7 @@ pub struct HierarchyExecutionModel {
     expr_parser_contracts: HashMap<ParserContractKey, RuntimeExprParserContract>,
     interned_ids: HashMap<String, u32>,
     expr_resolvers: HashMap<String, ExprResolverEntry>,
+    #[cfg_attr(feature = "vm-runtime-only", allow(dead_code))]
     selector_gate_only_expr_runtime_cpus: HashSet<String>,
     diag_templates: HashMap<String, String>,
     tokenizer_mode: RuntimeTokenizerMode,

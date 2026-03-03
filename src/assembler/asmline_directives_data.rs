@@ -252,7 +252,7 @@ impl<'a> AsmLine<'a> {
             self.cpu = cpu;
             self.reset_cpu_runtime_profile();
             self.register_checker = Self::build_register_checker(self.registry, self.cpu);
-            return LineStatus::Ok;
+            LineStatus::Ok
         }
 
         #[cfg(not(feature = "vm-runtime-only"))]

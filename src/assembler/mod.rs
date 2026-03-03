@@ -61,9 +61,9 @@ use crate::core::macro_processor::MacroProcessor;
 use crate::core::parser as asm_parser;
 use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::preprocess::Preprocessor;
-use crate::core::registry::{
-    FamilyOperandSet, ModuleRegistry, OperandSet, RegistryError, ResolvedPipeline,
-};
+#[cfg(not(feature = "vm-runtime-only"))]
+use crate::core::registry::{FamilyOperandSet, OperandSet, ResolvedPipeline};
+use crate::core::registry::{ModuleRegistry, RegistryError};
 use crate::core::source_map::SourceMap;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
@@ -72,12 +72,16 @@ use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChe
 use std::cell::Cell;
 use std::sync::Arc;
 
+#[cfg(not(feature = "vm-runtime-only"))]
 use crate::families::intel8080::module::Intel8080FamilyOperands;
+#[cfg(not(feature = "vm-runtime-only"))]
 use crate::families::intel8080::FamilyOperand as IntelFamilyOperand;
+#[cfg(not(feature = "vm-runtime-only"))]
 use crate::families::intel8080::{
     dialect::{canonical_suggestion_for_zilog_mnemonic, map_zilog_to_canonical},
     module::FAMILY_ID as INTEL8080_FAMILY_ID,
 };
+#[cfg(not(feature = "vm-runtime-only"))]
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::runtime::HierarchyExecutionModel;
 use crate::vm::token_bridge::parse_line_with_model;
@@ -575,6 +579,7 @@ impl<'a> AsmLine<'a> {
         )
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn portable_expr_runtime_force_host_for_family(&self, family_id: &str) -> bool {
         self.opthread_expr_eval_force_host_families
             .iter()
@@ -585,6 +590,7 @@ impl<'a> AsmLine<'a> {
         registry: &ModuleRegistry,
         cpu: CpuType,
     ) -> Option<HierarchyExecutionModel> {
+        #[cfg(not(feature = "vm-runtime-only"))]
         let has_host_pipeline = registry.resolve_pipeline(cpu, None).is_ok();
 
         #[cfg(feature = "vm-runtime-opcpu-artifact")]
@@ -593,6 +599,7 @@ impl<'a> AsmLine<'a> {
                 if let Some(model) = Self::load_opthread_execution_model_from_artifact(&path) {
                     return Some(model);
                 }
+                #[cfg(not(feature = "vm-runtime-only"))]
                 if has_host_pipeline {
                     if let Ok(package_bytes) = build_hierarchy_package_from_registry(registry) {
                         if let Ok(model) =
@@ -607,12 +614,21 @@ impl<'a> AsmLine<'a> {
             }
         }
 
-        if !has_host_pipeline {
-            return None;
+        #[cfg(feature = "vm-runtime-only")]
+        {
+            let _ = (registry, cpu);
+            None
         }
 
-        let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
-        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
+        #[cfg(not(feature = "vm-runtime-only"))]
+        {
+            if !has_host_pipeline {
+                return None;
+            }
+
+            let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
+            HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
+        }
     }
 
     #[cfg(feature = "vm-runtime-opcpu-artifact")]
@@ -634,6 +650,7 @@ impl<'a> AsmLine<'a> {
     }
 
     #[cfg(feature = "vm-runtime-opcpu-artifact")]
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn persist_opthread_package_artifact(path: &Path, package_bytes: &[u8]) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
@@ -780,6 +797,7 @@ impl<'a> AsmLine<'a> {
         self.encoding_scope_stack.clear();
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn apply_cpu_runtime_state_after_encode(
         &mut self,
         cpu_handler: &dyn crate::core::registry::CpuHandlerDyn,
@@ -817,6 +835,7 @@ impl<'a> AsmLine<'a> {
         result
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn opthread_form_allows_mnemonic(
         &self,
         pipeline: &crate::core::registry::ResolvedPipeline<'_>,
@@ -835,6 +854,7 @@ impl<'a> AsmLine<'a> {
             .map_err(|err| err.to_string())
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn opthread_runtime_expr_operands_from_mapped(
         mapped_operands: &dyn crate::core::registry::FamilyOperandSet,
     ) -> Option<Vec<Expr>> {
@@ -1332,6 +1352,7 @@ impl<'a> AsmLine<'a> {
                     Some(AsmError::new(AsmErrorKind::Parser, &err.message, None));
                 self.diagnostics.last_error_column = Some(err.span.col_start);
                 self.diagnostics.last_parser_error = Some(err);
+                #[cfg(not(feature = "vm-runtime-only"))]
                 self.attach_dialect_fixit_hint_from_source_line();
                 return LineStatus::Error;
             }

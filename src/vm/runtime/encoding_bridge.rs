@@ -71,18 +71,21 @@ impl HierarchyExecutionModel {
         self.expr_resolver_entry(family_id).is_some()
     }
 
+    #[cfg_attr(feature = "vm-runtime-only", allow(dead_code))]
     pub(crate) fn expr_resolution_is_strict_for_family(&self, family_id: &str) -> bool {
         self.expr_resolver_entry(family_id)
             .map(|entry| entry.strict)
             .unwrap_or(false)
     }
 
+    #[cfg_attr(feature = "vm-runtime-only", allow(dead_code))]
     pub(crate) fn defer_native_diagnostics_on_expr_none(&self, family_id: &str) -> bool {
         self.expr_resolver_entry(family_id)
             .map(|entry| entry.defer_native_diagnostics_on_none)
             .unwrap_or(false)
     }
 
+    #[cfg_attr(feature = "vm-runtime-only", allow(dead_code))]
     pub(crate) fn selector_gate_only_expr_runtime_for_cpu(&self, cpu_id: &str) -> bool {
         if self.selector_gate_only_expr_runtime_cpus.contains(cpu_id) {
             return true;

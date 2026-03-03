@@ -4,30 +4,41 @@
 use std::sync::OnceLock;
 
 use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
-use crate::core::registry::ModuleRegistry;
 use crate::core::text_utils::is_ident_start;
 use crate::core::tokenizer::{
     register_checker_none, OperatorKind, RegisterChecker, Span, Token, TokenKind,
 };
-use crate::families::intel8080::module::Intel8080FamilyModule;
-use crate::families::m6800::module::Motorola6800FamilyModule;
-use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
-use crate::hd6309::module::HD6309CpuModule;
-use crate::i8085::module::I8085CpuModule;
-use crate::m65816::module::M65816CpuModule;
-use crate::m65c02::module::M65C02CpuModule;
-use crate::m6809::module::M6809CpuModule;
+#[cfg(not(feature = "vm-runtime-only"))]
 use crate::vm::builder::build_hierarchy_package_from_registry;
 use crate::vm::runtime::{
     HierarchyExecutionModel, PortableLineAst, PortableToken, RuntimeBridgeDiagnostic,
     RuntimeBridgeError,
 };
-use crate::z80::module::Z80CpuModule;
 
 #[cfg(test)]
 use crate::vm::package::{ParserVmOpcode, PARSER_VM_OPCODE_VERSION_V1};
 #[cfg(test)]
 use crate::vm::runtime::RuntimeParserVmProgram;
+#[cfg(test)]
+use crate::core::registry::ModuleRegistry;
+#[cfg(test)]
+use crate::families::intel8080::module::Intel8080FamilyModule;
+#[cfg(test)]
+use crate::families::m6800::module::Motorola6800FamilyModule;
+#[cfg(test)]
+use crate::families::mos6502::module::{M6502CpuModule, MOS6502FamilyModule};
+#[cfg(test)]
+use crate::hd6309::module::HD6309CpuModule;
+#[cfg(test)]
+use crate::i8085::module::I8085CpuModule;
+#[cfg(test)]
+use crate::m65816::module::M65816CpuModule;
+#[cfg(test)]
+use crate::m65c02::module::M65C02CpuModule;
+#[cfg(test)]
+use crate::m6809::module::M6809CpuModule;
+#[cfg(test)]
+use crate::z80::module::Z80CpuModule;
 
 // Use an authoritative rollout lane so bootstrap/macro token bridge paths
 // exercise strict VM tokenizer entrypoints by default.
@@ -768,19 +779,17 @@ fn default_runtime_model() -> Option<&'static HierarchyExecutionModel> {
 }
 
 fn build_default_runtime_model() -> Option<HierarchyExecutionModel> {
-    let mut registry = ModuleRegistry::new();
-    registry.register_family(Box::new(Intel8080FamilyModule));
-    registry.register_family(Box::new(Motorola6800FamilyModule));
-    registry.register_family(Box::new(MOS6502FamilyModule));
-    registry.register_cpu(Box::new(I8085CpuModule));
-    registry.register_cpu(Box::new(Z80CpuModule));
-    registry.register_cpu(Box::new(M6502CpuModule));
-    registry.register_cpu(Box::new(M65C02CpuModule));
-    registry.register_cpu(Box::new(M65816CpuModule));
-    registry.register_cpu(Box::new(M6809CpuModule));
-    registry.register_cpu(Box::new(HD6309CpuModule));
-    let package_bytes = build_hierarchy_package_from_registry(&registry).ok()?;
-    HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
+    #[cfg(feature = "vm-runtime-only")]
+    {
+        None
+    }
+
+    #[cfg(not(feature = "vm-runtime-only"))]
+    {
+        let registry = crate::build_default_registry();
+        let package_bytes = build_hierarchy_package_from_registry(&registry).ok()?;
+        HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
+    }
 }
 
 fn validate_line_column_one(line: &str, line_num: u32) -> Result<(), ParseError> {

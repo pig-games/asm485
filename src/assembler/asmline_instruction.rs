@@ -14,168 +14,149 @@ impl<'a> AsmLine<'a> {
         mnemonic: &str,
         operands: &[Expr],
     ) -> LineStatus {
-        let pipeline = match Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
-            Ok(pipeline) => pipeline,
-            Err(message) => {
-                #[cfg(feature = "vm-runtime-only")]
-                {
-                    if let Some(status) = self.try_encode_instruction_vm_only(mnemonic, operands) {
-                        return status;
-                    }
-                }
-                return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &message, None);
-            }
-        };
-
-        let family_operands = match pipeline.family.parse_operands(mnemonic, operands) {
-            Ok(ops) => ops,
-            Err(err) => {
-                return self.failure_at_span(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &err.message,
-                    None,
-                    err.span,
-                )
-            }
-        };
-
-        let (mapped_mnemonic, mapped_operands) = pipeline
-            .dialect
-            .map_mnemonic(mnemonic, family_operands.as_ref())
-            .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
-
-        if let Some(status) = self.try_encode_instruction_via_runtime_expr(
-            &pipeline,
-            mnemonic,
-            operands,
-            family_operands.as_ref(),
-            &mapped_mnemonic,
-            mapped_operands.as_ref(),
-        ) {
-            return status;
+        #[cfg(feature = "vm-runtime-only")]
+        {
+            self.try_encode_instruction_vm_only(mnemonic, operands)
+                .unwrap_or_else(|| {
+                    self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &format!(
+                            "VM runtime model unavailable for CPU '{}'",
+                            self.cpu.as_str()
+                        ),
+                        None,
+                    )
+                })
         }
 
-        match pipeline.family.encode_family_operands(
-            &mapped_mnemonic,
-            mnemonic,
-            mapped_operands.as_ref(),
-            self,
-        ) {
-            crate::core::family::FamilyEncodeResult::Ok(bytes) => {
-                if let Err(err) =
-                    self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
-                {
+        #[cfg(not(feature = "vm-runtime-only"))]
+        {
+            let pipeline = match Self::resolve_pipeline_for_cpu(self.registry, self.cpu) {
+                Ok(pipeline) => pipeline,
+                Err(message) => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Instruction,
+                        &message,
+                        None,
+                    );
+                }
+            };
+
+            let family_operands = match pipeline.family.parse_operands(mnemonic, operands) {
+                Ok(ops) => ops,
+                Err(err) => {
                     return self.failure_at_span(
                         LineStatus::Error,
                         AsmErrorKind::Instruction,
-                        err.error.message(),
+                        &err.message,
                         None,
                         err.span,
-                    );
+                    )
                 }
-                self.bytes.extend_from_slice(&bytes);
-                return LineStatus::Ok;
+            };
+
+            let (mapped_mnemonic, mapped_operands) = pipeline
+                .dialect
+                .map_mnemonic(mnemonic, family_operands.as_ref())
+                .unwrap_or_else(|| (mnemonic.to_string(), family_operands.clone()));
+
+            if let Some(status) = self.try_encode_instruction_via_runtime_expr(
+                &pipeline,
+                mnemonic,
+                operands,
+                family_operands.as_ref(),
+                &mapped_mnemonic,
+                mapped_operands.as_ref(),
+            ) {
+                return status;
             }
-            crate::core::family::FamilyEncodeResult::Error {
-                bytes,
-                message,
-                span,
-                param,
-            } => {
-                self.bytes.extend_from_slice(&bytes);
-                if let Some(span) = span {
-                    return self.failure_at_span(
+
+            match pipeline.family.encode_family_operands(
+                &mapped_mnemonic,
+                mnemonic,
+                mapped_operands.as_ref(),
+                self,
+            ) {
+                crate::core::family::FamilyEncodeResult::Ok(bytes) => {
+                    if let Err(err) =
+                        self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+                    {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            err.error.message(),
+                            None,
+                            err.span,
+                        );
+                    }
+                    self.bytes.extend_from_slice(&bytes);
+                    return LineStatus::Ok;
+                }
+                crate::core::family::FamilyEncodeResult::Error {
+                    bytes,
+                    message,
+                    span,
+                    param,
+                } => {
+                    self.bytes.extend_from_slice(&bytes);
+                    if let Some(span) = span {
+                        return self.failure_at_span(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &message,
+                            param.as_deref(),
+                            span,
+                        );
+                    }
+                    return self.failure(
                         LineStatus::Error,
                         AsmErrorKind::Instruction,
                         &message,
                         param.as_deref(),
-                        span,
                     );
                 }
-                return self.failure(
-                    LineStatus::Error,
-                    AsmErrorKind::Instruction,
-                    &message,
-                    param.as_deref(),
-                );
+                crate::core::family::FamilyEncodeResult::NotFound => {}
             }
-            crate::core::family::FamilyEncodeResult::NotFound => {}
-        }
 
-        let resolved_operands =
-            match pipeline
-                .cpu
-                .resolve_operands(mnemonic, mapped_operands.as_ref(), self)
-            {
-                Ok(ops) => ops,
-                Err(err) => {
-                    return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &err, None)
-                }
-            };
-
-        if let Some(validator) = pipeline.validator.as_ref() {
-            if let Err(err) =
-                validator.validate_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
-            {
-                return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &err, None);
-            }
-        }
-
-        if let Some(status) = self.try_encode_instruction_via_runtime_operands(
-            &pipeline,
-            &mapped_mnemonic,
-            operands,
-            resolved_operands.as_ref(),
-        ) {
-            return status;
-        }
-
-        match pipeline
-            .family
-            .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
-            .into_outcome()
-        {
-            Ok(Some(bytes)) => {
-                if let Err(err) =
-                    self.validate_instruction_emit_span(&mapped_mnemonic, operands, bytes.len())
+            let resolved_operands =
+                match pipeline
+                    .cpu
+                    .resolve_operands(mnemonic, mapped_operands.as_ref(), self)
                 {
-                    return self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Instruction,
-                        err.error.message(),
-                        None,
-                        err.span,
-                    );
-                }
-                self.bytes.extend_from_slice(&bytes);
-                self.apply_cpu_runtime_state_after_encode(
-                    pipeline.cpu.as_ref(),
+                    Ok(ops) => ops,
+                    Err(err) => {
+                        return self.failure(
+                            LineStatus::Error,
+                            AsmErrorKind::Instruction,
+                            &err,
+                            None,
+                        )
+                    }
+                };
+
+            if let Some(validator) = pipeline.validator.as_ref() {
+                if let Err(err) = validator.validate_instruction(
                     &mapped_mnemonic,
                     resolved_operands.as_ref(),
-                );
-                LineStatus::Ok
-            }
-            Err(err) => {
-                if let Some(span) = err.span {
-                    self.failure_at_span(
-                        LineStatus::Error,
-                        AsmErrorKind::Instruction,
-                        &err.message,
-                        None,
-                        span,
-                    )
-                } else {
-                    self.failure(
-                        LineStatus::Error,
-                        AsmErrorKind::Instruction,
-                        &err.message,
-                        None,
-                    )
+                    self,
+                ) {
+                    return self.failure(LineStatus::Error, AsmErrorKind::Instruction, &err, None);
                 }
             }
-            Ok(None) => match pipeline
-                .cpu
+
+            if let Some(status) = self.try_encode_instruction_via_runtime_operands(
+                &pipeline,
+                &mapped_mnemonic,
+                operands,
+                resolved_operands.as_ref(),
+            ) {
+                return status;
+            }
+
+            match pipeline
+                .family
                 .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
                 .into_outcome()
             {
@@ -217,13 +198,59 @@ impl<'a> AsmLine<'a> {
                         )
                     }
                 }
-                Ok(None) => self.failure_instruction_not_found(
-                    LineStatus::Error,
-                    &pipeline,
-                    mnemonic,
-                    family_operands.as_ref(),
-                ),
-            },
+                Ok(None) => match pipeline
+                    .cpu
+                    .encode_instruction(&mapped_mnemonic, resolved_operands.as_ref(), self)
+                    .into_outcome()
+                {
+                    Ok(Some(bytes)) => {
+                        if let Err(err) = self.validate_instruction_emit_span(
+                            &mapped_mnemonic,
+                            operands,
+                            bytes.len(),
+                        ) {
+                            return self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                err.error.message(),
+                                None,
+                                err.span,
+                            );
+                        }
+                        self.bytes.extend_from_slice(&bytes);
+                        self.apply_cpu_runtime_state_after_encode(
+                            pipeline.cpu.as_ref(),
+                            &mapped_mnemonic,
+                            resolved_operands.as_ref(),
+                        );
+                        LineStatus::Ok
+                    }
+                    Err(err) => {
+                        if let Some(span) = err.span {
+                            self.failure_at_span(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &err.message,
+                                None,
+                                span,
+                            )
+                        } else {
+                            self.failure(
+                                LineStatus::Error,
+                                AsmErrorKind::Instruction,
+                                &err.message,
+                                None,
+                            )
+                        }
+                    }
+                    Ok(None) => self.failure_instruction_not_found(
+                        LineStatus::Error,
+                        &pipeline,
+                        mnemonic,
+                        family_operands.as_ref(),
+                    ),
+                },
+            }
         }
     }
 
@@ -281,6 +308,7 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn try_encode_instruction_via_runtime_expr(
         &mut self,
         pipeline: &ResolvedPipeline<'_>,
@@ -425,6 +453,7 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn try_encode_instruction_via_runtime_operands(
         &mut self,
         pipeline: &ResolvedPipeline<'_>,
@@ -434,7 +463,8 @@ impl<'a> AsmLine<'a> {
     ) -> Option<LineStatus> {
         let model = self.opthread_execution_model.as_ref()?;
 
-        let vm_instruction_runtime_supported_for_cpu = self.cpu != crate::m45gs02::module::CPU_ID;
+        let vm_instruction_runtime_supported_for_cpu =
+            !self.cpu.as_str().eq_ignore_ascii_case("45gs02");
         let family_runtime_authoritative =
             crate::vm::rollout::package_runtime_default_enabled_for_family(
                 pipeline.family_id.as_str(),
@@ -497,6 +527,7 @@ impl<'a> AsmLine<'a> {
         }
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn emit_instruction_bytes_checked(
         &mut self,
         mapped_mnemonic: &str,
@@ -518,6 +549,7 @@ impl<'a> AsmLine<'a> {
         None
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn failure_instruction_not_found(
         &mut self,
         status: LineStatus,
@@ -543,6 +575,7 @@ impl<'a> AsmLine<'a> {
         self.failure(status, AsmErrorKind::Instruction, &message, None)
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     fn dialect_fixit_for_instruction_not_found(
         &self,
         pipeline: &ResolvedPipeline<'_>,
@@ -622,6 +655,7 @@ impl<'a> AsmLine<'a> {
         None
     }
 
+    #[cfg(not(feature = "vm-runtime-only"))]
     pub(super) fn attach_dialect_fixit_hint_from_source_line(&mut self) {
         let Ok(pipeline) = Self::resolve_pipeline_for_cpu(self.registry, self.cpu) else {
             return;
