@@ -536,6 +536,28 @@ impl Parser {
             if upper.as_str() == "PACK" {
                 return self.parse_pack_directive(span);
             }
+            if matches!(upper.as_str(), "FOR" | "BFOR") {
+                return self.parse_for_like_directive(label, name);
+            }
+            if matches!(upper.as_str(), "WHILE" | "BWHILE") {
+                return self.parse_while_like_directive(label, name);
+            }
+            if matches!(
+                upper.as_str(),
+                "STRUCT" | "ENDSTRUCT" | "ENDFOR" | "ENDWHILE"
+            ) {
+                if self.index < self.tokens.len() {
+                    return Err(ParseError {
+                        message: "Unexpected trailing tokens".to_string(),
+                        span: self.tokens[self.index].span,
+                    });
+                }
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic: Some(format!(".{name}")),
+                    operands: Vec::new(),
+                });
+            }
             if matches!(
                 upper.as_str(),
                 "MACRO" | "SEGMENT" | "ENDMACRO" | "ENDSEGMENT" | "ENDM" | "ENDS"
@@ -747,6 +769,109 @@ impl Parser {
                 col_start: start_span.col_start,
                 col_end: end_span.col_end,
             },
+        })
+    }
+
+    fn parse_for_like_directive(
+        &mut self,
+        label: Option<Label>,
+        name: String,
+    ) -> Result<LineAst, ParseError> {
+        let mut operands = Vec::new();
+        let mnemonic = Some(format!(".{name}"));
+
+        let start_index = self.index;
+        if let Some(Token {
+            kind: TokenKind::Identifier(var_name),
+            span: var_span,
+        })
+        | Some(Token {
+            kind: TokenKind::Register(var_name),
+            span: var_span,
+        }) = self.peek().cloned()
+        {
+            self.index = self.index.saturating_add(1);
+            if self.match_keyword("in") {
+                operands.push(Expr::Identifier(var_name, var_span));
+                match self.parse_expr() {
+                    Ok(expr) => operands.push(expr),
+                    Err(err) => {
+                        operands.push(Expr::Error(err.message, err.span));
+                        return Ok(LineAst::Statement {
+                            label,
+                            mnemonic,
+                            operands,
+                        });
+                    }
+                }
+                if self.index < self.tokens.len() {
+                    return Err(ParseError {
+                        message: "Unexpected trailing tokens".to_string(),
+                        span: self.tokens[self.index].span,
+                    });
+                }
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                });
+            }
+        }
+
+        self.index = start_index;
+        match self.parse_expr() {
+            Ok(expr) => operands.push(expr),
+            Err(err) => {
+                operands.push(Expr::Error(err.message, err.span));
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                });
+            }
+        }
+        if self.index < self.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: self.tokens[self.index].span,
+            });
+        }
+        Ok(LineAst::Statement {
+            label,
+            mnemonic,
+            operands,
+        })
+    }
+
+    fn parse_while_like_directive(
+        &mut self,
+        label: Option<Label>,
+        name: String,
+    ) -> Result<LineAst, ParseError> {
+        let mut operands = Vec::new();
+        let mnemonic = Some(format!(".{name}"));
+
+        match self.parse_expr() {
+            Ok(expr) => operands.push(expr),
+            Err(err) => {
+                operands.push(Expr::Error(err.message, err.span));
+                return Ok(LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                });
+            }
+        }
+        if self.index < self.tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: self.tokens[self.index].span,
+            });
+        }
+        Ok(LineAst::Statement {
+            label,
+            mnemonic,
+            operands,
         })
     }
 
@@ -1931,8 +2056,8 @@ fn span_of_expr(expr: &Expr) -> Span {
 #[cfg(test)]
 mod tests {
     use super::{
-        match_statement_signature, select_statement_signature, AssignOp, ConditionalKind, Expr,
-        LineAst, Parser, SignatureAtom,
+        match_statement_signature, select_statement_signature, AssignOp, BinaryOp, ConditionalKind,
+        Expr, LineAst, Parser, SignatureAtom,
     };
     use crate::core::tokenizer::{Span, Tokenizer};
 
@@ -2632,5 +2757,84 @@ mod tests {
             }
             other => panic!("Expected call expression, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_for_directive_var_in_head() {
+        let mut parser = Parser::from_line(".for i in 0..8", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".for"));
+                assert_eq!(operands.len(), 2);
+                assert!(matches!(operands[0], Expr::Identifier(ref name, _) if name == "i"));
+                assert!(matches!(operands[1], Expr::Range { .. }));
+            }
+            other => panic!("Expected .for statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_for_directive_count_head() {
+        let mut parser = Parser::from_line(".for 4+1", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".for"));
+                assert_eq!(operands.len(), 1);
+                assert!(matches!(operands[0], Expr::Binary { .. }));
+            }
+            other => panic!("Expected .for statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_while_directive_head() {
+        let mut parser = Parser::from_line(".while addr < $c100", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".while"));
+                assert_eq!(operands.len(), 1);
+                assert!(matches!(
+                    operands[0],
+                    Expr::Binary {
+                        op: BinaryOp::Lt,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("Expected .while statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_endfor_without_operands() {
+        let mut parser = Parser::from_line(".endfor", 1).unwrap();
+        let line = parser.parse_line().unwrap();
+        match line {
+            LineAst::Statement {
+                mnemonic, operands, ..
+            } => {
+                assert_eq!(mnemonic.as_deref(), Some(".endfor"));
+                assert!(operands.is_empty());
+            }
+            other => panic!("Expected .endfor statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_trailing_tokens_after_endfor() {
+        let mut parser = Parser::from_line(".endfor 1", 1).unwrap();
+        let err = parser
+            .parse_line()
+            .expect_err("trailing tokens after .endfor should fail");
+        assert!(err.message.contains("Unexpected trailing tokens"));
     }
 }

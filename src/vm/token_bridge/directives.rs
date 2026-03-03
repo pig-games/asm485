@@ -100,6 +100,44 @@ pub(super) fn parse_dot_directive_line_from_tokens(
     if upper.as_str() == "PACK" {
         return parse_pack_directive_from_tokens(tokens, &mut cursor, name_span, end_span);
     }
+    if matches!(upper.as_str(), "FOR" | "BFOR") {
+        return parse_for_like_directive_from_tokens(
+            tokens,
+            &mut cursor,
+            label,
+            name,
+            end_span,
+            end_token_text,
+            expr_parse_ctx,
+        );
+    }
+    if matches!(upper.as_str(), "WHILE" | "BWHILE") {
+        return parse_while_like_directive_from_tokens(
+            tokens,
+            &mut cursor,
+            label,
+            name,
+            end_span,
+            end_token_text,
+            expr_parse_ctx,
+        );
+    }
+    if matches!(
+        upper.as_str(),
+        "STRUCT" | "ENDSTRUCT" | "ENDFOR" | "ENDWHILE"
+    ) {
+        if cursor < tokens.len() {
+            return Err(ParseError {
+                message: "Unexpected trailing tokens".to_string(),
+                span: tokens[cursor].span,
+            });
+        }
+        return Ok(LineAst::Statement {
+            label,
+            mnemonic: Some(format!(".{name}")),
+            operands: Vec::new(),
+        });
+    }
 
     if matches!(
         upper.as_str(),
@@ -171,6 +209,85 @@ pub(super) fn parse_dot_directive_line_from_tokens(
     Ok(LineAst::Statement {
         label,
         mnemonic: Some(format!(".{name}")),
+        operands,
+    })
+}
+
+fn parse_for_like_directive_from_tokens(
+    tokens: &[Token],
+    cursor: &mut usize,
+    label: Option<Label>,
+    name: String,
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<LineAst, ParseError> {
+    let mut operands = Vec::new();
+    let mnemonic = Some(format!(".{name}"));
+    let start_cursor = *cursor;
+
+    if let Some(Token {
+        kind: TokenKind::Identifier(var_name),
+        span: var_span,
+    })
+    | Some(Token {
+        kind: TokenKind::Register(var_name),
+        span: var_span,
+    }) = tokens.get(*cursor)
+    {
+        *cursor = cursor.saturating_add(1);
+        if match_keyword_at(tokens, cursor, "in") {
+            operands.push(Expr::Identifier(var_name.clone(), *var_span));
+            match parse_expr_with_vm_contract(
+                expr_parse_ctx,
+                &tokens[*cursor..],
+                end_span,
+                end_token_text,
+            ) {
+                Ok(expr) => operands.push(expr),
+                Err(err) => operands.push(Expr::Error(err.message, err.span)),
+            }
+            return Ok(LineAst::Statement {
+                label,
+                mnemonic,
+                operands,
+            });
+        }
+    }
+
+    *cursor = start_cursor;
+    match parse_expr_with_vm_contract(expr_parse_ctx, &tokens[*cursor..], end_span, end_token_text)
+    {
+        Ok(expr) => operands.push(expr),
+        Err(err) => operands.push(Expr::Error(err.message, err.span)),
+    }
+    Ok(LineAst::Statement {
+        label,
+        mnemonic,
+        operands,
+    })
+}
+
+fn parse_while_like_directive_from_tokens(
+    tokens: &[Token],
+    cursor: &mut usize,
+    label: Option<Label>,
+    name: String,
+    end_span: Span,
+    end_token_text: Option<String>,
+    expr_parse_ctx: &VmExprParseContext<'_>,
+) -> Result<LineAst, ParseError> {
+    let mut operands = Vec::new();
+    let mnemonic = Some(format!(".{name}"));
+
+    match parse_expr_with_vm_contract(expr_parse_ctx, &tokens[*cursor..], end_span, end_token_text)
+    {
+        Ok(expr) => operands.push(expr),
+        Err(err) => operands.push(Expr::Error(err.message, err.span)),
+    }
+    Ok(LineAst::Statement {
+        label,
+        mnemonic,
         operands,
     })
 }

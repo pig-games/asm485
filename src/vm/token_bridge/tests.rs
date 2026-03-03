@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::parser::BinaryOp;
 
 #[derive(Debug, PartialEq, Eq)]
 enum NormalizedExprDiag {
@@ -156,6 +157,51 @@ fn parse_line_with_default_model_parses_pack_directive() {
         }
         other => panic!("expected .pack AST, got {other:?}"),
     }
+}
+
+#[test]
+fn parse_line_with_default_model_parses_for_directive_head() {
+    let line = parse_line_with_default_model(".for i in 0..8", 1).expect(".for line should parse");
+    match line {
+        LineAst::Statement {
+            mnemonic, operands, ..
+        } => {
+            assert_eq!(mnemonic.as_deref(), Some(".for"));
+            assert_eq!(operands.len(), 2);
+            assert!(matches!(operands[0], Expr::Identifier(ref name, _) if name == "i"));
+            assert!(matches!(operands[1], Expr::Range { .. }));
+        }
+        other => panic!("expected .for AST, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_line_with_default_model_parses_bwhile_directive_head() {
+    let line = parse_line_with_default_model(".bwhile addr < $c100", 1)
+        .expect(".bwhile line should parse");
+    match line {
+        LineAst::Statement {
+            mnemonic, operands, ..
+        } => {
+            assert_eq!(mnemonic.as_deref(), Some(".bwhile"));
+            assert_eq!(operands.len(), 1);
+            assert!(matches!(
+                operands[0],
+                Expr::Binary {
+                    op: BinaryOp::Lt,
+                    ..
+                }
+            ));
+        }
+        other => panic!("expected .bwhile AST, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_line_with_default_model_rejects_trailing_tokens_after_endfor() {
+    let err = parse_line_with_default_model(".endfor 1", 1)
+        .expect_err("trailing tokens after .endfor should fail");
+    assert!(err.message.contains("Unexpected trailing tokens"));
 }
 
 #[test]
