@@ -37,7 +37,7 @@ jobs:
         run: cargo test --locked
 
   vm-opcpu-modes:
-    name: VM opcpu package modes
+    name: VM opcpu modes + build combos
     runs-on: ubuntu-latest
 
     steps:
@@ -52,3 +52,9 @@ jobs:
 
       - name: Validate vm package source modes
         run: make test-vm-opcpu-modes
+
+      - name: Validate build-profile matrix
+        run: make test-build-profile-matrix
+
+      - name: Validate build-combo smoke coverage
+        run: make test-build-combo-smoke

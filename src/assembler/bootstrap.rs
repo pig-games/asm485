@@ -840,8 +840,8 @@ pub(crate) fn load_module_graph(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_use_directives, expand_source_file_with_dependencies, module_search_root,
-        scan_module_ids,
+        collect_use_directives, expand_source_file_with_dependencies, load_module_graph,
+        module_search_root, scan_module_ids,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -913,6 +913,68 @@ mod tests {
         assert_eq!(
             collect_use_directives(&lines),
             vec!["mforth.base".to_string(), "mforth.kernel".to_string()]
+        );
+    }
+
+    #[test]
+    fn load_module_graph_resolves_mforth_style_use_directives() {
+        let project = temp_dir();
+        let src = project.join("src");
+        let modules = src.join("modules");
+        fs::create_dir_all(&modules).unwrap();
+
+        let root = src.join("main.asm");
+        fs::write(
+            &root,
+            ".meta\n    .name \"MFORTH\"\n.endmeta\n\n.cpu 8085\n.use mforth.base\n.use mforth.kernel (*)\n.use mforth.wordsets (*)\n\nmain: jmp main\n",
+        )
+        .unwrap();
+
+        fs::write(
+            modules.join("mforth.base.asm"),
+            ".module mforth.base\nBASE_VALUE = 1\n.endmodule\n",
+        )
+        .unwrap();
+        fs::write(
+            modules.join("mforth.kernel.asm"),
+            ".module mforth.kernel\nkernel_label: nop\n.endmodule\n",
+        )
+        .unwrap();
+        fs::write(
+            modules.join("mforth.wordsets.asm"),
+            ".module mforth.wordsets\nlast_task: nop\nlast_assembler: nop\n.endmodule\n",
+        )
+        .unwrap();
+
+        let (root_lines, root_deps) =
+            expand_source_file_with_dependencies(&root, &[], &[], 64).unwrap();
+        let graph = load_module_graph(&root, root_lines, &[], &[], &[modules.clone()], 64)
+            .expect("module graph should resolve all .use directives");
+
+        let mut all_deps = root_deps;
+        all_deps.extend(graph.dependency_files);
+        let all_dep_strings: Vec<String> = all_deps
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect();
+
+        assert!(
+            all_dep_strings
+                .iter()
+                .any(|path| path.ends_with("mforth.base.asm")),
+            "expected mforth.base module dependency in graph"
+        );
+        assert!(
+            all_dep_strings
+                .iter()
+                .any(|path| path.ends_with("mforth.kernel.asm")),
+            "expected mforth.kernel module dependency in graph"
+        );
+        assert!(
+            all_dep_strings
+                .iter()
+                .any(|path| path.ends_with("mforth.wordsets.asm")),
+            "expected mforth.wordsets module dependency in graph"
         );
     }
 }

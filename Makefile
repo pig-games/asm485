@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Erik van der Tier
 
-.PHONY: build release clean fmt clippy audit reference reference-test test test-core test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity test-vm-opcpu-modes test-build-profile-matrix ci-core ci-vm-mos6502 ci-vm-intel8080 build-vm-package build-vm-runtime-artifact vm-only-build vm-only-release vm-only-build-embedded vm-only-release-embedded vm-only-build-unbundled vm-only-release-unbundled vm-only-build-unbundled-artifact vm-only-release-unbundled-artifact manual-pdf
+.PHONY: build release clean fmt clippy audit reference reference-test test test-core test-vm-runtime test-vm-runtime-artifact test-vm-runtime-intel test-vm-rollout-criteria test-vm-parity test-vm-opcpu-modes test-build-profile-matrix test-build-combo-smoke ci-core ci-vm-mos6502 ci-vm-intel8080 build-vm-package build-vm-runtime-artifact vm-only-build vm-only-release vm-only-build-embedded vm-only-release-embedded vm-only-build-unbundled vm-only-release-unbundled vm-only-build-unbundled-artifact vm-only-release-unbundled-artifact manual-pdf
 
 MANUAL_MD := documentation/opForge-reference-manual.md
 MANUAL_PDF := documentation/opForge-reference-manual.pdf
@@ -116,6 +116,13 @@ test-build-profile-matrix:
 	cargo test --features vm-runtime-only,vm-runtime-opcpu-artifact version_flag_reports_build_profile
 	cargo test --features vm-runtime-only,vm-runtime-opcpu-unbundled version_flag_reports_build_profile
 	cargo test --features vm-runtime-only,vm-runtime-opcpu-unbundled,vm-runtime-opcpu-artifact version_flag_reports_build_profile
+
+test-build-combo-smoke:
+	cargo test load_module_graph_resolves_mforth_style_use_directives
+	cargo test --features vm-runtime-only load_module_graph_resolves_mforth_style_use_directives
+	cargo test --features vm-runtime-only,vm-runtime-opcpu-artifact load_module_graph_resolves_mforth_style_use_directives
+	cargo test --features vm-runtime-only,vm-runtime-opcpu-unbundled load_module_graph_resolves_mforth_style_use_directives
+	cargo test --features vm-runtime-only,vm-runtime-opcpu-unbundled,vm-runtime-opcpu-artifact load_module_graph_resolves_mforth_style_use_directives
 
 reference-test:
 	cargo test examples_match_reference_outputs
