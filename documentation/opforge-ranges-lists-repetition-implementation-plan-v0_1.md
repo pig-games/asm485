@@ -1,8 +1,9 @@
 # opForge Ranges, Lists, and Repetition Implementation Plan v0.1
 
-Status: Execution plan  
+Status: Implemented (all phases completed on branch `codex/ranges-lists-repetition-plan-v0_1`)  
 Date: 2026-03-03  
 Source design: `documentation/opforge-ranges-lists-repetition-design-v0_1.md`
+Latest implementation commit: `fc25a30`
 
 ## 1. Purpose
 
@@ -560,16 +561,39 @@ All must be true:
 5. New docs/examples are aligned with implemented behavior.
 6. No open ambiguity remains for v0.1 scope.
 
-## 10. Final Squash-Free Commit Sequence (recommended)
+Validation snapshot (executed on 2026-03-03):
 
-1. `chore(plan): scaffold ranges/lists/repetition implementation checkpoints`
-2. `feat(parser): add range/list/index/member/call syntax and repetition directive parsing`
-3. `feat(expr): introduce AsmValue and evaluate ranges/lists/index/member/len`
-4. `feat(directives): add .struct/.endstruct with struct symbol and offset resolution`
-5. `feat(loop): implement .for/.endfor with two-pass stability and unscoped label guard`
-6. `feat(loop): add .bfor scoped repetition and labeled list/struct access`
-7. `feat(loop): add .while/.bwhile and configurable max loop iteration guard`
-8. `fix(integration): wire repetition/value features through macro/formatter/runtime compatibility paths`
-9. `docs/examples: add ranges-lists-repetition examples, references, and manual updates`
-10. `feat(tooling): add formatter and lsp support for ranges/lists/repetition semantics`
-11. `feat(struct): add typed struct literal instances and member value access`
+1. `cargo fmt --all` passed.
+2. `cargo clippy -- -D warnings` passed.
+3. `cargo audit` passed.
+4. `cargo test` passed.
+5. `make ci-core` passed.
+6. `make ci-vm-mos6502` passed.
+7. `make ci-vm-intel8080` passed.
+8. `make test-vm-opcpu-modes` passed.
+9. `make test-build-profile-matrix` passed.
+10. `make test-build-combo-smoke` passed.
+11. `make reference-test` passed.
+
+## 10. Final Squash-Free Commit Sequence (executed)
+
+1. `20eabdc` `docs(plan): add executable implementation plan for ranges/lists/repetition v0.1`
+2. `c080e53` `feat(parser): add range tokenization and Expr::Range parsing foundation`
+3. `9f692f4` `feat(parser): parse list/index/member/call/placeholder expression forms`
+4. `d1fe47b` `feat(parser): add dedicated repetition/struct directive head parsing`
+5. `2ca9627` `feat(expr): add AsmValue foundation for ranges/lists/struct metadata`
+6. `ed85dd6` `feat(struct): add StructTable registry foundation`
+7. `cac9e92` `feat(directives): implement .struct/.endstruct with field offset symbols`
+8. `c4eb9a1` `feat(expr): evaluate range/list/index and .len in host expression path`
+9. `43282e6` `feat(loop): implement .for/.endfor engine with pass-stability checks`
+10. `9ae23e7` `feat(loop): implement .bfor scoped repetition and label indexing`
+11. `2e2a701` `feat(loop): add .while/.bwhile with iteration guard`
+12. `0b2d6e9` `fix(integration): stabilize range/list/repetition compatibility paths`
+13. `6dafed5` `docs/examples: add ranges-lists-repetition examples and manual sync`
+14. `1448542` `docs(plan): add formatter and lsp implementation phase`
+15. `605292b` `fix(expr): allow non-scalar const/var symbol values`
+16. `c35ccea` `examples: add struct variable assignment example`
+17. `168456b` `docs(plan): add struct-literal phase and spec semantics`
+18. `507bdf3` `feat(struct): implement typed struct literal instances`
+19. `3fa1dfc` `feat(struct): unify typed symbol member access with dotted identifiers`
+20. `fc25a30` `feat(tooling): extend formatter and LSP for struct member contexts`
