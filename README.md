@@ -154,6 +154,8 @@ Validation lane boundaries:
 VM rollout status (VM runtime is default):
 - Authoritative package-runtime family: `mos6502` (`m6502`, `65c02`, `65816`).
 - Authoritative package-runtime family: `intel8080` (`8085`, `z80`).
+- Authoritative package-runtime family: `motorola6800` (`m6809`, `hd6309`).
+- Runtime rollout criteria coverage includes Motorola 6800-family assertions for both `m6809` and `hd6309` via `make test-vm-rollout-criteria`.
 
 Optional on-disk runtime package artifact mode:
 - Enable feature `vm-runtime-opcpu-artifact`.
