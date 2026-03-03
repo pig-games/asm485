@@ -28,6 +28,8 @@ use crate::lsp::member_context::{member_completion_context, member_lookup_contex
 use crate::lsp::validation_runner::{run_cli_validation, ValidationDiagnostic};
 use crate::lsp::workspace_index::{IndexedSymbol, WorkspaceIndex};
 
+static OVERLAY_DIR_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
+
 #[derive(Debug, Clone)]
 pub enum OutboundMessage {
     Response {
@@ -1108,11 +1110,13 @@ fn create_overlay_workspace(
 ) -> Option<OverlayWorkspace> {
     let original_file = active_doc.path.as_ref()?;
     let original_root = original_file.parent()?.to_path_buf();
-    let unique = SystemTime::now()
+    let time_part = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()?
-        .as_millis();
-    let temp_root = std::env::temp_dir().join(format!("opforge-lsp-overlay-{unique}"));
+        .as_nanos();
+    let seq_part = OVERLAY_DIR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temp_root =
+        std::env::temp_dir().join(format!("opforge-lsp-overlay-{time_part}-{seq_part}"));
     let working_dir = temp_root.join("workspace");
     fs::create_dir_all(&working_dir).ok()?;
 
