@@ -248,6 +248,9 @@ impl<'a> AsmLine<'a> {
             }),
             Expr::Number(text, span) => parse_number_text(text, *span),
             Expr::Identifier(name, span) | Expr::Register(name, span) => {
+                if let Some(value) = self.lookup_loop_var(name) {
+                    return Ok(value);
+                }
                 match self.lookup_scoped_entry(name) {
                     Some(entry) => {
                         if !self.entry_is_visible(entry) {

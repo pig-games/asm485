@@ -13,6 +13,7 @@ pub(crate) struct Assembler {
     pub(crate) registry: ModuleRegistry,
     pub(crate) root_metadata: RootMetadata,
     pub(crate) module_macro_names: HashMap<String, HashMap<String, SymbolVisibility>>,
+    pub(crate) loop_iteration_trace_pass1: Vec<(u32, u32)>,
 }
 
 impl Assembler {
@@ -29,6 +30,7 @@ impl Assembler {
             registry,
             root_metadata: RootMetadata::default(),
             module_macro_names: HashMap::new(),
+            loop_iteration_trace_pass1: Vec::new(),
         }
     }
 
@@ -63,8 +65,11 @@ impl Assembler {
     pub(crate) fn pass1(&mut self, lines: &[String]) -> PassCounts {
         self.sections.clear();
         self.regions.clear();
+        self.loop_iteration_trace_pass1.clear();
         let mut addr: u32 = 0;
-        let mut line_num: u32 = 1;
+        let line_num: u32 = u32::try_from(lines.len())
+            .unwrap_or(u32::MAX.saturating_sub(1))
+            .saturating_add(1);
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;
 
@@ -75,39 +80,17 @@ impl Assembler {
             asm_line.clear_conditionals();
             asm_line.clear_scopes();
 
-            for src in lines {
-                let line_addr = match asm_line.current_addr(addr) {
-                    Ok(line_addr) => line_addr,
-                    Err(()) => {
-                        if let Some(err) = asm_line.error() {
-                            diagnostics.push(Self::diagnostic_from_asmline(
-                                &asm_line,
-                                line_num,
-                                Severity::Error,
-                                err.clone(),
-                            ));
-                        }
-                        counts.errors += 1;
-                        addr
-                    }
-                };
-                let status = asm_line.process(src, line_num, line_addr, 1);
-                let status_failed = status == LineStatus::Pass1Error || status == LineStatus::Error;
-                let update_failed =
-                    !status_failed && asm_line.update_addresses(&mut addr, status).is_err();
-                if status_failed || update_failed {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(Self::diagnostic_from_asmline(
-                            &asm_line,
-                            line_num,
-                            Severity::Error,
-                            err.clone(),
-                        ));
-                    }
-                    counts.errors += 1;
-                }
-                line_num += 1;
-            }
+            Self::execute_pass1_lines(
+                lines,
+                0,
+                lines.len(),
+                &mut asm_line,
+                &mut addr,
+                &mut counts,
+                diagnostics,
+                &mut self.loop_iteration_trace_pass1,
+                false,
+            );
 
             if !asm_line.cond_is_empty() {
                 let err = AsmError::new(
@@ -266,7 +249,7 @@ impl Assembler {
             counts.errors += 1;
         }
 
-        counts.lines = line_num - 1;
+        counts.lines = u32::try_from(lines.len()).unwrap_or(u32::MAX);
         counts
     }
 
@@ -275,6 +258,7 @@ impl Assembler {
         lines: &[String],
         listing: &mut ListingWriter<W>,
     ) -> std::io::Result<PassCounts> {
+        let pass1_loop_trace = self.loop_iteration_trace_pass1.clone();
         let mut asm_line = AsmLine::with_cpu(&mut self.symbols, self.cpu, &self.registry);
         asm_line.clear_conditionals();
         asm_line.clear_scopes();
@@ -291,10 +275,13 @@ impl Assembler {
         self.image = ImageStore::new();
 
         let mut addr: u32 = 0;
-        let mut line_num: u32 = 1;
+        let line_num: u32 = u32::try_from(lines.len())
+            .unwrap_or(u32::MAX.saturating_sub(1))
+            .saturating_add(1);
         let mut counts = PassCounts::new();
         let diagnostics = &mut self.diagnostics;
         let image = &mut self.image;
+        let mut pass2_loop_trace_cursor = 0usize;
 
         if let Some(err) = image.init_error() {
             let message = format!("failed to initialize image store: {err}");
@@ -306,115 +293,24 @@ impl Assembler {
             diagnostics.push(diag.clone());
             listing.write_diagnostic_with_annotations(&diag, lines)?;
             counts.errors += 1;
-            counts.lines = line_num - 1;
+            counts.lines = u32::try_from(lines.len()).unwrap_or(u32::MAX);
             return Ok(counts);
         }
 
-        for src in lines {
-            let line_addr = match asm_line.current_addr(addr) {
-                Ok(line_addr) => line_addr,
-                Err(()) => {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(Self::diagnostic_from_asmline(
-                            &asm_line,
-                            line_num,
-                            Severity::Error,
-                            err.clone(),
-                        ));
-                        listing.write_diagnostic(
-                            "ERROR",
-                            err.message(),
-                            line_num,
-                            asm_line.error_column(),
-                            lines,
-                            asm_line.parser_error_ref(),
-                        )?;
-                    }
-                    counts.errors += 1;
-                    addr
-                }
-            };
-            let status = asm_line.process(src, line_num, line_addr, 2);
-            let line_addr = asm_line.start_addr();
-            let bytes = asm_line.bytes();
-            if !bytes.is_empty() && !asm_line.in_section() {
-                image.store_slice(line_addr, bytes);
-            }
-
-            listing.write_line(ListingLine {
-                addr: line_addr,
-                bytes,
-                status,
-                aux: asm_line.aux_value(),
-                line_num,
-                source: src,
-                section: asm_line.current_section_name(),
-                cond: asm_line.cond_last(),
-            })?;
-
-            match status {
-                LineStatus::Error | LineStatus::Pass1Error => {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(Self::diagnostic_from_asmline(
-                            &asm_line,
-                            line_num,
-                            Severity::Error,
-                            err.clone(),
-                        ));
-                        listing.write_diagnostic(
-                            "ERROR",
-                            err.message(),
-                            line_num,
-                            asm_line.error_column(),
-                            lines,
-                            asm_line.parser_error_ref(),
-                        )?;
-                    }
-                    counts.errors += 1;
-                }
-                LineStatus::Warning => {
-                    if let Some(err) = asm_line.error() {
-                        diagnostics.push(Self::diagnostic_from_asmline(
-                            &asm_line,
-                            line_num,
-                            Severity::Warning,
-                            err.clone(),
-                        ));
-                        listing.write_diagnostic(
-                            "WARNING",
-                            err.message(),
-                            line_num,
-                            asm_line.error_column(),
-                            lines,
-                            asm_line.parser_error_ref(),
-                        )?;
-                    }
-                    counts.warnings += 1;
-                }
-                _ => {}
-            }
-
-            if asm_line.update_addresses(&mut addr, status).is_err() {
-                if let Some(err) = asm_line.error() {
-                    diagnostics.push(Self::diagnostic_from_asmline(
-                        &asm_line,
-                        line_num,
-                        Severity::Error,
-                        err.clone(),
-                    ));
-                    listing.write_diagnostic(
-                        "ERROR",
-                        err.message(),
-                        line_num,
-                        asm_line.error_column(),
-                        lines,
-                        None,
-                    )?;
-                }
-                counts.errors += 1;
-            }
-            line_num += 1;
-        }
+        Self::execute_pass2_lines(
+            lines,
+            0,
+            lines.len(),
+            &mut asm_line,
+            &mut addr,
+            &mut counts,
+            diagnostics,
+            listing,
+            image,
+            &pass1_loop_trace,
+            &mut pass2_loop_trace_cursor,
+            false,
+        )?;
 
         if !asm_line.cond_is_empty() {
             let err = AsmError::new(AsmErrorKind::Conditional, "Found .if without .endif", None);
@@ -535,8 +431,471 @@ impl Assembler {
         }
 
         self.sections = sections;
-        counts.lines = line_num - 1;
+        counts.lines = u32::try_from(lines.len()).unwrap_or(u32::MAX);
         Ok(counts)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_pass1_lines(
+        lines: &[String],
+        start_idx: usize,
+        end_idx_exclusive: usize,
+        asm_line: &mut AsmLine<'_>,
+        addr: &mut u32,
+        counts: &mut PassCounts,
+        diagnostics: &mut Vec<Diagnostic>,
+        pass1_loop_trace: &mut Vec<(u32, u32)>,
+        in_unscoped_for: bool,
+    ) {
+        let mut idx = start_idx;
+        while idx < end_idx_exclusive {
+            let line_num = u32::try_from(idx)
+                .unwrap_or(u32::MAX.saturating_sub(1))
+                .saturating_add(1);
+            let src = &lines[idx];
+
+            let parsed_ast =
+                super::repetition::parse_line_ast_for_repetition(asm_line, src, line_num).ok();
+            if let Some(ast) = parsed_ast {
+                if in_unscoped_for {
+                    if let Some(label) = super::repetition::line_label(&ast) {
+                        let message = format!(
+                            "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
+                            label.name
+                        );
+                        diagnostics.push(
+                            Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            )
+                            .with_column(Some(label.span.col_start)),
+                        );
+                        counts.errors += 1;
+                        idx = idx.saturating_add(1);
+                        continue;
+                    }
+                }
+
+                if let Some((label, mnemonic, operands)) = super::repetition::statement_parts(&ast)
+                {
+                    if super::repetition::is_endfor_directive_name(&mnemonic) {
+                        let (message, column) = if let Some(label) = label {
+                            (
+                                "label not allowed on .endfor / .endwhile".to_string(),
+                                Some(label.span.col_start),
+                            )
+                        } else {
+                            (".endfor without matching .for".to_string(), None)
+                        };
+                        diagnostics.push(
+                            Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            )
+                            .with_column(column),
+                        );
+                        counts.errors += 1;
+                        idx = idx.saturating_add(1);
+                        continue;
+                    }
+
+                    if super::repetition::is_for_directive_name(&mnemonic) {
+                        let Some(end_idx) = super::repetition::find_matching_endfor(
+                            lines,
+                            asm_line,
+                            idx.saturating_add(1),
+                            end_idx_exclusive,
+                        ) else {
+                            let message = format!("unterminated .for (opened at line {line_num})");
+                            diagnostics.push(Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            ));
+                            counts.errors += 1;
+                            return;
+                        };
+
+                        let plan = match super::repetition::evaluate_for_plan(
+                            asm_line,
+                            &operands,
+                            super::repetition::DEFAULT_MAX_LOOP_ITERATIONS,
+                        ) {
+                            Ok(plan) => plan,
+                            Err(err) => {
+                                diagnostics.push(
+                                    Diagnostic::new(line_num, Severity::Error, err.error)
+                                        .with_column(Some(err.span.col_start)),
+                                );
+                                counts.errors += 1;
+                                idx = end_idx.saturating_add(1);
+                                continue;
+                            }
+                        };
+
+                        pass1_loop_trace.push((
+                            line_num,
+                            u32::try_from(plan.values.len()).unwrap_or(u32::MAX),
+                        ));
+                        for value in &plan.values {
+                            if let Some(var_name) = plan.var_name.as_deref() {
+                                asm_line.push_loop_var(var_name, *value);
+                            }
+                            Self::execute_pass1_lines(
+                                lines,
+                                idx.saturating_add(1),
+                                end_idx,
+                                asm_line,
+                                addr,
+                                counts,
+                                diagnostics,
+                                pass1_loop_trace,
+                                true,
+                            );
+                            if plan.var_name.is_some() {
+                                asm_line.pop_loop_var();
+                            }
+                        }
+
+                        idx = end_idx.saturating_add(1);
+                        continue;
+                    }
+                }
+            }
+
+            Self::execute_regular_line_pass1(asm_line, src, line_num, addr, counts, diagnostics);
+            idx = idx.saturating_add(1);
+        }
+    }
+
+    fn execute_regular_line_pass1(
+        asm_line: &mut AsmLine<'_>,
+        src: &str,
+        line_num: u32,
+        addr: &mut u32,
+        counts: &mut PassCounts,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let line_addr = match asm_line.current_addr(*addr) {
+            Ok(line_addr) => line_addr,
+            Err(()) => {
+                if let Some(err) = asm_line.error() {
+                    diagnostics.push(Self::diagnostic_from_asmline(
+                        asm_line,
+                        line_num,
+                        Severity::Error,
+                        err.clone(),
+                    ));
+                }
+                counts.errors += 1;
+                *addr
+            }
+        };
+
+        let status = asm_line.process(src, line_num, line_addr, 1);
+        let status_failed = status == LineStatus::Pass1Error || status == LineStatus::Error;
+        let update_failed = !status_failed && asm_line.update_addresses(addr, status).is_err();
+        if status_failed || update_failed {
+            if let Some(err) = asm_line.error() {
+                diagnostics.push(Self::diagnostic_from_asmline(
+                    asm_line,
+                    line_num,
+                    Severity::Error,
+                    err.clone(),
+                ));
+            }
+            counts.errors += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_pass2_lines<W: Write>(
+        lines: &[String],
+        start_idx: usize,
+        end_idx_exclusive: usize,
+        asm_line: &mut AsmLine<'_>,
+        addr: &mut u32,
+        counts: &mut PassCounts,
+        diagnostics: &mut Vec<Diagnostic>,
+        listing: &mut ListingWriter<W>,
+        image: &mut ImageStore,
+        pass1_loop_trace: &[(u32, u32)],
+        pass2_loop_trace_cursor: &mut usize,
+        in_unscoped_for: bool,
+    ) -> std::io::Result<()> {
+        let mut idx = start_idx;
+        while idx < end_idx_exclusive {
+            let line_num = u32::try_from(idx)
+                .unwrap_or(u32::MAX.saturating_sub(1))
+                .saturating_add(1);
+            let src = &lines[idx];
+
+            let parsed_ast =
+                super::repetition::parse_line_ast_for_repetition(asm_line, src, line_num).ok();
+            if let Some(ast) = parsed_ast {
+                if in_unscoped_for {
+                    if let Some(label) = super::repetition::line_label(&ast) {
+                        let message = format!(
+                            "label '{}' not allowed inside .for (use .bfor for scoped repetition)",
+                            label.name
+                        );
+                        let diagnostic = Diagnostic::new(
+                            line_num,
+                            Severity::Error,
+                            AsmError::new(AsmErrorKind::Directive, &message, None),
+                        )
+                        .with_column(Some(label.span.col_start));
+                        diagnostics.push(diagnostic.clone());
+                        listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                        counts.errors += 1;
+                        idx = idx.saturating_add(1);
+                        continue;
+                    }
+                }
+
+                if let Some((label, mnemonic, operands)) = super::repetition::statement_parts(&ast)
+                {
+                    if super::repetition::is_endfor_directive_name(&mnemonic) {
+                        let (message, column) = if let Some(label) = label {
+                            (
+                                "label not allowed on .endfor / .endwhile".to_string(),
+                                Some(label.span.col_start),
+                            )
+                        } else {
+                            (".endfor without matching .for".to_string(), None)
+                        };
+                        let diagnostic = Diagnostic::new(
+                            line_num,
+                            Severity::Error,
+                            AsmError::new(AsmErrorKind::Directive, &message, None),
+                        )
+                        .with_column(column);
+                        diagnostics.push(diagnostic.clone());
+                        listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                        counts.errors += 1;
+                        idx = idx.saturating_add(1);
+                        continue;
+                    }
+
+                    if super::repetition::is_for_directive_name(&mnemonic) {
+                        let Some(end_idx) = super::repetition::find_matching_endfor(
+                            lines,
+                            asm_line,
+                            idx.saturating_add(1),
+                            end_idx_exclusive,
+                        ) else {
+                            let message = format!("unterminated .for (opened at line {line_num})");
+                            let diagnostic = Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            );
+                            diagnostics.push(diagnostic.clone());
+                            listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                            counts.errors += 1;
+                            return Ok(());
+                        };
+
+                        let plan = match super::repetition::evaluate_for_plan(
+                            asm_line,
+                            &operands,
+                            super::repetition::DEFAULT_MAX_LOOP_ITERATIONS,
+                        ) {
+                            Ok(plan) => plan,
+                            Err(err) => {
+                                let diagnostic =
+                                    Diagnostic::new(line_num, Severity::Error, err.error)
+                                        .with_column(Some(err.span.col_start));
+                                diagnostics.push(diagnostic.clone());
+                                listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                                counts.errors += 1;
+                                idx = end_idx.saturating_add(1);
+                                continue;
+                            }
+                        };
+
+                        let pass2_count = u32::try_from(plan.values.len()).unwrap_or(u32::MAX);
+                        let (pass1_line, pass1_count) = pass1_loop_trace
+                            .get(*pass2_loop_trace_cursor)
+                            .copied()
+                            .unwrap_or((line_num, 0));
+                        *pass2_loop_trace_cursor = pass2_loop_trace_cursor.saturating_add(1);
+                        if pass1_line != line_num || pass1_count != pass2_count {
+                            let message = format!(
+                                "loop iteration count changed between passes (pass1: {pass1_count}, pass2: {pass2_count})"
+                            );
+                            let diagnostic = Diagnostic::new(
+                                line_num,
+                                Severity::Error,
+                                AsmError::new(AsmErrorKind::Directive, &message, None),
+                            );
+                            diagnostics.push(diagnostic.clone());
+                            listing.write_diagnostic_with_annotations(&diagnostic, lines)?;
+                            counts.errors += 1;
+                        }
+
+                        for value in &plan.values {
+                            if let Some(var_name) = plan.var_name.as_deref() {
+                                asm_line.push_loop_var(var_name, *value);
+                            }
+                            Self::execute_pass2_lines(
+                                lines,
+                                idx.saturating_add(1),
+                                end_idx,
+                                asm_line,
+                                addr,
+                                counts,
+                                diagnostics,
+                                listing,
+                                image,
+                                pass1_loop_trace,
+                                pass2_loop_trace_cursor,
+                                true,
+                            )?;
+                            if plan.var_name.is_some() {
+                                asm_line.pop_loop_var();
+                            }
+                        }
+
+                        idx = end_idx.saturating_add(1);
+                        continue;
+                    }
+                }
+            }
+
+            Self::execute_regular_line_pass2(
+                asm_line,
+                src,
+                line_num,
+                addr,
+                counts,
+                diagnostics,
+                listing,
+                image,
+                lines,
+            )?;
+            idx = idx.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_regular_line_pass2<W: Write>(
+        asm_line: &mut AsmLine<'_>,
+        src: &str,
+        line_num: u32,
+        addr: &mut u32,
+        counts: &mut PassCounts,
+        diagnostics: &mut Vec<Diagnostic>,
+        listing: &mut ListingWriter<W>,
+        image: &mut ImageStore,
+        all_lines: &[String],
+    ) -> std::io::Result<()> {
+        let line_addr = match asm_line.current_addr(*addr) {
+            Ok(line_addr) => line_addr,
+            Err(()) => {
+                if let Some(err) = asm_line.error() {
+                    diagnostics.push(Self::diagnostic_from_asmline(
+                        asm_line,
+                        line_num,
+                        Severity::Error,
+                        err.clone(),
+                    ));
+                    listing.write_diagnostic(
+                        "ERROR",
+                        err.message(),
+                        line_num,
+                        asm_line.error_column(),
+                        all_lines,
+                        asm_line.parser_error_ref(),
+                    )?;
+                }
+                counts.errors += 1;
+                *addr
+            }
+        };
+        let status = asm_line.process(src, line_num, line_addr, 2);
+        let line_addr = asm_line.start_addr();
+        let bytes = asm_line.bytes();
+        if !bytes.is_empty() && !asm_line.in_section() {
+            image.store_slice(line_addr, bytes);
+        }
+
+        listing.write_line(ListingLine {
+            addr: line_addr,
+            bytes,
+            status,
+            aux: asm_line.aux_value(),
+            line_num,
+            source: src,
+            section: asm_line.current_section_name(),
+            cond: asm_line.cond_last(),
+        })?;
+
+        match status {
+            LineStatus::Error | LineStatus::Pass1Error => {
+                if let Some(err) = asm_line.error() {
+                    diagnostics.push(Self::diagnostic_from_asmline(
+                        asm_line,
+                        line_num,
+                        Severity::Error,
+                        err.clone(),
+                    ));
+                    listing.write_diagnostic(
+                        "ERROR",
+                        err.message(),
+                        line_num,
+                        asm_line.error_column(),
+                        all_lines,
+                        asm_line.parser_error_ref(),
+                    )?;
+                }
+                counts.errors += 1;
+            }
+            LineStatus::Warning => {
+                if let Some(err) = asm_line.error() {
+                    diagnostics.push(Self::diagnostic_from_asmline(
+                        asm_line,
+                        line_num,
+                        Severity::Warning,
+                        err.clone(),
+                    ));
+                    listing.write_diagnostic(
+                        "WARNING",
+                        err.message(),
+                        line_num,
+                        asm_line.error_column(),
+                        all_lines,
+                        asm_line.parser_error_ref(),
+                    )?;
+                }
+                counts.warnings += 1;
+            }
+            _ => {}
+        }
+
+        if asm_line.update_addresses(addr, status).is_err() {
+            if let Some(err) = asm_line.error() {
+                diagnostics.push(Self::diagnostic_from_asmline(
+                    asm_line,
+                    line_num,
+                    Severity::Error,
+                    err.clone(),
+                ));
+                listing.write_diagnostic(
+                    "ERROR",
+                    err.message(),
+                    line_num,
+                    asm_line.error_column(),
+                    all_lines,
+                    None,
+                )?;
+            }
+            counts.errors += 1;
+        }
+        Ok(())
     }
 
     fn cpu_warns_for_wide_output(cpu: CpuType) -> bool {

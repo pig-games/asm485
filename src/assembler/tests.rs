@@ -587,6 +587,115 @@ fn struct_body_rejects_non_field_directives() {
     );
 }
 
+#[test]
+fn for_counter_loop_emits_expected_bytes() {
+    let (entries, diagnostics) =
+        assemble_source_entries_with_runtime_mode(&[".for 3", ".byte $7f", ".endfor"], true)
+            .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 0x7f), (1, 0x7f), (2, 0x7f)]);
+}
+
+#[test]
+fn for_iterable_loop_emits_loop_variable_values() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[".for i in {1,2,3}", ".byte i", ".endfor"],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 2), (2, 3)]);
+}
+
+#[test]
+fn for_loop_rejects_labels_inside_body() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".for 2".to_string(),
+        "item .byte 1".to_string(),
+        ".endfor".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert!(pass1.errors >= 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("label 'item' not allowed inside .for")),
+        "expected loop-label diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn endfor_without_for_reports_error() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![".endfor".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains(".endfor without matching .for")),
+        "expected unmatched .endfor diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn for_loop_reports_pass_stability_mismatch() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        ".for target".to_string(),
+        ".byte 1".to_string(),
+        ".endfor".to_string(),
+        "target = 2".to_string(),
+    ];
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 0);
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .expect("pass2 should execute");
+    assert!(pass2.errors > 0, "pass2 should report loop instability");
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("loop iteration count changed between passes")),
+        "expected loop stability diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()

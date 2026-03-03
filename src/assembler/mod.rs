@@ -20,6 +20,7 @@ pub mod cli;
 mod engine;
 mod output;
 mod passes;
+mod repetition;
 #[cfg(test)]
 mod tests;
 
@@ -470,6 +471,7 @@ struct AsmLine<'a> {
     text_encoding_registry: TextEncodingRegistry,
     active_text_encoding: String,
     encoding_scope_stack: Vec<EncodingScopeState>,
+    loop_vars: Vec<(String, u32)>,
     statement_depth: usize,
 }
 
@@ -520,6 +522,7 @@ impl<'a> AsmLine<'a> {
             text_encoding_registry,
             active_text_encoding,
             encoding_scope_stack: Vec::new(),
+            loop_vars: Vec::new(),
             statement_depth: 0,
         }
     }
@@ -995,6 +998,22 @@ impl<'a> AsmLine<'a> {
 
     fn clear_struct_definition(&mut self) {
         self.active_struct = None;
+    }
+
+    fn push_loop_var(&mut self, name: &str, value: u32) {
+        self.loop_vars.push((name.to_string(), value));
+    }
+
+    fn pop_loop_var(&mut self) {
+        let _ = self.loop_vars.pop();
+    }
+
+    fn lookup_loop_var(&self, name: &str) -> Option<u32> {
+        self.loop_vars
+            .iter()
+            .rev()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+            .map(|(_, value)| *value)
     }
 
     fn current_section_name(&self) -> Option<&str> {
@@ -2129,6 +2148,9 @@ impl<'a> AsmLine<'a> {
     fn find_private_symbol_in_expr(&self, expr: &Expr) -> Option<(String, Span)> {
         match expr {
             Expr::Identifier(name, span) | Expr::Register(name, span) => {
+                if self.lookup_loop_var(name).is_some() {
+                    return None;
+                }
                 if let Some(entry) = self.lookup_scoped_entry(name) {
                     if !self.entry_is_visible(entry) {
                         return Some((name.clone(), *span));
