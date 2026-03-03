@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Erik van der Tier
 
 use std::sync::OnceLock;
+#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-artifact"))]
+use std::{fs, path::PathBuf};
 
 use crate::core::parser::{AssignOp, Expr, Label, LineAst, ParseError};
 use crate::core::text_utils::is_ident_start;
@@ -43,6 +45,8 @@ use crate::z80::module::Z80CpuModule;
 // Use an authoritative rollout lane so bootstrap/macro token bridge paths
 // exercise strict VM tokenizer entrypoints by default.
 const DEFAULT_TOKENIZER_CPU_ID: &str = "m6502";
+#[cfg(all(feature = "vm-runtime-only", feature = "vm-runtime-opcpu-artifact"))]
+const VM_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH: &str = "target/vm/opforge-vm-runtime.opcpu";
 const HOST_PARSER_UNEXPECTED_END_OF_EXPRESSION: &str = "Unexpected end of expression";
 
 mod directives;
@@ -781,6 +785,19 @@ fn default_runtime_model() -> Option<&'static HierarchyExecutionModel> {
 fn build_default_runtime_model() -> Option<HierarchyExecutionModel> {
     #[cfg(feature = "vm-runtime-only")]
     {
+        #[cfg(feature = "vm-runtime-opcpu-artifact")]
+        {
+            let path = std::env::current_dir()
+                .ok()
+                .map(|base| PathBuf::from(base).join(VM_RUNTIME_PACKAGE_ARTIFACT_RELATIVE_PATH));
+            if let Some(path) = path {
+                if let Ok(package_bytes) = fs::read(path) {
+                    if let Ok(model) = HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()) {
+                        return Some(model);
+                    }
+                }
+            }
+        }
         None
     }
 

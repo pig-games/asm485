@@ -541,6 +541,20 @@ impl HierarchyPackage {
                 .any(|cpu| NormalizedId::new(cpu) == *cpu_key),
         }
     }
+
+    /// Return sorted family identifiers from package metadata.
+    pub fn family_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.families.values().map(|family| family.id.clone()).collect();
+        ids.sort();
+        ids
+    }
+
+    /// Return sorted CPU descriptors from package metadata.
+    pub fn cpu_descriptors(&self) -> Vec<CpuDescriptor> {
+        let mut cpus: Vec<CpuDescriptor> = self.cpus.values().cloned().collect();
+        cpus.sort_by(|a, b| a.id.cmp(&b.id));
+        cpus
+    }
 }
 
 #[cfg(test)]

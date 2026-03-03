@@ -972,6 +972,49 @@ impl HierarchyExecutionModel {
         ))
     }
 
+    pub fn supported_family_ids(&self) -> Vec<String> {
+        self.bridge.package.family_ids()
+    }
+
+    pub fn supported_cpus(&self) -> Vec<(String, String, Option<String>)> {
+        self.bridge
+            .package
+            .cpu_descriptors()
+            .into_iter()
+            .map(|cpu| (cpu.id, cpu.family_id, cpu.default_dialect))
+            .collect()
+    }
+
+    pub fn canonical_cpu_id_for_input(&self, requested: &str) -> Option<String> {
+        let requested = requested.trim();
+        if requested.is_empty() {
+            return None;
+        }
+
+        let cpus = self.bridge.package.cpu_descriptors();
+        if let Some(found) = cpus
+            .iter()
+            .find(|cpu| cpu.id.eq_ignore_ascii_case(requested))
+            .map(|cpu| cpu.id.clone())
+        {
+            return Some(found);
+        }
+
+        let alias_target = match requested.to_ascii_lowercase().as_str() {
+            "8080" => Some("8085"),
+            "6502" => Some("m6502"),
+            "65c816" => Some("65816"),
+            "mega65" => Some("45gs02"),
+            "6809" => Some("m6809"),
+            "6309" => Some("hd6309"),
+            _ => None,
+        }?;
+
+        cpus.iter()
+            .find(|cpu| cpu.id.eq_ignore_ascii_case(alias_target))
+            .map(|cpu| cpu.id.clone())
+    }
+
     pub fn resolve_token_policy(
         &self,
         cpu_id: &str,

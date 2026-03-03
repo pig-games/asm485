@@ -151,17 +151,6 @@ fn run_one(
 
     let mut assembler = Assembler::new();
     if let Some(cpu_name) = config.cpu_override.as_deref() {
-        #[cfg(feature = "vm-runtime-only")]
-        let resolved = assembler
-            .registry
-            .resolve_cpu_name(cpu_name)
-            .unwrap_or_else(|| {
-                let owned = cpu_name.to_string();
-                let leaked: &'static str = Box::leak(owned.into_boxed_str());
-                CpuType::new(leaked)
-            });
-
-        #[cfg(not(feature = "vm-runtime-only"))]
         let resolved = if let Some(cpu) = assembler.registry.resolve_cpu_name(cpu_name) {
             cpu
         } else {
