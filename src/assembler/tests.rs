@@ -437,6 +437,133 @@ fn assemble_source_entries_with_runtime_mode(
     Ok((entries, diagnostics))
 }
 
+#[test]
+fn struct_definition_registers_size_and_field_offsets_without_emitting_body_bytes() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        "SpriteData .struct".to_string(),
+        "x .byte ?".to_string(),
+        "y .byte ?".to_string(),
+        "color .word ?".to_string(),
+        "pad .res 2".to_string(),
+        ".endstruct".to_string(),
+        ".byte SpriteData.x, SpriteData.y, SpriteData.color, SpriteData.pad, SpriteData"
+            .to_string(),
+    ];
+
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(
+        pass1.errors,
+        0,
+        "pass1 diagnostics: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+
+    let mut listing_out = Vec::new();
+    let mut listing = ListingWriter::new(&mut listing_out, false);
+    let pass2 = assembler
+        .pass2(&lines, &mut listing)
+        .expect("pass2 should run");
+    assert_eq!(
+        pass2.errors,
+        0,
+        "pass2 diagnostics: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+
+    let entries = assembler
+        .image()
+        .entries()
+        .expect("assembled image entries should be readable");
+    assert_eq!(entries, vec![(0, 0), (1, 1), (2, 2), (3, 4), (4, 6)]);
+
+    assert_eq!(assembler.symbols().lookup("SpriteData"), Some(6));
+    assert_eq!(assembler.symbols().lookup("SpriteData.x"), Some(0));
+    assert_eq!(assembler.symbols().lookup("SpriteData.y"), Some(1));
+    assert_eq!(assembler.symbols().lookup("SpriteData.color"), Some(2));
+    assert_eq!(assembler.symbols().lookup("SpriteData.pad"), Some(4));
+}
+
+#[test]
+fn endstruct_without_matching_struct_reports_error() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![".endstruct".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains(".endstruct without matching .struct")),
+        "expected unmatched .endstruct diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn unterminated_struct_reports_open_line() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec!["Sprite .struct".to_string(), "x .byte ?".to_string()];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("unterminated .struct (opened at line 1)")),
+        "expected unterminated .struct diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn struct_body_rejects_non_field_directives() {
+    let mut assembler = Assembler::new();
+    assembler.clear_diagnostics();
+
+    let lines = vec![
+        "Sprite .struct".to_string(),
+        ".module inner".to_string(),
+        ".endstruct".to_string(),
+    ];
+    let pass1 = assembler.pass1(&lines);
+    assert_eq!(pass1.errors, 1);
+    assert!(
+        assembler.diagnostics.iter().any(|diag| diag
+            .error
+            .message()
+            .contains("invalid field directive in struct body")),
+        "expected invalid field directive diagnostic, got: {:?}",
+        assembler
+            .diagnostics
+            .iter()
+            .map(|diag| diag.error.message().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
 fn assemble_example(asm_path: &Path, out_dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let base = asm_path
         .file_stem()

@@ -42,6 +42,7 @@ use std::sync::{Mutex, OnceLock};
 use clap::Parser;
 use serde_json::json;
 
+use crate::core::asm_value::StructField;
 use crate::core::assembler::conditional::{
     ConditionalBlockKind, ConditionalContext, ConditionalStack, ConditionalSubType,
 };
@@ -421,6 +422,24 @@ impl AsmCpuModeState {
     }
 }
 
+struct ActiveStructDefinition {
+    name: String,
+    open_line: u32,
+    fields: Vec<StructField>,
+    size: u32,
+}
+
+impl ActiveStructDefinition {
+    fn new(name: String, open_line: u32) -> Self {
+        Self {
+            name,
+            open_line,
+            fields: Vec::new(),
+            size: 0,
+        }
+    }
+}
+
 /// Per-line assembler state.
 struct AsmLine<'a> {
     symbols: &'a mut SymbolTable,
@@ -429,7 +448,8 @@ struct AsmLine<'a> {
     symbol_scope: AsmSymbolScopeState,
     output_state: AsmOutputState,
     layout: AsmLayoutState,
-    _struct_table: StructTable,
+    struct_table: StructTable,
+    active_struct: Option<ActiveStructDefinition>,
     diagnostics: AsmDiagnosticsState,
     current_line_num: u32,
     current_source_line: Option<String>,
@@ -478,7 +498,8 @@ impl<'a> AsmLine<'a> {
             symbol_scope: AsmSymbolScopeState::new(),
             output_state: AsmOutputState::new(root_metadata),
             layout: AsmLayoutState::new(),
-            _struct_table: StructTable::new(),
+            struct_table: StructTable::new(),
+            active_struct: None,
             diagnostics: AsmDiagnosticsState::new(),
             current_line_num: 1,
             current_source_line: None,
@@ -962,6 +983,18 @@ impl<'a> AsmLine<'a> {
 
     fn in_section(&self) -> bool {
         self.layout.current_section.is_some()
+    }
+
+    fn in_struct_definition(&self) -> bool {
+        self.active_struct.is_some()
+    }
+
+    fn open_struct_line(&self) -> Option<u32> {
+        self.active_struct.as_ref().map(|state| state.open_line)
+    }
+
+    fn clear_struct_definition(&mut self) {
+        self.active_struct = None;
     }
 
     fn current_section_name(&self) -> Option<&str> {
@@ -1504,6 +1537,30 @@ impl<'a> AsmLine<'a> {
                 }
             }
         }
+        if self.in_struct_definition() {
+            return match ast {
+                LineAst::Empty => LineStatus::NothingDone,
+                LineAst::Statement {
+                    label,
+                    mnemonic,
+                    operands,
+                } => {
+                    self.label = label.as_ref().map(|l| l.name.clone());
+                    self.mnemonic = mnemonic.clone();
+                    self.process_struct_mode_statement_ast(
+                        label.as_ref(),
+                        mnemonic.as_deref(),
+                        &operands,
+                    )
+                }
+                _ => self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "invalid field directive in struct body",
+                    None,
+                ),
+            };
+        }
         match ast {
             LineAst::Empty => LineStatus::NothingDone,
             LineAst::Conditional { kind, exprs, span } => {
@@ -1652,7 +1709,9 @@ impl<'a> AsmLine<'a> {
                 };
 
                 if let Some(label) = &label {
-                    if !is_symbol_assignment_directive(&mnemonic) {
+                    if !is_symbol_assignment_directive(&mnemonic)
+                        && !directive_handles_label_lifecycle(&mnemonic)
+                    {
                         if let Some(status) = self.define_statement_label(label) {
                             return status;
                         }
@@ -2612,6 +2671,13 @@ fn is_symbol_assignment_directive(mnemonic: &str) -> bool {
     matches!(
         mnemonic.to_ascii_uppercase().as_str(),
         ".CONST" | ".VAR" | ".SET"
+    )
+}
+
+fn directive_handles_label_lifecycle(mnemonic: &str) -> bool {
+    matches!(
+        mnemonic.to_ascii_uppercase().as_str(),
+        ".STRUCT" | ".ENDSTRUCT"
     )
 }
 

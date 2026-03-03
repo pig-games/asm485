@@ -173,6 +173,28 @@ impl Assembler {
                 counts.errors += 1;
             }
 
+            if let Some(open_line) = asm_line.open_struct_line() {
+                let err = AsmError::new(
+                    AsmErrorKind::Directive,
+                    &format!("unterminated .struct (opened at line {open_line})"),
+                    None,
+                );
+                diagnostics.push(
+                    Diagnostic::new(line_num, Severity::Error, err)
+                        .with_help("add a matching .endstruct to close the open struct definition")
+                        .with_fixit(crate::core::assembler::error::Fixit {
+                            file: None,
+                            line: line_num,
+                            col_start: Some(1),
+                            col_end: Some(1),
+                            replacement: ".endstruct".to_string(),
+                            applicability: "machine-applicable".to_string(),
+                        }),
+                );
+                asm_line.clear_struct_definition();
+                counts.errors += 1;
+            }
+
             let placement_directives = asm_line.take_placement_directives();
             if !asm_line.in_section() {
                 for directive in &placement_directives {
@@ -451,6 +473,28 @@ impl Assembler {
                 });
             diagnostics.push(diag.clone());
             listing.write_diagnostic_with_annotations(&diag, lines)?;
+            counts.errors += 1;
+        }
+
+        if let Some(open_line) = asm_line.open_struct_line() {
+            let err = AsmError::new(
+                AsmErrorKind::Directive,
+                &format!("unterminated .struct (opened at line {open_line})"),
+                None,
+            );
+            let diag = Diagnostic::new(line_num, Severity::Error, err.clone())
+                .with_help("add a matching .endstruct to close the open struct definition")
+                .with_fixit(crate::core::assembler::error::Fixit {
+                    file: None,
+                    line: line_num,
+                    col_start: Some(1),
+                    col_end: Some(1),
+                    replacement: ".endstruct".to_string(),
+                    applicability: "machine-applicable".to_string(),
+                });
+            diagnostics.push(diag.clone());
+            listing.write_diagnostic_with_annotations(&diag, lines)?;
+            asm_line.clear_struct_definition();
             counts.errors += 1;
         }
 
