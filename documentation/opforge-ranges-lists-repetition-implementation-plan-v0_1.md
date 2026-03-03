@@ -19,6 +19,7 @@ It covers:
 7. `.len(...)` builtin
 8. Tests, examples, references, and docs sync
 9. Formatter and LSP support for new notation and semantics
+10. Typed literal struct instances assignable to symbols
 
 ## 2. Locked Scope and Decisions
 
@@ -26,7 +27,7 @@ These are resolved now to avoid blocking implementation:
 
 1. Defer `.break` and `.continue` to a later version.
 2. Defer string-valued lists to a later version; list elements are integer expressions only.
-3. Defer nested structs and standalone struct-instantiation directives.
+3. Defer nested structs; include standalone typed struct literal instances in this plan.
 4. Keep scope labels and struct fields as distinct concepts:
 `scope.label` is an address, `Struct.field` is an offset.
 5. Keep unscoped loop label prohibition:
@@ -37,6 +38,10 @@ if pass1 vs pass2 iteration counts differ, error out.
 8. Introduce `--max-loop-iterations` CLI option with default `65536`.
 9. Keep current reference-update policy:
 only regenerate references after behavior changes are intentional and all non-reference tests pass.
+10. Struct literal syntax is typed and explicit:
+`StructName { field: expr, ... }`.
+11. Struct literals require exact field coverage:
+all declared fields exactly once, no unknown fields.
 
 ## 3. Skill Routing and Workstream Order
 
@@ -435,6 +440,44 @@ Exit criteria:
 Suggested commit:
 `feat(tooling): add formatter and lsp support for ranges/lists/repetition semantics`
 
+## Phase 10: Typed Literal Struct Instances
+
+Objectives:
+
+1. Support typed struct literal expressions assignable to `.const/.var/.set` and assignment forms.
+2. Define member semantics clearly for struct type symbols vs struct instance values.
+
+Tasks:
+
+1. Extend parser/AST with a typed struct literal expression form:
+`StructName { field: expr, ... }`.
+2. Implement parser validation for field initializer grammar:
+identifier field names + colon + expression + comma separation.
+3. Extend `AsmValue` with a struct-instance variant storing:
+resolved struct type and per-field scalar values.
+4. Implement evaluator validation:
+unknown field, duplicate field, missing required field, and unknown struct type diagnostics.
+5. Preserve existing semantics:
+`StructName.field` resolves to field offset,
+`instance.field` resolves to field value.
+6. Integrate literal struct instances in symbol assignment paths:
+`.const/.var/.set`, `=`, `:=`, and value-symbol storage.
+7. Keep assignment operator constraints explicit:
+scalar operators (`+=`, etc.) reject struct-instance symbols.
+8. Add parser/evaluator/integration tests and example fixtures for:
+literal declaration, field access, validation failures, and scalar/non-scalar transitions.
+9. Update formatter/LSP expectations for the new typed-literal syntax where needed.
+
+Exit criteria:
+
+1. Typed struct literals parse and evaluate deterministically across passes.
+2. Assigned struct-instance symbols can be referenced via member expressions.
+3. Existing struct type offset behavior remains unchanged.
+4. Diagnostics for invalid literals are stable and covered by tests.
+
+Suggested commit:
+`feat(struct): add typed struct literal instances and member value access`
+
 ## 7. Required Test Matrix
 
 Minimum required tests to add or update:
@@ -470,6 +513,8 @@ per-iteration label isolation and labeled repetition indexing.
 fixture snapshots, idempotence, and semantic token projection for range/list/repetition/member syntax.
 10. LSP tests:
 diagnostics, hover, definition, completion, and document symbols for new syntax/semantics.
+11. Struct literal tests:
+typed literal parsing, exact field coverage validation, symbol assignment, and instance member value access.
 
 ## 8. Diagnostics Contract (must match)
 
@@ -491,12 +536,16 @@ Implement and test these messages (exact text or stable equivalent):
 14. `error: no struct type associated with 'name' for field access`
 15. `error: struct 'S' has no field 'f'`
 16. `error: iteration body size (N) does not match struct 'S' size (M)`
+17. `error: unknown field 'f' in struct literal for 'S'`
+18. `error: duplicate field 'f' in struct literal for 'S'`
+19. `error: missing required field 'f' in struct literal for 'S'`
+20. `error: unknown struct type 'S' for struct literal`
 
 ## 9. Final Definition of Done
 
 All must be true:
 
-1. All Phase 1-9 objectives are completed.
+1. All Phase 1-10 objectives are completed.
 2. `cargo fmt --all`, `cargo clippy -- -D warnings`, `cargo audit`, and `make test` pass.
 3. CI matrix succeeds for all supported build/runtime combinations, including VM-only variants, by passing:
 `make ci-core`,
@@ -521,3 +570,4 @@ All must be true:
 8. `fix(integration): wire repetition/value features through macro/formatter/runtime compatibility paths`
 9. `docs/examples: add ranges-lists-repetition examples, references, and manual updates`
 10. `feat(tooling): add formatter and lsp support for ranges/lists/repetition semantics`
+11. `feat(struct): add typed struct literal instances and member value access`
