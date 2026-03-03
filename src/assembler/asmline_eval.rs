@@ -55,6 +55,46 @@ impl<'a> AsmLine<'a> {
                     }
                 }
             }
+            Expr::List(_, span) => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "List cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
+            Expr::Index { span, .. } => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Index expression cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
+            Expr::Member { span, .. } => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Member expression cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
+            Expr::Call { span, .. } => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Call expression cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
+            Expr::Placeholder(span) => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Placeholder cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
             Expr::Indirect(inner, _span) => {
                 // For 6502-style indirect like ($20), evaluate the inner address expression
                 self.eval_expr_ast(inner)

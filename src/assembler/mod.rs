@@ -2078,6 +2078,17 @@ impl<'a> AsmLine<'a> {
             | Expr::IndirectLong(inner, _)
             | Expr::Immediate(inner, _)
             | Expr::Unary { expr: inner, .. } => self.find_private_symbol_in_expr(inner),
+            Expr::List(items, _) => items
+                .iter()
+                .find_map(|item| self.find_private_symbol_in_expr(item)),
+            Expr::Index { base, index, .. } => self
+                .find_private_symbol_in_expr(base)
+                .or_else(|| self.find_private_symbol_in_expr(index)),
+            Expr::Member { base, .. } => self.find_private_symbol_in_expr(base),
+            Expr::Call { args, .. } => args
+                .iter()
+                .find_map(|arg| self.find_private_symbol_in_expr(arg)),
+            Expr::Placeholder(_) => None,
             Expr::Tuple(items, _) => items
                 .iter()
                 .find_map(|item| self.find_private_symbol_in_expr(item)),

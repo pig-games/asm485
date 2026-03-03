@@ -336,6 +336,15 @@ pub fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> boo
         Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
             expr_has_unstable_symbols(inner, ctx)
         }
+        Expr::List(items, _) => items
+            .iter()
+            .any(|item| expr_has_unstable_symbols(item, ctx)),
+        Expr::Index { base, index, .. } => {
+            expr_has_unstable_symbols(base, ctx) || expr_has_unstable_symbols(index, ctx)
+        }
+        Expr::Member { base, .. } => expr_has_unstable_symbols(base, ctx),
+        Expr::Call { args, .. } => args.iter().any(|arg| expr_has_unstable_symbols(arg, ctx)),
+        Expr::Placeholder(_) => false,
         Expr::Tuple(items, _) => items
             .iter()
             .any(|item| expr_has_unstable_symbols(item, ctx)),

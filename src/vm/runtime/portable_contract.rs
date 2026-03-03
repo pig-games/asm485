@@ -287,6 +287,23 @@ pub enum PortableAstExpr {
     Number(String, PortableSpan),
     Identifier(String, PortableSpan),
     Register(String, PortableSpan),
+    List(Vec<PortableAstExpr>, PortableSpan),
+    Index {
+        base: Box<PortableAstExpr>,
+        index: Box<PortableAstExpr>,
+        span: PortableSpan,
+    },
+    Member {
+        base: Box<PortableAstExpr>,
+        field: String,
+        span: PortableSpan,
+    },
+    Call {
+        name: String,
+        args: Vec<PortableAstExpr>,
+        span: PortableSpan,
+    },
+    Placeholder(PortableSpan),
     Indirect(Box<PortableAstExpr>, PortableSpan),
     Dollar(PortableSpan),
     String(Vec<u8>, PortableSpan),
@@ -326,6 +343,26 @@ impl PortableAstExpr {
             Self::Number(text, span) => Expr::Number(text.clone(), (*span).into()),
             Self::Identifier(name, span) => Expr::Identifier(name.clone(), (*span).into()),
             Self::Register(name, span) => Expr::Register(name.clone(), (*span).into()),
+            Self::List(items, span) => Expr::List(
+                items.iter().map(PortableAstExpr::to_core_expr).collect(),
+                (*span).into(),
+            ),
+            Self::Index { base, index, span } => Expr::Index {
+                base: Box::new(base.to_core_expr()),
+                index: Box::new(index.to_core_expr()),
+                span: (*span).into(),
+            },
+            Self::Member { base, field, span } => Expr::Member {
+                base: Box::new(base.to_core_expr()),
+                field: field.clone(),
+                span: (*span).into(),
+            },
+            Self::Call { name, args, span } => Expr::Call {
+                name: name.clone(),
+                args: args.iter().map(PortableAstExpr::to_core_expr).collect(),
+                span: (*span).into(),
+            },
+            Self::Placeholder(span) => Expr::Placeholder((*span).into()),
             Self::Indirect(inner, span) => {
                 Expr::Indirect(Box::new(inner.to_core_expr()), (*span).into())
             }
@@ -378,7 +415,9 @@ impl PortableAstExpr {
             } => Expr::Range {
                 start: Box::new(start.to_core_expr()),
                 end: Box::new(end.to_core_expr()),
-                step: step.as_ref().map(|step_expr| Box::new(step_expr.to_core_expr())),
+                step: step
+                    .as_ref()
+                    .map(|step_expr| Box::new(step_expr.to_core_expr())),
                 inclusive: *inclusive,
                 span: (*span).into(),
             },
@@ -390,6 +429,26 @@ impl PortableAstExpr {
             Expr::Number(text, span) => Self::Number(text.clone(), (*span).into()),
             Expr::Identifier(name, span) => Self::Identifier(name.clone(), (*span).into()),
             Expr::Register(name, span) => Self::Register(name.clone(), (*span).into()),
+            Expr::List(items, span) => Self::List(
+                items.iter().map(Self::from_core_expr).collect(),
+                (*span).into(),
+            ),
+            Expr::Index { base, index, span } => Self::Index {
+                base: Box::new(Self::from_core_expr(base)),
+                index: Box::new(Self::from_core_expr(index)),
+                span: (*span).into(),
+            },
+            Expr::Member { base, field, span } => Self::Member {
+                base: Box::new(Self::from_core_expr(base)),
+                field: field.clone(),
+                span: (*span).into(),
+            },
+            Expr::Call { name, args, span } => Self::Call {
+                name: name.clone(),
+                args: args.iter().map(Self::from_core_expr).collect(),
+                span: (*span).into(),
+            },
+            Expr::Placeholder(span) => Self::Placeholder((*span).into()),
             Expr::Indirect(inner, span) => {
                 Self::Indirect(Box::new(Self::from_core_expr(inner)), (*span).into())
             }
@@ -442,7 +501,9 @@ impl PortableAstExpr {
             } => Self::Range {
                 start: Box::new(Self::from_core_expr(start)),
                 end: Box::new(Self::from_core_expr(end)),
-                step: step.as_ref().map(|step_expr| Box::new(Self::from_core_expr(step_expr))),
+                step: step
+                    .as_ref()
+                    .map(|step_expr| Box::new(Self::from_core_expr(step_expr))),
                 inclusive: *inclusive,
                 span: (*span).into(),
             },

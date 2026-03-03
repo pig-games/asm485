@@ -329,6 +329,11 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Number(_, span)
         | Expr::Identifier(_, span)
         | Expr::Register(_, span)
+        | Expr::List(_, span)
+        | Expr::Index { span, .. }
+        | Expr::Member { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::Placeholder(span)
         | Expr::Indirect(_, span)
         | Expr::IndirectLong(_, span)
         | Expr::Immediate(_, span)
@@ -348,6 +353,27 @@ pub fn expr_text(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Number(text, _) => Some(text.clone()),
         Expr::Identifier(name, _) | Expr::Register(name, _) => Some(name.clone()),
+        Expr::List(elements, _) => {
+            let parts: Vec<_> = elements.iter().filter_map(expr_text).collect();
+            if parts.len() == elements.len() {
+                Some(format!("{{{}}}", parts.join(", ")))
+            } else {
+                None
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            Some(format!("{}[{}]", expr_text(base)?, expr_text(index)?))
+        }
+        Expr::Member { base, field, .. } => Some(format!("{}.{}", expr_text(base)?, field)),
+        Expr::Call { name, args, .. } => {
+            let parts: Vec<_> = args.iter().filter_map(expr_text).collect();
+            if parts.len() == args.len() {
+                Some(format!("{name}({})", parts.join(", ")))
+            } else {
+                None
+            }
+        }
+        Expr::Placeholder(_) => Some("?".to_string()),
         Expr::Indirect(inner, _) => expr_text(inner).map(|s| format!("({})", s)),
         Expr::IndirectLong(inner, _) => expr_text(inner).map(|s| format!("[{}]", s)),
         Expr::Immediate(inner, _) => expr_text(inner).map(|s| format!("#{}", s)),

@@ -850,17 +850,29 @@ mod tests {
     #[test]
     fn tokenizes_range_operators() {
         let mut tok = Tokenizer::new("0..10 0..=10", 1);
-        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Number(_)));
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
         assert_eq!(
             tok.next_token().unwrap().kind,
             TokenKind::Operator(OperatorKind::Range)
         );
-        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Number(_)));
-        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Number(_)));
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
         assert_eq!(
             tok.next_token().unwrap().kind,
             TokenKind::Operator(OperatorKind::RangeInclusive)
         );
-        assert!(matches!(tok.next_token().unwrap().kind, TokenKind::Number(_)));
+        assert!(matches!(
+            tok.next_token().unwrap().kind,
+            TokenKind::Number(_)
+        ));
     }
 }

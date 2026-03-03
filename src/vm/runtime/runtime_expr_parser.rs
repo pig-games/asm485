@@ -319,7 +319,7 @@ impl RuntimeExpressionParser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
-        match self.next() {
+        let base = match self.next() {
             Some(Token {
                 kind: TokenKind::Hash,
                 span: hash_span,
@@ -353,6 +353,66 @@ impl RuntimeExpressionParser {
                 kind: TokenKind::String(lit),
                 span,
             }) => Ok(Expr::String(lit.bytes, span)),
+            Some(Token {
+                kind: TokenKind::Question,
+                span,
+            }) => Ok(Expr::Placeholder(span)),
+            Some(Token {
+                kind: TokenKind::Dot,
+                span: dot_span,
+            }) => {
+                let name = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        ..
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        ..
+                    }) => name,
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected function name after '.'".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected function name after '.'".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+                if !self.consume_kind(TokenKind::OpenParen) {
+                    return Err(ParseError {
+                        message: "Expected '(' after function name".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let mut args = Vec::new();
+                if !self.consume_kind(TokenKind::CloseParen) {
+                    args.push(self.parse_expr()?);
+                    while self.consume_comma() {
+                        args.push(self.parse_expr()?);
+                    }
+                    if !self.consume_kind(TokenKind::CloseParen) {
+                        return Err(ParseError {
+                            message: "Missing ')' in function call".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                }
+                let end_span = self.prev_span();
+                Ok(Expr::Call {
+                    name: format!(".{name}"),
+                    args,
+                    span: Span {
+                        line: dot_span.line,
+                        col_start: dot_span.col_start,
+                        col_end: end_span.col_end,
+                    },
+                })
+            }
             Some(Token {
                 kind: TokenKind::OpenParen,
                 span: open_span,
@@ -443,6 +503,33 @@ impl RuntimeExpressionParser {
                     ))
                 }
             }
+            Some(Token {
+                kind: TokenKind::OpenBrace,
+                span: open_span,
+            }) => {
+                let mut elements = Vec::new();
+                if !self.consume_kind(TokenKind::CloseBrace) {
+                    elements.push(self.parse_expr()?);
+                    while self.consume_comma() {
+                        elements.push(self.parse_expr()?);
+                    }
+                    if !self.consume_kind(TokenKind::CloseBrace) {
+                        return Err(ParseError {
+                            message: "Missing '}' in list literal".to_string(),
+                            span: self.current_span(),
+                        });
+                    }
+                }
+                let close_span = self.prev_span();
+                Ok(Expr::List(
+                    elements,
+                    Span {
+                        line: open_span.line,
+                        col_start: open_span.col_start,
+                        col_end: close_span.col_end,
+                    },
+                ))
+            }
             Some(token) => Err(ParseError {
                 message: "Unexpected token in expression".to_string(),
                 span: token.span,
@@ -454,7 +541,74 @@ impl RuntimeExpressionParser {
                 },
                 span: self.end_span,
             }),
+        }?;
+
+        self.parse_postfix_expr(base)
+    }
+
+    fn parse_postfix_expr(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
+        loop {
+            if self.consume_kind(TokenKind::OpenBracket) {
+                let index = self.parse_expr()?;
+                let close_span = self.current_span();
+                if !self.consume_kind(TokenKind::CloseBracket) {
+                    return Err(ParseError {
+                        message: "Missing ']' in index expression".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+                let start_span = span_of_expr(&expr);
+                expr = Expr::Index {
+                    base: Box::new(expr),
+                    index: Box::new(index),
+                    span: Span {
+                        line: start_span.line,
+                        col_start: start_span.col_start,
+                        col_end: close_span.col_end,
+                    },
+                };
+                continue;
+            }
+
+            if self.consume_kind(TokenKind::Dot) {
+                let (field, field_span) = match self.next() {
+                    Some(Token {
+                        kind: TokenKind::Identifier(name),
+                        span,
+                    })
+                    | Some(Token {
+                        kind: TokenKind::Register(name),
+                        span,
+                    }) => (name, span),
+                    Some(token) => {
+                        return Err(ParseError {
+                            message: "Expected member name after '.'".to_string(),
+                            span: token.span,
+                        })
+                    }
+                    None => {
+                        return Err(ParseError {
+                            message: "Expected member name after '.'".to_string(),
+                            span: self.end_span,
+                        })
+                    }
+                };
+                let start_span = span_of_expr(&expr);
+                expr = Expr::Member {
+                    base: Box::new(expr),
+                    field,
+                    span: Span {
+                        line: start_span.line,
+                        col_start: start_span.col_start,
+                        col_end: field_span.col_end,
+                    },
+                };
+                continue;
+            }
+
+            break;
         }
+        Ok(expr)
     }
 
     fn consume_comma(&mut self) -> bool {
@@ -521,5 +675,27 @@ impl RuntimeExpressionParser {
             .get(self.index)
             .map(|token| token.span)
             .unwrap_or(self.end_span)
+    }
+}
+
+fn span_of_expr(expr: &Expr) -> Span {
+    match expr {
+        Expr::Number(_, span)
+        | Expr::Identifier(_, span)
+        | Expr::Register(_, span)
+        | Expr::List(_, span)
+        | Expr::Index { span, .. }
+        | Expr::Member { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::Placeholder(span)
+        | Expr::Indirect(_, span)
+        | Expr::Immediate(_, span)
+        | Expr::IndirectLong(_, span)
+        | Expr::Tuple(_, span)
+        | Expr::Dollar(span)
+        | Expr::String(_, span)
+        | Expr::Error(_, span)
+        | Expr::Range { span, .. } => *span,
+        Expr::Ternary { span, .. } | Expr::Unary { span, .. } | Expr::Binary { span, .. } => *span,
     }
 }

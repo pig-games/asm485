@@ -407,6 +407,13 @@ fn expr_has_symbol_references(expr: &Expr) -> bool {
         Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
             expr_has_symbol_references(inner)
         }
+        Expr::List(items, _) => items.iter().any(expr_has_symbol_references),
+        Expr::Index { base, index, .. } => {
+            expr_has_symbol_references(base) || expr_has_symbol_references(index)
+        }
+        Expr::Member { base, .. } => expr_has_symbol_references(base),
+        Expr::Call { args, .. } => args.iter().any(expr_has_symbol_references),
+        Expr::Placeholder(_) => false,
         Expr::Tuple(items, _) => items.iter().any(expr_has_symbol_references),
         Expr::Ternary {
             cond,

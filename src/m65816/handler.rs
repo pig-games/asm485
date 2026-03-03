@@ -226,6 +226,18 @@ impl M65816CpuHandler {
             Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
                 Self::expr_has_unresolved_symbols(inner, ctx)
             }
+            Expr::List(items, _) => items
+                .iter()
+                .any(|item| Self::expr_has_unresolved_symbols(item, ctx)),
+            Expr::Index { base, index, .. } => {
+                Self::expr_has_unresolved_symbols(base, ctx)
+                    || Self::expr_has_unresolved_symbols(index, ctx)
+            }
+            Expr::Member { base, .. } => Self::expr_has_unresolved_symbols(base, ctx),
+            Expr::Call { args, .. } => args
+                .iter()
+                .any(|arg| Self::expr_has_unresolved_symbols(arg, ctx)),
+            Expr::Placeholder(_) => false,
             Expr::Tuple(items, _) => items
                 .iter()
                 .any(|item| Self::expr_has_unresolved_symbols(item, ctx)),
@@ -265,6 +277,13 @@ impl M65816CpuHandler {
             Expr::Indirect(inner, _) | Expr::Immediate(inner, _) | Expr::IndirectLong(inner, _) => {
                 Self::expr_has_symbol_references(inner)
             }
+            Expr::List(items, _) => items.iter().any(Self::expr_has_symbol_references),
+            Expr::Index { base, index, .. } => {
+                Self::expr_has_symbol_references(base) || Self::expr_has_symbol_references(index)
+            }
+            Expr::Member { base, .. } => Self::expr_has_symbol_references(base),
+            Expr::Call { args, .. } => args.iter().any(Self::expr_has_symbol_references),
+            Expr::Placeholder(_) => false,
             Expr::Tuple(items, _) => items.iter().any(Self::expr_has_symbol_references),
             Expr::Ternary {
                 cond,

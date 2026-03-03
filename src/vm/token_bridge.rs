@@ -667,6 +667,9 @@ fn match_assignment_op_at(tokens: &[Token], idx: usize) -> Option<(AssignOp, Spa
             }
         }
         TokenKind::Operator(kind) => {
+            if *kind == OperatorKind::RangeInclusive {
+                return Some((AssignOp::Concat, token.span, 1));
+            }
             let op = match kind {
                 OperatorKind::Plus => AssignOp::Add,
                 OperatorKind::Minus => AssignOp::Sub,
