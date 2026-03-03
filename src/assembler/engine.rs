@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Erik van der Tier
 
 use super::*;
+use crate::core::assembler::scope::ScopeKind;
+use crate::core::AsmValue;
 
 pub(crate) struct Assembler {
     pub(crate) symbols: SymbolTable,
@@ -501,14 +503,17 @@ impl Assembler {
                         continue;
                     }
 
-                    if super::repetition::is_for_directive_name(&mnemonic) {
+                    if super::repetition::is_for_like_directive_name(&mnemonic) {
+                        let scoped_repeat =
+                            super::repetition::is_scoped_for_directive_name(&mnemonic);
                         let Some(end_idx) = super::repetition::find_matching_endfor(
                             lines,
                             asm_line,
                             idx.saturating_add(1),
                             end_idx_exclusive,
                         ) else {
-                            let message = format!("unterminated .for (opened at line {line_num})");
+                            let message =
+                                format!("unterminated {mnemonic} (opened at line {line_num})");
                             diagnostics.push(Diagnostic::new(
                                 line_num,
                                 Severity::Error,
@@ -539,7 +544,19 @@ impl Assembler {
                             line_num,
                             u32::try_from(plan.values.len()).unwrap_or(u32::MAX),
                         ));
+                        let mut iteration_bases = Vec::with_capacity(plan.values.len());
                         for value in &plan.values {
+                            if scoped_repeat {
+                                asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .push_anonymous_with_kind(ScopeKind::Repeat);
+                                asm_line.push_visibility();
+                            }
+                            if scoped_repeat && label.is_some() {
+                                let base_addr = asm_line.current_addr(*addr).unwrap_or(*addr);
+                                iteration_bases.push(i64::from(base_addr));
+                            }
                             if let Some(var_name) = plan.var_name.as_deref() {
                                 asm_line.push_loop_var(var_name, *value);
                             }
@@ -552,10 +569,25 @@ impl Assembler {
                                 counts,
                                 diagnostics,
                                 pass1_loop_trace,
-                                true,
+                                !scoped_repeat,
                             );
                             if plan.var_name.is_some() {
                                 asm_line.pop_loop_var();
+                            }
+                            if scoped_repeat {
+                                let _ = asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .pop_expected(ScopeKind::Repeat);
+                                let _ = asm_line.pop_visibility();
+                            }
+                        }
+
+                        if scoped_repeat {
+                            if let Some(loop_label) = label.as_ref() {
+                                let full_name = asm_line.scoped_define_name(&loop_label.name);
+                                asm_line
+                                    .set_value_symbol(&full_name, AsmValue::List(iteration_bases));
                             }
                         }
 
@@ -679,14 +711,17 @@ impl Assembler {
                         continue;
                     }
 
-                    if super::repetition::is_for_directive_name(&mnemonic) {
+                    if super::repetition::is_for_like_directive_name(&mnemonic) {
+                        let scoped_repeat =
+                            super::repetition::is_scoped_for_directive_name(&mnemonic);
                         let Some(end_idx) = super::repetition::find_matching_endfor(
                             lines,
                             asm_line,
                             idx.saturating_add(1),
                             end_idx_exclusive,
                         ) else {
-                            let message = format!("unterminated .for (opened at line {line_num})");
+                            let message =
+                                format!("unterminated {mnemonic} (opened at line {line_num})");
                             let diagnostic = Diagnostic::new(
                                 line_num,
                                 Severity::Error,
@@ -736,11 +771,23 @@ impl Assembler {
                             counts.errors += 1;
                         }
 
+                        let mut iteration_bases = Vec::with_capacity(plan.values.len());
                         for value in &plan.values {
+                            if scoped_repeat {
+                                asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .push_anonymous_with_kind(ScopeKind::Repeat);
+                                asm_line.push_visibility();
+                            }
+                            if scoped_repeat && label.is_some() {
+                                let base_addr = asm_line.current_addr(*addr).unwrap_or(*addr);
+                                iteration_bases.push(i64::from(base_addr));
+                            }
                             if let Some(var_name) = plan.var_name.as_deref() {
                                 asm_line.push_loop_var(var_name, *value);
                             }
-                            Self::execute_pass2_lines(
+                            let recur_result = Self::execute_pass2_lines(
                                 lines,
                                 idx.saturating_add(1),
                                 end_idx,
@@ -752,10 +799,26 @@ impl Assembler {
                                 image,
                                 pass1_loop_trace,
                                 pass2_loop_trace_cursor,
-                                true,
-                            )?;
+                                !scoped_repeat,
+                            );
                             if plan.var_name.is_some() {
                                 asm_line.pop_loop_var();
+                            }
+                            if scoped_repeat {
+                                let _ = asm_line
+                                    .symbol_scope
+                                    .scope_stack
+                                    .pop_expected(ScopeKind::Repeat);
+                                let _ = asm_line.pop_visibility();
+                            }
+                            recur_result?;
+                        }
+
+                        if scoped_repeat {
+                            if let Some(loop_label) = label.as_ref() {
+                                let full_name = asm_line.scoped_define_name(&loop_label.name);
+                                asm_line
+                                    .set_value_symbol(&full_name, AsmValue::List(iteration_bases));
                             }
                         }
 

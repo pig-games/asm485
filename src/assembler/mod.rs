@@ -72,6 +72,7 @@ use crate::core::struct_table::StructTable;
 use crate::core::symbol_table::{ImportResult, ModuleImport, SymbolTable, SymbolVisibility};
 use crate::core::text_encoding::TextEncodingRegistry;
 use crate::core::tokenizer::{register_checker_none, ConditionalKind, RegisterChecker, Span};
+use crate::core::AsmValue;
 #[cfg(test)]
 use std::cell::Cell;
 use std::sync::Arc;
@@ -450,6 +451,7 @@ struct AsmLine<'a> {
     output_state: AsmOutputState,
     layout: AsmLayoutState,
     struct_table: StructTable,
+    value_symbols: HashMap<String, AsmValue>,
     active_struct: Option<ActiveStructDefinition>,
     diagnostics: AsmDiagnosticsState,
     current_line_num: u32,
@@ -501,6 +503,7 @@ impl<'a> AsmLine<'a> {
             output_state: AsmOutputState::new(root_metadata),
             layout: AsmLayoutState::new(),
             struct_table: StructTable::new(),
+            value_symbols: HashMap::new(),
             active_struct: None,
             diagnostics: AsmDiagnosticsState::new(),
             current_line_num: 1,
@@ -998,6 +1001,52 @@ impl<'a> AsmLine<'a> {
 
     fn clear_struct_definition(&mut self) {
         self.active_struct = None;
+    }
+
+    fn value_symbol_key(name: &str) -> String {
+        name.to_ascii_uppercase()
+    }
+
+    fn set_value_symbol(&mut self, name: &str, value: AsmValue) {
+        self.value_symbols
+            .insert(Self::value_symbol_key(name), value);
+    }
+
+    fn lookup_value_symbol(&self, name: &str) -> Option<&AsmValue> {
+        self.value_symbols.get(&Self::value_symbol_key(name))
+    }
+
+    fn resolve_scoped_value_name(&self, name: &str) -> Option<String> {
+        if name.contains('.') {
+            let candidate = self
+                .resolve_import_alias(name)
+                .unwrap_or_else(|| name.to_string());
+            if self.lookup_value_symbol(&candidate).is_some() {
+                return Some(candidate);
+            }
+            return None;
+        }
+
+        let mut depth = self.symbol_scope.scope_stack.depth();
+        while depth > 0 {
+            let prefix = self.symbol_scope.scope_stack.prefix(depth);
+            let candidate = format!("{prefix}.{name}");
+            if self.lookup_value_symbol(&candidate).is_some() {
+                return Some(candidate);
+            }
+            depth = depth.saturating_sub(1);
+        }
+
+        if self.lookup_value_symbol(name).is_some() {
+            return Some(name.to_string());
+        }
+
+        let imported = self.resolve_imported_name(name)?;
+        if self.lookup_value_symbol(&imported).is_some() {
+            Some(imported)
+        } else {
+            None
+        }
     }
 
     fn push_loop_var(&mut self, name: &str, value: u32) {

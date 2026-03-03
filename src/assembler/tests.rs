@@ -640,6 +640,40 @@ fn for_loop_rejects_labels_inside_body() {
 }
 
 #[test]
+fn bfor_allows_labels_inside_body() {
+    let (entries, diagnostics) =
+        assemble_source_entries_with_runtime_mode(&[".bfor 2", "item .byte 1", ".endfor"], true)
+            .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(entries, vec![(0, 1), (1, 1)]);
+}
+
+#[test]
+fn bfor_label_exposes_iteration_addresses_via_index() {
+    let (entries, diagnostics) = assemble_source_entries_with_runtime_mode(
+        &[
+            "table .bfor i in {0,1,2,3}",
+            ".byte i",
+            ".endfor",
+            ".word table[2]",
+        ],
+        true,
+    )
+    .expect("assembly should run");
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+    assert_eq!(
+        entries,
+        vec![(0, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 0)]
+    );
+}
+
+#[test]
 fn endfor_without_for_reports_error() {
     let mut assembler = Assembler::new();
     assembler.clear_diagnostics();

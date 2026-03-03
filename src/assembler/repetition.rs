@@ -44,7 +44,11 @@ pub(crate) fn is_for_directive_name(name: &str) -> bool {
 }
 
 pub(crate) fn is_for_like_directive_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case(".for") || name.eq_ignore_ascii_case(".bfor")
+    is_for_directive_name(name) || is_scoped_for_directive_name(name)
+}
+
+pub(crate) fn is_scoped_for_directive_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(".bfor")
 }
 
 pub(crate) fn is_endfor_directive_name(name: &str) -> bool {

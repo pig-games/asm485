@@ -12,6 +12,15 @@ use crate::core::{AsmValue, AsmValueError};
 impl<'a> AsmLine<'a> {
     pub(super) fn eval_value_ast(&self, expr: &Expr) -> Result<AsmValue, AstEvalError> {
         match expr {
+            Expr::Identifier(name, _span) | Expr::Register(name, _span) => {
+                if let Some(full_name) = self.resolve_scoped_value_name(name) {
+                    if let Some(value) = self.lookup_value_symbol(&full_name) {
+                        return Ok(value.clone());
+                    }
+                }
+                self.eval_expr_ast(expr)
+                    .map(|value| AsmValue::Scalar(i64::from(value)))
+            }
             Expr::List(items, _span) => {
                 let mut values = Vec::with_capacity(items.len());
                 for item in items {
@@ -218,8 +227,6 @@ impl<'a> AsmLine<'a> {
             }
             Expr::Binary { .. }
             | Expr::Number(_, _)
-            | Expr::Identifier(_, _)
-            | Expr::Register(_, _)
             | Expr::Unary { .. }
             | Expr::Dollar(_)
             | Expr::String(_, _) => self
@@ -250,6 +257,16 @@ impl<'a> AsmLine<'a> {
             Expr::Identifier(name, span) | Expr::Register(name, span) => {
                 if let Some(value) = self.lookup_loop_var(name) {
                     return Ok(value);
+                }
+                if self.resolve_scoped_value_name(name).is_some() {
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "List cannot be evaluated as scalar expression",
+                            None,
+                        ),
+                        span: *span,
+                    });
                 }
                 match self.lookup_scoped_entry(name) {
                     Some(entry) => {

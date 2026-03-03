@@ -8,6 +8,7 @@ pub enum ScopeKind {
     Module,
     Block,
     Namespace,
+    Repeat,
 }
 
 impl ScopeKind {
@@ -16,6 +17,7 @@ impl ScopeKind {
             ScopeKind::Module => ".module",
             ScopeKind::Block => ".block",
             ScopeKind::Namespace => ".namespace",
+            ScopeKind::Repeat => ".bfor",
         }
     }
 }
