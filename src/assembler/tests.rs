@@ -9083,9 +9083,11 @@ fn vm_runtime_artifact_helpers_round_trip_model_load() {
         .join("opforge-vm-runtime.opcpu");
     let package_bytes =
         build_hierarchy_package_from_registry(&registry).expect("build hierarchy package");
-    AsmLine::persist_opthread_package_artifact(path.as_path(), &package_bytes);
+    std::fs::create_dir_all(path.parent().expect("artifact parent"))
+        .expect("create artifact parent");
+    std::fs::write(path.as_path(), &package_bytes).expect("write artifact bytes");
 
-    let model = AsmLine::load_opthread_execution_model_from_artifact(path.as_path());
+    let model = AsmLine::load_opthread_execution_model_from_path(path.as_path());
     assert!(
         model.is_some(),
         "expected runtime model from artifact bytes"

@@ -653,13 +653,13 @@ impl<'a> AsmLine<'a> {
                 }
 
                 let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
-                return HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok();
+                HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
             }
 
             #[cfg(feature = "vm-runtime-only")]
             {
                 let package_bytes = build_hierarchy_package_from_registry(registry).ok()?;
-                return HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok();
+                HierarchyExecutionModel::from_package_bytes(package_bytes.as_slice()).ok()
             }
         }
 

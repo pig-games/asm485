@@ -98,17 +98,17 @@ vm-only-release-unbundled-artifact: build-vm-runtime-artifact
 	cargo build --release --features vm-runtime-only,vm-runtime-opcpu-unbundled,vm-runtime-opcpu-artifact
 
 test-vm-opcpu-modes:
-	$(MAKE) vm-only-build-embedded
-	target/debug/opforge --print-cpusupport >/dev/null
-	$(MAKE) vm-only-build-unbundled
-	@if target/debug/opforge -i examples/6502_simple.asm -l >/dev/null 2>&1; then \
+	CARGO_TARGET_DIR=target/vmcheck-embedded cargo build --features vm-runtime-only --bin opforge
+	target/vmcheck-embedded/debug/opforge --print-cpusupport >/dev/null
+	CARGO_TARGET_DIR=target/vmcheck-unbundled cargo build --features vm-runtime-only,vm-runtime-opcpu-unbundled --bin opforge
+	@if target/vmcheck-unbundled/debug/opforge -i examples/6502_simple.asm -l >/dev/null 2>&1; then \
 		echo "expected vm-only unbundled run without package to fail"; \
 		exit 1; \
 	fi
 	$(MAKE) build-vm-runtime-artifact
-	target/debug/opforge --opcpu-package $(VM_RUNTIME_ARTIFACT) -i examples/6502_simple.asm -l >/dev/null
-	$(MAKE) vm-only-build-unbundled-artifact
-	target/debug/opforge -i examples/6502_simple.asm -l >/dev/null
+	target/vmcheck-unbundled/debug/opforge --opcpu-package $(abspath $(VM_RUNTIME_ARTIFACT)) -i examples/6502_simple.asm -l >/dev/null
+	CARGO_TARGET_DIR=target/vmcheck-unbundled-artifact cargo build --features vm-runtime-only,vm-runtime-opcpu-unbundled,vm-runtime-opcpu-artifact --bin opforge
+	target/vmcheck-unbundled-artifact/debug/opforge --opcpu-package $(abspath $(VM_RUNTIME_ARTIFACT)) -i examples/6502_simple.asm -l >/dev/null
 
 reference-test:
 	cargo test examples_match_reference_outputs
