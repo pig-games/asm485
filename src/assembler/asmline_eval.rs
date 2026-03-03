@@ -7,8 +7,227 @@
 //! the `AssemblerContext` trait implementation.
 
 use super::*;
+use crate::core::{AsmValue, AsmValueError};
 
 impl<'a> AsmLine<'a> {
+    pub(super) fn eval_value_ast(&self, expr: &Expr) -> Result<AsmValue, AstEvalError> {
+        match expr {
+            Expr::List(items, _span) => {
+                let mut values = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = self.eval_expr_ast(item)?;
+                    values.push(i64::from(value));
+                }
+                Ok(AsmValue::List(values))
+            }
+            Expr::Range {
+                start,
+                end,
+                step,
+                inclusive,
+                span,
+            } => {
+                let start = i64::from(self.eval_expr_ast(start)?);
+                let end = i64::from(self.eval_expr_ast(end)?);
+                let step = match step {
+                    Some(step_expr) => Some(i64::from(self.eval_expr_ast(step_expr)?)),
+                    None => None,
+                };
+                AsmValue::try_range(start, end, *inclusive, step).map_err(|err| {
+                    let message = match err {
+                        AsmValueError::ZeroStep => "range step must be non-zero".to_string(),
+                        AsmValueError::DirectionMismatch { .. } => {
+                            "range step direction conflicts with start..end".to_string()
+                        }
+                        AsmValueError::EndOverflow => {
+                            "range end overflows supported integer range".to_string()
+                        }
+                    };
+                    AstEvalError {
+                        error: AsmError::new(AsmErrorKind::Expression, &message, None),
+                        span: *span,
+                    }
+                })
+            }
+            Expr::Index { base, index, span } => {
+                let value = self.eval_value_ast(base)?;
+                let index_value = i64::from(self.eval_expr_ast(index)?);
+                if index_value < 0 {
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "Index cannot be negative",
+                            None,
+                        ),
+                        span: *span,
+                    });
+                }
+                let index_usize = usize::try_from(index_value).map_err(|_| AstEvalError {
+                    error: AsmError::new(AsmErrorKind::Expression, "Index out of range", None),
+                    span: *span,
+                })?;
+                match value.get(index_usize) {
+                    Some(element) => Ok(AsmValue::Scalar(element)),
+                    None => Err(AstEvalError {
+                        error: AsmError::new(AsmErrorKind::Expression, "Index out of bounds", None),
+                        span: *span,
+                    }),
+                }
+            }
+            Expr::Member { base, field, span } => {
+                if let Expr::Identifier(name, name_span) | Expr::Register(name, name_span) = &**base
+                {
+                    let scoped_name = match self.resolve_scoped_name(name) {
+                        Ok(Some(full)) => full,
+                        Ok(None) => name.clone(),
+                        Err(err) => {
+                            return Err(AstEvalError {
+                                error: err,
+                                span: *name_span,
+                            });
+                        }
+                    };
+                    if let Some(def) = self.struct_table.get(&scoped_name) {
+                        if let Some(offset) = def
+                            .fields
+                            .iter()
+                            .find(|candidate| candidate.name.eq_ignore_ascii_case(field.as_str()))
+                            .map(|candidate| candidate.offset)
+                        {
+                            return Ok(AsmValue::Scalar(i64::from(offset)));
+                        }
+                        return Err(AstEvalError {
+                            error: AsmError::new(
+                                AsmErrorKind::Expression,
+                                &format!("struct '{}' has no field '{}'", def.name, field),
+                                None,
+                            ),
+                            span: *span,
+                        });
+                    }
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            &format!("no struct type associated with '{name}' for field access"),
+                            None,
+                        ),
+                        span: *span,
+                    });
+                }
+
+                let base_value = self.eval_value_ast(base)?;
+                match base_value {
+                    AsmValue::Struct(def) => {
+                        if let Some(offset) = def
+                            .fields
+                            .iter()
+                            .find(|candidate| candidate.name.eq_ignore_ascii_case(field.as_str()))
+                            .map(|candidate| candidate.offset)
+                        {
+                            Ok(AsmValue::Scalar(i64::from(offset)))
+                        } else {
+                            Err(AstEvalError {
+                                error: AsmError::new(
+                                    AsmErrorKind::Expression,
+                                    &format!("struct '{}' has no field '{}'", def.name, field),
+                                    None,
+                                ),
+                                span: *span,
+                            })
+                        }
+                    }
+                    _ => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "Member expression requires struct base value",
+                            None,
+                        ),
+                        span: *span,
+                    }),
+                }
+            }
+            Expr::Call { name, args, span } => {
+                if !name.eq_ignore_ascii_case(".len") {
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "Unknown compile-time function call",
+                            Some(name),
+                        ),
+                        span: *span,
+                    });
+                }
+                if args.len() != 1 {
+                    return Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            ".len() expects exactly one argument",
+                            None,
+                        ),
+                        span: *span,
+                    });
+                }
+                let value = self.eval_value_ast(&args[0])?;
+                match value.len() {
+                    Some(length) => Ok(AsmValue::Scalar(i64::try_from(length).unwrap_or(i64::MAX))),
+                    None => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            ".len() expects a range or list argument",
+                            None,
+                        ),
+                        span: *span,
+                    }),
+                }
+            }
+            Expr::Error(message, span) => Err(AstEvalError {
+                error: AsmError::new(AsmErrorKind::Expression, message, None),
+                span: *span,
+            }),
+            Expr::Placeholder(span) => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Placeholder cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
+            Expr::Indirect(inner, _) | Expr::IndirectLong(inner, _) | Expr::Immediate(inner, _) => {
+                self.eval_value_ast(inner)
+            }
+            Expr::Tuple(_, span) => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Tuple cannot be evaluated as expression",
+                    None,
+                ),
+                span: *span,
+            }),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                let cond_val = self.eval_expr_ast(cond)?;
+                if cond_val != 0 {
+                    self.eval_value_ast(then_expr)
+                } else {
+                    self.eval_value_ast(else_expr)
+                }
+            }
+            Expr::Binary { .. }
+            | Expr::Number(_, _)
+            | Expr::Identifier(_, _)
+            | Expr::Register(_, _)
+            | Expr::Unary { .. }
+            | Expr::Dollar(_)
+            | Expr::String(_, _) => self
+                .eval_expr_ast(expr)
+                .map(|value| AsmValue::Scalar(i64::from(value))),
+        }
+    }
+
     pub(super) fn eval_expr_ast(&self, expr: &Expr) -> Result<u32, AstEvalError> {
         #[cfg(test)]
         if HOST_EXPR_EVAL_FAILPOINT.with(|flag| flag.get()) {
@@ -63,30 +282,36 @@ impl<'a> AsmLine<'a> {
                 ),
                 span: *span,
             }),
-            Expr::Index { span, .. } => Err(AstEvalError {
-                error: AsmError::new(
-                    AsmErrorKind::Expression,
-                    "Index expression cannot be evaluated as scalar expression",
-                    None,
-                ),
-                span: *span,
-            }),
-            Expr::Member { span, .. } => Err(AstEvalError {
-                error: AsmError::new(
-                    AsmErrorKind::Expression,
-                    "Member expression cannot be evaluated as scalar expression",
-                    None,
-                ),
-                span: *span,
-            }),
-            Expr::Call { span, .. } => Err(AstEvalError {
-                error: AsmError::new(
-                    AsmErrorKind::Expression,
-                    "Call expression cannot be evaluated as scalar expression",
-                    None,
-                ),
-                span: *span,
-            }),
+            Expr::Index { .. } | Expr::Member { .. } | Expr::Call { .. } => {
+                let value = self.eval_value_ast(expr)?;
+                match value {
+                    AsmValue::Scalar(value) => Ok(value as u32),
+                    AsmValue::List(_) => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "List cannot be evaluated as scalar expression",
+                            None,
+                        ),
+                        span: expr_span(expr),
+                    }),
+                    AsmValue::Range { .. } => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "Range cannot be evaluated as scalar expression",
+                            None,
+                        ),
+                        span: expr_span(expr),
+                    }),
+                    AsmValue::Struct(_) => Err(AstEvalError {
+                        error: AsmError::new(
+                            AsmErrorKind::Expression,
+                            "Struct cannot be evaluated as scalar expression",
+                            None,
+                        ),
+                        span: expr_span(expr),
+                    }),
+                }
+            }
             Expr::Placeholder(span) => Err(AstEvalError {
                 error: AsmError::new(
                     AsmErrorKind::Expression,
@@ -230,6 +455,13 @@ impl<'a> AsmLine<'a> {
 /// and symbol lookup to family and CPU handlers.
 impl<'a> AssemblerContext for AsmLine<'a> {
     fn eval_expr(&self, expr: &Expr) -> Result<i64, String> {
+        if Self::expr_requires_host_eval(expr) {
+            return self
+                .eval_expr_ast(expr)
+                .map(|v| v as i64)
+                .map_err(|e| e.error.message().to_string());
+        }
+
         if matches!(expr, Expr::Identifier(_, _) | Expr::Register(_, _)) {
             return self
                 .eval_expr_ast(expr)
@@ -301,5 +533,39 @@ impl<'a> AssemblerContext for AsmLine<'a> {
 
     fn cpu_state_flag(&self, key: &str) -> Option<u32> {
         self.cpu_mode.state_flags.get(key).copied()
+    }
+}
+
+impl<'a> AsmLine<'a> {
+    fn expr_requires_host_eval(expr: &Expr) -> bool {
+        match expr {
+            Expr::List(_, _) | Expr::Index { .. } | Expr::Member { .. } | Expr::Call { .. } => true,
+            Expr::Range { .. } => true,
+            Expr::Indirect(inner, _)
+            | Expr::IndirectLong(inner, _)
+            | Expr::Immediate(inner, _)
+            | Expr::Unary { expr: inner, .. } => Self::expr_requires_host_eval(inner),
+            Expr::Tuple(items, _) => items.iter().any(Self::expr_requires_host_eval),
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                Self::expr_requires_host_eval(cond)
+                    || Self::expr_requires_host_eval(then_expr)
+                    || Self::expr_requires_host_eval(else_expr)
+            }
+            Expr::Binary { left, right, .. } => {
+                Self::expr_requires_host_eval(left) || Self::expr_requires_host_eval(right)
+            }
+            Expr::Error(_, _)
+            | Expr::Number(_, _)
+            | Expr::Identifier(_, _)
+            | Expr::Register(_, _)
+            | Expr::Placeholder(_)
+            | Expr::Dollar(_)
+            | Expr::String(_, _) => false,
+        }
     }
 }

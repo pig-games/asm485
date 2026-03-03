@@ -222,6 +222,29 @@ fn regression_operand_parse_error_is_diagnostic_not_panic() {
     assert!(message.is_some());
 }
 
+#[test]
+fn range_and_list_len_builtin_evaluates_in_scalar_context() {
+    let bytes = assemble_bytes(i8085_cpu_id, ".byte .len({1,2,3}), .len(0..=3)");
+    assert_eq!(bytes, vec![3, 4]);
+}
+
+#[test]
+fn list_and_range_index_expressions_evaluate_in_scalar_context() {
+    let bytes = assemble_bytes(i8085_cpu_id, ".byte {10,20,30}[1], (0..=6:3)[2]");
+    assert_eq!(bytes, vec![20, 6]);
+}
+
+#[test]
+fn range_zero_step_reports_diagnostic() {
+    let (status, message) = assemble_line_status(i8085_cpu_id, ".byte .len(0..10:0)");
+    assert_eq!(status, LineStatus::Error);
+    let message = message.expect("expected range evaluation error message");
+    assert!(
+        message.contains("range step must be non-zero"),
+        "unexpected error message: {message}"
+    );
+}
+
 fn assemble_line_with_runtime_mode(
     cpu: crate::core::cpu::CpuType,
     line: &str,
