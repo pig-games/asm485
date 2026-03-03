@@ -106,7 +106,12 @@ opForge supports compile-time compound values in expressions:
 - Lists: `{expr, expr, ...}`.
 - Indexing: `value[n]` for range/list values.
 - Member access: `value.field` when a struct type is associated with the value.
+- Typed struct literals: `TypeName { field: expr, ... }`.
 - Builtin length: `.len(expr)` for range/list values.
+
+Dotted-name resolution order is:
+1. exact dotted symbol lookup in the normal symbol namespace/scope;
+2. typed member fallback (`base.field`) when no exact dotted symbol exists and `base` is struct-typed.
 
 Examples:
 
@@ -245,6 +250,9 @@ Compound assignment operators:
 
 `.const` and `.var` mirror `=` and `:=` semantics; `.set` is an alias for `.var`.
 
+For `=`, `:=`, `:?=`, `.const`, `.var`, and `.set`, symbol values may be scalar, list, or struct-instance values.
+Compound assignment operators (`+=`, `-=`, etc.) are scalar-only and reject non-scalar symbols.
+
 ### 4.5 Conditional assembly
 
 ```
@@ -316,6 +324,31 @@ y .byte i + 10
 .word points[1].x
 .word points[1].y
 ```
+
+Typed struct literal instances can be assigned to symbols:
+
+```
+Point .struct
+x .byte ?
+y .byte ?
+.endstruct
+
+p0 .const Point { x: 24, y: 50 }
+p1 .var   Point { x: 40, y: 60 }
+.byte p0.x, p1.y
+p1 .set Point { x: 41, y: 61 }
+```
+
+Struct literal validation rules:
+- struct type must exist;
+- fields must be declared on the struct type;
+- all fields must appear exactly once (no missing or duplicate fields).
+
+Member resolution keeps a unified namespace:
+- exact dotted symbols are resolved first;
+- typed member access fallback is applied only when no exact dotted symbol exists.
+
+Reference example: [examples/struct_literal_instance_basic.asm](../examples/struct_literal_instance_basic.asm)
 
 ### 4.10 Modules and metadata
 
