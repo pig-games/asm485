@@ -2132,7 +2132,8 @@ fn normalize_listing_for_reference_compare(text: &str) -> String {
     text.lines()
         .filter(|line| {
             let trimmed = line.trim_start();
-            !(trimmed.starts_with("Build profile:")
+            !(trimmed.starts_with("opForge Assembler v")
+                || trimmed.starts_with("Build profile:")
                 || trimmed.contains("| vm-only |")
                 || trimmed.contains("| full-runtime |"))
         })
