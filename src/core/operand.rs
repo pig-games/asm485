@@ -113,6 +113,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Ternary { span, .. } => *span,
         Expr::Unary { span, .. } => *span,
         Expr::Binary { span, .. } => *span,
+        Expr::Range { span, .. } => *span,
     }
 }
 

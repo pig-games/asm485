@@ -75,6 +75,14 @@ impl<'a> AsmLine<'a> {
                 ),
                 span: *span,
             }),
+            Expr::Range { span, .. } => Err(AstEvalError {
+                error: AsmError::new(
+                    AsmErrorKind::Expression,
+                    "Range cannot be evaluated as scalar expression",
+                    None,
+                ),
+                span: *span,
+            }),
             Expr::Dollar(_span) => Ok(self.start_addr),
             Expr::String(bytes, span) => {
                 let encoded_bytes = self.encode_text_bytes(

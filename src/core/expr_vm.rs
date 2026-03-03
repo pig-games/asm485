@@ -701,6 +701,11 @@ impl ExprCompiler {
                 "tuple expression is not supported by portable expression VM",
                 *span,
             )),
+            Expr::Range { span, .. } => Err(PortableExprError::with_span(
+                DIAG_EXPR_UNSUPPORTED_FEATURE,
+                "range expression is not supported by portable expression VM",
+                *span,
+            )),
             Expr::String(bytes, _) => {
                 let len = u16::try_from(bytes.len()).map_err(|_| {
                     PortableExprError::new(

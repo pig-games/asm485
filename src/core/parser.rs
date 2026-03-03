@@ -106,6 +106,13 @@ pub enum Expr {
         right: Box<Expr>,
         span: Span,
     },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        step: Option<Box<Expr>>,
+        inclusive: bool,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -1328,10 +1335,10 @@ impl Parser {
     }
 
     fn parse_bit_and(&mut self) -> Result<Expr, ParseError> {
-        let mut node = self.parse_compare()?;
+        let mut node = self.parse_range()?;
         while self.match_operator(OperatorKind::BitAnd) {
             let op_span = self.prev_span();
-            let right = self.parse_compare()?;
+            let right = self.parse_range()?;
             node = Expr::Binary {
                 op: BinaryOp::BitAnd,
                 left: Box::new(node),
@@ -1340,6 +1347,36 @@ impl Parser {
             };
         }
         Ok(node)
+    }
+
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let start = self.parse_compare()?;
+        let (inclusive, op_span) = match self.peek_operator_kind() {
+            Some(OperatorKind::Range) => {
+                self.index += 1;
+                (false, self.prev_span())
+            }
+            Some(OperatorKind::RangeInclusive) => {
+                self.index += 1;
+                (true, self.prev_span())
+            }
+            _ => return Ok(start),
+        };
+
+        let end = self.parse_compare()?;
+        let step = if self.consume_kind(TokenKind::Colon) {
+            Some(Box::new(self.parse_compare()?))
+        } else {
+            None
+        };
+
+        Ok(Expr::Range {
+            start: Box::new(start),
+            end: Box::new(end),
+            step,
+            inclusive,
+            span: op_span,
+        })
     }
 
     fn parse_compare(&mut self) -> Result<Expr, ParseError> {
@@ -1698,8 +1735,8 @@ fn map_tokenize_error(err: TokenizeError) -> ParseError {
 #[cfg(test)]
 mod tests {
     use super::{
-        match_statement_signature, select_statement_signature, AssignOp, ConditionalKind, LineAst,
-        Parser, SignatureAtom,
+        match_statement_signature, select_statement_signature, AssignOp, ConditionalKind, Expr,
+        LineAst, Parser, SignatureAtom,
     };
     use crate::core::tokenizer::{Span, Tokenizer};
 
@@ -2270,6 +2307,66 @@ mod tests {
                 assert_eq!(operands.len(), 1);
             }
             _ => panic!("Expected statement"),
+        }
+    }
+
+    #[test]
+    fn parses_range_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("0..8"),
+            Span {
+                line: 1,
+                col_start: 5,
+                col_end: 5,
+            },
+            None,
+        )
+        .expect("range expression should parse");
+
+        match expr {
+            Expr::Range {
+                inclusive,
+                step,
+                start,
+                end,
+                ..
+            } => {
+                assert!(!inclusive);
+                assert!(step.is_none());
+                assert!(matches!(*start, Expr::Number(_, _)));
+                assert!(matches!(*end, Expr::Number(_, _)));
+            }
+            other => panic!("Expected range expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_inclusive_range_with_step_expression() {
+        let expr = Parser::parse_expr_from_tokens(
+            tokenize_line("10..=0:-1"),
+            Span {
+                line: 1,
+                col_start: 10,
+                col_end: 10,
+            },
+            None,
+        )
+        .expect("inclusive range with step should parse");
+
+        match expr {
+            Expr::Range {
+                inclusive,
+                step,
+                start,
+                end,
+                ..
+            } => {
+                assert!(inclusive);
+                assert!(step.is_some());
+                assert!(matches!(*start, Expr::Number(_, _)));
+                assert!(matches!(*end, Expr::Number(_, _)));
+            }
+            other => panic!("Expected range expression, got {other:?}"),
         }
     }
 }

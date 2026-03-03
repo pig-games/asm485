@@ -422,6 +422,15 @@ fn expr_has_symbol_references(expr: &Expr) -> bool {
         Expr::Binary { left, right, .. } => {
             expr_has_symbol_references(left) || expr_has_symbol_references(right)
         }
+        Expr::Range {
+            start, end, step, ..
+        } => {
+            expr_has_symbol_references(start)
+                || expr_has_symbol_references(end)
+                || step
+                    .as_ref()
+                    .is_some_and(|step_expr| expr_has_symbol_references(step_expr))
+        }
         Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
     }
 }

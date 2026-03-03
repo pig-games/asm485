@@ -2093,6 +2093,15 @@ impl<'a> AsmLine<'a> {
             Expr::Binary { left, right, .. } => self
                 .find_private_symbol_in_expr(left)
                 .or_else(|| self.find_private_symbol_in_expr(right)),
+            Expr::Range {
+                start, end, step, ..
+            } => self
+                .find_private_symbol_in_expr(start)
+                .or_else(|| self.find_private_symbol_in_expr(end))
+                .or_else(|| {
+                    step.as_ref()
+                        .and_then(|step_expr| self.find_private_symbol_in_expr(step_expr))
+                }),
             Expr::Error(_, _) | Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) => None,
         }
     }

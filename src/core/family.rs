@@ -353,6 +353,15 @@ pub fn expr_has_unstable_symbols(expr: &Expr, ctx: &dyn AssemblerContext) -> boo
         Expr::Binary { left, right, .. } => {
             expr_has_unstable_symbols(left, ctx) || expr_has_unstable_symbols(right, ctx)
         }
+        Expr::Range {
+            start, end, step, ..
+        } => {
+            expr_has_unstable_symbols(start, ctx)
+                || expr_has_unstable_symbols(end, ctx)
+                || step
+                    .as_ref()
+                    .is_some_and(|step_expr| expr_has_unstable_symbols(step_expr, ctx))
+        }
         Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
     }
 }

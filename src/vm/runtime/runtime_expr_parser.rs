@@ -149,10 +149,10 @@ impl RuntimeExpressionParser {
     }
 
     fn parse_bit_and(&mut self) -> Result<Expr, ParseError> {
-        let mut node = self.parse_compare()?;
+        let mut node = self.parse_range()?;
         while self.match_operator(OperatorKind::BitAnd) {
             let op_span = self.prev_span();
-            let right = self.parse_compare()?;
+            let right = self.parse_range()?;
             node = Expr::Binary {
                 op: BinaryOp::BitAnd,
                 left: Box::new(node),
@@ -161,6 +161,36 @@ impl RuntimeExpressionParser {
             };
         }
         Ok(node)
+    }
+
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let start = self.parse_compare()?;
+        let (inclusive, op_span) = match self.peek_operator_kind() {
+            Some(OperatorKind::Range) => {
+                self.index += 1;
+                (false, self.prev_span())
+            }
+            Some(OperatorKind::RangeInclusive) => {
+                self.index += 1;
+                (true, self.prev_span())
+            }
+            _ => return Ok(start),
+        };
+
+        let end = self.parse_compare()?;
+        let step = if self.consume_kind(TokenKind::Colon) {
+            Some(Box::new(self.parse_compare()?))
+        } else {
+            None
+        };
+
+        Ok(Expr::Range {
+            start: Box::new(start),
+            end: Box::new(end),
+            step,
+            inclusive,
+            span: op_span,
+        })
     }
 
     fn parse_compare(&mut self) -> Result<Expr, ParseError> {

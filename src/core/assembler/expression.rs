@@ -336,7 +336,10 @@ pub fn expr_span(expr: &Expr) -> Span {
         | Expr::Dollar(span)
         | Expr::String(_, span)
         | Expr::Error(_, span) => *span,
-        Expr::Unary { span, .. } | Expr::Binary { span, .. } | Expr::Ternary { span, .. } => *span,
+        Expr::Unary { span, .. }
+        | Expr::Binary { span, .. }
+        | Expr::Ternary { span, .. }
+        | Expr::Range { span, .. } => *span,
     }
 }
 
@@ -359,6 +362,33 @@ pub fn expr_text(expr: &Expr) -> Option<String> {
         Expr::Dollar(_) => Some("$".to_string()),
         Expr::String(_, _) => Some("<string>".to_string()),
         Expr::Error(_, _) => None,
+        Expr::Range {
+            start,
+            end,
+            step,
+            inclusive,
+            ..
+        } => {
+            let start_text = expr_text(start)?;
+            let end_text = expr_text(end)?;
+            if let Some(step_expr) = step {
+                let step_text = expr_text(step_expr)?;
+                Some(format!(
+                    "{}{}{}:{}",
+                    start_text,
+                    if *inclusive { "..=" } else { ".." },
+                    end_text,
+                    step_text
+                ))
+            } else {
+                Some(format!(
+                    "{}{}{}",
+                    start_text,
+                    if *inclusive { "..=" } else { ".." },
+                    end_text
+                ))
+            }
+        }
         Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => None,
     }
 }

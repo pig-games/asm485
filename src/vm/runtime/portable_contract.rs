@@ -29,6 +29,8 @@ impl From<PortableSpan> for Span {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortableOperatorKind {
+    Range,
+    RangeInclusive,
     Plus,
     Minus,
     Multiply,
@@ -74,6 +76,8 @@ macro_rules! impl_enum_mirror_froms {
 }
 
 impl_enum_mirror_froms!(OperatorKind, PortableOperatorKind, {
+    Range,
+    RangeInclusive,
     Plus,
     Minus,
     Multiply,
@@ -307,6 +311,13 @@ pub enum PortableAstExpr {
         right: Box<PortableAstExpr>,
         span: PortableSpan,
     },
+    Range {
+        start: Box<PortableAstExpr>,
+        end: Box<PortableAstExpr>,
+        step: Option<Box<PortableAstExpr>>,
+        inclusive: bool,
+        span: PortableSpan,
+    },
 }
 
 impl PortableAstExpr {
@@ -358,6 +369,19 @@ impl PortableAstExpr {
                 right: Box::new(right.to_core_expr()),
                 span: (*span).into(),
             },
+            Self::Range {
+                start,
+                end,
+                step,
+                inclusive,
+                span,
+            } => Expr::Range {
+                start: Box::new(start.to_core_expr()),
+                end: Box::new(end.to_core_expr()),
+                step: step.as_ref().map(|step_expr| Box::new(step_expr.to_core_expr())),
+                inclusive: *inclusive,
+                span: (*span).into(),
+            },
         }
     }
 
@@ -407,6 +431,19 @@ impl PortableAstExpr {
                 op: (*op).into(),
                 left: Box::new(Self::from_core_expr(left)),
                 right: Box::new(Self::from_core_expr(right)),
+                span: (*span).into(),
+            },
+            Expr::Range {
+                start,
+                end,
+                step,
+                inclusive,
+                span,
+            } => Self::Range {
+                start: Box::new(Self::from_core_expr(start)),
+                end: Box::new(Self::from_core_expr(end)),
+                step: step.as_ref().map(|step_expr| Box::new(Self::from_core_expr(step_expr))),
+                inclusive: *inclusive,
                 span: (*span).into(),
             },
         }

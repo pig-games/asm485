@@ -244,6 +244,15 @@ impl M65816CpuHandler {
                 Self::expr_has_unresolved_symbols(left, ctx)
                     || Self::expr_has_unresolved_symbols(right, ctx)
             }
+            Expr::Range {
+                start, end, step, ..
+            } => {
+                Self::expr_has_unresolved_symbols(start, ctx)
+                    || Self::expr_has_unresolved_symbols(end, ctx)
+                    || step
+                        .as_ref()
+                        .is_some_and(|step_expr| Self::expr_has_unresolved_symbols(step_expr, ctx))
+            }
             Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
         }
     }
@@ -270,6 +279,15 @@ impl M65816CpuHandler {
             Expr::Unary { expr, .. } => Self::expr_has_symbol_references(expr),
             Expr::Binary { left, right, .. } => {
                 Self::expr_has_symbol_references(left) || Self::expr_has_symbol_references(right)
+            }
+            Expr::Range {
+                start, end, step, ..
+            } => {
+                Self::expr_has_symbol_references(start)
+                    || Self::expr_has_symbol_references(end)
+                    || step
+                        .as_ref()
+                        .is_some_and(|step_expr| Self::expr_has_symbol_references(step_expr))
             }
             Expr::Number(_, _) | Expr::Dollar(_) | Expr::String(_, _) | Expr::Error(_, _) => false,
         }

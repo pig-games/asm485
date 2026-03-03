@@ -161,6 +161,11 @@ fn eval_expr_with_depth(
             *span,
         )),
 
+        Expr::Range { span, .. } => Err(EvalError::with_span(
+            "Range cannot be evaluated as scalar expression",
+            *span,
+        )),
+
         Expr::Error(msg, span) => Err(EvalError::with_span(msg.clone(), *span)),
     }
 }
