@@ -19,7 +19,7 @@ Recent directive/expression additions include range/list values, `.len(...)`, `.
 
 For full documentation on features and syntax, read the [opForge Reference Manual](documentation/opForge-reference-manual.md).
 For VM host/boundary semantics, see [VM Boundary & Protocol Specification (v1)](documentation/vm-boundary-protocol-v1.md).
-For latest release-scope implementation notes, see [RELEASE_NOTES_v0.9.4.md](RELEASE_NOTES_v0.9.4.md).
+For latest release-scope implementation notes, see [RELEASE_NOTES_v0.9.5.md](RELEASE_NOTES_v0.9.5.md).
 
 ## Installation
 

@@ -1,9 +1,11 @@
 mod common;
 
 use std::fs;
+use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -11,14 +13,25 @@ use serde_json::json;
 
 use common::lsp_client::{path_to_file_uri, LspTestClient};
 
+static TEMP_DIR_SEQ: AtomicU64 = AtomicU64::new(1);
+
 fn unique_temp_dir() -> PathBuf {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
-        .as_micros();
-    let dir = std::env::temp_dir().join(format!("opforge-lsp-it-{now}"));
-    fs::create_dir_all(&dir).expect("create temp dir");
-    dir
+        .as_nanos();
+    let pid = std::process::id();
+    let seq = TEMP_DIR_SEQ.fetch_add(1, Ordering::Relaxed);
+    let base = std::env::temp_dir();
+    for attempt in 0..32u32 {
+        let dir = base.join(format!("opforge-lsp-it-{pid}-{now}-{seq}-{attempt}"));
+        match fs::create_dir(&dir) {
+            Ok(()) => return dir,
+            Err(err) if err.kind() == ErrorKind::AlreadyExists => continue,
+            Err(err) => panic!("create temp dir {}: {err}", dir.display()),
+        }
+    }
+    panic!("exhausted temp dir retries for opforge lsp integration tests");
 }
 
 fn unique_temp_file(name: &str) -> PathBuf {
