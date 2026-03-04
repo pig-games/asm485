@@ -77,10 +77,51 @@ pub fn run_cli_validation(
 }
 
 fn resolve_opforge_path(config: &LspConfig) -> String {
+    resolve_opforge_path_with_current_exe(config, std::env::current_exe().ok().as_deref())
+}
+
+fn resolve_opforge_path_with_current_exe(config: &LspConfig, current_exe: Option<&Path>) -> String {
     if let Some(path) = &config.opforge_path {
         return path.clone();
     }
+
+    for root in &config.roots {
+        let workspace_candidate = Path::new(root)
+            .join("target")
+            .join("debug")
+            .join(opforge_binary_name());
+        if workspace_candidate.is_file() {
+            return workspace_candidate.to_string_lossy().to_string();
+        }
+    }
+
+    if let Some(current_exe) = current_exe {
+        if let Some(current_exe_dir) = current_exe.parent() {
+            let candidate = current_exe_dir.join(opforge_binary_name());
+            if candidate.is_file() {
+                return candidate.to_string_lossy().to_string();
+            }
+
+            if current_exe_dir.file_name().and_then(|name| name.to_str()) == Some("deps") {
+                if let Some(parent_dir) = current_exe_dir.parent() {
+                    let parent_candidate = parent_dir.join(opforge_binary_name());
+                    if parent_candidate.is_file() {
+                        return parent_candidate.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+    }
+
     "opforge".to_string()
+}
+
+fn opforge_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "opforge.exe"
+    } else {
+        "opforge"
+    }
 }
 
 fn parse_json_diag_lines(text: &str) -> Vec<ValidationDiagnostic> {
@@ -170,4 +211,68 @@ fn parse_json_diag_lines(text: &str) -> Vec<ValidationDiagnostic> {
         });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_path_prefers_configured_binary() {
+        let config = LspConfig {
+            opforge_path: Some("/tmp/custom-opforge".to_string()),
+            ..LspConfig::default()
+        };
+
+        let resolved = resolve_opforge_path_with_current_exe(&config, None);
+        assert_eq!(resolved, "/tmp/custom-opforge");
+    }
+
+    #[test]
+    fn resolve_path_falls_back_to_path_when_no_local_binary_found() {
+        let config = LspConfig::default();
+        let resolved = resolve_opforge_path_with_current_exe(
+            &config,
+            Some(Path::new("/definitely/not/a/real/path/opforge-lsp")),
+        );
+        assert_eq!(resolved, "opforge");
+    }
+
+    #[test]
+    fn resolve_path_uses_binary_adjacent_to_lsp() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("opforge-lsp-test-{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp test dir");
+        let opforge_path = temp_dir.join(opforge_binary_name());
+        std::fs::write(&opforge_path, b"#!/bin/sh\n").expect("write fake opforge");
+
+        let lsp_path = temp_dir.join("opforge-lsp");
+        let config = LspConfig::default();
+        let resolved = resolve_opforge_path_with_current_exe(&config, Some(&lsp_path));
+
+        assert_eq!(resolved, opforge_path.to_string_lossy());
+
+        let _ = std::fs::remove_file(opforge_path);
+        let _ = std::fs::remove_dir(temp_dir);
+    }
+
+    #[test]
+    fn resolve_path_prefers_workspace_target_debug_binary() {
+        let temp_root =
+            std::env::temp_dir().join(format!("opforge-lsp-workspace-test-{}", std::process::id()));
+        let target_debug = temp_root.join("target").join("debug");
+        std::fs::create_dir_all(&target_debug).expect("create target/debug");
+        let workspace_opforge = target_debug.join(opforge_binary_name());
+        std::fs::write(&workspace_opforge, b"#!/bin/sh\n").expect("write fake opforge");
+
+        let config = LspConfig {
+            roots: vec![temp_root.to_string_lossy().to_string()],
+            ..LspConfig::default()
+        };
+        let resolved = resolve_opforge_path_with_current_exe(&config, None);
+        assert_eq!(resolved, workspace_opforge.to_string_lossy());
+
+        let _ = std::fs::remove_file(workspace_opforge);
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
 }

@@ -1,4 +1,5 @@
 import * as path from "path";
+import * as fs from "fs";
 import * as vscode from "vscode";
 import {
   LanguageClient,
@@ -23,7 +24,10 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "opforge" }],
+    documentSelector: [
+      { scheme: "file", language: "opforge" },
+      { scheme: "file", language: "asm" },
+    ],
     initializationOptions: buildInitializationOptions(),
     synchronize: {
       configurationSection: "opforgeLsp",
@@ -37,7 +41,8 @@ export function activate(context: vscode.ExtensionContext): void {
     serverOptions,
     clientOptions,
   );
-  context.subscriptions.push(client.start());
+  context.subscriptions.push(client);
+  void client.start();
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
@@ -89,5 +94,20 @@ function resolveServerPath(context: vscode.ExtensionContext): string {
   if (configured && configured.trim().length > 0) {
     return configured;
   }
-  return context.asAbsolutePath(path.join("..", "..", "..", "target", "debug", "opforge-lsp"));
+
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    const candidate = path.join(folder.uri.fsPath, "target", "debug", "opforge-lsp");
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  const devCandidate = context.asAbsolutePath(
+    path.join("..", "..", "..", "target", "debug", "opforge-lsp"),
+  );
+  if (fs.existsSync(devCandidate)) {
+    return devCandidate;
+  }
+
+  return "opforge-lsp";
 }

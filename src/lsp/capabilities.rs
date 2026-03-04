@@ -154,6 +154,14 @@ fn collect_global_directives(cpu_views: &HashMap<String, CpuCapabilityView>) -> 
         ".cpu".to_string(),
         ".if".to_string(),
         ".endif".to_string(),
+        ".for".to_string(),
+        ".bfor".to_string(),
+        ".endfor".to_string(),
+        ".while".to_string(),
+        ".bwhile".to_string(),
+        ".endwhile".to_string(),
+        ".struct".to_string(),
+        ".endstruct".to_string(),
         ".module".to_string(),
         ".endmodule".to_string(),
         ".use".to_string(),
@@ -181,6 +189,9 @@ mod tests {
     fn capability_snapshot_contains_runtime_directives() {
         let registry = crate::build_default_registry();
         let snapshot = CapabilitySnapshot::from_registry(&registry);
+        assert!(snapshot.directive_keywords.iter().any(|d| d == ".struct"));
+        assert!(snapshot.directive_keywords.iter().any(|d| d == ".for"));
+        assert!(snapshot.directive_keywords.iter().any(|d| d == ".while"));
         let cpu = registry
             .resolve_cpu_name("65816")
             .expect("65816 cpu must resolve");

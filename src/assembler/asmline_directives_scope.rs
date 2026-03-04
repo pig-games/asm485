@@ -348,14 +348,6 @@ impl<'a> AsmLine<'a> {
     }
 
     pub(crate) fn begin_struct_directive_ast(&mut self, operands: &[Expr]) -> LineStatus {
-        if !operands.is_empty() {
-            return self.failure(
-                LineStatus::Error,
-                AsmErrorKind::Directive,
-                "Unexpected operands for .struct",
-                None,
-            );
-        }
         if self.in_struct_definition() {
             return self.failure(
                 LineStatus::Error,
@@ -364,15 +356,48 @@ impl<'a> AsmLine<'a> {
                 None,
             );
         }
-        let Some(struct_label) = self.label.clone() else {
+
+        let struct_name = if let Some(label) = self.label.clone() {
+            if !operands.is_empty() {
+                return self.failure(
+                    LineStatus::Error,
+                    AsmErrorKind::Directive,
+                    "Expected either '<name> .struct' or '.struct <name>', not both",
+                    None,
+                );
+            }
+            label
+        } else {
+            match operands {
+                [Expr::Identifier(name, _)] | [Expr::Register(name, _)] => name.clone(),
+                [] => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Missing struct name before .struct",
+                        None,
+                    );
+                }
+                _ => {
+                    return self.failure(
+                        LineStatus::Error,
+                        AsmErrorKind::Directive,
+                        "Expected .struct <name>",
+                        None,
+                    );
+                }
+            }
+        };
+
+        if struct_name.is_empty() {
             return self.failure(
                 LineStatus::Error,
                 AsmErrorKind::Directive,
                 "Missing struct name before .struct",
                 None,
             );
-        };
-        let full_name = self.scoped_define_name(&struct_label);
+        }
+        let full_name = self.scoped_define_name(&struct_name);
         self.active_struct = Some(ActiveStructDefinition::new(
             full_name,
             self.current_line_num,

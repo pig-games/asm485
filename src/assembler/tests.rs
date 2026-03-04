@@ -270,6 +270,20 @@ fn var_symbol_can_store_struct_type_for_member_access() {
 }
 
 #[test]
+fn var_symbol_can_store_struct_type_for_member_access_with_directive_first_struct() {
+    let assembler = run_passes(&[
+        ".struct Point",
+        "x .byte ?",
+        "y .byte ?",
+        ".endstruct",
+        "pt .var Point",
+        ".byte pt.x, pt.y",
+    ]);
+    let entries = assembler.image().entries().expect("image entries");
+    assert_eq!(entries, vec![(0, 0), (1, 1)]);
+}
+
+#[test]
 fn struct_literal_instances_support_const_var_set_and_member_access() {
     let assembler = run_passes(&[
         "Point .struct",

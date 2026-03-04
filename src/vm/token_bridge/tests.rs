@@ -198,6 +198,22 @@ fn parse_line_with_default_model_parses_bwhile_directive_head() {
 }
 
 #[test]
+fn parse_line_with_default_model_parses_struct_directive_with_operand() {
+    let line = parse_line_with_default_model(".struct Point", 1)
+        .expect(".struct with operand should parse");
+    match line {
+        LineAst::Statement {
+            mnemonic, operands, ..
+        } => {
+            assert_eq!(mnemonic.as_deref(), Some(".struct"));
+            assert_eq!(operands.len(), 1);
+            assert!(matches!(operands[0], Expr::Identifier(ref name, _) if name == "Point"));
+        }
+        other => panic!("expected .struct AST, got {other:?}"),
+    }
+}
+
+#[test]
 fn parse_line_with_default_model_rejects_trailing_tokens_after_endfor() {
     let err = parse_line_with_default_model(".endfor 1", 1)
         .expect_err("trailing tokens after .endfor should fail");

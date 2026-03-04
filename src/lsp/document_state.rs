@@ -286,7 +286,10 @@ fn collect_semantics(lines: &[String]) -> CollectedSemantics {
                         }
                     }
                     if let Some(active) = active_repeats.last_mut() {
-                        if !matches!(mnemonic_lower.as_deref(), Some(".bfor" | ".endfor")) {
+                        if !matches!(
+                            mnemonic_lower.as_deref(),
+                            Some(".for" | ".bfor" | ".endfor" | ".while" | ".bwhile" | ".endwhile")
+                        ) {
                             active
                                 .add_field(build_struct_field_decl(label, &base_meta.declaration));
                         }
@@ -313,6 +316,17 @@ fn collect_semantics(lines: &[String]) -> CollectedSemantics {
                         Some(".struct") => {
                             if let Some(label) = label {
                                 active_struct = Some(ActiveStructDecl::new(label, &base_meta));
+                            } else if let Some(struct_name) = operand_name(operands) {
+                                let pseudo_label = Label {
+                                    name: struct_name,
+                                    span: crate::core::tokenizer::Span {
+                                        line: line_num,
+                                        col_start: 1,
+                                        col_end: 1,
+                                    },
+                                };
+                                active_struct =
+                                    Some(ActiveStructDecl::new(&pseudo_label, &base_meta));
                             }
                         }
                         Some(".endstruct") => {
@@ -320,14 +334,14 @@ fn collect_semantics(lines: &[String]) -> CollectedSemantics {
                                 struct_types.push(active.finish());
                             }
                         }
-                        Some(".bfor") => {
+                        Some(".for") | Some(".bfor") | Some(".while") | Some(".bwhile") => {
                             active_repeats.push(ActiveRepeatDecl::new(
                                 label.as_ref(),
                                 line_num,
                                 &base_meta,
                             ));
                         }
-                        Some(".endfor") => {
+                        Some(".endfor") | Some(".endwhile") => {
                             if let Some(active) = active_repeats.pop() {
                                 if let Some(decl) = active.finish() {
                                     repetition_structs.push(decl);
@@ -801,6 +815,27 @@ mod tests {
     }
 
     #[test]
+    fn document_state_extracts_struct_type_from_directive_operand() {
+        let registry = crate::build_default_registry();
+        let mut state = DocumentState::new(
+            "file:///tmp/test_structs_directive.asm".to_string(),
+            None,
+            1,
+            ".struct Point\nx .byte ?\ny .word ?\n.endstruct\n".to_string(),
+        );
+        state.refresh_derived_state(&registry);
+        assert_eq!(state.struct_types.len(), 1);
+        assert!(state.struct_types[0].name.eq_ignore_ascii_case("Point"));
+        assert_eq!(state.struct_types[0].fields.len(), 2);
+        assert!(state.struct_types[0].fields[0]
+            .name
+            .eq_ignore_ascii_case("x"));
+        assert!(state.struct_types[0].fields[1]
+            .name
+            .eq_ignore_ascii_case("y"));
+    }
+
+    #[test]
     fn document_state_extracts_labeled_bfor_fields() {
         let registry = crate::build_default_registry();
         let mut state = DocumentState::new(
@@ -816,5 +851,29 @@ mod tests {
         assert_eq!(repeat.fields.len(), 2);
         assert!(repeat.fields[0].name.eq_ignore_ascii_case("x"));
         assert!(repeat.fields[1].name.eq_ignore_ascii_case("y"));
+    }
+
+    #[test]
+    fn document_state_extracts_fields_from_for_and_while_blocks() {
+        let registry = crate::build_default_registry();
+        let mut state = DocumentState::new(
+            "file:///tmp/test_repeat_for_while.asm".to_string(),
+            None,
+            1,
+            "points .for i in 0..=1\nx .byte i\ny .byte i + 1\n.endfor\nitems .while i < 2\nleft .byte i\nright .byte i + 1\n.endwhile\n".to_string(),
+        );
+        state.refresh_derived_state(&registry);
+        assert_eq!(state.repetition_structs.len(), 2);
+        let for_repeat = &state.repetition_structs[0];
+        assert!(for_repeat.symbol_name.eq_ignore_ascii_case("points"));
+        assert_eq!(for_repeat.fields.len(), 2);
+        assert!(for_repeat.fields[0].name.eq_ignore_ascii_case("x"));
+        assert!(for_repeat.fields[1].name.eq_ignore_ascii_case("y"));
+
+        let while_repeat = &state.repetition_structs[1];
+        assert!(while_repeat.symbol_name.eq_ignore_ascii_case("items"));
+        assert_eq!(while_repeat.fields.len(), 2);
+        assert!(while_repeat.fields[0].name.eq_ignore_ascii_case("left"));
+        assert!(while_repeat.fields[1].name.eq_ignore_ascii_case("right"));
     }
 }

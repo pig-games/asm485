@@ -122,10 +122,32 @@ pub(super) fn parse_dot_directive_line_from_tokens(
             expr_parse_ctx,
         );
     }
-    if matches!(
-        upper.as_str(),
-        "STRUCT" | "ENDSTRUCT" | "ENDFOR" | "ENDWHILE"
-    ) {
+    if upper.as_str() == "STRUCT" {
+        let mut operands: Vec<Expr> = Vec::new();
+        if cursor < tokens.len() {
+            for (start, end) in split_top_level_comma_ranges(tokens, cursor, tokens.len()) {
+                parse_operand_expr_range(
+                    tokens,
+                    start,
+                    end,
+                    end_span,
+                    end_token_text.clone(),
+                    expr_parse_ctx,
+                    &mut operands,
+                )?;
+                if matches!(operands.last(), Some(Expr::Error(_, _))) {
+                    break;
+                }
+            }
+        }
+        return Ok(LineAst::Statement {
+            label,
+            mnemonic: Some(format!(".{name}")),
+            operands,
+        });
+    }
+
+    if matches!(upper.as_str(), "ENDSTRUCT" | "ENDFOR" | "ENDWHILE") {
         if cursor < tokens.len() {
             return Err(ParseError {
                 message: "Unexpected trailing tokens".to_string(),

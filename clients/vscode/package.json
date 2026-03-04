@@ -11,7 +11,9 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:opforge"
+    "onLanguage:opforge",
+    "onLanguage:asm",
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
